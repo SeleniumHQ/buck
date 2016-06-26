@@ -39,6 +39,9 @@ import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.File;
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.LinkedList;
+import java.util.List;
 
 
 public class JavaDocJar extends AbstractBuildRule implements HasMavenCoordinates {
@@ -80,6 +83,11 @@ public class JavaDocJar extends AbstractBuildRule implements HasMavenCoordinates
     steps.add(new MkdirStep(getProjectFilesystem(), javadocOutput));
     steps.add(new MakeCleanDirectoryStep(getProjectFilesystem(), temp));
 
+
+    List<String> javaDocArgs = new LinkedList<>();
+    javaDocArgs.addAll(Arrays.asList("-notimestamp", "-private", "-subpackages", ".",
+        "-d", javadocOutput.toString()));
+
     ImmutableSet<JavaLibrary> classpathSet = JavaLibraryClasspathProvider.getTransitiveClasspathDeps(javaLibrary);
     StringBuilder classpath = new StringBuilder(".");
     String classpathSeparator = ":";
@@ -94,13 +102,14 @@ public class JavaDocJar extends AbstractBuildRule implements HasMavenCoordinates
       }
     }
 
+    javaDocArgs.add("-classpath");
+    javaDocArgs.add(classpath.toString());
+
     for (Path source : getResolver().filterInputsToCompareToOutput(sources)) {
-      steps.add(new JavaDocStep("-notimestamp", "-private", "-subpackages", ".",
-          "-d", javadocOutput.toString(),
-          "-classpath", classpath.toString(),
-          source.toString()
-      ));
+      javaDocArgs.add(source.toString());
     }
+
+    steps.add(new JavaDocStep(javaDocArgs));
 
     steps.add(
         new ZipStep(

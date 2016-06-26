@@ -37,6 +37,10 @@ public class JavaDocStep implements Step {
     }
   }
 
+  public JavaDocStep(List<String> args) {
+    this.args.addAll(args);
+  }
+
   @Override
   public StepExecutionResult execute(ExecutionContext context) throws IOException, InterruptedException {
     ProcessBuilder processBuilder = new ProcessBuilder(this.args);
