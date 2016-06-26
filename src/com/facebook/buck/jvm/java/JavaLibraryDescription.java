@@ -53,6 +53,7 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
   public static final BuildRuleType TYPE = BuildRuleType.of("java_library");
   public static final ImmutableSet<Flavor> SUPPORTED_FLAVORS = ImmutableSet.of(
       JavaLibrary.SRC_JAR,
+      JavaLibrary.JAVADOC,
       JavaLibrary.MAVEN_JAR);
 
   @VisibleForTesting
@@ -174,6 +175,23 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
             pathResolver,
             params,
             new BuildTargetSourcePath(defaultJavaLibrary.getBuildTarget())));
+
+    if (flavors.contains(JavaLibrary.JAVADOC)) {
+      args.mavenCoords = args.mavenCoords.transform(
+          new Function<String, String>() {
+            @Override
+            public String apply(String input) {
+              return AetherUtil.addClassifier(input, AetherUtil.CLASSIFIER_JAVADOC);
+            }
+          });
+
+      return new JavaDocJar(
+          params,
+          pathResolver,
+          args.srcs.get(),
+          args.mavenCoords,
+          defaultJavaLibrary);
+    }
 
     addGwtModule(
         resolver,

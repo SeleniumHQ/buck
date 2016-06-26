@@ -39,6 +39,7 @@ public interface Javac extends RuleKeyAppendable, Tool {
   Function<String, String> ARGFILES_ESCAPER = Escaper.javacEscaper();
   String SRC_ZIP = ".src.zip";
   String SRC_JAR = "-sources.jar";
+  String JAVADOC_JAR = "-javadoc.jar";
 
   JavacVersion getVersion();
 

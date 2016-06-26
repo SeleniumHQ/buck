@@ -50,6 +50,8 @@ public class PublishCommand extends BuildCommand {
   public static final String REMOTE_REPO_SHORT_ARG = "-r";
   public static final String INCLUDE_SOURCE_LONG_ARG = "--include-source";
   public static final String INCLUDE_SOURCE_SHORT_ARG = "-s";
+  public static final String INCLUDE_JAVADOC_LONG_ARG = "--include-javadoc";
+  public static final String INCLUDE_JAVADOC_SHORT_ARG = "-jd";
   public static final String TO_MAVEN_CENTRAL_LONG_ARG = "--to-maven-central";
   public static final String DRY_RUN_LONG_ARG = "--dry-run";
 
@@ -70,6 +72,12 @@ public class PublishCommand extends BuildCommand {
       aliases = INCLUDE_SOURCE_SHORT_ARG,
       usage = "Publish source code as well")
   private boolean includeSource = false;
+
+  @Option(
+      name = INCLUDE_JAVADOC_LONG_ARG,
+      aliases = INCLUDE_JAVADOC_SHORT_ARG,
+      usage = "Publish javadoc as well")
+  private boolean includeJavadoc = false;
 
   @Option(
       name = DRY_RUN_LONG_ARG,
@@ -220,6 +228,40 @@ public class PublishCommand extends BuildCommand {
                           ((BuildTargetSpec) input)
                               .getBuildTarget()
                               .withFlavors(JavaLibrary.SRC_JAR),
+                          input.getBuildFileSpec());
+                    }
+                  }))
+          .build();
+    }
+
+    if (includeJavadoc) {
+      specs = ImmutableList.<TargetNodeSpec>builder()
+          .addAll(specs)
+          .addAll(FluentIterable
+              .from(specs)
+              .filter(
+                  new Predicate<TargetNodeSpec>() {
+                    @Override
+                    public boolean apply(TargetNodeSpec input) {
+                      if (!(input instanceof BuildTargetSpec)) {
+                        throw new IllegalArgumentException(
+                            "Targets must be explicitly defined when using " +
+                                INCLUDE_JAVADOC_LONG_ARG);
+                      }
+                      return !((BuildTargetSpec) input)
+                          .getBuildTarget()
+                          .getFlavors()
+                          .contains(JavaLibrary.JAVADOC);
+                    }
+                  })
+              .transform(
+                  new Function<TargetNodeSpec, BuildTargetSpec>() {
+                    @Override
+                    public BuildTargetSpec apply(TargetNodeSpec input) {
+                      return BuildTargetSpec.of(
+                          ((BuildTargetSpec) input)
+                              .getBuildTarget()
+                              .withFlavors(JavaLibrary.JAVADOC),
                           input.getBuildFileSpec());
                     }
                   }))
