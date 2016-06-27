@@ -125,6 +125,31 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
       }
     }
 
+    if (flavors.contains(JavaLibrary.JAVADOC)) {
+      args.mavenCoords = args.mavenCoords.transform(
+          new Function<String, String>() {
+            @Override
+            public String apply(String input) {
+              return AetherUtil.addClassifier(input, AetherUtil.CLASSIFIER_JAVADOC);
+            }
+          });
+
+      if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
+        return new JavaDocJar(
+            params,
+            pathResolver,
+            args.srcs.get(),
+            args.mavenCoords);
+      } else {
+        return MavenUberJar.JavadocJar.create(
+            Preconditions.checkNotNull(paramsWithMavenFlavor),
+            pathResolver,
+            args.srcs.get(),
+            args.mavenCoords
+        );
+      }
+    }
+
     JavacOptions javacOptions = JavacOptionsFactory.create(
         defaultOptions,
         params,
@@ -175,23 +200,6 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
             pathResolver,
             params,
             new BuildTargetSourcePath(defaultJavaLibrary.getBuildTarget())));
-
-    if (flavors.contains(JavaLibrary.JAVADOC)) {
-      args.mavenCoords = args.mavenCoords.transform(
-          new Function<String, String>() {
-            @Override
-            public String apply(String input) {
-              return AetherUtil.addClassifier(input, AetherUtil.CLASSIFIER_JAVADOC);
-            }
-          });
-
-      return new JavaDocJar(
-          params,
-          pathResolver,
-          args.srcs.get(),
-          args.mavenCoords,
-          defaultJavaLibrary);
-    }
 
     addGwtModule(
         resolver,

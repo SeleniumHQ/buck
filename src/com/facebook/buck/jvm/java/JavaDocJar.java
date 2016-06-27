@@ -23,7 +23,9 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -51,14 +53,12 @@ public class JavaDocJar extends AbstractBuildRule implements HasMavenCoordinates
   private final Path output;
   private final Path temp;
   private final Optional<String> mavenCoords;
-  private final JavaLibrary javaLibrary;
 
   public JavaDocJar(
       BuildRuleParams params,
       SourcePathResolver resolver,
       ImmutableSortedSet<SourcePath> sources,
-      Optional<String> mavenCoords,
-      JavaLibrary javaLibrary) {
+      Optional<String> mavenCoords) {
     super(params, resolver);
     this.sources = sources;
     BuildTarget target = params.getBuildTarget();
@@ -69,7 +69,6 @@ public class JavaDocJar extends AbstractBuildRule implements HasMavenCoordinates
             String.format("%%s%s", Javac.JAVADOC_JAR));
     this.temp = BuildTargets.getScratchPath(getProjectFilesystem(), target, "%s-javadoc");
     this.mavenCoords = mavenCoords;
-    this.javaLibrary = javaLibrary;
   }
 
   @Override
@@ -88,17 +87,16 @@ public class JavaDocJar extends AbstractBuildRule implements HasMavenCoordinates
     javaDocArgs.addAll(Arrays.asList("-notimestamp", "-private", "-subpackages", ".",
         "-d", javadocOutput.toString()));
 
-    ImmutableSet<JavaLibrary> classpathSet = JavaLibraryClasspathProvider.getTransitiveClasspathDeps(javaLibrary);
     StringBuilder classpath = new StringBuilder(".");
     String classpathSeparator = ":";
     if (System.getProperty("os.name").startsWith("Windows")) {
       classpathSeparator = ";";
     }
-    for (JavaLibrary library : classpathSet) {
-      Optional<SourcePath> abiJar = library.getAbiJar();
-      if (abiJar.isPresent()) {
+    for (BuildRule dep : getDeps()) {
+      BuildTargetSourcePath abiJar = new BuildTargetSourcePath(dep.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR));
+      if (abiJar.getResolvedPath().isPresent()) {
         classpath.append(classpathSeparator);
-        classpath.append(getResolver().getAbsolutePath(abiJar.get()));
+        classpath.append(getResolver().getAbsolutePath(abiJar));
       }
     }
 

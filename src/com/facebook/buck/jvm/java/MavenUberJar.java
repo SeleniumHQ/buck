@@ -199,6 +199,63 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
     }
   }
 
+  public static class JavadocJar extends JavaDocJar implements MavenPublishable {
+
+    private final TraversedDeps traversedDeps;
+
+    public JavadocJar(
+        BuildRuleParams params,
+        SourcePathResolver resolver,
+        ImmutableSortedSet<SourcePath> srcs,
+        Optional<String> mavenCoords,
+        TraversedDeps traversedDeps) {
+      super(params, resolver, srcs, mavenCoords);
+      this.traversedDeps = traversedDeps;
+    }
+
+    public static JavadocJar create(
+        BuildRuleParams params,
+        final SourcePathResolver resolver,
+        ImmutableSortedSet<SourcePath> topLevelSrcs,
+        Optional<String> mavenCoords) {
+      // TODO(simons): This is overly broad, since we also pull in any defs from resources.
+      // Should just be deps, exported_deps, provided_deps.
+      TraversedDeps traversedDeps = TraversedDeps.traverse(params.getDeps());
+
+      params = adjustParams(params, traversedDeps);
+
+      ImmutableSortedSet<SourcePath> sourcePaths =
+          FluentIterable
+              .from(traversedDeps.packagedDeps)
+              .filter(HasSources.class)
+              .transformAndConcat(
+                  new Function<HasSources, Iterable<SourcePath>>() {
+                    @Override
+                    public Iterable<SourcePath> apply(HasSources input) {
+                      return input.getSources();
+                    }
+                  })
+              .append(topLevelSrcs)
+              .toSortedSet(Ordering.natural());
+      return new JavadocJar(
+          params,
+          resolver,
+          sourcePaths,
+          mavenCoords,
+          traversedDeps);
+    }
+
+    @Override
+    public Iterable<HasMavenCoordinates> getMavenDeps() {
+      return traversedDeps.mavenDeps;
+    }
+
+    @Override
+    public Iterable<BuildRule> getPackagedDependencies() {
+      return traversedDeps.packagedDeps;
+    }
+  }
+
   private static class TraversedDeps {
     public final Iterable<HasMavenCoordinates> mavenDeps;
     public final Iterable<BuildRule> packagedDeps;
