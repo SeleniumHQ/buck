@@ -51,7 +51,7 @@ public class PublishCommand extends BuildCommand {
   public static final String INCLUDE_SOURCE_LONG_ARG = "--include-source";
   public static final String INCLUDE_SOURCE_SHORT_ARG = "-s";
   public static final String INCLUDE_JAVADOC_LONG_ARG = "--include-javadoc";
-  public static final String INCLUDE_JAVADOC_SHORT_ARG = "-jd";
+  public static final String INCLUDE_JAVADOC_SHORT_ARG = "-w";
   public static final String TO_MAVEN_CENTRAL_LONG_ARG = "--to-maven-central";
   public static final String DRY_RUN_LONG_ARG = "--dry-run";
 
