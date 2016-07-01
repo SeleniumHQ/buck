@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -30,6 +31,8 @@ import java.util.List;
 public class JavaDocStep implements Step {
 
   private List<String> args = new LinkedList<String>(){{this.add("javadoc");}};
+  private String classpath;
+  private Logger LOG = Logger.get(JavaDocStep.class);
 
   public JavaDocStep(String... args) {
     for (String arg : args) {
@@ -37,13 +40,16 @@ public class JavaDocStep implements Step {
     }
   }
 
-  public JavaDocStep(List<String> args) {
+  public JavaDocStep(String classpath, List<String> args) {
+    this.classpath = classpath;
     this.args.addAll(args);
+//    LOG.error(getDescription(null));
   }
 
   @Override
   public StepExecutionResult execute(ExecutionContext context) throws IOException, InterruptedException {
     ProcessBuilder processBuilder = new ProcessBuilder(this.args);
+    processBuilder.environment().put("CLASSPATH", classpath);
 
     int exitCode = -1;
     try {
@@ -51,7 +57,7 @@ public class JavaDocStep implements Step {
       ProcessExecutor.Result result = context.getProcessExecutor().execute(p);
       exitCode = result.getExitCode();
     } catch (IOException e) {
-      e.printStackTrace(context.getStdErr());
+      LOG.error("Failed to execute javadoc command: %s\n\nstderr: %s", getDescription(context), context.getStdErr());
     }
     return StepExecutionResult.of(exitCode);
   }
@@ -63,6 +69,6 @@ public class JavaDocStep implements Step {
 
   @Override
   public String getDescription(ExecutionContext context) {
-    return Joiner.on(" ").join(args);
+    return String.format("CLASSPATH=%s;\n%s", classpath, Joiner.on(" ").join(args));
   }
 }

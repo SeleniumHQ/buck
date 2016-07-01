@@ -25,7 +25,6 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -34,6 +33,7 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.zip.ZipStep;
+import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -76,7 +76,7 @@ public class JavaDocJar extends AbstractBuildRule implements HasMavenCoordinates
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    Path javadocOutput = new File(output.getParent().toFile(), "javadoc").toPath();
+    Path javadocOutput = output.getParent().resolve("javadoc");
     steps.add(new RmStep(getProjectFilesystem(), javadocOutput, /* force deletion */ true, true));
     steps.add(new RmStep(getProjectFilesystem(), output, true));
     steps.add(new MkdirStep(getProjectFilesystem(), javadocOutput));
@@ -87,27 +87,18 @@ public class JavaDocJar extends AbstractBuildRule implements HasMavenCoordinates
     javaDocArgs.addAll(Arrays.asList("-notimestamp", "-private", "-subpackages", ".",
         "-d", javadocOutput.toString()));
 
-    StringBuilder classpath = new StringBuilder(".");
-    String classpathSeparator = ":";
-    if (System.getProperty("os.name").startsWith("Windows")) {
-      classpathSeparator = ";";
-    }
-    for (BuildRule dep : getDeps()) {
-      BuildTargetSourcePath abiJar = new BuildTargetSourcePath(dep.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR));
-      if (abiJar.getResolvedPath().isPresent()) {
-        classpath.append(classpathSeparator);
-        classpath.append(getResolver().getAbsolutePath(abiJar));
-      }
-    }
-
-    javaDocArgs.add("-classpath");
-    javaDocArgs.add(classpath.toString());
-
     for (Path source : getResolver().filterInputsToCompareToOutput(sources)) {
       javaDocArgs.add(source.toString());
     }
 
-    steps.add(new JavaDocStep(javaDocArgs));
+    ImmutableSortedSet.Builder<Path> allJars = ImmutableSortedSet.naturalOrder();
+    for (BuildRule dep : getDeps()) {
+      if (dep instanceof HasClasspathEntries) {
+        allJars.addAll(((HasClasspathEntries)dep).getTransitiveClasspathEntries().values());
+      }
+    }
+
+    steps.add(new JavaDocStep(Joiner.on(File.pathSeparator).join(allJars.build()), javaDocArgs));
 
     steps.add(
         new ZipStep(
