@@ -84,7 +84,7 @@ public class JavaDocJar extends AbstractBuildRule implements HasMavenCoordinates
 
 
     List<String> javaDocArgs = new LinkedList<>();
-    javaDocArgs.addAll(Arrays.asList("-notimestamp", "-private", "-subpackages", ".",
+    javaDocArgs.addAll(Arrays.asList("-Xdoclint:none", "-notimestamp", "-private", "-subpackages", ".",
         "-d", javadocOutput.toString()));
 
     for (Path source : getResolver().filterInputsToCompareToOutput(sources)) {
