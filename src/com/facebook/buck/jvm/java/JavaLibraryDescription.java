@@ -23,6 +23,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.HasTests;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -47,6 +48,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 
 import java.nio.file.Path;
+import java.util.Collections;
 
 public class JavaLibraryDescription implements Description<JavaLibraryDescription.Arg>, Flavored {
 
@@ -82,10 +84,10 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
   public <A extends Arg> BuildRule createBuildRule(
       TargetGraph targetGraph,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      final BuildRuleResolver resolver,
       A args) {
     SourcePathResolver pathResolver = new SourcePathResolver(resolver);
-    BuildTarget target = params.getBuildTarget();
+    final BuildTarget target = params.getBuildTarget();
 
     // We know that the flavour we're being asked to create is valid, since the check is done when
     // creating the action graph from the target graph.
@@ -126,6 +128,16 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     }
 
     if (flavors.contains(JavaLibrary.JAVADOC)) {
+      // The javadoc jar needs the compiled jar to work from too.
+      BuildRule library = null;
+      try {
+        library = resolver.requireRule(BuildTarget.of(target.getUnflavoredBuildTarget()));
+      } catch (NoSuchBuildTargetException e) {
+        throw new RuntimeException("ARGH!");
+      }
+
+      paramsWithMavenFlavor = paramsWithMavenFlavor.appendExtraDeps(Collections.singleton(library));
+
       args.mavenCoords = args.mavenCoords.transform(
           new Function<String, String>() {
             @Override
