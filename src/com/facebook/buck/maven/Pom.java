@@ -29,6 +29,7 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.maven.model.Dependency;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.building.DefaultModelBuilderFactory;
@@ -166,7 +167,9 @@ public class Pom {
 
   private static void updateDependency(Dependency dependency, Artifact providedMavenCoordinates) {
     dependency.setVersion(providedMavenCoordinates.getVersion());
-    dependency.setClassifier(providedMavenCoordinates.getClassifier());
+    if (StringUtils.isNotEmpty(providedMavenCoordinates.getClassifier())) {
+      dependency.setClassifier(providedMavenCoordinates.getClassifier());
+    }
   }
 
   public void flushToFile() throws IOException {

@@ -27,6 +27,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
@@ -39,8 +40,11 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 
+import org.eclipse.jetty.util.ArrayQueue;
+
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.Queue;
 import java.util.Set;
 
 import javax.annotation.Nullable;
@@ -331,13 +335,29 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
           continue;
         }
         candidates.addAll(FluentIterable
-            .from(((HasClasspathEntries) root).getTransitiveClasspathDeps())
+            .from(((DefaultJavaLibrary) root).getDeclaredClasspathDeps())
             .filter(new Predicate<JavaLibrary>() {
               @Override
               public boolean apply(JavaLibrary buildRule) {
                 return !root.equals(buildRule);
               }
             }));
+
+        Queue<JavaLibrary> dependencies = new ArrayQueue<JavaLibrary>(){{
+          this.addAll(((DefaultJavaLibrary) root).getDeclaredClasspathDeps());
+        }};
+        while (!dependencies.isEmpty()) {
+          JavaLibrary dep = dependencies.remove();
+          if (!dep.getMavenCoords().isPresent()) {
+            if (!(dep instanceof DefaultJavaLibrary)) {
+              throw new HumanReadableException("Jar dependency in maven doesn't have a maven coordinate: " + dep.getBuildTarget());
+            }
+            for (JavaLibrary nestedDependency : ((DefaultJavaLibrary)dep).getDeclaredClasspathDeps()) {
+              candidates.add(nestedDependency);
+              dependencies.add(nestedDependency);
+            }
+          }
+        }
       }
       ImmutableSortedSet.Builder<JavaLibrary> removals = ImmutableSortedSet.naturalOrder();
       for (JavaLibrary javaLibrary : candidates.build()) {

@@ -173,51 +173,64 @@ public class JavaLibraryDescription implements Description<JavaLibraryDescriptio
     BuildTarget abiJarTarget = params.getBuildTarget().withAppendedFlavors(CalculateAbi.FLAVOR);
 
     ImmutableSortedSet<BuildRule> exportedDeps = resolver.getAllRules(args.exportedDeps.get());
-    DefaultJavaLibrary defaultJavaLibrary =
-        resolver.addToIndex(
-            new DefaultJavaLibrary(
-                params.appendExtraDeps(
+
+    DefaultJavaLibrary newJavaLibrary = new DefaultJavaLibrary(
+        params.appendExtraDeps(
+            Iterables.concat(
+                BuildRules.getExportedRules(
                     Iterables.concat(
-                        BuildRules.getExportedRules(
-                            Iterables.concat(
-                                params.getDeclaredDeps().get(),
-                                exportedDeps,
-                                resolver.getAllRules(args.providedDeps.get()))),
-                        pathResolver.filterBuildRuleInputs(
-                            javacOptions.getInputs(pathResolver)))),
-                pathResolver,
-                args.srcs.get(),
-                validateResources(
-                    pathResolver,
-                    params.getProjectFilesystem(),
-                    args.resources.get()),
-                javacOptions.getGeneratedSourceFolderName(),
-                args.proguardConfig.transform(
-                    SourcePaths.toSourcePath(params.getProjectFilesystem())),
-                args.postprocessClassesCommands.get(),
-                exportedDeps,
-                resolver.getAllRules(args.providedDeps.get()),
-                new BuildTargetSourcePath(abiJarTarget),
-                javacOptions.trackClassUsage(),
-                /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
-                new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
-                args.resourcesRoot,
-                args.mavenCoords,
-                args.tests.get(),
-                javacOptions.getClassesToRemoveFromJar()));
-
-    resolver.addToIndex(
-        CalculateAbi.of(
-            abiJarTarget,
-            pathResolver,
-            params,
-            new BuildTargetSourcePath(defaultJavaLibrary.getBuildTarget())));
-
-    addGwtModule(
-        resolver,
+                        params.getDeclaredDeps().get(),
+                        exportedDeps,
+                        resolver.getAllRules(args.providedDeps.get()))),
+                pathResolver.filterBuildRuleInputs(
+                    javacOptions.getInputs(pathResolver)))),
         pathResolver,
-        params,
-        args);
+        args.srcs.get(),
+        validateResources(
+            pathResolver,
+            params.getProjectFilesystem(),
+            args.resources.get()),
+        javacOptions.getGeneratedSourceFolderName(),
+        args.proguardConfig.transform(
+            SourcePaths.toSourcePath(params.getProjectFilesystem())),
+        args.postprocessClassesCommands.get(),
+        exportedDeps,
+        resolver.getAllRules(args.providedDeps.get()),
+        new BuildTargetSourcePath(abiJarTarget),
+        javacOptions.trackClassUsage(),
+                /* additionalClasspathEntries */ ImmutableSet.<Path>of(),
+        new JavacToJarStepFactory(javacOptions, JavacOptionsAmender.IDENTITY),
+        args.resourcesRoot,
+        args.mavenCoords,
+        args.tests.get(),
+        javacOptions.getClassesToRemoveFromJar());
+
+
+    DefaultJavaLibrary defaultJavaLibrary = newJavaLibrary;
+
+    try {
+      defaultJavaLibrary = resolver.addToIndex(newJavaLibrary);
+    } catch (IllegalStateException ise) {
+    }
+
+    try {
+      resolver.addToIndex(
+          CalculateAbi.of(
+              abiJarTarget,
+              pathResolver,
+              params,
+              new BuildTargetSourcePath(defaultJavaLibrary.getBuildTarget())));
+    } catch (IllegalStateException ise) {
+    }
+
+    try {
+      addGwtModule(
+          resolver,
+          pathResolver,
+          params,
+          args);
+    } catch (IllegalStateException ise) {
+    }
 
     if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
       return defaultJavaLibrary;
