@@ -334,27 +334,35 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
         if (!(root instanceof HasClasspathEntries)) {
           continue;
         }
-        candidates.addAll(FluentIterable
-            .from(((DefaultJavaLibrary) root).getDeclaredClasspathDeps())
-            .filter(new Predicate<JavaLibrary>() {
-              @Override
-              public boolean apply(JavaLibrary buildRule) {
-                return !root.equals(buildRule);
-              }
-            }));
+        if (root instanceof PrebuiltJar) {
+          if (!((PrebuiltJar)root).getMavenCoords().isPresent()) {
+            throw new HumanReadableException("Jar dependency in maven doesn't have a maven coordinate: "
+                + root.getBuildTarget());
+          }
+        } else {
+          candidates.addAll(FluentIterable
+              .from(((DefaultJavaLibrary) root).getDeclaredClasspathDeps())
+              .filter(new Predicate<JavaLibrary>() {
+                @Override
+                public boolean apply(JavaLibrary buildRule) {
+                  return !root.equals(buildRule);
+                }
+              }));
 
-        Queue<JavaLibrary> dependencies = new ArrayQueue<JavaLibrary>(){{
-          this.addAll(((DefaultJavaLibrary) root).getDeclaredClasspathDeps());
-        }};
-        while (!dependencies.isEmpty()) {
-          JavaLibrary dep = dependencies.remove();
-          if (!dep.getMavenCoords().isPresent()) {
-            if (!(dep instanceof DefaultJavaLibrary)) {
-              throw new HumanReadableException("Jar dependency in maven doesn't have a maven coordinate: " + dep.getBuildTarget());
-            }
-            for (JavaLibrary nestedDependency : ((DefaultJavaLibrary)dep).getDeclaredClasspathDeps()) {
-              candidates.add(nestedDependency);
-              dependencies.add(nestedDependency);
+          Queue<JavaLibrary> dependencies = new ArrayQueue<JavaLibrary>(){{
+            this.addAll(((DefaultJavaLibrary) root).getDeclaredClasspathDeps());
+          }};
+          while (!dependencies.isEmpty()) {
+            JavaLibrary dep = dependencies.remove();
+            if (!dep.getMavenCoords().isPresent()) {
+              if (!(dep instanceof DefaultJavaLibrary)) {
+                throw new HumanReadableException("Jar dependency in maven doesn't have a maven coordinate: "
+                    + dep.getBuildTarget());
+              }
+              for (JavaLibrary nestedDependency : ((DefaultJavaLibrary)dep).getDeclaredClasspathDeps()) {
+                candidates.add(nestedDependency);
+                dependencies.add(nestedDependency);
+              }
             }
           }
         }
