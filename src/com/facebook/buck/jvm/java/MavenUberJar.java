@@ -40,11 +40,8 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 
-import org.eclipse.jetty.util.ArrayQueue;
-
 import java.nio.file.Path;
 import java.util.HashSet;
-import java.util.Queue;
 import java.util.Set;
 
 import javax.annotation.Nullable;
@@ -349,11 +346,12 @@ public class MavenUberJar extends AbstractBuildRule implements MavenPublishable 
                 }
               }));
 
-          Queue<JavaLibrary> dependencies = new ArrayQueue<JavaLibrary>(){{
+          Set<JavaLibrary> dependencies = new HashSet<JavaLibrary>(){{
             this.addAll(((DefaultJavaLibrary) root).getDeclaredClasspathDeps());
           }};
           while (!dependencies.isEmpty()) {
-            JavaLibrary dep = dependencies.remove();
+            JavaLibrary dep = dependencies.iterator().next();
+            dependencies.remove(dep);
             if (!dep.getMavenCoords().isPresent()) {
               if (!(dep instanceof DefaultJavaLibrary)) {
                 throw new HumanReadableException("Jar dependency in maven doesn't have a maven coordinate: "
