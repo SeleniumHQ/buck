@@ -32,7 +32,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class JsFragment extends AbstractBuildRule {
 
@@ -100,16 +102,20 @@ public class JsFragment extends AbstractBuildRule {
             temp,
             /* executable */ false));
     steps.add(new MkdirStep(getProjectFilesystem(), output.getParent()));
-    ImmutableList.Builder<String> definesToUse = ImmutableList.<String>builder().addAll(defines);
+
+    List<String> flags = defines.stream()
+        .map(define -> "--define=" + define)
+        .collect(Collectors.toList());
+
     if (prettyPrint) {
-      definesToUse.add("--formatting=PRETTY_PRINT");
+      flags.add("--formatting=PRETTY_PRINT");
     }
     steps.add(
         new JavascriptFragmentStep(
             getProjectFilesystem().getRootPath(),
             getResolver(),
             compiler,
-            definesToUse.build(),
+            ImmutableList.copyOf(flags),
             temp,
             output,
             graph.sortSources()));
