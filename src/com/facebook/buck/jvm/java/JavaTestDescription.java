@@ -156,6 +156,7 @@ public class JavaTestDescription implements
 
   @SuppressFieldNotInitialized
   public static class Arg extends JavaLibraryDescription.Arg {
+    public Optional<ImmutableSortedSet<String>> testClasses;
     public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
     public ImmutableList<String> vmArgs = ImmutableList.of();
     public Optional<TestType> testType;

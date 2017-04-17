@@ -166,6 +166,13 @@ import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
 
+import org.openqa.selenium.buck.file.FolderDescription;
+import org.openqa.selenium.buck.javascript.JavascriptConfig;
+import org.openqa.selenium.buck.javascript.JsBinaryDescription;
+import org.openqa.selenium.buck.javascript.JsFragmentDescription;
+import org.openqa.selenium.buck.mozilla.MozillaExtensionDescription;
+import org.openqa.selenium.buck.mozilla.MozillaXptDescription;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -764,6 +771,16 @@ public class KnownBuildRuleTypes {
     builder.setDefaultCxxPlatform(defaultCxxPlatform);
 
     builder.register(VersionedAliasDescription.of());
+
+    // Selenium-specific targets
+    JavascriptConfig jsConfig = new JavascriptConfig(config);
+
+    builder.register(new FolderDescription());
+    builder.register(new JsBinaryDescription(jsConfig));
+    builder.register(new JsFragmentDescription(jsConfig));
+    builder.register(new org.openqa.selenium.buck.javascript.JsLibraryDescription());
+    builder.register(new MozillaExtensionDescription());
+    builder.register(new MozillaXptDescription());
 
     return builder;
   }
