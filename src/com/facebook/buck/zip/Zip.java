@@ -40,14 +40,18 @@ public class Zip extends AbstractBuildRule implements HasOutputName {
   private final String name;
   @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> sources;
+  @AddToRuleKey
+  private final boolean flatten;
 
   public Zip(
       BuildRuleParams params,
       String outputName,
-      ImmutableSortedSet<SourcePath> sources) {
+      ImmutableSortedSet<SourcePath> sources,
+      boolean flatten) {
     super(params);
     this.name = outputName;
     this.sources = sources;
+    this.flatten = flatten;
   }
 
   private Path getOutput() {
@@ -79,7 +83,7 @@ public class Zip extends AbstractBuildRule implements HasOutputName {
             getProjectFilesystem(),
             output,
             ImmutableSortedSet.of(),
-            /* junk paths */ false,
+            /* junk paths */ flatten,
             ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL,
             scratchDir));
 

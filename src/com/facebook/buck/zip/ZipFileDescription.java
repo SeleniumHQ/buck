@@ -49,13 +49,15 @@ public class ZipFileDescription implements
     return new Zip(
         params,
         args.out.orElse(params.getBuildTarget().getShortName() + ".zip"),
-        args.srcs);
+        args.srcs,
+        args.flatten.orElse(false));
   }
 
   @SuppressFieldNotInitialized
   public static class Arg extends AbstractDescriptionArg {
     public Optional<String> out;
     public ImmutableSortedSet<SourcePath> srcs;
+    public Optional<Boolean> flatten;
 
     public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
   }
