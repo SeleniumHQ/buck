@@ -110,6 +110,7 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
             Suppliers.ofInstance(ImmutableSortedSet.of())),
         pathResolver,
         testsLibrary,
+        ImmutableSortedSet.of(),
         /* additionalClasspathEntries */ ImmutableSet.of(),
         args.labels,
         args.contacts,

@@ -44,6 +44,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 
 import java.io.File;
 import java.io.IOException;
@@ -139,6 +140,7 @@ public class RobolectricTest extends JavaTest {
         buildRuleParams,
         new SourcePathResolver(ruleFinder),
         compiledTestsLibrary,
+        ImmutableSortedSet.of(),
         optionalDummyRDotJava
             .map(r ->
                 ImmutableSet.<Either<SourcePath, Path>>of(Either.ofLeft(r.getSourcePathToOutput())))

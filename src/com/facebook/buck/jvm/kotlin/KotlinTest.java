@@ -28,6 +28,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -62,6 +63,7 @@ public class KotlinTest extends JavaTest {
         params,
         pathResolver,
         compiledTestsLibrary,
+        ImmutableSortedSet.of(),
         additionalClasspathEntries,
         labels,
         contacts,

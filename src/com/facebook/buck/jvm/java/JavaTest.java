@@ -114,6 +114,10 @@ public class JavaTest
 
   private final ImmutableMap<String, String> nativeLibsEnvironment;
 
+
+  @AddToRuleKey
+  private final ImmutableSortedSet<String> additionalTests;
+
   @Nullable
   private CompiledClassFileFinder compiledClassFileFinder;
 
@@ -155,6 +159,7 @@ public class JavaTest
       BuildRuleParams params,
       SourcePathResolver resolver,
       JavaLibrary compiledTestsLibrary,
+      ImmutableSortedSet<String> additionalTests,
       ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries,
       Set<Label> labels,
       Set<String> contacts,
@@ -171,6 +176,7 @@ public class JavaTest
       Optional<Level> stdErrLogLevel) {
     super(params, resolver);
     this.compiledTestsLibrary = compiledTestsLibrary;
+    this.additionalTests = additionalTests;
 
     for (Either<SourcePath, Path> path : additionalClasspathEntries) {
       if (path.isRight()) {
@@ -496,7 +502,9 @@ public class JavaTest
     if (compiledClassFileFinder == null) {
       compiledClassFileFinder = new CompiledClassFileFinder(this, pathResolver);
     }
-    return compiledClassFileFinder.getClassNamesForSources();
+    return Sets.union(
+        additionalTests,
+        compiledClassFileFinder.getClassNamesForSources());
   }
 
   @Override
