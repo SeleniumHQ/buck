@@ -54,15 +54,15 @@ public class JsBinary extends AbstractBuildRule implements
   @AddToRuleKey
   private final Tool compiler;
   @AddToRuleKey
-  private final ImmutableSortedSet<BuildRule> deps;
+  private final com.google.common.base.Supplier<ImmutableSortedSet<BuildRule>> deps;
   @AddToRuleKey
   private final ImmutableSortedSet<SourcePath> srcs;
   @AddToRuleKey
-  private final Optional<List<String>> defines;
+  private final ImmutableList<String> defines;
   @AddToRuleKey
-  private final Optional<List<SourcePath>> externs;
+  private final ImmutableList<SourcePath> externs;
   @AddToRuleKey
-  private final Optional<List<String>> flags;
+  private final ImmutableList<String> flags;
   @AddToRuleKey
   private final boolean prettyPrint;
   private JavascriptDependencies joy;
@@ -71,11 +71,11 @@ public class JsBinary extends AbstractBuildRule implements
   public JsBinary(
       BuildRuleParams params,
       Tool compiler,
-      ImmutableSortedSet<BuildRule> deps,
+      com.google.common.base.Supplier<ImmutableSortedSet<BuildRule>> deps,
       ImmutableSortedSet<SourcePath> srcs,
-      Optional<List<String>> defines,
-      Optional<List<String>> flags,
-      Optional<List<SourcePath>> externs,
+      ImmutableList<String> defines,
+      ImmutableList<String> flags,
+      ImmutableList<SourcePath> externs,
       Optional<Boolean> noFormat) {
     super(params);
 
@@ -119,7 +119,7 @@ public class JsBinary extends AbstractBuildRule implements
     }
 
     Set<String> seen = Sets.newHashSet();
-    for (BuildRule dep : deps) {
+    for (BuildRule dep : deps.get()) {
       if (!(dep instanceof HasJavascriptDependencies)) {
         continue;
       }

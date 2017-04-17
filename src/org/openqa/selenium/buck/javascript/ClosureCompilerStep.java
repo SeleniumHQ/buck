@@ -30,8 +30,6 @@ import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.List;
-import java.util.Optional;
 
 public class ClosureCompilerStep extends ShellStep {
 
@@ -91,22 +89,22 @@ public class ClosureCompilerStep extends ShellStep {
       cmd.addAll(compiler.getCommandPrefix(resolver));
     }
 
-    public Builder defines(Optional<List<String>> defines) {
-      for (String define : defines.orElse(ImmutableList.<String>of())) {
+    public Builder defines(ImmutableList<String> defines) {
+      for (String define : defines) {
         cmd.add("--define=" + define);
       }
       return this;
     }
 
-    public Builder externs(Optional<List<SourcePath>> externs) {
-      for (SourcePath path : externs.orElse(ImmutableList.<SourcePath>of())) {
+    public Builder externs(ImmutableList<SourcePath> externs) {
+      for (SourcePath path : externs) {
         cmd.add("--externs='" + resolver.getAbsolutePath(path) + "'");
       }
       return this;
     }
 
-    public Builder flags(Optional<List<String>> flags) {
-      for (String flag : flags.orElse(ImmutableList.<String>of())) {
+    public Builder flags(ImmutableList<String> flags) {
+      for (String flag : flags) {
         cmd.add(flag);
       }
       return this;

@@ -27,8 +27,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.util.Optional;
-
 public class MozillaExtensionDescription implements Description<MozillaExtensionDescription.Arg> {
 
   @Override
@@ -46,19 +44,19 @@ public class MozillaExtensionDescription implements Description<MozillaExtension
     return new Xpi(
         params,
         args.chrome,
-        args.components.get(),
-        args.content.get(),
+        args.components,
+        args.content,
         args.install,
-        args.resources.get(),
-        args.platforms.get());
+        args.resources,
+        args.platforms);
   }
 
   public static class Arg extends AbstractDescriptionArg {
     public SourcePath chrome;
-    public Optional<ImmutableSortedSet<SourcePath>> components;
-    public Optional<ImmutableSortedSet<SourcePath>> content;
+    public ImmutableSortedSet<SourcePath> components = ImmutableSortedSet.of();
+    public ImmutableSortedSet<SourcePath> content = ImmutableSortedSet.of();
     public SourcePath install;
-    public Optional<ImmutableSortedSet<SourcePath>> platforms;
-    public Optional<ImmutableSortedSet<SourcePath>> resources;
+    public ImmutableSortedSet<SourcePath> platforms = ImmutableSortedSet.of();
+    public ImmutableSortedSet<SourcePath> resources = ImmutableSortedSet.of();
   }
 }

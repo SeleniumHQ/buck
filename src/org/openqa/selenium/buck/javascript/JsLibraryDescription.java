@@ -28,8 +28,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.util.Optional;
-
 public class JsLibraryDescription implements Description<JsLibraryDescription.Arg> {
 
   @Override
@@ -52,6 +50,6 @@ public class JsLibraryDescription implements Description<JsLibraryDescription.Ar
 
   public static class Arg extends AbstractDescriptionArg {
     public ImmutableSortedSet<SourcePath> srcs;
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
   }
 }

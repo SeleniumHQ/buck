@@ -33,9 +33,9 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 
-import java.util.List;
 import java.util.Optional;
 
 public class JsBinaryDescription implements
@@ -65,7 +65,7 @@ public class JsBinaryDescription implements
     return new JsBinary(
         params,
         config.getClosureCompiler(args.compiler, pathResolver, finder),
-        params.getDeclaredDeps().get(),
+        params.getDeclaredDeps(),
         args.srcs,
         args.defines,
         args.flags,
@@ -88,13 +88,13 @@ public class JsBinaryDescription implements
   }
 
   public static class Arg extends AbstractDescriptionArg {
-    public Optional<List<String>> defines;
-    public Optional<List<SourcePath>> externs;
-    public Optional<List<String>> flags;
+    public ImmutableList<String> defines = ImmutableList.of();
+    public ImmutableList<SourcePath> externs = ImmutableList.of();
+    public ImmutableList<String> flags = ImmutableList.of();
     public Optional<Boolean> noFormat;
-    public ImmutableSortedSet<SourcePath> srcs;
+    public ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of();
     public Optional<SourcePath> compiler;
 
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
   }
 }

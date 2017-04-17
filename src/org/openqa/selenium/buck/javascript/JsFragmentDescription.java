@@ -71,7 +71,7 @@ public class JsFragmentDescription implements
         params.getBuildDeps(),
         args.module,
         args.function,
-        args.defines.orElse(ImmutableList.of()),
+        args.defines,
         args.prettyPrint.orElse(FALSE));
   }
 
@@ -93,9 +93,9 @@ public class JsFragmentDescription implements
     public String function;
     public String module;
     public Optional<Boolean> prettyPrint;
-    public Optional<ImmutableList<String>> defines;
+    public ImmutableList<String> defines = ImmutableList.of();
     public Optional<SourcePath> compiler;
 
-    public Optional<ImmutableSortedSet<BuildTarget>> deps;
+    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
   }
 }
