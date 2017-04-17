@@ -190,7 +190,13 @@ public class JavaLibraryDescription implements
     if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
       return defaultJavaLibrary;
     } else {
-      resolver.addToIndex(defaultJavaLibrary);
+      // Only add the library if it's not in the index
+      Optional<BuildRule> optional = resolver.getRuleOptional(defaultJavaLibrary.getBuildTarget());
+      if (!optional.isPresent()) {
+        resolver.addToIndex(defaultJavaLibrary);
+      } else {
+        defaultJavaLibrary = (DefaultJavaLibrary) optional.get();
+      }
       return MavenUberJar.create(
           defaultJavaLibrary,
           Preconditions.checkNotNull(paramsWithMavenFlavor),
