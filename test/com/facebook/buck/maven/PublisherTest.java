@@ -57,10 +57,11 @@ public class PublisherTest {
   public void setUp() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     publisher = new Publisher(
-        filesystem,
+        filesystem.getRootPath(),
         /* remoteRepoUrl */ Optional.empty(),
         /* username */ Optional.empty(),
         /* password */ Optional.empty(),
+        /* pgp passphrase */ Optional.empty(),
         /* dryRun */ true);
   }
 
