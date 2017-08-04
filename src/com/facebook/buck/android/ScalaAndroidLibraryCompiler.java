@@ -18,19 +18,18 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.jvm.scala.ScalaBuckConfig;
 import com.facebook.buck.jvm.scala.ScalacToJarStepFactory;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Tool;
-import com.facebook.buck.util.OptionalCompat;
+import com.facebook.buck.util.Optionals;
 import com.google.common.collect.ImmutableCollection;
-
 import javax.annotation.Nullable;
 
 public class ScalaAndroidLibraryCompiler extends AndroidLibraryCompiler {
-
   private final ScalaBuckConfig scalaBuckConfig;
   private @Nullable Tool scalac;
 
@@ -52,15 +51,13 @@ public class ScalaAndroidLibraryCompiler extends AndroidLibraryCompiler {
 
   @Override
   public CompileToJarStepFactory compileToJar(
-      AndroidLibraryDescription.Arg arg,
-      JavacOptions javacOptions,
-      BuildRuleResolver resolver) {
+      JvmLibraryArg arg, JavacOptions javacOptions, BuildRuleResolver resolver) {
 
     return new ScalacToJarStepFactory(
         getScalac(resolver),
         resolver.getRule(scalaBuckConfig.getScalaLibraryTarget()),
         scalaBuckConfig.getCompilerFlags(),
-        arg.extraArguments,
+        arg.getExtraArguments(),
         resolver.getAllRules(scalaBuckConfig.getCompilerPlugins()),
         ANDROID_CLASSPATH_FROM_CONTEXT);
   }
@@ -69,13 +66,13 @@ public class ScalaAndroidLibraryCompiler extends AndroidLibraryCompiler {
   public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      AndroidLibraryDescription.Arg constructorArg,
+      JvmLibraryArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
 
     extraDepsBuilder
         .add(scalaBuckConfig.getScalaLibraryTarget())
-        .addAll(scalaBuckConfig.getCompilerPlugins())
-        .addAll(OptionalCompat.asSet(scalaBuckConfig.getScalacTarget()));
+        .addAll(scalaBuckConfig.getCompilerPlugins());
+    Optionals.addIfPresent(scalaBuckConfig.getScalacTarget(), extraDepsBuilder);
   }
 }

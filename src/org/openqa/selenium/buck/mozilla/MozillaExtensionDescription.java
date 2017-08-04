@@ -16,47 +16,57 @@
 
 package org.openqa.selenium.buck.mozilla;
 
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableSortedSet;
+import org.immutables.value.Value;
 
-public class MozillaExtensionDescription implements Description<MozillaExtensionDescription.Arg> {
+public class MozillaExtensionDescription implements Description<MozillaExtensionArg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<MozillaExtensionArg> getConstructorArgType() {
+    return MozillaExtensionArg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      MozillaExtensionArg args) throws NoSuchBuildTargetException {
     return new Xpi(
+        buildTarget,
+        projectFilesystem,
         params,
-        args.chrome,
-        args.components,
-        args.content,
-        args.install,
-        args.resources,
-        args.platforms);
+        args.getChrome(),
+        args.getComponents(),
+        args.getContent(),
+        args.getInstall(),
+        args.getResources(),
+        args.getPlatforms());
   }
 
-  public static class Arg extends AbstractDescriptionArg {
-    public SourcePath chrome;
-    public ImmutableSortedSet<SourcePath> components = ImmutableSortedSet.of();
-    public ImmutableSortedSet<SourcePath> content = ImmutableSortedSet.of();
-    public SourcePath install;
-    public ImmutableSortedSet<SourcePath> platforms = ImmutableSortedSet.of();
-    public ImmutableSortedSet<SourcePath> resources = ImmutableSortedSet.of();
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractMozillaExtensionArg extends CommonDescriptionArg {
+    SourcePath getChrome();
+    @Value.NaturalOrder ImmutableSortedSet<SourcePath> getComponents();
+    @Value.NaturalOrder ImmutableSortedSet<SourcePath> getContent();
+    SourcePath getInstall();
+    @Value.NaturalOrder ImmutableSortedSet<SourcePath> getPlatforms();
+    @Value.NaturalOrder ImmutableSortedSet<SourcePath> getResources();
   }
 }

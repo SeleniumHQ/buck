@@ -21,17 +21,13 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKeyFieldCategory;
 import com.facebook.buck.rules.SourceRoot;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.hash.HashCode;
-
 import java.nio.file.Path;
 import java.util.regex.Pattern;
 
-/**
- * A delegating {@link RuleKeyHasher} that counts the number of values put in it.
- */
+/** A delegating {@link RuleKeyHasher} that counts the number of values put in it. */
 public class CountingRuleKeyHasher<HASH> implements RuleKeyHasher<HASH> {
   private final RuleKeyHasher<HASH> delegate;
 
@@ -43,12 +39,6 @@ public class CountingRuleKeyHasher<HASH> implements RuleKeyHasher<HASH> {
 
   public long getCount() {
     return count;
-  }
-
-  @Override
-  public CountingRuleKeyHasher<HASH> selectCategory(RuleKeyFieldCategory category) {
-    delegate.selectCategory(category);
-    return this;
   }
 
   @Override
@@ -158,7 +148,7 @@ public class CountingRuleKeyHasher<HASH> implements RuleKeyHasher<HASH> {
 
   @Override
   public CountingRuleKeyHasher<HASH> putBuildTargetSourcePath(
-      BuildTargetSourcePath<?> buildTargetSourcePath) {
+      BuildTargetSourcePath buildTargetSourcePath) {
     count++;
     delegate.putBuildTargetSourcePath(buildTargetSourcePath);
     return this;

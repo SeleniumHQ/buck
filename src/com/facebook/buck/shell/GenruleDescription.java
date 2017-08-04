@@ -16,52 +16,60 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import java.util.Optional;
+import org.immutables.value.Value;
 
-public class GenruleDescription extends AbstractGenruleDescription<GenruleDescription.Arg> {
+public class GenruleDescription extends AbstractGenruleDescription<GenruleDescriptionArg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<GenruleDescriptionArg> getConstructorArgType() {
+    return GenruleDescriptionArg.class;
   }
 
   @Override
-  protected <A extends GenruleDescription.Arg> BuildRule createBuildRule(
+  protected BuildRule createBuildRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      A args,
+      GenruleDescriptionArg args,
       Optional<com.facebook.buck.rules.args.Arg> cmd,
       Optional<com.facebook.buck.rules.args.Arg> bash,
       Optional<com.facebook.buck.rules.args.Arg> cmdExe) {
-    if (!args.executable.orElse(false)) {
+    if (!args.getExecutable().orElse(false)) {
       return new Genrule(
+          buildTarget,
+          projectFilesystem,
           params,
-          args.srcs,
+          args.getSrcs(),
           cmd,
           bash,
           cmdExe,
-          args.type,
-          args.out);
+          args.getType(),
+          args.getOut());
     } else {
       return new GenruleBinary(
+          buildTarget,
+          projectFilesystem,
           params,
-          args.srcs,
+          args.getSrcs(),
           cmd,
           bash,
           cmdExe,
-          args.type,
-          args.out);
+          args.getType(),
+          args.getOut());
     }
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends AbstractGenruleDescription.Arg {
-    public Optional<Boolean> executable;
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractGenruleDescriptionArg extends AbstractGenruleDescription.CommonArg {
+    Optional<Boolean> getExecutable();
   }
-
 }

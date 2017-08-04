@@ -22,17 +22,21 @@ import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
+import com.facebook.buck.distributed.thrift.BuildMode;
 import com.facebook.buck.distributed.thrift.BuildSlaveConsoleEvent;
 import com.facebook.buck.distributed.thrift.BuildSlaveEvent;
 import com.facebook.buck.distributed.thrift.BuildSlaveEventType;
 import com.facebook.buck.distributed.thrift.BuildSlaveEventsQuery;
 import com.facebook.buck.distributed.thrift.BuildSlaveEventsRange;
+import com.facebook.buck.distributed.thrift.BuildSlaveFinishedStats;
 import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
 import com.facebook.buck.distributed.thrift.BuildStatusRequest;
 import com.facebook.buck.distributed.thrift.CASContainsRequest;
 import com.facebook.buck.distributed.thrift.CreateBuildRequest;
 import com.facebook.buck.distributed.thrift.FetchBuildGraphRequest;
+import com.facebook.buck.distributed.thrift.FetchBuildSlaveFinishedStatsRequest;
 import com.facebook.buck.distributed.thrift.FetchBuildSlaveStatusRequest;
+import com.facebook.buck.distributed.thrift.FetchRuleKeyLogsRequest;
 import com.facebook.buck.distributed.thrift.FetchSourceFilesRequest;
 import com.facebook.buck.distributed.thrift.FetchSourceFilesResponse;
 import com.facebook.buck.distributed.thrift.FileInfo;
@@ -46,6 +50,7 @@ import com.facebook.buck.distributed.thrift.MultiGetBuildSlaveLogDirResponse;
 import com.facebook.buck.distributed.thrift.MultiGetBuildSlaveRealTimeLogsRequest;
 import com.facebook.buck.distributed.thrift.MultiGetBuildSlaveRealTimeLogsResponse;
 import com.facebook.buck.distributed.thrift.PathInfo;
+import com.facebook.buck.distributed.thrift.RuleKeyLogEntry;
 import com.facebook.buck.distributed.thrift.RunId;
 import com.facebook.buck.distributed.thrift.SequencedBuildSlaveEvent;
 import com.facebook.buck.distributed.thrift.SetBuckDotFilePathsRequest;
@@ -53,6 +58,7 @@ import com.facebook.buck.distributed.thrift.SetBuckVersionRequest;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.distributed.thrift.StartBuildRequest;
 import com.facebook.buck.distributed.thrift.StoreBuildGraphRequest;
+import com.facebook.buck.distributed.thrift.StoreBuildSlaveFinishedStatsRequest;
 import com.facebook.buck.distributed.thrift.StoreLocalChangesRequest;
 import com.facebook.buck.distributed.thrift.UpdateBuildSlaveStatusRequest;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -60,25 +66,28 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.slb.ThriftProtocol;
 import com.facebook.buck.slb.ThriftUtil;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
-
 import java.io.ByteArrayInputStream;
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-
 
 public class DistBuildService implements Closeable {
   private static final Logger LOG = Logger.get(DistBuildService.class);
@@ -86,14 +95,13 @@ public class DistBuildService implements Closeable {
 
   private final FrontendService service;
 
-  public DistBuildService(
-      FrontendService service) {
+  public DistBuildService(FrontendService service) {
     this.service = service;
   }
 
   public MultiGetBuildSlaveRealTimeLogsResponse fetchSlaveLogLines(
-      final StampedeId stampedeId,
-      final List<LogLineBatchRequest> logLineRequests) throws IOException {
+      final StampedeId stampedeId, final List<LogLineBatchRequest> logLineRequests)
+      throws IOException {
 
     MultiGetBuildSlaveRealTimeLogsRequest getLogLinesRequest =
         new MultiGetBuildSlaveRealTimeLogsRequest();
@@ -108,8 +116,7 @@ public class DistBuildService implements Closeable {
   }
 
   public MultiGetBuildSlaveLogDirResponse fetchBuildSlaveLogDir(
-      final StampedeId stampedeId,
-      final List<RunId> runIds) throws IOException {
+      final StampedeId stampedeId, final List<RunId> runIds) throws IOException {
 
     MultiGetBuildSlaveLogDirRequest getBuildSlaveLogDirRequest =
         new MultiGetBuildSlaveLogDirRequest();
@@ -125,21 +132,13 @@ public class DistBuildService implements Closeable {
   }
 
   public void uploadTargetGraph(
-      final BuildJobState buildJobStateArg,
-      final StampedeId stampedeId) throws IOException {
-    // TODO(shivanker): We shouldn't be doing this. Fix after we stop reading all files into memory.
-    final BuildJobState buildJobState = buildJobStateArg.deepCopy();
-    // Get rid of file contents from buildJobState
-    for (BuildJobStateFileHashes cell : buildJobState.getFileHashes()) {
-      if (!cell.isSetEntries()) {
-        continue;
-      }
-      for (BuildJobStateFileHashEntry file : cell.getEntries()) {
-        file.unsetContents();
-      }
-    }
+      final BuildJobState buildJobState,
+      final StampedeId stampedeId,
+      final DistBuildClientStatsTracker distBuildClientStats)
+      throws IOException {
+    distBuildClientStats.startUploadTargetGraphTimer();
 
-    // Now serialize and send the whole buildJobState
+    // Serialize and send the whole buildJobState
     StoreBuildGraphRequest storeBuildGraphRequest = new StoreBuildGraphRequest();
     storeBuildGraphRequest.setStampedeId(stampedeId);
     storeBuildGraphRequest.setBuildGraph(BuildJobStateSerializer.serialize(buildJobState));
@@ -148,102 +147,196 @@ public class DistBuildService implements Closeable {
     request.setType(FrontendRequestType.STORE_BUILD_GRAPH);
     request.setStoreBuildGraphRequest(storeBuildGraphRequest);
     makeRequestChecked(request);
+    distBuildClientStats.stopUploadTargetGraphTimer();
     // No response expected.
   }
 
   public ListenableFuture<Void> uploadMissingFilesAsync(
+      final Map<Integer, ProjectFilesystem> localFilesystemsByCell,
       final List<BuildJobStateFileHashes> fileHashes,
-      ListeningExecutorService executorService) {
-    List<FileInfo> requiredFiles = new ArrayList<>();
+      final DistBuildClientStatsTracker distBuildClientStats,
+      final ListeningExecutorService executorService) {
+    distBuildClientStats.startUploadMissingFilesTimer();
+    List<PathInfo> requiredFiles = new ArrayList<>();
     for (BuildJobStateFileHashes filesystem : fileHashes) {
       if (!filesystem.isSetEntries()) {
         continue;
       }
+      ProjectFilesystem cellFilesystem =
+          Preconditions.checkNotNull(localFilesystemsByCell.get(filesystem.getCellIndex()));
       for (BuildJobStateFileHashEntry file : filesystem.entries) {
         if (file.isSetRootSymLink()) {
-          LOG.info(
-              "File with path [%s] is a symlink. Skipping upload..",
-              file.path.getPath());
+          LOG.info("File with path [%s] is a symlink. Skipping upload..", file.path.getPath());
           continue;
         } else if (file.isIsDirectory()) {
-          LOG.info(
-              "Path [%s] is a directory. Skipping upload..",
-              file.path.getPath());
+          LOG.info("Path [%s] is a directory. Skipping upload..", file.path.getPath());
           continue;
         } else if (file.isPathIsAbsolute()) {
-          LOG.info(
-              "Path [%s] is absolute. Skipping upload..",
-              file.path.getPath());
+          LOG.info("Path [%s] is absolute. Skipping upload..", file.path.getPath());
           continue;
         }
 
-        // TODO(shivanker): Eventually, we won't have file contents in BuildJobState.
-        // Then change this code to load file contents inline (only for missing files)
-        FileInfo fileInfo = new FileInfo();
-        fileInfo.setContent(file.getContents());
-        fileInfo.setContentHash(file.getHashCode());
-        requiredFiles.add(fileInfo);
+        if (!file.isSetHashCode()) {
+          throw new RuntimeException(
+              String.format("Missing content hash for path [%s].", file.path.getPath()));
+        }
+
+        PathInfo pathInfo = new PathInfo();
+        pathInfo.setPath(cellFilesystem.resolve(file.getPath().getPath()).toString());
+        pathInfo.setContentHash(file.getHashCode());
+        requiredFiles.add(pathInfo);
       }
-    }
-
-    return executorService.submit(() -> {
-      try {
-        uploadMissingFilesFromList(requiredFiles);
-        return null;
-      } catch (IOException e) {
-        throw new RuntimeException("Failed to upload missing source files.", e);
-      }
-    });
-  }
-
-  private void uploadMissingFilesFromList(
-      final List<FileInfo> fileList) throws IOException {
-
-    Map<String, FileInfo> sha1ToFileInfo = new HashMap<>();
-    for (FileInfo file : fileList) {
-      sha1ToFileInfo.put(file.getContentHash(), file);
-    }
-
-    List<String> contentHashes = ImmutableList.copyOf(sha1ToFileInfo.keySet());
-    CASContainsRequest containsReq = new CASContainsRequest();
-    containsReq.setContentSha1s(contentHashes);
-    FrontendRequest request = new FrontendRequest();
-    request.setType(FrontendRequestType.CAS_CONTAINS);
-    request.setCasContainsRequest(containsReq);
-    FrontendResponse response = makeRequestChecked(request);
-
-    Preconditions.checkState(
-        response.getCasContainsResponse().exists.size() == contentHashes.size());
-    List<Boolean> isPresent = response.getCasContainsResponse().exists;
-    List<FileInfo> filesToBeUploaded = new LinkedList<>();
-    for (int i = 0; i < isPresent.size(); ++i) {
-      if (isPresent.get(i)) {
-        continue;
-      }
-      filesToBeUploaded.add(sha1ToFileInfo.get(contentHashes.get(i)));
     }
 
     LOG.info(
-        "%d out of %d files already exist in the cache. Uploading %d files..",
-        sha1ToFileInfo.size() - filesToBeUploaded.size(),
-        sha1ToFileInfo.size(),
-        filesToBeUploaded.size());
-    request = new FrontendRequest();
-    StoreLocalChangesRequest storeReq = new StoreLocalChangesRequest();
-    storeReq.setFiles(filesToBeUploaded);
-    request.setType(FrontendRequestType.STORE_LOCAL_CHANGES);
-    request.setStoreLocalChangesRequest(storeReq);
-    makeRequestChecked(request);
-    // No response expected.
+        "%d files are required to be uploaded. Now checking which ones are already present...",
+        requiredFiles.size());
+
+    try {
+      return Futures.transform(
+          uploadMissingFilesAsync(requiredFiles, executorService),
+          uploadCount -> {
+            distBuildClientStats.setMissingFilesUploadedCount(uploadCount);
+            distBuildClientStats.stopUploadMissingFilesTimer();
+            return null;
+          },
+          executorService);
+    } catch (IOException e) {
+      throw new RuntimeException("Failed to upload missing source files.", e);
+    }
   }
 
-  public BuildJob createBuild() throws IOException {
+  /**
+   * This function takes a list of files which we need to be present in the CAS, and uploads only
+   * the missing files. So it makes 2 requests to the server: {@link CASContainsRequest} and {@link
+   * StoreLocalChangesRequest}.
+   *
+   * @param absPathsAndHashes List of {@link PathInfo} objects with absolute paths and content SHA1
+   *     of the files which need to be uploaded.
+   * @param executorService Executor to enable concurrent file reads and upload request.
+   * @return A Future containing the number of missing files which were uploaded to the CAS. This
+   *     future completes when the upload finishes.
+   * @throws IOException
+   */
+  private ListenableFuture<Integer> uploadMissingFilesAsync(
+      final List<PathInfo> absPathsAndHashes, final ListeningExecutorService executorService)
+      throws IOException {
+
+    Map<String, PathInfo> sha1ToPathInfo = new HashMap<>();
+    for (PathInfo file : absPathsAndHashes) {
+      sha1ToPathInfo.put(file.getContentHash(), file);
+    }
+
+    List<String> contentHashes = ImmutableList.copyOf(sha1ToPathInfo.keySet());
+    final CASContainsRequest containsReq = new CASContainsRequest();
+    containsReq.setContentSha1s(contentHashes);
+    ListenableFuture<FrontendResponse> responseFuture =
+        executorService.submit(
+            () ->
+                makeRequestChecked(
+                    new FrontendRequest()
+                        .setType(FrontendRequestType.CAS_CONTAINS)
+                        .setCasContainsRequest(containsReq)));
+
+    ListenableFuture<List<FileInfo>> filesToBeUploaded =
+        Futures.transformAsync(
+            responseFuture,
+            response -> {
+              Preconditions.checkState(
+                  response.getCasContainsResponse().exists.size() == contentHashes.size());
+              List<Boolean> isPresent = response.getCasContainsResponse().exists;
+              List<ListenableFuture<FileInfo>> missingFilesFutureList = new LinkedList<>();
+              for (int i = 0; i < isPresent.size(); ++i) {
+                if (isPresent.get(i)) {
+                  continue;
+                }
+
+                final String contentHash = contentHashes.get(i);
+
+                // TODO(shivanker): We should upload the missing files in batches, or it might OOM.
+                missingFilesFutureList.add(
+                    executorService.submit(
+                        () -> {
+                          FileInfo file = new FileInfo();
+                          file.setContentHash(contentHash);
+                          try {
+                            file.setContent(
+                                Files.readAllBytes(
+                                    Paths.get(
+                                        Preconditions.checkNotNull(sha1ToPathInfo.get(contentHash))
+                                            .getPath())));
+                          } catch (IOException e) {
+                            throw new IOException(
+                                String.format(
+                                    "Failed to read file for uploading to server: [%s]",
+                                    sha1ToPathInfo.get(contentHash).getPath()),
+                                e);
+                          }
+                          return file;
+                        }));
+              }
+
+              LOG.info(
+                  "%d out of %d files already exist in the CAS. Uploading %d files..",
+                  sha1ToPathInfo.size() - missingFilesFutureList.size(),
+                  sha1ToPathInfo.size(),
+                  missingFilesFutureList.size());
+
+              return Futures.allAsList(missingFilesFutureList);
+            },
+            executorService);
+
+    return Futures.transform(
+        filesToBeUploaded,
+        fileList -> {
+          StoreLocalChangesRequest storeReq = new StoreLocalChangesRequest();
+          storeReq.setFiles(fileList);
+          try {
+            makeRequestChecked(
+                new FrontendRequest()
+                    .setType(FrontendRequestType.STORE_LOCAL_CHANGES)
+                    .setStoreLocalChangesRequest(storeReq));
+            // No response expected.
+          } catch (IOException e) {
+            throw new HumanReadableException(
+                e, "Failed to upload [%d] missing files.", fileList.size());
+          }
+          return fileList.size();
+        },
+        executorService);
+  }
+
+  public BuildJob createBuild(
+      BuildMode buildMode, int numberOfMinions, String repository, String tenantId)
+      throws IOException {
+    Preconditions.checkArgument(
+        buildMode == BuildMode.REMOTE_BUILD
+            || buildMode == BuildMode.DISTRIBUTED_BUILD_WITH_REMOTE_COORDINATOR,
+        "BuildMode [%s=%d] is currently not supported.",
+        buildMode.toString(),
+        buildMode.ordinal());
+    Preconditions.checkArgument(
+        numberOfMinions > 0,
+        "The number of minions must be greater than zero. Value [%d] found.",
+        numberOfMinions);
     // Tell server to create the build and get the build id.
-    CreateBuildRequest createTimeRequest = new CreateBuildRequest();
-    createTimeRequest.setCreateTimestampMillis(System.currentTimeMillis());
+    CreateBuildRequest createBuildRequest = new CreateBuildRequest();
+    createBuildRequest
+        .setCreateTimestampMillis(System.currentTimeMillis())
+        .setBuildMode(buildMode)
+        .setNumberOfMinions(numberOfMinions);
+
+    if (repository != null && repository.length() > 0) {
+      createBuildRequest.setRepository(repository);
+    }
+
+    if (tenantId != null && tenantId.length() > 0) {
+      createBuildRequest.setTenantId(tenantId);
+    }
+
     FrontendRequest request = new FrontendRequest();
     request.setType(FrontendRequestType.CREATE_BUILD);
-    request.setCreateBuildRequest(createTimeRequest);
+    request.setCreateBuildRequest(createBuildRequest);
     FrontendResponse response = makeRequestChecked(request);
 
     return response.getCreateBuildResponse().getBuildJob();
@@ -282,8 +375,7 @@ public class DistBuildService implements Closeable {
 
     Preconditions.checkState(response.isSetFetchBuildGraphResponse());
     Preconditions.checkState(response.getFetchBuildGraphResponse().isSetBuildGraph());
-    Preconditions.checkState(
-        response.getFetchBuildGraphResponse().getBuildGraph().length > 0);
+    Preconditions.checkState(response.getFetchBuildGraphResponse().getBuildGraph().length > 0);
 
     return BuildJobStateSerializer.deserialize(
         response.getFetchBuildGraphResponse().getBuildGraph());
@@ -331,7 +423,10 @@ public class DistBuildService implements Closeable {
     return frontendRequest;
   }
 
-  public void setBuckVersion(StampedeId id, BuckVersion buckVersion) throws IOException {
+  public void setBuckVersion(
+      StampedeId id, BuckVersion buckVersion, DistBuildClientStatsTracker distBuildClientStats)
+      throws IOException {
+    distBuildClientStats.startSetBuckVersionTimer();
     SetBuckVersionRequest setBuckVersionRequest = new SetBuckVersionRequest();
     setBuckVersionRequest.setStampedeId(id);
     setBuckVersionRequest.setBuckVersion(buckVersion);
@@ -339,12 +434,14 @@ public class DistBuildService implements Closeable {
     request.setType(FrontendRequestType.SET_BUCK_VERSION);
     request.setSetBuckVersionRequest(setBuckVersionRequest);
     makeRequestChecked(request);
+    distBuildClientStats.stopSetBuckVersionTimer();
   }
 
-  public void setBuckDotFiles(StampedeId id, List<PathInfo> dotFiles) throws IOException {
+  public void setBuckDotFiles(StampedeId id, List<PathInfo> dotFilesRelativePaths)
+      throws IOException {
     SetBuckDotFilePathsRequest storeBuckDotFilesRequest = new SetBuckDotFilePathsRequest();
     storeBuckDotFilesRequest.setStampedeId(id);
-    storeBuckDotFilesRequest.setDotFiles(dotFiles);
+    storeBuckDotFilesRequest.setDotFiles(dotFilesRelativePaths);
     FrontendRequest request = new FrontendRequest();
     request.setType(FrontendRequestType.SET_DOTFILE_PATHS);
     request.setSetBuckDotFilePathsRequest(storeBuckDotFilesRequest);
@@ -355,77 +452,84 @@ public class DistBuildService implements Closeable {
       final StampedeId id,
       final ProjectFilesystem filesystem,
       FileHashCache fileHashCache,
-      ListeningExecutorService executorService) throws IOException {
-    ListenableFuture<Pair<List<FileInfo>, List<PathInfo>>> filesFuture =
-        executorService.submit(() -> {
-          List<Path> buckDotFilesExceptConfig = new ArrayList<>();
-          for (Path path : filesystem.getDirectoryContents(filesystem.getRootPath())) {
-            String fileName = path.getFileName().toString();
-            if (!filesystem.isDirectory(path) &&
-                !filesystem.isSymLink(path) &&
-                fileName.startsWith(".") &&
-                fileName.contains("buck") &&
-                !fileName.startsWith(".buckconfig")) {
-              buckDotFilesExceptConfig.add(path);
-            }
-          }
+      DistBuildClientStatsTracker distBuildClientStats,
+      ListeningExecutorService executorService)
+      throws IOException {
+    distBuildClientStats.startUploadBuckDotFilesTimer();
+    ListenableFuture<List<Path>> pathsFuture =
+        executorService.submit(
+            () -> {
+              List<Path> buckDotFilesExceptConfig = new ArrayList<>();
+              for (Path path : filesystem.getDirectoryContents(filesystem.getRootPath())) {
+                String fileName = path.getFileName().toString();
+                if (!filesystem.isDirectory(path)
+                    && !filesystem.isSymLink(path)
+                    && fileName.startsWith(".")
+                    && fileName.contains("buck")
+                    && !fileName.startsWith(".buckconfig")) {
+                  buckDotFilesExceptConfig.add(path);
+                }
+              }
 
-          List<FileInfo> fileEntriesToUpload = new LinkedList<>();
-          List<PathInfo> pathEntriesToUpload = new LinkedList<>();
-          for (Path path : buckDotFilesExceptConfig) {
-            FileInfo fileInfoObject = new FileInfo();
-            fileInfoObject.setContent(filesystem.readFileIfItExists(path).get().getBytes());
-            fileInfoObject.setContentHash(fileHashCache.get(path.toAbsolutePath()).toString());
-            fileEntriesToUpload.add(fileInfoObject);
+              return buckDotFilesExceptConfig;
+            });
 
-            PathInfo pathInfoObject = new PathInfo();
-            pathInfoObject.setPath(path.toString());
-            pathInfoObject.setContentHash(fileHashCache.get(path.toAbsolutePath()).toString());
-            pathEntriesToUpload.add(pathInfoObject);
-          }
+    ListenableFuture<Void> setFilesFuture =
+        Futures.transformAsync(
+            pathsFuture,
+            paths -> {
+              List<PathInfo> relativePathEntries = new LinkedList<>();
+              for (Path path : paths) {
+                PathInfo pathInfoObject = new PathInfo();
+                pathInfoObject.setPath(path.toString());
+                pathInfoObject.setContentHash(fileHashCache.get(path.toAbsolutePath()).toString());
+                relativePathEntries.add(pathInfoObject);
+              }
 
-          return new Pair<>(
-              fileEntriesToUpload,
-              pathEntriesToUpload);
-        });
+              setBuckDotFiles(id, relativePathEntries);
+              return Futures.immediateFuture(null);
+            },
+            executorService);
 
-    ListenableFuture<Void> setFilesFuture = Futures.transformAsync(
-        filesFuture,
-        filesAndPaths -> {
-          setBuckDotFiles(id, filesAndPaths.getSecond());
-          return Futures.immediateFuture(null);
-        },
-        executorService);
+    ListenableFuture<?> uploadFilesFuture =
+        Futures.transformAsync(
+            pathsFuture,
+            paths -> {
+              List<PathInfo> absolutePathEntries = new LinkedList<>();
+              for (Path path : paths) {
+                PathInfo pathInfoObject = new PathInfo();
+                pathInfoObject.setPath(path.toAbsolutePath().toString());
+                pathInfoObject.setContentHash(fileHashCache.get(path.toAbsolutePath()).toString());
+                absolutePathEntries.add(pathInfoObject);
+              }
 
-    ListenableFuture<Void> uploadFilesFuture = Futures.transformAsync(
-        filesFuture,
-        filesAndPaths -> {
-          uploadMissingFilesFromList(filesAndPaths.getFirst());
-          return Futures.immediateFuture(null);
-        },
-        executorService);
+              return uploadMissingFilesAsync(absolutePathEntries, executorService);
+            },
+            executorService);
 
-    return Futures.transform(
-        Futures.allAsList(ImmutableList.of(setFilesFuture, uploadFilesFuture)),
-        input -> null);
+    ListenableFuture<Void> resultFuture =
+        Futures.transform(
+            Futures.allAsList(ImmutableList.of(setFilesFuture, uploadFilesFuture)), input -> null);
+
+    resultFuture.addListener(
+        () -> distBuildClientStats.stopUploadBuckDotFilesTimer(), executorService);
+
+    return resultFuture;
   }
 
   public void uploadBuildSlaveConsoleEvents(
-      StampedeId stampedeId,
-      RunId runId,
-      List<BuildSlaveConsoleEvent> events) throws IOException {
+      StampedeId stampedeId, RunId runId, List<BuildSlaveConsoleEvent> events) throws IOException {
     AppendBuildSlaveEventsRequest request = new AppendBuildSlaveEventsRequest();
     request.setStampedeId(stampedeId);
     request.setRunId(runId);
-    for (BuildSlaveConsoleEvent slaveEvent: events) {
+    for (BuildSlaveConsoleEvent slaveEvent : events) {
       BuildSlaveEvent buildSlaveEvent = new BuildSlaveEvent();
       buildSlaveEvent.setEventType(BuildSlaveEventType.CONSOLE_EVENT);
       buildSlaveEvent.setStampedeId(stampedeId);
       buildSlaveEvent.setRunId(runId);
       buildSlaveEvent.setConsoleEvent(slaveEvent);
-      request.addToEvents(ThriftUtil.serializeToByteBuffer(
-          PROTOCOL_FOR_CLIENT_ONLY_STRUCTS,
-          buildSlaveEvent));
+      request.addToEvents(
+          ThriftUtil.serializeToByteBuffer(PROTOCOL_FOR_CLIENT_ONLY_STRUCTS, buildSlaveEvent));
     }
 
     FrontendRequest frontendRequest = new FrontendRequest();
@@ -434,15 +538,12 @@ public class DistBuildService implements Closeable {
     makeRequestChecked(frontendRequest);
   }
 
-  public void updateBuildSlaveStatus(
-      StampedeId stampedeId,
-      RunId runId,
-      BuildSlaveStatus status) throws IOException {
+  public void updateBuildSlaveStatus(StampedeId stampedeId, RunId runId, BuildSlaveStatus status)
+      throws IOException {
     UpdateBuildSlaveStatusRequest request = new UpdateBuildSlaveStatusRequest();
     request.setStampedeId(stampedeId);
     request.setRunId(runId);
-    request.setBuildSlaveStatus(ThriftUtil.serialize(
-        PROTOCOL_FOR_CLIENT_ONLY_STRUCTS, status));
+    request.setBuildSlaveStatus(ThriftUtil.serialize(PROTOCOL_FOR_CLIENT_ONLY_STRUCTS, status));
 
     FrontendRequest frontendRequest = new FrontendRequest();
     frontendRequest.setType(FrontendRequestType.UPDATE_BUILD_SLAVE_STATUS);
@@ -451,9 +552,7 @@ public class DistBuildService implements Closeable {
   }
 
   public BuildSlaveEventsQuery createBuildSlaveEventsQuery(
-      StampedeId stampedeId,
-      RunId runId,
-      int firstEventToBeFetched) {
+      StampedeId stampedeId, RunId runId, int firstEventToBeFetched) {
     BuildSlaveEventsQuery query = new BuildSlaveEventsQuery();
     query.setStampedeId(stampedeId);
     query.setRunId(runId);
@@ -478,9 +577,10 @@ public class DistBuildService implements Closeable {
         response.getMultiGetBuildSlaveEventsResponse().getResponses()) {
       Preconditions.checkState(eventsRange.isSetSuccess());
       if (!eventsRange.isSuccess()) {
-        LOG.error(String.format(
-            "Error in BuildSlaveEventsRange received from MultiGetBuildSlaveEvents: [%s]",
-            eventsRange.getErrorMessage()));
+        LOG.error(
+            String.format(
+                "Error in BuildSlaveEventsRange received from MultiGetBuildSlaveEvents: [%s]",
+                eventsRange.getErrorMessage()));
         continue;
       }
 
@@ -488,9 +588,7 @@ public class DistBuildService implements Closeable {
       for (SequencedBuildSlaveEvent slaveEventWithSeqId : eventsRange.getEvents()) {
         BuildSlaveEvent event = new BuildSlaveEvent();
         ThriftUtil.deserialize(
-            PROTOCOL_FOR_CLIENT_ONLY_STRUCTS,
-            slaveEventWithSeqId.getEvent(),
-            event);
+            PROTOCOL_FOR_CLIENT_ONLY_STRUCTS, slaveEventWithSeqId.getEvent(), event);
         result.add(new Pair<>(slaveEventWithSeqId.getEventNumber(), event));
       }
     }
@@ -520,6 +618,59 @@ public class DistBuildService implements Closeable {
     return Optional.of(status);
   }
 
+  public void storeBuildSlaveFinishedStats(
+      StampedeId stampedeId, RunId runId, BuildSlaveFinishedStats status) throws IOException {
+    StoreBuildSlaveFinishedStatsRequest request = new StoreBuildSlaveFinishedStatsRequest();
+    request.setStampedeId(stampedeId);
+    request.setRunId(runId);
+    request.setBuildSlaveFinishedStats(
+        ThriftUtil.serialize(PROTOCOL_FOR_CLIENT_ONLY_STRUCTS, status));
+
+    FrontendRequest frontendRequest = new FrontendRequest();
+    frontendRequest.setType(FrontendRequestType.STORE_BUILD_SLAVE_FINISHED_STATS);
+    frontendRequest.setStoreBuildSlaveFinishedStatsRequest(request);
+    makeRequestChecked(frontendRequest);
+  }
+
+  public Optional<BuildSlaveFinishedStats> fetchBuildSlaveFinishedStats(
+      StampedeId stampedeId, RunId runId) throws IOException {
+    FetchBuildSlaveFinishedStatsRequest request = new FetchBuildSlaveFinishedStatsRequest();
+    request.setStampedeId(stampedeId);
+    request.setRunId(runId);
+    FrontendRequest frontendRequest = new FrontendRequest();
+    frontendRequest.setType(FrontendRequestType.FETCH_BUILD_SLAVE_FINISHED_STATS);
+    frontendRequest.setFetchBuildSlaveFinishedStatsRequest(request);
+    FrontendResponse response = makeRequestChecked(frontendRequest);
+
+    Preconditions.checkState(response.isSetFetchBuildSlaveFinishedStatsResponse());
+    if (!response.getFetchBuildSlaveFinishedStatsResponse().isSetBuildSlaveFinishedStats()) {
+      return Optional.empty();
+    }
+
+    BuildSlaveFinishedStats status = new BuildSlaveFinishedStats();
+    ThriftUtil.deserialize(
+        PROTOCOL_FOR_CLIENT_ONLY_STRUCTS,
+        response.getFetchBuildSlaveFinishedStatsResponse().getBuildSlaveFinishedStats(),
+        status);
+    return Optional.of(status);
+  }
+
+  public List<RuleKeyLogEntry> fetchRuleKeyLogs(Collection<String> ruleKeys) throws IOException {
+    FetchRuleKeyLogsRequest request = new FetchRuleKeyLogsRequest();
+    request.setRuleKeys(Lists.newArrayList(ruleKeys));
+
+    FrontendRequest frontendRequest = new FrontendRequest();
+    frontendRequest.setType(FrontendRequestType.FETCH_RULE_KEY_LOGS);
+    frontendRequest.setFetchRuleKeyLogsRequest(request);
+
+    FrontendResponse response = makeRequestChecked(frontendRequest);
+
+    Preconditions.checkState(response.isSetFetchRuleKeyLogsResponse());
+    Preconditions.checkState(response.getFetchRuleKeyLogsResponse().isSetRuleKeyLogs());
+
+    return response.getFetchRuleKeyLogsResponse().getRuleKeyLogs();
+  }
+
   @Override
   public void close() throws IOException {
     service.close();
@@ -529,10 +680,10 @@ public class DistBuildService implements Closeable {
     FrontendResponse response = service.makeRequest(request);
     Preconditions.checkState(response.isSetWasSuccessful());
     if (!response.wasSuccessful) {
-      throw new IOException(String.format(
-          "Stampede request of type [%s] failed with error message [%s].",
-          request.getType().toString(),
-          response.getErrorMessage()));
+      throw new IOException(
+          String.format(
+              "Stampede request of type [%s] failed with error message [%s].",
+              request.getType().toString(), response.getErrorMessage()));
     }
     Preconditions.checkState(request.isSetType());
     Preconditions.checkState(request.getType().equals(response.getType()));

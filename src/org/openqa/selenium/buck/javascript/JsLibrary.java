@@ -16,8 +16,11 @@
 
 package org.openqa.selenium.buck.javascript;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
@@ -36,7 +39,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
-
 import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Path;
@@ -44,7 +46,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
-public class JsLibrary extends AbstractBuildRule implements
+public class JsLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps implements
     InitializableFromDisk<JavascriptDependencies>, HasJavascriptDependencies {
 
   private final Path output;
@@ -56,11 +58,12 @@ public class JsLibrary extends AbstractBuildRule implements
   private final BuildOutputInitializer<JavascriptDependencies> buildOutputInitializer;
 
   public JsLibrary(
+      BuildTarget target,
+      ProjectFilesystem filesystem,
       BuildRuleParams params,
-      ImmutableSortedSet<BuildRule> deps,
       ImmutableSortedSet<SourcePath> srcs) {
-    super(params);
-    this.deps = Preconditions.checkNotNull(deps);
+    super(target, filesystem, params);
+    this.deps = ImmutableSortedSet.copyOf(getDeclaredDeps());
     this.srcs = Preconditions.checkNotNull(srcs);
 
     this.output = BuildTargets.getGenPath(
@@ -116,7 +119,11 @@ public class JsLibrary extends AbstractBuildRule implements
     smidgen.writeTo(writer);
 
     ImmutableList.Builder<Step> builder = ImmutableList.builder();
-    builder.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
+    builder.add(MkdirStep.of(
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(),
+            getProjectFilesystem(),
+            output.getParent())));
     builder.add(new WriteFileStep(getProjectFilesystem(), writer.toString(), output, false));
 
     buildableContext.recordArtifact(output);

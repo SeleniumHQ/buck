@@ -16,12 +16,16 @@
 
 package com.facebook.buck.jvm.kotlin;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.HasSources;
 import com.facebook.buck.jvm.java.JarShape;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
+import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.MavenUberJar;
 import com.facebook.buck.jvm.java.SourceJar;
 import com.facebook.buck.model.BuildTarget;
@@ -35,26 +39,32 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.MoreCollectors;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
+import org.immutables.value.Value;
 import java.util.Collection;
 
 
-public class KotlinLibraryDescription implements
-    Description<KotlinLibraryDescription.Arg>, Flavored {
+public class KotlinLibraryDescription
+    implements Description<KotlinLibraryDescriptionArg>, Flavored {
 
   private final KotlinBuckConfig kotlinBuckConfig;
+  private final JavaBuckConfig javaBuckConfig;
+  private final JavacOptions defaultOptions;
 
-  public static final ImmutableSet<Flavor> SUPPORTED_FLAVORS = ImmutableSet.of(
-      JavaLibrary.SRC_JAR,
-      JavaLibrary.MAVEN_JAR);
+  public static final ImmutableSet<Flavor> SUPPORTED_FLAVORS =
+      ImmutableSet.of(JavaLibrary.SRC_JAR, JavaLibrary.MAVEN_JAR);
 
-  public KotlinLibraryDescription(KotlinBuckConfig kotlinBuckConfig) {
+  public KotlinLibraryDescription(
+      KotlinBuckConfig kotlinBuckConfig,
+      JavaBuckConfig javaBuckConfig,
+      JavacOptions defaultOptions) {
     this.kotlinBuckConfig = kotlinBuckConfig;
+    this.javaBuckConfig = javaBuckConfig;
+    this.defaultOptions = defaultOptions;
   }
 
   @Override
@@ -63,39 +73,44 @@ public class KotlinLibraryDescription implements
   }
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<KotlinLibraryDescriptionArg> getConstructorArgType() {
+    return KotlinLibraryDescriptionArg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      KotlinLibraryDescriptionArg args)
+      throws NoSuchBuildTargetException {
 
-    BuildTarget target = params.getBuildTarget();
+    ImmutableSortedSet<Flavor> flavors = buildTarget.getFlavors();
 
-    ImmutableSortedSet<Flavor> flavors = target.getFlavors();
-
+    BuildTarget buildTargetWithMavenFlavor = null;
     BuildRuleParams paramsWithMavenFlavor = null;
     if (flavors.contains(JavaLibrary.MAVEN_JAR)) {
+      buildTargetWithMavenFlavor = buildTarget;
       paramsWithMavenFlavor = params;
 
       // Maven rules will depend upon their vanilla versions, so the latter have to be constructed
       // without the maven flavor to prevent output-path conflict
-      params = params.withoutFlavor(JavaLibrary.MAVEN_JAR);
+      buildTarget = buildTarget.withoutFlavors(JavaLibrary.MAVEN_JAR);
     }
 
     if (flavors.contains(JavaLibrary.SRC_JAR)) {
       JarShape shape = flavors.contains(JavaLibrary.MAVEN_JAR) ? JarShape.MAVEN : JarShape.SINGLE;
 
-      BuildTarget unflavored = BuildTarget.of(target.getUnflavoredBuildTarget());
+      BuildTarget unflavored = BuildTarget.of(buildTarget.getUnflavoredBuildTarget());
       BuildRule baseLibrary = resolver.requireRule(unflavored);
       JarShape.Summary summary = shape.gatherDeps(baseLibrary);
 
       return new SourceJar(
+          buildTarget,
+          projectFilesystem,
           params,
           /* passed in, but ignored */ "8",
           summary.getPackagedRules().stream()
@@ -103,21 +118,29 @@ public class KotlinLibraryDescription implements
               .map(rule -> ((HasSources) rule).getSources())
               .flatMap(Collection::stream)
               .collect(MoreCollectors.toImmutableSet()),
-          args.mavenCoords,
-          args.mavenPomTemplate,
+          args.getMavenCoords(),
+          args.getMavenPomTemplate(),
           summary.getMavenDeps());
     }
+    JavacOptions javacOptions =
+        JavacOptionsFactory.create(defaultOptions, buildTarget, projectFilesystem, resolver, args);
 
-
-    DefaultKotlinLibraryBuilder defaultKotlinLibraryBuilder = new DefaultKotlinLibraryBuilder(
-        params,
-        resolver,
-        kotlinBuckConfig)
-        .setArgs(args);
+    KotlinLibraryBuilder defaultKotlinLibraryBuilder =
+        new KotlinLibraryBuilder(
+                targetGraph,
+                buildTarget,
+                projectFilesystem,
+                params,
+                resolver,
+                cellRoots,
+                kotlinBuckConfig,
+                javaBuckConfig)
+            .setJavacOptions(javacOptions)
+            .setArgs(args);
 
     // We know that the flavour we're being asked to create is valid, since the check is done when
     // creating the action graph from the target graph.
-    if (HasJavaAbi.isAbiTarget(target)) {
+    if (HasJavaAbi.isAbiTarget(buildTarget)) {
       return defaultKotlinLibraryBuilder.buildAbi();
     }
 
@@ -126,17 +149,22 @@ public class KotlinLibraryDescription implements
     if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
       return defaultKotlinLibrary;
     } else {
+      resolver.addToIndex(defaultKotlinLibrary);
       return MavenUberJar.create(
           defaultKotlinLibrary,
+          buildTargetWithMavenFlavor,
+          projectFilesystem,
           Preconditions.checkNotNull(paramsWithMavenFlavor),
-          args.mavenCoords,
-          args.mavenPomTemplate);
+          args.getMavenCoords(),
+          args.getMavenPomTemplate());
     }
   }
 
-
-  @SuppressFieldNotInitialized
-  public static class Arg extends JavaLibraryDescription.Arg {
-    public ImmutableList<String> extraKotlincArguments = ImmutableList.of();
+  public interface CoreArg extends JavaLibraryDescription.CoreArg {
+    ImmutableList<String> getExtraKotlincArguments();
   }
+
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractKotlinLibraryDescriptionArg extends CoreArg {}
 }

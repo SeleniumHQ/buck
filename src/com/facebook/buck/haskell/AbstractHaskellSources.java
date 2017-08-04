@@ -17,7 +17,7 @@
 package com.facebook.buck.haskell;
 
 import com.facebook.buck.cxx.CxxGenruleDescription;
-import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.platform.CxxPlatform;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
@@ -32,11 +32,9 @@ import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-
-import org.immutables.value.Value;
-
 import java.io.File;
 import java.util.Map;
+import org.immutables.value.Value;
 
 @Value.Immutable
 @BuckStyleImmutable
@@ -56,16 +54,11 @@ abstract class AbstractHaskellSources implements RuleKeyAppendable {
       throws NoSuchBuildTargetException {
     HaskellSources.Builder builder = HaskellSources.builder();
     for (Map.Entry<String, SourcePath> ent :
-         sources.toNameMap(target, pathResolver, parameter).entrySet()) {
+        sources.toNameMap(target, pathResolver, parameter).entrySet()) {
       builder.putModuleMap(
-          ent.getKey()
-              .substring(0, ent.getKey().lastIndexOf('.'))
-              .replace(File.separatorChar, '.'),
+          ent.getKey().substring(0, ent.getKey().lastIndexOf('.')).replace(File.separatorChar, '.'),
           CxxGenruleDescription.fixupSourcePath(
-              ruleResolver,
-              ruleFinder,
-              cxxPlatform,
-              ent.getValue()));
+              ruleResolver, ruleFinder, cxxPlatform, ent.getValue()));
     }
     return builder.build();
   }
@@ -86,5 +79,4 @@ abstract class AbstractHaskellSources implements RuleKeyAppendable {
   public Iterable<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
     return ruleFinder.filterBuildRuleInputs(getSourcePaths());
   }
-
 }

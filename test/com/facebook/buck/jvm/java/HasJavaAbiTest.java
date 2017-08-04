@@ -20,7 +20,8 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-
+import com.facebook.buck.rules.SourcePath;
+import com.google.common.collect.ImmutableSortedSet;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -40,6 +41,16 @@ public class HasJavaAbiTest {
   }
 
   private HasJavaAbi getDummyHasJavaAbi(BuildTarget target) {
-    return () -> target;
+    return new HasJavaAbi() {
+      @Override
+      public BuildTarget getBuildTarget() {
+        return target;
+      }
+
+      @Override
+      public ImmutableSortedSet<SourcePath> getJarContents() {
+        throw new UnsupportedOperationException();
+      }
+    };
   }
 }

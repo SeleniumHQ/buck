@@ -25,43 +25,46 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.shell.AbstractGenruleStep;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeFileHashCache;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.hash.HashCode;
-
+import java.nio.file.Paths;
 import org.junit.Before;
 import org.junit.Test;
-
-import java.nio.file.Paths;
 
 public class ExternallyBuiltApplePackageTest {
 
   private String bundleLocation = "Fake/Bundle/Location";
-  private BuildTarget buildTarget = BuildTarget.builder(Paths.get("."), "//foo", "package").build();
-  private BuildRuleParams params = new FakeBuildRuleParamsBuilder(buildTarget).build();
-  private BuildRuleResolver resolver = new BuildRuleResolver(
-      TargetGraph.EMPTY,
-      new DefaultTargetNodeToBuildRuleTransformer());
+  private BuildTarget buildTarget =
+      BuildTargetFactory.newInstance(Paths.get("."), "//foo", "package");
+  private ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+  private BuildRuleParams params = TestBuildRuleParams.create();
+  private BuildRuleResolver resolver =
+      new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
   private ApplePackageConfigAndPlatformInfo config =
       ApplePackageConfigAndPlatformInfo.of(
           ApplePackageConfig.of("echo $SDKROOT $OUT", "api"),
@@ -73,61 +76,72 @@ public class ExternallyBuiltApplePackageTest {
     assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
   }
 
-
   @Test
   public void sdkrootEnvironmentVariableIsSet() {
     SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(this.resolver));
-    ExternallyBuiltApplePackage rule = new ExternallyBuiltApplePackage(
-        params,
-        config,
-        new FakeSourcePath(bundleLocation),
-        true);
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(this.resolver));
+    ExternallyBuiltApplePackage rule =
+        new ExternallyBuiltApplePackage(
+            buildTarget,
+            projectFilesystem,
+            params,
+            config,
+            new FakeSourcePath(bundleLocation),
+            true);
     resolver.addToIndex(rule);
-    ShellStep step = Iterables.getOnlyElement(
-        Iterables.filter(
-            rule.getBuildSteps(
-                FakeBuildContext.withSourcePathResolver(pathResolver), new FakeBuildableContext()),
-            AbstractGenruleStep.class));
+    ShellStep step =
+        Iterables.getOnlyElement(
+            Iterables.filter(
+                rule.getBuildSteps(
+                    FakeBuildContext.withSourcePathResolver(pathResolver),
+                    new FakeBuildableContext()),
+                AbstractGenruleStep.class));
     assertThat(
         step.getEnvironmentVariables(TestExecutionContext.newInstance()),
         hasEntry(
-            "SDKROOT",
-            DEFAULT_IPHONEOS_I386_PLATFORM.getAppleSdkPaths().getSdkPath().toString()));
+            "SDKROOT", DEFAULT_IPHONEOS_I386_PLATFORM.getAppleSdkPaths().getSdkPath().toString()));
   }
 
   @Test
   public void outputContainsCorrectExtension() {
     SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(this.resolver));
-    ExternallyBuiltApplePackage rule = new ExternallyBuiltApplePackage(
-        params,
-        config,
-        new FakeSourcePath("Fake/Bundle/Location"),
-        true);
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(this.resolver));
+    ExternallyBuiltApplePackage rule =
+        new ExternallyBuiltApplePackage(
+            buildTarget,
+            projectFilesystem,
+            params,
+            config,
+            new FakeSourcePath("Fake/Bundle/Location"),
+            true);
     resolver.addToIndex(rule);
     assertThat(
-        pathResolver.getRelativePath(
-            Preconditions.checkNotNull(rule.getSourcePathToOutput())).toString(),
+        pathResolver
+            .getRelativePath(Preconditions.checkNotNull(rule.getSourcePathToOutput()))
+            .toString(),
         endsWith(".api"));
   }
 
   @Test
   public void commandContainsCorrectCommand() {
     SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(this.resolver));
-    ExternallyBuiltApplePackage rule = new ExternallyBuiltApplePackage(
-        params,
-        config,
-        new FakeSourcePath("Fake/Bundle/Location"),
-        true);
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(this.resolver));
+    ExternallyBuiltApplePackage rule =
+        new ExternallyBuiltApplePackage(
+            buildTarget,
+            projectFilesystem,
+            params,
+            config,
+            new FakeSourcePath("Fake/Bundle/Location"),
+            true);
     resolver.addToIndex(rule);
-    AbstractGenruleStep step = Iterables.getOnlyElement(
-        Iterables.filter(
-            rule.getBuildSteps(
-                FakeBuildContext.withSourcePathResolver(pathResolver),
-                new FakeBuildableContext()),
-            AbstractGenruleStep.class));
+    AbstractGenruleStep step =
+        Iterables.getOnlyElement(
+            Iterables.filter(
+                rule.getBuildSteps(
+                    FakeBuildContext.withSourcePathResolver(pathResolver),
+                    new FakeBuildableContext()),
+                AbstractGenruleStep.class));
     assertThat(
         step.getScriptFileContents(TestExecutionContext.newInstance()),
         is(equalTo("echo $SDKROOT $OUT")));
@@ -136,11 +150,14 @@ public class ExternallyBuiltApplePackageTest {
   @Test
   public void platformVersionAffectsRuleKey() {
     Function<String, ExternallyBuiltApplePackage> packageWithVersion =
-        input -> new ExternallyBuiltApplePackage(
-            params,
-            config.withPlatform(config.getPlatform().withBuildVersion(input)),
-            new FakeSourcePath("Fake/Bundle/Location"),
-            true);
+        input ->
+            new ExternallyBuiltApplePackage(
+                buildTarget,
+                projectFilesystem,
+                params,
+                config.withPlatform(config.getPlatform().withBuildVersion(input)),
+                new FakeSourcePath("Fake/Bundle/Location"),
+                true);
     assertNotEquals(
         newRuleKeyFactory().build(packageWithVersion.apply("real")),
         newRuleKeyFactory().build(packageWithVersion.apply("fake")));
@@ -149,13 +166,17 @@ public class ExternallyBuiltApplePackageTest {
   @Test
   public void sdkVersionAffectsRuleKey() {
     Function<String, ExternallyBuiltApplePackage> packageWithSdkVersion =
-        input -> new ExternallyBuiltApplePackage(
-            params,
-            config.withPlatform(
-                config.getPlatform().withAppleSdk(
-                    config.getPlatform().getAppleSdk().withVersion(input))),
-            new FakeSourcePath("Fake/Bundle/Location"),
-            true);
+        input ->
+            new ExternallyBuiltApplePackage(
+                buildTarget,
+                projectFilesystem,
+                params,
+                config.withPlatform(
+                    config
+                        .getPlatform()
+                        .withAppleSdk(config.getPlatform().getAppleSdk().withVersion(input))),
+                new FakeSourcePath("Fake/Bundle/Location"),
+                true);
     assertNotEquals(
         newRuleKeyFactory().build(packageWithSdkVersion.apply("real")),
         newRuleKeyFactory().build(packageWithSdkVersion.apply("fake")));
@@ -167,7 +188,7 @@ public class ExternallyBuiltApplePackageTest {
         0,
         new FakeFileHashCache(
             ImmutableMap.of(Paths.get(bundleLocation).toAbsolutePath(), HashCode.fromInt(5))),
-        new SourcePathResolver(ruleFinder),
+        DefaultSourcePathResolver.from(ruleFinder),
         ruleFinder);
   }
 }

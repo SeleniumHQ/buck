@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright 2017-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -16,84 +16,16 @@
 
 package com.facebook.buck.rules.keys;
 
-/**
- * A wrapper of {@link RuleKeyHasher} that provides scoped hashing facilities.
- *
- * Important: Container, wrapper and key signatures only get hashed if their scope was non-empty.
- * I.e. if at least one thing gets hashed under their scope. This is to support rule key builders
- * that ignore some fields.
- */
-public class RuleKeyScopedHasher<HASH> {
-  private final CountingRuleKeyHasher<HASH> hasher;
+import com.facebook.buck.util.Scope;
 
-  public RuleKeyScopedHasher(CountingRuleKeyHasher<HASH> hasher) {
-    this.hasher = hasher;
-  }
+public interface RuleKeyScopedHasher {
+  Scope keyScope(String key);
 
-  public CountingRuleKeyHasher<HASH> getHasher() {
-    return hasher;
-  }
+  Scope wrapperScope(RuleKeyHasher.Wrapper wrapper);
 
-  /** Hashes the key iff non-empty (i.e. if anything gets hashed during its scope). */
-  public Scope keyScope(final String key) {
-    final long hasherCount = hasher.getCount();
-    return () -> {
-      if (hasher.getCount() > hasherCount) {
-        hasher.putKey(key);
-      }
-    };
-  }
+  ContainerScope containerScope(RuleKeyHasher.Container container);
 
-  /** Hashes the wrapper iff non-empty (i.e. if any element gets hashed during its scope). */
-  public Scope wrapperScope(final RuleKeyHasher.Wrapper wrapper) {
-    final long hasherCount = hasher.getCount();
-    return () -> {
-      if (hasher.getCount() > hasherCount) {
-        hasher.putWrapper(wrapper);
-      }
-    };
-  }
-
-  /**
-   * Hashes the container iff non-empty (i.e. if any element gets hashed during its scope).
-   *
-   * Note that an element scope needs to be created for each element!
-   */
-  public ContainerScope containerScope(final RuleKeyHasher.Container container) {
-    return new ContainerScope(hasher, container);
-  }
-
-  public static class ContainerScope implements AutoCloseable {
-    private final CountingRuleKeyHasher<?> hasher;
-    private final RuleKeyHasher.Container container;
-    private int elementCount = 0;
-
-    private ContainerScope(CountingRuleKeyHasher<?> hasher, RuleKeyHasher.Container container) {
-      this.hasher = hasher;
-      this.container = container;
-    }
-
-    /** Increases element count if anything gets hashed during the element scope. */
-    public Scope elementScope() {
-      final long hasherCount = hasher.getCount();
-      return () -> {
-        if (hasher.getCount() > hasherCount) {
-          elementCount++;
-        }
-      };
-    }
-
-    /** Hashes the container iff non-empty (i.e. if any element gets hashed during this scope). */
-    @Override
-    public void close() {
-      if (elementCount > 0) {
-        hasher.putContainer(container, elementCount);
-      }
-    }
-  }
-
-  public interface Scope extends AutoCloseable {
-    @Override
-    void close();
+  interface ContainerScope extends Scope {
+    Scope elementScope();
   }
 }

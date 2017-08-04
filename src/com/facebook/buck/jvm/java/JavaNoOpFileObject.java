@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.zip.JarBuilder;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -25,8 +26,8 @@ import java.io.Writer;
 import java.net.URI;
 
 /**
- * An {@link JarFileObject} implementation that represents a {@link javax.tools.FileObject}
- * that has no operations and does not write the contents to any form of output.
+ * An {@link JarFileObject} implementation that represents a {@link javax.tools.FileObject} that has
+ * no operations and does not write the contents to any form of output.
  */
 public class JavaNoOpFileObject extends JarFileObject {
 
@@ -64,4 +65,7 @@ public class JavaNoOpFileObject extends JarFileObject {
   public Writer openWriter() throws IOException {
     return new OutputStreamWriter(openOutputStream());
   }
+
+  @Override
+  public void writeToJar(JarBuilder jarBuilder, String owner) {}
 }

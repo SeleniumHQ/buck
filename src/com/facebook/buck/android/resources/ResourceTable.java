@@ -16,23 +16,24 @@
 
 package com.facebook.buck.android.resources;
 
-
 import com.google.common.base.Preconditions;
-
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Maps;
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
+import java.util.Comparator;
+import java.util.Map;
+import java.util.stream.IntStream;
 
 /**
  * A ResourceTable is the top-level representation of resources.arsc. It consists of a header:
- *   ResTable_header
- *       u32 chunk_type
- *       u32 header_size
- *       u32 chunk_size
- *   u32 package_count
+ * ResTable_header u32 chunk_type u32 header_size u32 chunk_size u32 package_count
  *
- * The header is followed by a StringPool and then package_count packages.
+ * <p>The header is followed by a StringPool and then package_count packages.
  *
- * In practice, aapt always generates .arsc files with package_count == 1.
+ * <p>In practice, aapt always generates .arsc files with package_count == 1.
  */
 public class ResourceTable extends ResChunk {
   public static final int HEADER_SIZE = 12;
@@ -40,9 +41,7 @@ public class ResourceTable extends ResChunk {
   private final StringPool strings;
   private final ResTablePackage resPackage;
 
-  public ResourceTable(
-      StringPool strings,
-      ResTablePackage resPackage) {
+  public ResourceTable(StringPool strings, ResTablePackage resPackage) {
     super(
         CHUNK_RESOURCE_TABLE,
         HEADER_SIZE,
@@ -62,8 +61,8 @@ public class ResourceTable extends ResChunk {
     Preconditions.checkState(packageCount == 1);
 
     StringPool strings = StringPool.get(slice(buf, buf.position()));
-    ResTablePackage resPackage = ResTablePackage.get(
-        slice(buf, HEADER_SIZE + strings.getChunkSize()));
+    ResTablePackage resPackage =
+        ResTablePackage.get(slice(buf, HEADER_SIZE + strings.getChunkSize()));
 
     Preconditions.checkState(
         chunkSize == HEADER_SIZE + strings.getChunkSize() + resPackage.getChunkSize());
@@ -79,6 +78,35 @@ public class ResourceTable extends ResChunk {
     strings.put(buf);
     Preconditions.checkState(buf.position() == HEADER_SIZE + strings.getChunkSize());
     resPackage.put(buf);
+  }
+
+  public void reassignIds(ReferenceMapper refMapping) {
+    resPackage.reassignIds(refMapping);
+  }
+
+  public static ResourceTable slice(ResourceTable table, Map<Integer, Integer> countsToExtract) {
+    ResTablePackage newPackage = ResTablePackage.slice(table.resPackage, countsToExtract);
+
+    StringPool strings = table.strings;
+    // Figure out what strings are used by the retained references.
+    ImmutableSortedSet.Builder<Integer> stringRefs =
+        ImmutableSortedSet.orderedBy(
+            Comparator.comparing(strings::getString).thenComparingInt(i -> i));
+    newPackage.visitStringReferences(stringRefs::add);
+    ImmutableList<Integer> stringsToExtract = stringRefs.build().asList();
+    ImmutableMap<Integer, Integer> stringMapping =
+        Maps.uniqueIndex(
+            IntStream.range(0, stringsToExtract.size())::iterator, stringsToExtract::get);
+
+    // Extract a StringPool that contains just the strings used by the new package.
+    // This drops styles.
+    StringPool newStrings =
+        StringPool.create(stringsToExtract.stream().map(strings::getString)::iterator);
+
+    // Adjust the string references.
+    newPackage.transformStringReferences(stringMapping::get);
+
+    return new ResourceTable(newStrings, newPackage);
   }
 
   public void dump(PrintStream out) {

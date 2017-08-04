@@ -19,15 +19,17 @@ package org.openqa.selenium.buck.javascript;
 
 import static java.lang.Boolean.FALSE;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -35,15 +37,15 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSortedSet;
-
+import org.immutables.value.Value;
 import java.util.Optional;
 
 public class JsFragmentDescription implements
-    Description<JsFragmentDescription.Arg>,
-    ImplicitDepsInferringDescription<JsFragmentDescription.Arg> {
+    Description<JsFragmentArg>,
+    ImplicitDepsInferringDescription<JsFragmentArg> {
 
   private final JavascriptConfig config;
 
@@ -52,50 +54,58 @@ public class JsFragmentDescription implements
   }
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<JsFragmentArg> getConstructorArgType() {
+    return JsFragmentArg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      JsFragmentArg args) throws NoSuchBuildTargetException {
     SourcePathRuleFinder finder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(finder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(finder);
+
     return new JsFragment(
+        buildTarget,
+        projectFilesystem,
         params,
-        config.getClosureCompiler(args.compiler, pathResolver, finder),
+        config.getClosureCompiler(args.getCompiler(), pathResolver, finder),
         params.getBuildDeps(),
-        args.module,
-        args.function,
-        args.defines,
-        args.prettyPrint.orElse(FALSE));
+        args.getModule(),
+        args.getFunction(),
+        args.getDefines(),
+        args.getPrettyPrint().orElse(FALSE));
   }
 
   @Override
   public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      JsFragmentDescription.Arg constructorArg,
+      JsFragmentArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     extraDepsBuilder.addAll(
-        RichStream.of(config.getClosureCompilerSourcePath(constructorArg.compiler))
+        RichStream.of(config.getClosureCompilerSourcePath(constructorArg.getCompiler()))
             .filter(BuildTargetSourcePath.class)
             .map(BuildTargetSourcePath::getTarget)
             .collect(MoreCollectors.toImmutableList()));
   }
 
-  public static class Arg extends AbstractDescriptionArg {
-    public String function;
-    public String module;
-    public Optional<Boolean> prettyPrint;
-    public ImmutableList<String> defines = ImmutableList.of();
-    public Optional<SourcePath> compiler;
-
-    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+  @BuckStyleImmutable
+  @Value.Immutable
+  public interface AbstractJsFragmentArg extends HasDeclaredDeps {
+    String getFunction();
+    String getModule();
+    Optional<Boolean> getPrettyPrint();
+    @Value.Default
+    default ImmutableList<String> getDefines() {
+      return ImmutableList.of();
+    }
+    Optional<SourcePath> getCompiler();
   }
 }

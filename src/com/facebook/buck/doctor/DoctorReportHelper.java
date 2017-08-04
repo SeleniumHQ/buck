@@ -16,17 +16,16 @@
 
 package com.facebook.buck.doctor;
 
+import com.facebook.buck.doctor.config.BuildLogEntry;
 import com.facebook.buck.doctor.config.DoctorConfig;
 import com.facebook.buck.doctor.config.DoctorEndpointRequest;
 import com.facebook.buck.doctor.config.DoctorEndpointResponse;
+import com.facebook.buck.doctor.config.DoctorIssueCategory;
+import com.facebook.buck.doctor.config.DoctorProtocolVersion;
 import com.facebook.buck.doctor.config.DoctorSuggestion;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.Pair;
-import com.facebook.buck.rage.BuildLogEntry;
-import com.facebook.buck.rage.DefectSubmitResult;
-import com.facebook.buck.rage.RageConfig;
-import com.facebook.buck.rage.UserInput;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
 import com.facebook.buck.util.ObjectMappers;
@@ -36,17 +35,15 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Ordering;
 import com.google.common.io.Files;
-
 import java.io.IOException;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.TimeUnit;
-
+import java.util.stream.Collectors;
 import okhttp3.FormBody;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
@@ -57,8 +54,10 @@ import okhttp3.Response;
 public class DoctorReportHelper {
 
   private static final Logger LOG = Logger.get(DoctorReportHelper.class);
-  private static final String WARNING_FILE_TEMPLATE = "Command %s does not contain a %s. Some " +
-      "information will not be available";
+
+  private static final int ARGS_MAX_CHARS = 60;
+  private static final String WARNING_FILE_TEMPLATE =
+      "Command %s does not contain a %s. Some " + "information will not be available";
   private static final String DECODE_FAIL_TEMPLATE = "Decoding remote response failed. Reason: %s";
 
   public static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
@@ -69,10 +68,7 @@ public class DoctorReportHelper {
   private DoctorConfig doctorConfig;
 
   public DoctorReportHelper(
-      ProjectFilesystem filesystem,
-      UserInput input,
-      Console console,
-      DoctorConfig doctorConfig) {
+      ProjectFilesystem filesystem, UserInput input, Console console, DoctorConfig doctorConfig) {
     this.filesystem = filesystem;
     this.input = input;
     this.console = console;
@@ -84,48 +80,44 @@ public class DoctorReportHelper {
       return Optional.empty();
     }
 
-    // Remove commands with unknown args or invocations of buck rage.
-    buildLogs.removeIf(
-        entry -> !(entry.getCommandArgs().isPresent() &&
-            !entry.getCommandArgs().get().matches("rage|doctor|server"))
-    );
-
-    if (buildLogs.isEmpty()) {
-      return Optional.empty();
-    }
-
-    // Sort the remaining logs based on time, reverse order.
-    Collections.sort(
-        buildLogs,
-        Ordering.natural().onResultOf(BuildLogEntry::getLastModifiedTime).reverse());
-
     return input.selectOne(
         "Which buck invocation would you like to report?",
         buildLogs,
         entry -> {
           Pair<Double, SizeUnit> humanReadableSize =
               SizeUnit.getHumanReadableSize(entry.getSize(), SizeUnit.BYTES);
+          String cmdArgs = entry.getCommandArgs().orElse("unknown command");
+          cmdArgs = cmdArgs.substring(0, Math.min(cmdArgs.length(), ARGS_MAX_CHARS));
 
           return String.format(
               "\t%s\tbuck [%s] %s (%.2f %s)",
               entry.getLastModifiedTime(),
-              entry.getCommandArgs().orElse("unknown command"),
+              cmdArgs,
               prettyPrintExitCode(entry.getExitCode()),
               humanReadableSize.getFirst(),
               humanReadableSize.getSecond().getAbbreviation());
         });
   }
 
+  public Optional<String> promptForIssue() throws IOException {
+    return input.selectOne(
+        "What is the category of the issue?",
+        Arrays.stream(DoctorIssueCategory.values())
+            .map(DoctorIssueCategory::getName)
+            .collect(Collectors.toList()),
+        issue -> String.format("%s", issue));
+  }
+
   public DoctorEndpointRequest generateEndpointRequest(
-      BuildLogEntry entry,
-      DefectSubmitResult rageResult)
-      throws IOException {
+      BuildLogEntry entry, DefectSubmitResult reportResult) throws IOException {
     Optional<String> machineLog;
 
     if (entry.getMachineReadableLogFile().isPresent()) {
-      machineLog = Optional.of(Files.toString(
-          filesystem.resolve(entry.getMachineReadableLogFile().get()).toFile(),
-          Charsets.UTF_8));
+      machineLog =
+          Optional.of(
+              Files.toString(
+                  filesystem.resolve(entry.getMachineReadableLogFile().get()).toFile(),
+                  Charsets.UTF_8));
     } else {
       LOG.warn(String.format(WARNING_FILE_TEMPLATE, entry.toString(), "machine readable log"));
       machineLog = Optional.empty();
@@ -135,16 +127,16 @@ public class DoctorReportHelper {
         entry.getBuildId(),
         entry.getRelativePath().toString(),
         machineLog,
-        rageResult.getReportSubmitMessage(),
-        rageResult.getReportSubmitLocation());
+        reportResult.getReportSubmitMessage(),
+        reportResult.getReportSubmitLocation());
   }
 
   public DoctorEndpointResponse uploadRequest(DoctorEndpointRequest request) {
     if (!doctorConfig.getEndpointUrl().isPresent()) {
-      String errorMsg = String.format(
-          "Doctor endpoint URL is not set. Please set [%s] %s on your .buckconfig",
-          DoctorConfig.DOCTOR_SECTION,
-          DoctorConfig.URL_FIELD);
+      String errorMsg =
+          String.format(
+              "Doctor endpoint URL is not set. Please set [%s] %s on your .buckconfig",
+              DoctorConfig.DOCTOR_SECTION, DoctorConfig.ENDPOINT_URL_FIELD);
       return createErrorDoctorEndpointResponse(errorMsg);
     }
 
@@ -152,20 +144,21 @@ public class DoctorReportHelper {
     try {
       requestJson = ObjectMappers.WRITER.writeValueAsBytes(request);
     } catch (JsonProcessingException e) {
-      return createErrorDoctorEndpointResponse("Failed to encode request to JSON. " +
-          "Reason: " + e.getMessage());
+      return createErrorDoctorEndpointResponse(
+          "Failed to encode request to JSON. " + "Reason: " + e.getMessage());
     }
 
-    OkHttpClient httpClient = new OkHttpClient.Builder()
-        .connectTimeout(doctorConfig.getHttpTimeoutMs(), TimeUnit.MILLISECONDS)
-        .readTimeout(doctorConfig.getHttpTimeoutMs(), TimeUnit.MILLISECONDS)
-        .writeTimeout(doctorConfig.getHttpTimeoutMs(), TimeUnit.MILLISECONDS)
-        .build();
+    OkHttpClient httpClient =
+        new OkHttpClient.Builder()
+            .connectTimeout(doctorConfig.getEndpointTimeoutMs(), TimeUnit.MILLISECONDS)
+            .readTimeout(doctorConfig.getEndpointTimeoutMs(), TimeUnit.MILLISECONDS)
+            .writeTimeout(doctorConfig.getEndpointTimeoutMs(), TimeUnit.MILLISECONDS)
+            .build();
 
     Response httpResponse;
     try {
       RequestBody requestBody;
-      ImmutableMap<String, String> extraArgs = doctorConfig.getExtraRequestArgs();
+      ImmutableMap<String, String> extraArgs = doctorConfig.getEndpointExtraRequestArgs();
       if (extraArgs.isEmpty()) {
         requestBody = RequestBody.create(JSON, requestJson);
       } else {
@@ -177,15 +170,15 @@ public class DoctorReportHelper {
         requestBody = formBody.build();
       }
 
-      Request httpRequest = new Request.Builder()
-          .url(doctorConfig.getEndpointUrl().get())
-          .post(requestBody)
-          .build();
+      Request httpRequest =
+          new Request.Builder().url(doctorConfig.getEndpointUrl().get()).post(requestBody).build();
       httpResponse = httpClient.newCall(httpRequest).execute();
     } catch (IOException e) {
       return createErrorDoctorEndpointResponse(
-          "Failed to perform the request to " + doctorConfig.getEndpointUrl().get() +
-              ". Reason: " + e.getMessage());
+          "Failed to perform the request to "
+              + doctorConfig.getEndpointUrl().get()
+              + ". Reason: "
+              + e.getMessage());
     }
 
     try {
@@ -194,8 +187,6 @@ public class DoctorReportHelper {
         return ObjectMappers.readValue(body, DoctorEndpointResponse.class);
       }
       return createErrorDoctorEndpointResponse("Request was not successful.");
-    } catch (JsonProcessingException e) {
-      return createErrorDoctorEndpointResponse(String.format(DECODE_FAIL_TEMPLATE, e.getMessage()));
     } catch (IOException e) {
       return createErrorDoctorEndpointResponse(String.format(DECODE_FAIL_TEMPLATE, e.getMessage()));
     }
@@ -221,41 +212,46 @@ public class DoctorReportHelper {
 
   public final void presentRageResult(Optional<DefectSubmitResult> result) {
     if (!result.isPresent()) {
-      console.getStdOut().println("=> Failed to generate a rage DefectSubmitResult.");
+      console.getStdOut().println("=> Failed to generate a report DefectSubmitResult.");
       return;
     }
 
     DefectSubmitResult submitResult = result.get();
     if (submitResult.getIsRequestSuccessful().isPresent()) {
       if (submitResult.getReportSubmitLocation().isPresent()) {
-        if (submitResult.getRequestProtocol().equals(RageConfig.RageProtocolVersion.JSON)) {
-          console.getStdOut().printf(
-              "=> Report was uploaded to %s.\n\n",
-              submitResult.getReportSubmitLocation().get());
+        if (submitResult.getRequestProtocol().equals(DoctorProtocolVersion.JSON)) {
+          console
+              .getStdOut()
+              .printf(
+                  "=> Report was uploaded to %s.\n\n",
+                  submitResult.getReportSubmitLocation().get());
         } else {
           console.getStdOut().printf("%s", submitResult.getReportSubmitLocation().get());
         }
       }
     } else {
-      console.getStdOut().printf(
-          "=> Report saved at %s\n",
-          submitResult.getReportSubmitLocation().get());
+      console
+          .getStdOut()
+          .printf("=> Report saved at %s\n", submitResult.getReportSubmitLocation().get());
     }
   }
 
   private void prettyPrintSuggestion(DoctorSuggestion suggestion) {
-    console.getStdOut().println(String.format(
-        "- [%s]%s %s",
-        console.getAnsi().isAnsiTerminal()
-            ? suggestion.getStatus().getEmoji() + " "
-            : suggestion.getStatus().getText(),
-        suggestion.getArea().isPresent() ? ("[" + suggestion.getArea().get() + "]") : "",
-        suggestion.getSuggestion()));
+    console
+        .getStdOut()
+        .println(
+            String.format(
+                "- [%s]%s %s",
+                console.getAnsi().isAnsiTerminal()
+                    ? suggestion.getStatus().getEmoji() + " "
+                    : suggestion.getStatus().getText(),
+                suggestion.getArea().isPresent() ? ("[" + suggestion.getArea().get() + "]") : "",
+                suggestion.getSuggestion()));
   }
 
   private String prettyPrintExitCode(OptionalInt exitCode) {
-    String result = "Exit code: " +
-        (exitCode.isPresent() ? Integer.toString(exitCode.getAsInt()) : "Unknown");
+    String result =
+        "Exit code: " + (exitCode.isPresent() ? Integer.toString(exitCode.getAsInt()) : "Unknown");
     if (exitCode.isPresent() && console.getAnsi().isAnsiTerminal()) {
       if (exitCode.getAsInt() == 0) {
         return console.getAnsi().asGreenText(result);
@@ -269,14 +265,11 @@ public class DoctorReportHelper {
   private DoctorEndpointResponse createErrorDoctorEndpointResponse(String errorMessage) {
     console.printErrorText(errorMessage);
     LOG.error(errorMessage);
-    return DoctorEndpointResponse.of(
-        Optional.of(errorMessage),
-        ImmutableList.of());
+    return DoctorEndpointResponse.of(Optional.of(errorMessage), ImmutableList.of());
   }
 
   @VisibleForTesting
   Console getConsole() {
     return console;
   }
-
 }

@@ -33,30 +33,23 @@ import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashCode;
-
-import org.easymock.EasyMock;
-import org.hamcrest.Matchers;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
-import org.junit.rules.TemporaryFolder;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import org.easymock.EasyMock;
+import org.hamcrest.Matchers;
+import org.junit.Assert;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 public class MaterializerProjectFileHashCacheTest {
-  @Rule
-  public TemporaryFolder projectDir = new TemporaryFolder();
+  @Rule public TemporaryFolder projectDir = new TemporaryFolder();
 
-  @Rule
-  public TemporaryFolder externalDir = new TemporaryFolder();
-
-  @Rule
-  public ExpectedException thrown = ExpectedException.none();
+  @Rule public TemporaryFolder externalDir = new TemporaryFolder();
 
   private static final HashCode EXAMPLE_HASHCODE = HashCode.fromString("1234");
   private static final HashCode EXAMPLE_HASHCODE_TWO = HashCode.fromString("3456");
@@ -67,9 +60,31 @@ public class MaterializerProjectFileHashCacheTest {
     void execute(MaterializerProjectFileHashCache materializer, Path path) throws IOException;
   }
 
+  @SuppressWarnings("PMD.EmptyCatchBlock")
+  private static final MaterializeFunction THROWING_GET =
+      (materializer, path) -> {
+        try {
+          materializer.get(path);
+          Assert.fail("Materialization should have thrown because of mismatching hash.");
+        } catch (RuntimeException e) {
+          // expected.
+        }
+      };
+
+  private static final MaterializeFunction GET = (materializer, path) -> materializer.get(path);
+  private static final MaterializeFunction PRELOAD =
+      (materializer, path) -> materializer.preloadAllFiles();
+  private static final MaterializeFunction PRELOAD_THEN_GET =
+      (materializer, path) -> {
+        materializer.preloadAllFiles();
+        materializer.get(path);
+      };
+
   private void testMaterializeDirectoryHelper(
-      boolean materializeDuringPreloading, MaterializeFunction materializeFunction)
-      throws IOException {
+      boolean materializeDuringPreloading,
+      MaterializeFunction materializeFunction,
+      boolean setCorrectHashCode)
+      throws InterruptedException, IOException {
     // Scenario:
     // file hash entries for:
     // /a - folder
@@ -95,60 +110,72 @@ public class MaterializerProjectFileHashCacheTest {
     Path relativePathDirAbd = Paths.get("a/b/d");
     Path relativePathFileAe = Paths.get("a/e");
 
+    ProjectFileHashCache mockFileHashCache = EasyMock.createNiceMock(ProjectFileHashCache.class);
+    expect(mockFileHashCache.getFilesystem()).andReturn(projectFilesystem).atLeastOnce();
+
     BuildJobStateFileHashes fileHashes = new BuildJobStateFileHashes();
     BuildJobStateFileHashEntry dirAFileHashEntry = new BuildJobStateFileHashEntry();
     dirAFileHashEntry.setPath(unixPath(relativePathDirA));
-    dirAFileHashEntry.setHashCode(EXAMPLE_HASHCODE.toString());
+    dirAFileHashEntry.setHashCode("aa");
     dirAFileHashEntry.setIsDirectory(true);
-    dirAFileHashEntry.setChildren(ImmutableList.of(
-        unixPath(relativePathDirAb),
-        unixPath(relativePathFileAe)
-    ));
+    dirAFileHashEntry.setChildren(
+        ImmutableList.of(unixPath(relativePathDirAb), unixPath(relativePathFileAe)));
     dirAFileHashEntry.setMaterializeDuringPreloading(materializeDuringPreloading);
     fileHashes.addToEntries(dirAFileHashEntry);
+    expect(mockFileHashCache.get(relativePathDirA))
+        .andReturn(setCorrectHashCode ? HashCode.fromString("aa") : EXAMPLE_HASHCODE)
+        .atLeastOnce();
 
     BuildJobStateFileHashEntry dirAbFileHashEntry = new BuildJobStateFileHashEntry();
     dirAbFileHashEntry.setPath(unixPath(relativePathDirAb));
-    dirAbFileHashEntry.setHashCode(EXAMPLE_HASHCODE.toString());
+    dirAbFileHashEntry.setHashCode("abab");
     dirAbFileHashEntry.setIsDirectory(true);
-    dirAbFileHashEntry.setChildren(ImmutableList.of(
-        unixPath(relativePathFileAbc),
-        unixPath(relativePathDirAbd)
-    ));
+    dirAbFileHashEntry.setChildren(
+        ImmutableList.of(unixPath(relativePathFileAbc), unixPath(relativePathDirAbd)));
     dirAbFileHashEntry.setMaterializeDuringPreloading(materializeDuringPreloading);
     fileHashes.addToEntries(dirAbFileHashEntry);
+    expect(mockFileHashCache.get(relativePathDirAb))
+        .andReturn(setCorrectHashCode ? HashCode.fromString("abab") : EXAMPLE_HASHCODE)
+        .atLeastOnce();
 
     BuildJobStateFileHashEntry fileAbcFileHashEntry = new BuildJobStateFileHashEntry();
     fileAbcFileHashEntry.setPath(unixPath(relativePathFileAbc));
-    fileAbcFileHashEntry.setHashCode(EXAMPLE_HASHCODE.toString());
+    fileAbcFileHashEntry.setHashCode("abcabc");
     fileAbcFileHashEntry.setContents(FILE_CONTENTS.getBytes(StandardCharsets.UTF_8));
     fileAbcFileHashEntry.setIsDirectory(false);
     fileAbcFileHashEntry.setMaterializeDuringPreloading(materializeDuringPreloading);
     fileHashes.addToEntries(fileAbcFileHashEntry);
+    expect(mockFileHashCache.get(relativePathFileAbc))
+        .andReturn(setCorrectHashCode ? HashCode.fromString("abcabc") : EXAMPLE_HASHCODE)
+        .atLeastOnce();
 
     BuildJobStateFileHashEntry dirAbdFileHashEntry = new BuildJobStateFileHashEntry();
     dirAbdFileHashEntry.setPath(unixPath(relativePathDirAbd));
-    dirAbdFileHashEntry.setHashCode(EXAMPLE_HASHCODE.toString());
+    dirAbdFileHashEntry.setHashCode("abdabd");
     dirAbdFileHashEntry.setIsDirectory(true);
     dirAbdFileHashEntry.setChildren(ImmutableList.of());
     dirAbdFileHashEntry.setMaterializeDuringPreloading(materializeDuringPreloading);
     fileHashes.addToEntries(dirAbdFileHashEntry);
+    expect(mockFileHashCache.get(relativePathDirAbd))
+        .andReturn(setCorrectHashCode ? HashCode.fromString("abdabd") : EXAMPLE_HASHCODE)
+        .atLeastOnce();
 
     BuildJobStateFileHashEntry fileAeFileHashEntry = new BuildJobStateFileHashEntry();
     fileAeFileHashEntry.setPath(unixPath(relativePathFileAe));
-    fileAeFileHashEntry.setHashCode(EXAMPLE_HASHCODE.toString());
+    fileAeFileHashEntry.setHashCode("aeae");
     fileAeFileHashEntry.setContents(FILE_CONTENTS_TWO.getBytes(StandardCharsets.UTF_8));
     fileAeFileHashEntry.setIsDirectory(false);
     fileAeFileHashEntry.setMaterializeDuringPreloading(materializeDuringPreloading);
     fileHashes.addToEntries(fileAeFileHashEntry);
+    expect(mockFileHashCache.get(relativePathFileAe))
+        .andReturn(setCorrectHashCode ? HashCode.fromString("aeae") : EXAMPLE_HASHCODE)
+        .atLeastOnce();
 
     InlineContentsProvider inlineProvider = new InlineContentsProvider();
-    ProjectFileHashCache mockFileHashCache = EasyMock.createNiceMock(ProjectFileHashCache.class);
-    expect(mockFileHashCache.getFilesystem()).andReturn(projectFilesystem).atLeastOnce();
     replay(mockFileHashCache);
 
-    MaterializerProjectFileHashCache fileMaterializer = new MaterializerProjectFileHashCache(
-        mockFileHashCache, fileHashes, inlineProvider);
+    MaterializerProjectFileHashCache fileMaterializer =
+        new MaterializerProjectFileHashCache(mockFileHashCache, fileHashes, inlineProvider);
 
     assertFalse(pathDirA.toFile().exists());
     assertFalse(pathDirAb.toFile().exists());
@@ -156,77 +183,78 @@ public class MaterializerProjectFileHashCacheTest {
     assertFalse(pathDirAbd.toFile().exists());
     assertFalse(pathFileAe.toFile().exists());
 
-    materializeFunction.execute(fileMaterializer, pathDirA);
+    materializeFunction.execute(fileMaterializer, relativePathDirA);
 
-    assertTrue(pathDirA.toFile().exists());
-    assertTrue(pathDirAb.toFile().exists());
-    assertTrue(pathFileAbc.toFile().exists());
-    assertTrue(pathDirAbd.toFile().exists());
-    assertTrue(pathFileAe.toFile().exists());
+    if (setCorrectHashCode) {
+      // If we set the wrong hash, we may or may not have materialized everything.
+      assertTrue(pathDirA.toFile().exists());
+      assertTrue(pathDirAb.toFile().exists());
+      assertTrue(pathFileAbc.toFile().exists());
+      assertTrue(pathDirAbd.toFile().exists());
+      assertTrue(pathFileAe.toFile().exists());
+    }
   }
 
   @Test
-  public void testMaterializeDirectory() throws IOException {
+  public void testMaterializeDirectory() throws InterruptedException, IOException {
     ProjectFilesystem projectFilesystem = new ProjectFilesystem(projectDir.getRoot().toPath());
 
-    testMaterializeDirectoryHelper(false, (m, p) -> m.get(p));
+    testMaterializeDirectoryHelper(false, GET, true);
 
     String fileAbcContents = new String(Files.readAllBytes(projectFilesystem.resolve("a/b/c")));
-    assertThat(
-        fileAbcContents,
-        Matchers.equalTo(FILE_CONTENTS));
+    assertThat(fileAbcContents, Matchers.equalTo(FILE_CONTENTS));
 
     String fileAeContents = new String(Files.readAllBytes(projectFilesystem.resolve("a/e")));
-    assertThat(
-        fileAeContents,
-        Matchers.equalTo(FILE_CONTENTS_TWO));
+    assertThat(fileAeContents, Matchers.equalTo(FILE_CONTENTS_TWO));
   }
 
   @Test
-  public void testMaterializeDuringPreloadingDirectory() throws IOException {
+  public void testMaterializeDuringPreloadingDirectory() throws InterruptedException, IOException {
     ProjectFilesystem projectFilesystem = new ProjectFilesystem(projectDir.getRoot().toPath());
 
-    testMaterializeDirectoryHelper(true, (m, p) -> m.preloadAllFiles());
+    testMaterializeDirectoryHelper(true, PRELOAD, true);
 
     String fileAbcContents = new String(Files.readAllBytes(projectFilesystem.resolve("a/b/c")));
-    assertThat(
-        fileAbcContents,
-        Matchers.equalTo(FILE_CONTENTS));
+    assertThat(fileAbcContents, Matchers.equalTo(FILE_CONTENTS));
 
     String fileAeContents = new String(Files.readAllBytes(projectFilesystem.resolve("a/e")));
-    assertThat(
-        fileAeContents,
-        Matchers.equalTo(FILE_CONTENTS_TWO));
+    assertThat(fileAeContents, Matchers.equalTo(FILE_CONTENTS_TWO));
   }
 
   @Test
-  public void testPreloadDirectory() throws IOException {
-    testMaterializeDirectoryHelper(false, (m, p) -> m.preloadAllFiles());
-  }
-
-  @Test
-  public void testPreloadThenMaterializeDirectory() throws IOException {
+  public void testPreloadDirectory() throws InterruptedException, IOException {
     ProjectFilesystem projectFilesystem = new ProjectFilesystem(projectDir.getRoot().toPath());
 
-    testMaterializeDirectoryHelper(false, (m, p) -> {
-      m.preloadAllFiles();
-      m.get(p);
-    });
+    testMaterializeDirectoryHelper(false, PRELOAD, true);
+
+    assertThat(projectFilesystem.resolve("a/b/c").toFile().length(), Matchers.equalTo(0L));
+    assertThat(projectFilesystem.resolve("a/e").toFile().length(), Matchers.equalTo(0L));
+  }
+
+  @Test
+  public void testPreloadThenMaterializeDirectory() throws InterruptedException, IOException {
+    ProjectFilesystem projectFilesystem = new ProjectFilesystem(projectDir.getRoot().toPath());
+
+    testMaterializeDirectoryHelper(false, PRELOAD_THEN_GET, true);
 
     String fileAbcContents = new String(Files.readAllBytes(projectFilesystem.resolve("a/b/c")));
-    assertThat(
-        fileAbcContents,
-        Matchers.equalTo(FILE_CONTENTS));
+    assertThat(fileAbcContents, Matchers.equalTo(FILE_CONTENTS));
 
     String fileAeContents = new String(Files.readAllBytes(projectFilesystem.resolve("a/e")));
-    assertThat(
-        fileAeContents,
-        Matchers.equalTo(FILE_CONTENTS_TWO));
+    assertThat(fileAeContents, Matchers.equalTo(FILE_CONTENTS_TWO));
+  }
+
+  @Test
+  public void testMaterializeDirWithDifferentHashCodeThrowsException()
+      throws InterruptedException, IOException {
+    testMaterializeDirectoryHelper(false, THROWING_GET, false);
   }
 
   private Path testEntryForRealFile(
-      boolean materializeDuringPreloading, MaterializeFunction materializeFunction)
-      throws IOException {
+      boolean materializeDuringPreloading,
+      MaterializeFunction materializeFunction,
+      boolean setCorrectHash)
+      throws InterruptedException, IOException {
     assumeTrue(!Platform.detect().equals(Platform.WINDOWS));
 
     ProjectFilesystem projectFilesystem = new ProjectFilesystem(projectDir.getRoot().toPath());
@@ -245,72 +273,66 @@ public class MaterializerProjectFileHashCacheTest {
 
     ProjectFileHashCache mockFileHashCache = EasyMock.createNiceMock(ProjectFileHashCache.class);
     expect(mockFileHashCache.getFilesystem()).andReturn(projectFilesystem).atLeastOnce();
+    expect(mockFileHashCache.get(relativeRealFile))
+        .andReturn(setCorrectHash ? EXAMPLE_HASHCODE : EXAMPLE_HASHCODE_TWO)
+        .atLeastOnce();
     replay(mockFileHashCache);
-    MaterializerProjectFileHashCache fileMaterializer = new MaterializerProjectFileHashCache(
-        mockFileHashCache, fileHashes, inlineProvider);
-    materializeFunction.execute(fileMaterializer, realFileAbsPath);
+    MaterializerProjectFileHashCache fileMaterializer =
+        new MaterializerProjectFileHashCache(mockFileHashCache, fileHashes, inlineProvider);
+    materializeFunction.execute(fileMaterializer, relativeRealFile);
 
     return realFileAbsPath;
   }
 
   @Test
-  public void testMaterializeRealFileSetsContents() throws IOException {
+  public void testMaterializeRealFileSetsContents() throws InterruptedException, IOException {
     // Scenario:
     //  path: /project/linktoexternaldir/externalfile
     //  contents: "filecontents"
     // => materialize creates file with correct contents
-    Path realFile = testEntryForRealFile(false, (m, p) -> m.get(p));
+    Path realFile = testEntryForRealFile(false, GET, true);
 
     assertTrue(realFile.toFile().exists());
     String actualFileContents = new String(Files.readAllBytes(realFile));
-    assertThat(
-        actualFileContents,
-        Matchers.equalTo(FILE_CONTENTS));
+    assertThat(actualFileContents, Matchers.equalTo(FILE_CONTENTS));
   }
 
   @Test
-  public void testMaterializeRealFileDuringPreloadingSetsContents() throws IOException {
+  public void testMaterializeRealFileDuringPreloadingSetsContents()
+      throws InterruptedException, IOException {
     // Scenario:
     //  path: /project/linktoexternaldir/externalfile
     //  contents: "filecontents"
     // => preloading for entry with materializeDuringPreloading set to true
     // creates file with correct contents
-    Path realFile = testEntryForRealFile(true, (m, p) -> m.preloadAllFiles());
+    Path realFile = testEntryForRealFile(true, PRELOAD, true);
 
     assertTrue(realFile.toFile().exists());
     String actualFileContents = new String(Files.readAllBytes(realFile));
-    assertThat(
-        actualFileContents,
-        Matchers.equalTo(FILE_CONTENTS));
+    assertThat(actualFileContents, Matchers.equalTo(FILE_CONTENTS));
   }
 
   @Test
-  public void testPreloadRealFileTouchesFile() throws IOException {
+  public void testPreloadRealFileTouchesFile() throws InterruptedException, IOException {
     // Scenario:
     //  path: /project/linktoexternaldir/externalfile
     //  contents: "filecontents"
     // => preload touches file, but doesn't set contents
-    Path realFile = testEntryForRealFile(false, (m, p) -> m.preloadAllFiles());
+    Path realFile = testEntryForRealFile(false, PRELOAD, true);
 
     assertTrue(realFile.toFile().exists());
-    assertThat(realFile.toFile().length(),
-        Matchers.equalTo(0L));
+    assertThat(realFile.toFile().length(), Matchers.equalTo(0L));
   }
 
-  public void testSymlinkToFileWithinExternalDirectory(
-      MaterializeFunction materializeFunction) throws IOException {
-    testSymlinkToFileWithinExternalDirectory(
-        EXAMPLE_HASHCODE,
-        EXAMPLE_HASHCODE,
-        materializeFunction,
-        1);
+  @Test
+  public void testMaterializeFileWithDifferentHashCodeThrowsException()
+      throws InterruptedException, IOException {
+    testEntryForRealFile(false, THROWING_GET, false);
   }
 
-  public void testSymlinkToFileWithinExternalDirectory(
-      HashCode fileHashEntryHashCode,
-      HashCode actualHashCode,
-      MaterializeFunction materializeFunction,
-      int expectCallsToGetHashMethod) throws IOException {
+  private void testSymlinkToFileWithinExternalDirectory(
+      MaterializeFunction materializeFunction, boolean setCorrectHashCode)
+      throws InterruptedException, IOException {
     // Scenario:
     //  path: /project/linktoexternaldir/externalfile
     //  symlink root: /project/linktoexternaldir -> /externalDir
@@ -329,70 +351,58 @@ public class MaterializerProjectFileHashCacheTest {
     symlinkFileHashEntry.setRootSymLink(unixPath(relativeSymlinkRoot));
     symlinkFileHashEntry.setRootSymLinkTarget(unixPath(externalDir.getRoot().toPath()));
     symlinkFileHashEntry.setPath(unixPath(relativeSymlink));
-    symlinkFileHashEntry.setHashCode(fileHashEntryHashCode.toString());
+    symlinkFileHashEntry.setHashCode(EXAMPLE_HASHCODE.toString());
     BuildJobStateFileHashes fileHashes = new BuildJobStateFileHashes();
     fileHashes.addToEntries(symlinkFileHashEntry);
 
     FileContentsProvider mockFileProvider = EasyMock.createMock(FileContentsProvider.class);
     ProjectFileHashCache mockFileHashCache = EasyMock.createNiceMock(ProjectFileHashCache.class);
     expect(mockFileHashCache.getFilesystem()).andReturn(projectFilesystem).atLeastOnce();
-    if (expectCallsToGetHashMethod > 0) {
-      expect(mockFileHashCache.get(relativeSymlink))
-          .andReturn(actualHashCode)
-          .times(expectCallsToGetHashMethod);
-    }
+    expect(mockFileHashCache.get(relativeSymlink))
+        .andReturn(setCorrectHashCode ? EXAMPLE_HASHCODE : EXAMPLE_HASHCODE_TWO)
+        .atLeastOnce();
     replay(mockFileHashCache);
 
-    MaterializerProjectFileHashCache fileMaterializer = new MaterializerProjectFileHashCache(
-        mockFileHashCache, fileHashes, mockFileProvider);
+    MaterializerProjectFileHashCache fileMaterializer =
+        new MaterializerProjectFileHashCache(mockFileHashCache, fileHashes, mockFileProvider);
 
     assertFalse(symlink.toFile().exists());
 
     materializeFunction.execute(fileMaterializer, relativeSymlink);
 
-    assertTrue(symlink.toFile().exists());
-    assertThat(
-        symlink.toRealPath(),
-        Matchers.equalTo(externalFile.toPath().toRealPath()));
+    if (setCorrectHashCode) {
+      // If we set the wrong hash, we may or may not have materialized everything.
+      assertTrue(symlink.toFile().exists());
+      assertThat(symlink.toRealPath(), Matchers.equalTo(externalFile.toPath().toRealPath()));
+    }
     verify(mockFileHashCache);
   }
 
   @Test
-  public void testPreloadSymlinkToFileWithinExternalDirectory() throws IOException {
-    testSymlinkToFileWithinExternalDirectory(
-        EXAMPLE_HASHCODE,
-        EXAMPLE_HASHCODE,
-        (fileMaterializer, symlink) -> fileMaterializer.preloadAllFiles(),
-        0);
+  public void testPreloadSymlinkToFileWithinExternalDirectory()
+      throws InterruptedException, IOException {
+    testSymlinkToFileWithinExternalDirectory(PRELOAD, true);
   }
 
   @Test
-  public void testMaterializeSymlinkToFileWithinExternalDirectory() throws IOException {
-    testSymlinkToFileWithinExternalDirectory(
-        (fileMaterializer, symlink) -> fileMaterializer.get(symlink));
+  public void testMaterializeSymlinkToFileWithinExternalDirectory()
+      throws InterruptedException, IOException {
+    testSymlinkToFileWithinExternalDirectory(GET, true);
   }
 
   @Test
-  public void testPreloadMaterializeSymlinkToFileWithinExternalDirectory() throws IOException {
-    testSymlinkToFileWithinExternalDirectory(
-        (fileMaterializer, symlink) -> {
-          fileMaterializer.preloadAllFiles();
-          fileMaterializer.get(symlink);
-        });
+  public void testPreloadThenMaterializeSymlinkToFileWithinExternalDirectory()
+      throws InterruptedException, IOException {
+    testSymlinkToFileWithinExternalDirectory(PRELOAD_THEN_GET, true);
   }
 
   @Test
-  public void testMaterializeSymlinkWithDifferentHashCodeThrowsException() throws IOException {
-    thrown.expect(RuntimeException.class);
-    testSymlinkToFileWithinExternalDirectory(
-        EXAMPLE_HASHCODE, /* fileHashEntryHashCode */
-        EXAMPLE_HASHCODE_TWO, /* actualHashCode */
-        (fileMaterializer, symlink) -> fileMaterializer.get(symlink),
-        1);
+  public void testMaterializeSymlinkWithDifferentHashCodeThrowsException()
+      throws InterruptedException, IOException {
+    testSymlinkToFileWithinExternalDirectory(THROWING_GET, false);
   }
 
   private static PathWithUnixSeparators unixPath(Path path) {
     return new PathWithUnixSeparators().setPath(MorePaths.pathWithUnixSeparators(path));
   }
-
 }

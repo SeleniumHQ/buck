@@ -16,80 +16,77 @@
 
 package com.facebook.buck.ocaml;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionPropagator;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 import java.util.Optional;
+import org.immutables.value.Value;
 
-/**
- * Prebuilt OCaml library
- */
-public class PrebuiltOcamlLibraryDescription implements
-    Description<PrebuiltOcamlLibraryDescription.Arg>,
-    VersionPropagator<PrebuiltOcamlLibraryDescription.Arg> {
+/** Prebuilt OCaml library */
+public class PrebuiltOcamlLibraryDescription
+    implements Description<PrebuiltOcamlLibraryDescriptionArg>,
+        VersionPropagator<PrebuiltOcamlLibraryDescriptionArg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<PrebuiltOcamlLibraryDescriptionArg> getConstructorArgType() {
+    return PrebuiltOcamlLibraryDescriptionArg.class;
   }
 
   @Override
-  public <A extends Arg> OcamlLibrary createBuildRule(
+  public OcamlLibrary createBuildRule(
       TargetGraph targetGraph,
-      final BuildRuleParams params,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      final A args) {
+      final PrebuiltOcamlLibraryDescriptionArg args) {
 
-    final BuildTarget target = params.getBuildTarget();
+    final boolean bytecodeOnly = args.getBytecodeOnly();
 
-    final boolean bytecodeOnly = args.bytecodeOnly.orElse(false);
+    final String libDir = args.getLibDir();
 
-    final String libDir = args.libDir.orElse("lib");
+    final String nativeLib = args.getNativeLib();
+    final String bytecodeLib = args.getBytecodeLib();
+    final ImmutableList<String> cLibs = args.getCLibs();
 
-    final String libName = args.libName.orElse(target.getShortName());
+    final Path libPath = buildTarget.getBasePath().resolve(libDir);
+    final Path includeDir = libPath.resolve(args.getIncludeDir());
 
-    final String nativeLib = args.nativeLib.orElse(String.format("%s.cmxa", libName));
-    final String bytecodeLib = args.bytecodeLib.orElse(String.format("%s.cma", libName));
-    final ImmutableList<String> cLibs = args.cLibs;
-
-    final Path libPath = target.getBasePath().resolve(libDir);
-    final Path includeDir = libPath.resolve(args.includeDir.orElse(""));
-
-    final Optional<SourcePath> staticNativeLibraryPath = bytecodeOnly
-        ? Optional.empty()
-        : Optional.of(new PathSourcePath(
-          params.getProjectFilesystem(),
-          libPath.resolve(nativeLib)));
-    final SourcePath staticBytecodeLibraryPath = new PathSourcePath(
-        params.getProjectFilesystem(),
-        libPath.resolve(bytecodeLib));
+    final Optional<SourcePath> staticNativeLibraryPath =
+        bytecodeOnly
+            ? Optional.empty()
+            : Optional.of(new PathSourcePath(projectFilesystem, libPath.resolve(nativeLib)));
+    final SourcePath staticBytecodeLibraryPath =
+        new PathSourcePath(projectFilesystem, libPath.resolve(bytecodeLib));
     final ImmutableList<SourcePath> staticCLibraryPaths =
-        cLibs.stream()
-            .map(input -> new PathSourcePath(params.getProjectFilesystem(), libPath.resolve(input)))
+        cLibs
+            .stream()
+            .map(input -> new PathSourcePath(projectFilesystem, libPath.resolve(input)))
             .collect(MoreCollectors.toImmutableList());
 
-    final SourcePath bytecodeLibraryPath = new PathSourcePath(
-        params.getProjectFilesystem(),
-        libPath.resolve(bytecodeLib));
+    final SourcePath bytecodeLibraryPath =
+        new PathSourcePath(projectFilesystem, libPath.resolve(bytecodeLib));
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
     return new PrebuiltOcamlLibrary(
+        buildTarget,
+        projectFilesystem,
         params,
         ruleFinder,
         staticNativeLibraryPath,
@@ -100,16 +97,41 @@ public class PrebuiltOcamlLibraryDescription implements
         includeDir);
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends AbstractDescriptionArg {
-    public Optional<String> libDir;
-    public Optional<String> includeDir;
-    public Optional<String> libName;
-    public Optional<String> nativeLib;
-    public Optional<String> bytecodeLib;
-    public ImmutableList<String> cLibs = ImmutableList.of();
-    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
-    public Optional<Boolean> bytecodeOnly;
-  }
+  @BuckStyleImmutable
+  @Value.Immutable
+  abstract static class AbstractPrebuiltOcamlLibraryDescriptionArg
+      implements CommonDescriptionArg, HasDeclaredDeps {
 
+    @Value.Default
+    String getLibDir() {
+      return "lib";
+    }
+
+    @Value.Default
+    String getIncludeDir() {
+      return "";
+    }
+
+    @Value.Default
+    String getLibName() {
+      return getName();
+    }
+
+    @Value.Default
+    String getNativeLib() {
+      return String.format("%s.cmxa", getLibName());
+    }
+
+    @Value.Default
+    String getBytecodeLib() {
+      return String.format("%s.cma", getLibName());
+    }
+
+    abstract ImmutableList<String> getCLibs();
+
+    @Value.Default
+    boolean getBytecodeOnly() {
+      return false;
+    }
+  }
 }

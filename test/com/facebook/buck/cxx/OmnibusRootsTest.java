@@ -17,10 +17,11 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.cxx.platform.NativeLinkTarget;
+import com.facebook.buck.cxx.platform.NativeLinkable;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -31,8 +32,7 @@ public class OmnibusRootsTest {
     OmnibusRootNode transitiveRoot = new OmnibusRootNode("//:transitive_root");
     NativeLinkable excludedDep =
         new OmnibusSharedOnlyNode(
-            "//:excluded_dep",
-            ImmutableList.<NativeLinkable>of(transitiveRoot));
+            "//:excluded_dep", ImmutableList.<NativeLinkable>of(transitiveRoot));
     NativeLinkTarget root = new OmnibusRootNode("//:root", ImmutableList.of(excludedDep));
 
     OmnibusRoots.Builder builder =
@@ -41,14 +41,8 @@ public class OmnibusRootsTest {
     builder.addIncludedRoot(transitiveRoot);
     OmnibusRoots roots = builder.build();
 
+    assertThat(roots.getIncludedRoots().keySet(), Matchers.contains(root.getBuildTarget()));
     assertThat(
-        roots.getIncludedRoots().keySet(),
-        Matchers.contains(root.getBuildTarget()));
-    assertThat(
-        roots.getExcludedRoots().keySet(),
-        Matchers.contains(transitiveRoot.getBuildTarget()));
+        roots.getExcludedRoots().keySet(), Matchers.contains(transitiveRoot.getBuildTarget()));
   }
-
 }
-
-

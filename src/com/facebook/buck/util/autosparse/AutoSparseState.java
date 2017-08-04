@@ -16,9 +16,9 @@
 
 package com.facebook.buck.util.autosparse;
 
+import com.facebook.buck.util.versioncontrol.SparseSummary;
 import java.io.IOException;
 import java.nio.file.Path;
-
 import javax.annotation.Nullable;
 
 /**
@@ -27,13 +27,34 @@ import javax.annotation.Nullable;
  * files under source control are actually physically present on disk).
  */
 public interface AutoSparseState {
+  /** @return The root path of the working copy this state tracks. */
+  Path getSCRoot() throws InterruptedException;
+
+  /** @return the repository revision id for which this state is valid */
+  String getRevisionId();
+
   /**
-   * @return The root path of the working copy this state tracks.
+   * Register a known buck-out path with the state, so it knows to ignore such paths.
+   *
+   * <p>This is an optimisation strategy, not passing these in could result in slower sparse state
+   * tracking.
+   *
+   * @param path The path to a buck-out directory; any path below this will be ignored from a sparse
+   *     state point of view.
    */
-  Path getSCRoot();
+  void addBuckOut(Path path);
+
+  /**
+   * Update the configuration. The state can be shared between multiple cells each with custom
+   * ignore paths and other 'local' configuration that has to be tracked.
+   *
+   * @param config The new configuration from which to update local settings.
+   */
+  void updateConfig(AutoSparseConfig config);
 
   /**
    * Query the source control manifest for information on a file.
+   *
    * @param path the file to get the manifest information for
    * @return a {@link ManifestInfo} instance if this file is under source control, null otherwise.
    */
@@ -43,15 +64,17 @@ public interface AutoSparseState {
   /**
    * Query if a file is available in the source control manifest (and is thus tracked by source
    * control)
+   *
    * @param path to a file or directory
    * @return true if the path is a file that exists in the manifest, or a directory that contains
-   * files that are in the manifest.
+   *     files that are in the manifest.
    */
   boolean existsInManifest(Path path);
 
   /**
    * Add a path that should, at some point in the future, be part of the working copy sparse
    * profile.
+   *
    * @param path The path to a source-control managed file or directory to be added
    */
   void addToSparseProfile(Path path);
@@ -60,5 +83,5 @@ public interface AutoSparseState {
    * Update the working copy to include new paths added to the sparse profile. Paths added with
    * <code>addToSparseProfile</code> will now be physically available on the filesystem.
    */
-  void materialiseSparseProfile() throws IOException, InterruptedException;
+  SparseSummary materialiseSparseProfile() throws IOException, InterruptedException;
 }

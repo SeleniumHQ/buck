@@ -31,28 +31,27 @@ import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
-import org.junit.Test;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import org.junit.Test;
 
 public class AndroidManifestTest {
 
-  public static final String MANIFEST_TARGET = "//java/com/example:manifest";
+  public static final BuildTarget MANIFEST_TARGET =
+      BuildTargetFactory.newInstance("//java/com/example:manifest");
 
   @Test
   public void testSimpleObserverMethods() {
@@ -62,9 +61,7 @@ public class AndroidManifestTest {
         new ExplicitBuildTargetSourcePath(
             androidManifest.getBuildTarget(),
             BuildTargets.getGenPath(
-                new FakeProjectFilesystem(),
-                BuildTargetFactory.newInstance(MANIFEST_TARGET),
-                "AndroidManifest__%s__.xml")),
+                new FakeProjectFilesystem(), MANIFEST_TARGET, "AndroidManifest__%s__.xml")),
         androidManifest.getSourcePathToOutput());
   }
 
@@ -113,20 +110,22 @@ public class AndroidManifestTest {
 
   private AndroidManifest createSimpleAndroidManifestRule() {
     // First, create the AndroidManifest object.
-    BuildRuleParams buildRuleParams =
-        new FakeBuildRuleParamsBuilder(MANIFEST_TARGET).build();
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    BuildRuleParams buildRuleParams = TestBuildRuleParams.create();
     AndroidManifestDescription description = new AndroidManifestDescription();
-    AndroidManifestDescription.Arg arg = description.createUnpopulatedConstructorArg();
-    arg.skeleton = new FakeSourcePath("java/com/example/AndroidManifestSkeleton.xml");
-    arg.deps = ImmutableSortedSet.<BuildTarget>of();
+    AndroidManifestDescriptionArg arg =
+        AndroidManifestDescriptionArg.builder()
+            .setName("some_manifest")
+            .setSkeleton(new FakeSourcePath("java/com/example/AndroidManifestSkeleton.xml"))
+            .build();
     return description.createBuildRule(
         TargetGraph.EMPTY,
+        MANIFEST_TARGET,
+        projectFilesystem,
         buildRuleParams,
-        new BuildRuleResolver(
-            TargetGraph.EMPTY,
-            new DefaultTargetNodeToBuildRuleTransformer()),
-            TestCellBuilder.createCellRoots(buildRuleParams.getProjectFilesystem()),
-            arg);
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()),
+        TestCellBuilder.createCellRoots(projectFilesystem),
+        arg);
   }
 
   // TODO(abhi): Add another unit test that passes in a non-trivial DependencyGraph and verify that

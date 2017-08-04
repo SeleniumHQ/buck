@@ -16,7 +16,6 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.classes.ClasspathTraversal;
 import com.facebook.buck.jvm.java.classes.DefaultClasspathTraverser;
@@ -33,7 +32,6 @@ import com.google.common.collect.Ordering;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.common.io.ByteSource;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
@@ -55,8 +53,8 @@ public class AccumulateClassNamesStep implements Step {
    */
   static final String CLASS_NAME_HASH_CODE_SEPARATOR = " ";
 
-  private static final Splitter CLASS_NAME_AND_HASH_SPLITTER = Splitter.on(
-      CLASS_NAME_HASH_CODE_SEPARATOR);
+  private static final Splitter CLASS_NAME_AND_HASH_SPLITTER =
+      Splitter.on(CLASS_NAME_HASH_CODE_SEPARATOR);
 
   private final ProjectFilesystem filesystem;
   private final Optional<Path> pathToJarOrClassesDirectory;
@@ -78,13 +76,13 @@ public class AccumulateClassNamesStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) {
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
     ImmutableSortedMap<String, HashCode> classNames;
     if (pathToJarOrClassesDirectory.isPresent()) {
-      Optional<ImmutableSortedMap<String, HashCode>> classNamesOptional = calculateClassHashes(
-          context,
-          filesystem,
-          filesystem.resolve(pathToJarOrClassesDirectory.get()));
+      Optional<ImmutableSortedMap<String, HashCode>> classNamesOptional =
+          calculateClassHashes(
+              context, filesystem, filesystem.resolve(pathToJarOrClassesDirectory.get()));
       if (classNamesOptional.isPresent()) {
         classNames = classNamesOptional.get();
       } else {
@@ -94,18 +92,11 @@ public class AccumulateClassNamesStep implements Step {
       classNames = ImmutableSortedMap.of();
     }
 
-    try {
-      filesystem.writeLinesToPath(
-          Iterables.transform(
-              classNames.entrySet(),
-              entry -> entry.getKey() + CLASS_NAME_HASH_CODE_SEPARATOR + entry.getValue()),
-          whereClassNamesShouldBeWritten);
-    } catch (IOException e) {
-      context.getBuckEventBus().post(ThrowableConsoleEvent.create(e,
-          "There was an error writing the list of .class files to %s.",
-          whereClassNamesShouldBeWritten));
-      return StepExecutionResult.ERROR;
-    }
+    filesystem.writeLinesToPath(
+        Iterables.transform(
+            classNames.entrySet(),
+            entry -> entry.getKey() + CLASS_NAME_HASH_CODE_SEPARATOR + entry.getValue()),
+        whereClassNamesShouldBeWritten);
 
     return StepExecutionResult.SUCCESS;
   }
@@ -118,14 +109,10 @@ public class AccumulateClassNamesStep implements Step {
   @Override
   public String getDescription(ExecutionContext context) {
     String sourceString = pathToJarOrClassesDirectory.map(Object::toString).orElse("null");
-    return String.format("get_class_names %s > %s",
-        sourceString,
-        whereClassNamesShouldBeWritten);
+    return String.format("get_class_names %s > %s", sourceString, whereClassNamesShouldBeWritten);
   }
 
-  /**
-   * @return an Optional that will be absent if there was an error.
-   */
+  /** @return an Optional that will be absent if there was an error. */
   public static Optional<ImmutableSortedMap<String, HashCode>> calculateClassHashes(
       ExecutionContext context, ProjectFilesystem filesystem, Path path) {
     final Map<String, HashCode> classNames = new HashMap<>();
@@ -141,18 +128,20 @@ public class AccumulateClassNamesStep implements Step {
             }
 
             String key = FileLikes.getFileNameWithoutClassSuffix(fileLike);
-            ByteSource input = new ByteSource() {
-              @Override
-              public InputStream openStream() throws IOException {
-                return fileLike.getInput();
-              }
-            };
+            ByteSource input =
+                new ByteSource() {
+                  @Override
+                  public InputStream openStream() throws IOException {
+                    return fileLike.getInput();
+                  }
+                };
             HashCode value = input.hash(Hashing.sha1());
             HashCode existing = classNames.putIfAbsent(key, value);
             if (existing != null && !existing.equals(value)) {
-              throw new IllegalArgumentException(String.format(
-                  "Multiple entries with same key but differing values: %1$s=%2$s and %1$s=%3$s",
-                  key, value, existing));
+              throw new IllegalArgumentException(
+                  String.format(
+                      "Multiple entries with same key but differing values: %1$s=%2$s and %1$s=%3$s",
+                      key, value, existing));
             }
           }
         };
@@ -180,13 +169,13 @@ public class AccumulateClassNamesStep implements Step {
       HashCode value = HashCode.fromString(parts.get(1));
       HashCode existing = classNames.putIfAbsent(key, value);
       if (existing != null && !existing.equals(value)) {
-        throw new IllegalArgumentException(String.format(
-            "Multiple entries with same key but differing values: %1$s=%2$s and %1$s=%3$s",
-            key, value, existing));
+        throw new IllegalArgumentException(
+            String.format(
+                "Multiple entries with same key but differing values: %1$s=%2$s and %1$s=%3$s",
+                key, value, existing));
       }
     }
 
     return ImmutableSortedMap.copyOf(classNames, Ordering.natural());
   }
-
 }

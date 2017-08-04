@@ -5,7 +5,11 @@
     source_level = 8
     target_level = 8
     jar_spool_mode = direct_to_jar
-    abi_generation_mode = migrating_to_source
+    abi_generation_mode = source_with_deps
+    # There is some nondeterminism with the Immutables processor that causes verification to
+    # fail intermittently at the moment. Once we're generating source ABIs as part of compilation
+    # (instead of as a separate step), this can become an error again:
+    source_abi_verification_mode = log
     compile_against_abis = True
 [alias]
     buck = //programs:buck
@@ -22,7 +26,7 @@
     ; Disable the default directory cache.
     mode =
 [build]
-    metadata_storage = rocksdb
+    metadata_storage = sqlite
 [download]
     maven_repo = https://repo1.maven.org/maven2
 [project]
@@ -57,6 +61,7 @@
     ; cache every time it encounters one.
     allow_symlinks = forbid
     watchman_cursor = clock_id
+    glob_handler = watchman
 [test]
     ; Maximum timeout of 1 minute per test.
     timeout = 90000

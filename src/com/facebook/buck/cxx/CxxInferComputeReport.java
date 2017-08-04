@@ -16,31 +16,31 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.JsonConcatenateStep;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.HasPostBuildSteps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.google.common.collect.FluentIterable;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Ordering;
-
 import java.nio.file.Path;
+import java.util.SortedSet;
 
 /**
- * Merge all the json reports together into one and emit a list of results dirs of each
- * capture and analysis target involved for the analysis itself.
+ * Merge all the json reports together into one and emit a list of results dirs of each capture and
+ * analysis target involved for the analysis itself.
  */
-public class CxxInferComputeReport extends AbstractBuildRule
-    implements HasPostBuildSteps {
+public class CxxInferComputeReport extends AbstractBuildRule implements HasPostBuildSteps {
 
   private CxxInferAnalyze analysisToReport;
   private ProjectFilesystem projectFilesystem;
@@ -48,9 +48,10 @@ public class CxxInferComputeReport extends AbstractBuildRule
   private Path reportOutput;
 
   public CxxInferComputeReport(
-      BuildRuleParams buildRuleParams,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       CxxInferAnalyze analysisToReport) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem);
     this.analysisToReport = analysisToReport;
     this.outputDirectory =
         BuildTargets.getGenPath(getProjectFilesystem(), this.getBuildTarget(), "infer-%s");
@@ -59,24 +60,39 @@ public class CxxInferComputeReport extends AbstractBuildRule
   }
 
   @Override
+  public SortedSet<BuildRule> getBuildDeps() {
+    return ImmutableSortedSet.<BuildRule>naturalOrder()
+        .addAll(analysisToReport.getTransitiveAnalyzeRules())
+        .add(analysisToReport)
+        .build();
+  }
+
+  @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     buildableContext.recordArtifact(reportOutput);
     ImmutableSortedSet<Path> reportsToMergeFromDeps =
-        FluentIterable.from(analysisToReport.getTransitiveAnalyzeRules())
-            .transform(CxxInferAnalyze::getSourcePathToOutput)
-            .transform(context.getSourcePathResolver()::getAbsolutePath)
-            .toSortedSet(Ordering.natural());
+        analysisToReport
+            .getTransitiveAnalyzeRules()
+            .stream()
+            .map(CxxInferAnalyze::getSourcePathToOutput)
+            .map(context.getSourcePathResolver()::getAbsolutePath)
+            .collect(MoreCollectors.toImmutableSortedSet());
 
-    ImmutableSortedSet<Path> reportsToMerge = ImmutableSortedSet.<Path>naturalOrder()
-        .addAll(reportsToMergeFromDeps)
-        .add(context.getSourcePathResolver().getAbsolutePath(
-            analysisToReport.getSourcePathToOutput()))
-        .build();
+    ImmutableSortedSet<Path> reportsToMerge =
+        ImmutableSortedSet.<Path>naturalOrder()
+            .addAll(reportsToMergeFromDeps)
+            .add(
+                context
+                    .getSourcePathResolver()
+                    .getAbsolutePath(analysisToReport.getSourcePathToOutput()))
+            .build();
 
     return ImmutableList.<Step>builder()
-        .add(MkdirStep.of(projectFilesystem, outputDirectory))
+        .add(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), outputDirectory)))
         .add(
             new JsonConcatenateStep(
                 projectFilesystem,
@@ -95,13 +111,15 @@ public class CxxInferComputeReport extends AbstractBuildRule
   @Override
   public ImmutableList<Step> getPostBuildSteps(BuildContext context) {
     return ImmutableList.<Step>builder()
-        .add(MkdirStep.of(projectFilesystem, outputDirectory))
+        .add(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), outputDirectory)))
         .add(
             CxxCollectAndLogInferDependenciesStep.fromAnalyzeRule(
                 analysisToReport,
                 getProjectFilesystem(),
-                this.outputDirectory.resolve("infer-deps.txt"))
-        )
+                this.outputDirectory.resolve("infer-deps.txt")))
         .build();
   }
 }

@@ -16,10 +16,12 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
@@ -36,7 +38,6 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.FileVisitResult;
@@ -50,30 +51,31 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 
-/**
- * Rule for trimming unnecessary ids from R.java files.
- */
-class TrimUberRDotJava extends AbstractBuildRule {
+/** Rule for trimming unnecessary ids from R.java files. */
+class TrimUberRDotJava extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   /**
    * If the app has resources, aapt will have generated an R.java in this directory. If there are no
    * resources, this should be empty and we'll create a placeholder R.java below.
    */
   private final Optional<SourcePath> pathToRDotJavaDir;
+
   private final Collection<DexProducedFromJavaLibrary> allPreDexRules;
   private final Optional<String> keepResourcePattern;
 
-  private static final Pattern R_DOT_JAVA_LINE_PATTERN = Pattern.compile(
-      "^ *public static final int(?:\\[\\])? (\\w+)=");
+  private static final Pattern R_DOT_JAVA_LINE_PATTERN =
+      Pattern.compile("^ *public static final int(?:\\[\\])? (\\w+)=");
 
-  private static final Pattern R_DOT_JAVA_PACKAGE_NAME_PATTERN = Pattern.compile(
-      "^ *package ([\\w.]+);");
+  private static final Pattern R_DOT_JAVA_PACKAGE_NAME_PATTERN =
+      Pattern.compile("^ *package ([\\w.]+);");
 
   TrimUberRDotJava(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       Optional<SourcePath> pathToRDotJavaDir,
       Collection<DexProducedFromJavaLibrary> allPreDexRules,
       Optional<String> keepResourcePattern) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.pathToRDotJavaDir = pathToRDotJavaDir;
     this.allPreDexRules = allPreDexRules;
     this.keepResourcePattern = keepResourcePattern;
@@ -81,13 +83,15 @@ class TrimUberRDotJava extends AbstractBuildRule {
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     Path output = context.getSourcePathResolver().getRelativePath(getSourcePathToOutput());
     Optional<Path> input = pathToRDotJavaDir.map(context.getSourcePathResolver()::getRelativePath);
     buildableContext.recordArtifact(output);
     return new ImmutableList.Builder<Step>()
-        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), output.getParent()))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())))
         .add(new PerformTrimStep(output, input))
         .add(
             ZipScrubberStep.of(
@@ -100,9 +104,7 @@ class TrimUberRDotJava extends AbstractBuildRule {
     return new ExplicitBuildTargetSourcePath(
         getBuildTarget(),
         BuildTargets.getGenPath(
-            getProjectFilesystem(),
-            getBuildTarget(),
-            "%s/_trimmed_r_dot_java.src.zip"));
+            getProjectFilesystem(), getBuildTarget(), "%s/_trimmed_r_dot_java.src.zip"));
   }
 
   private class PerformTrimStep implements Step {
@@ -128,17 +130,16 @@ class TrimUberRDotJava extends AbstractBuildRule {
 
       final ProjectFilesystem projectFilesystem = getProjectFilesystem();
       try (final CustomZipOutputStream output =
-               ZipOutputStreams.newOutputStream(projectFilesystem.resolve(pathToOutput))) {
+          ZipOutputStreams.newOutputStream(projectFilesystem.resolve(pathToOutput))) {
         if (!pathToInput.isPresent()) {
           // dx fails if its input contains no classes.  Rather than add empty input handling
           // to DxStep, the dex merger, and every other step of this chain, just generate a
           // stub class.  This will be stripped by ProGuard in release builds and have a minimal
           // effect on debug builds.
           output.putNextEntry(new ZipEntry("com/facebook/buck/AppWithoutResourcesStub.java"));
-          output.write((
-              "package com.facebook.buck_generated;\n" +
-              "final class AppWithoutResourcesStub {}"
-              ).getBytes());
+          output.write(
+              ("package com.facebook.buck_generated;\n" + "final class AppWithoutResourcesStub {}")
+                  .getBytes());
         } else {
           Preconditions.checkState(projectFilesystem.exists(pathToInput.get()));
           projectFilesystem.walkRelativeFileTree(
@@ -151,19 +152,19 @@ class TrimUberRDotJava extends AbstractBuildRule {
                     return FileVisitResult.CONTINUE;
                   }
                   if (!attrs.isRegularFile()) {
-                    throw new RuntimeException(String.format(
-                        "Found unknown file type while looking for R.java: %s (%s)",
-                        file,
-                        attrs));
+                    throw new RuntimeException(
+                        String.format(
+                            "Found unknown file type while looking for R.java: %s (%s)",
+                            file, attrs));
                   }
                   if (!file.getFileName().toString().endsWith(".java")) {
-                    throw new RuntimeException(String.format(
-                        "Found unknown file while looking for R.java: %s",
-                        file));
+                    throw new RuntimeException(
+                        String.format("Found unknown file while looking for R.java: %s", file));
                   }
 
-                  output.putNextEntry(new ZipEntry(
-                      MorePaths.pathWithUnixSeparators(pathToInput.get().relativize(file))));
+                  output.putNextEntry(
+                      new ZipEntry(
+                          MorePaths.pathWithUnixSeparators(pathToInput.get().relativize(file))));
                   if (allPreDexRules.isEmpty()) {
                     // If there are no pre-dexed inputs, we don't yet support trimming
                     // R.java, so just copy it verbatim (instead of trimming it down to nothing).
@@ -190,10 +191,7 @@ class TrimUberRDotJava extends AbstractBuildRule {
 
     @Override
     public String getDescription(ExecutionContext context) {
-      return String.format(
-          "trim_uber_r_dot_java %s > %s",
-          pathToInput,
-          pathToOutput);
+      return String.format("trim_uber_r_dot_java %s > %s", pathToInput, pathToOutput);
     }
   }
 
@@ -223,8 +221,9 @@ class TrimUberRDotJava extends AbstractBuildRule {
       // is referenced.  That is a very rare case, though, and not worth the complexity to fix.
       if (m.find()) {
         final String resource = m.group(1);
-        boolean shouldWriteLine = allReferencedResources.contains(packageName + "." + resource) ||
-            (keepPattern.isPresent() && keepPattern.get().matcher(resource).find());
+        boolean shouldWriteLine =
+            allReferencedResources.contains(packageName + "." + resource)
+                || (keepPattern.isPresent() && keepPattern.get().matcher(resource).find());
         if (!shouldWriteLine) {
           continue;
         }

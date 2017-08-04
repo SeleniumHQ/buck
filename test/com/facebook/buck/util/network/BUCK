@@ -1,5 +1,13 @@
-standard_java_testutil(
+java_library(
     name = "testutil",
+    srcs = glob(
+        ["*.java"],
+        excludes = [
+            "*Benchmark.java",
+            "*Test.java",
+        ],
+    ),
+    visibility = ["//test/..."],
     deps = [
         "//src-gen:thrift",
         "//src/com/facebook/buck/android:utils",
@@ -23,7 +31,6 @@ standard_java_testutil(
         "//src/com/facebook/buck/rules:relative_cell_name",
         "//src/com/facebook/buck/rules:rule_key",
         "//src/com/facebook/buck/rules/coercer:interface",
-        "//src/com/facebook/buck/shell:worker_process",
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",
         "//src/com/facebook/buck/test/result/type:type",
@@ -40,7 +47,7 @@ standard_java_testutil(
         "//src/com/facebook/buck/util/sha1:sha1",
         "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
         "//src/com/facebook/buck/versions:types",
-        "//third-party/java/gson:gson",
+        "//src/com/facebook/buck/worker:worker_process",
         "//third-party/java/guava:guava",
         "//third-party/java/immutables:immutables",
         "//third-party/java/infer-annotations:infer-annotations",
@@ -79,7 +86,6 @@ standard_java_test(
         "//src/com/facebook/buck/rules:relative_cell_name",
         "//src/com/facebook/buck/rules:rule_key",
         "//src/com/facebook/buck/rules/coercer:interface",
-        "//src/com/facebook/buck/shell:worker_process",
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",
         "//src/com/facebook/buck/test/result/type:type",
@@ -96,7 +102,7 @@ standard_java_test(
         "//src/com/facebook/buck/util/sha1:sha1",
         "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
         "//src/com/facebook/buck/versions:types",
-        "//third-party/java/gson:gson",
+        "//src/com/facebook/buck/worker:worker_process",
         "//third-party/java/guava:guava",
         "//third-party/java/hamcrest:hamcrest-junit",
         "//third-party/java/hamcrest:java-hamcrest",

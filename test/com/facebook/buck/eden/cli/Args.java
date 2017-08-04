@@ -16,29 +16,28 @@
 
 package com.facebook.buck.eden.cli;
 
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.facebook.buck.eden.EdenClient;
 import com.facebook.eden.thrift.EdenError;
+import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.facebook.thrift.TException;
 import com.google.common.base.Preconditions;
-
+import java.io.IOException;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.spi.SubCommand;
 import org.kohsuke.args4j.spi.SubCommandHandler;
 import org.kohsuke.args4j.spi.SubCommands;
 
-import java.io.IOException;
-
 public class Args {
   @Argument(required = true, index = 0, handler = SubCommandHandler.class)
   @SubCommands({
-      @SubCommand(name = "mounts", impl = MountsCommand.class),
-      @SubCommand(name = "sha1", impl = Sha1Command.class),
+    @SubCommand(name = "mounts", impl = MountsCommand.class),
+    @SubCommand(name = "sha1", impl = Sha1Command.class),
   })
   @SuppressFieldNotInitialized
   Command command;
 
-  public int run() throws EdenError, IOException, TException {
+  public int run(EdenClient edenClient) throws EdenError, IOException, TException {
     Preconditions.checkNotNull(command, "command must be set by args4j");
-    return command.run();
+    return command.run(edenClient);
   }
 }

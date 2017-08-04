@@ -34,16 +34,11 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-
-import org.junit.Assume;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -51,14 +46,17 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.junit.Assume;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
 
 public class CompilationDatabaseIntegrationTest {
 
   /** This is the value of xcode_developer_dir in the .buckconfig for this test. */
   private static final Path XCODE_DEVELOPER_DIR = Paths.get("xcode-developer-dir");
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
   private ProjectWorkspace workspace;
 
   @Before
@@ -66,8 +64,7 @@ public class CompilationDatabaseIntegrationTest {
     Platform platform = Platform.detect();
     Assume.assumeTrue(platform == Platform.MACOS);
 
-    workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "ios-project", tmp);
+    workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "ios-project", tmp);
     workspace.setUp();
 
     Path platforms = workspace.getPath("xcode-developer-dir/Platforms");
@@ -78,10 +75,12 @@ public class CompilationDatabaseIntegrationTest {
   }
 
   @Test
-  public void testCreateCompilationDatabaseForAppleLibraryWithNoDeps() throws IOException {
+  public void testCreateCompilationDatabaseForAppleLibraryWithNoDeps()
+      throws InterruptedException, IOException {
     // buck build the #compilation-database.
-    BuildTarget target = BuildTargetFactory.newInstance(
-        "//Libraries/EXExample:EXExample#compilation-database,iphonesimulator-x86_64");
+    BuildTarget target =
+        BuildTargetFactory.newInstance(
+            "//Libraries/EXExample:EXExample#compilation-database,iphonesimulator-x86_64");
     Path compilationDatabase = workspace.buildAndReturnOutput(target.getFullyQualifiedName());
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
@@ -89,11 +88,11 @@ public class CompilationDatabaseIntegrationTest {
     Map<String, CxxCompilationDatabaseEntry> fileToEntry =
         CxxCompilationDatabaseUtils.parseCompilationDatabaseJsonFile(compilationDatabase);
 
-    ImmutableSet<String> frameworks = ImmutableSet.of(
-        Paths.get("/System/Library/Frameworks/Foundation.framework").getParent().toString());
+    ImmutableSet<String> frameworks =
+        ImmutableSet.of(
+            Paths.get("/System/Library/Frameworks/Foundation.framework").getParent().toString());
     String pathToPrivateHeaders =
-        BuildTargets
-            .getGenPath(
+        BuildTargets.getGenPath(
                 filesystem,
                 target.withFlavors(
                     InternalFlavor.of("iphonesimulator-x86_64"),
@@ -101,18 +100,18 @@ public class CompilationDatabaseIntegrationTest {
                 "%s.hmap")
             .toString();
     String pathToPublicHeaders =
-        BuildTargets
-            .getGenPath(
+        BuildTargets.getGenPath(
                 filesystem,
                 target.withFlavors(
                     CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR,
                     CxxPlatformUtils.getHeaderModeForDefaultPlatform(tmp.getRoot()).getFlavor()),
                 "%s.hmap")
             .toString();
-    Iterable<String> includes = ImmutableList.of(
-        pathToPrivateHeaders,
-        pathToPublicHeaders,
-        filesystem.getBuckPaths().getBuckOut().toString());
+    Iterable<String> includes =
+        ImmutableList.of(
+            pathToPrivateHeaders,
+            pathToPublicHeaders,
+            filesystem.getBuckPaths().getBuckOut().toString());
 
     // Verify the entries in the compilation database.
     assertFlags(
@@ -143,8 +142,7 @@ public class CompilationDatabaseIntegrationTest {
         target.withFlavors(
             InternalFlavor.of("iphonesimulator-x86_64"),
             InternalFlavor.of(
-                "compile-pic-" +
-                    sanitize("EXExample/Categories/NSString+Palindrome.m.o"))),
+                "compile-pic-" + sanitize("EXExample/Categories/NSString+Palindrome.m.o"))),
         Paths.get("EXExample/Categories/NSString+Palindrome.m.o"),
         /* isLibrary */ true,
         fileToEntry,
@@ -153,10 +151,12 @@ public class CompilationDatabaseIntegrationTest {
   }
 
   @Test
-  public void testCreateCompilationDatabaseForAppleBinaryWithDeps() throws IOException {
+  public void testCreateCompilationDatabaseForAppleBinaryWithDeps()
+      throws InterruptedException, IOException {
     // buck build the #compilation-database.
-    BuildTarget target = BuildTargetFactory.newInstance(
-        "//Apps/Weather:Weather#iphonesimulator-x86_64,compilation-database");
+    BuildTarget target =
+        BuildTargetFactory.newInstance(
+            "//Apps/Weather:Weather#iphonesimulator-x86_64,compilation-database");
     Path compilationDatabase = workspace.buildAndReturnOutput(target.getFullyQualifiedName());
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
@@ -164,12 +164,12 @@ public class CompilationDatabaseIntegrationTest {
     Map<String, CxxCompilationDatabaseEntry> fileToEntry =
         CxxCompilationDatabaseUtils.parseCompilationDatabaseJsonFile(compilationDatabase);
 
-    ImmutableSet<String> frameworks = ImmutableSet.of(
-        Paths.get("/System/Library/Frameworks/Foundation.framework").getParent().toString(),
-        Paths.get("/System/Library/Frameworks/UIKit.framework").getParent().toString());
+    ImmutableSet<String> frameworks =
+        ImmutableSet.of(
+            Paths.get("/System/Library/Frameworks/Foundation.framework").getParent().toString(),
+            Paths.get("/System/Library/Frameworks/UIKit.framework").getParent().toString());
     String pathToPrivateHeaders =
-        BuildTargets
-            .getGenPath(
+        BuildTargets.getGenPath(
                 filesystem,
                 target.withFlavors(
                     InternalFlavor.of("iphonesimulator-x86_64"),
@@ -177,8 +177,7 @@ public class CompilationDatabaseIntegrationTest {
                 "%s.hmap")
             .toString();
     String pathToPublicHeaders =
-        BuildTargets
-            .getGenPath(
+        BuildTargets.getGenPath(
                 filesystem,
                 BuildTargetFactory.newInstance("//Libraries/EXExample:EXExample")
                     .withAppendedFlavors(
@@ -187,18 +186,18 @@ public class CompilationDatabaseIntegrationTest {
                             .getFlavor()),
                 "%s.hmap")
             .toString();
-    Iterable<String> includes = ImmutableList.of(
-        pathToPrivateHeaders,
-        pathToPublicHeaders,
-        filesystem.getBuckPaths().getBuckOut().toString());
+    Iterable<String> includes =
+        ImmutableList.of(
+            pathToPrivateHeaders,
+            pathToPublicHeaders,
+            filesystem.getBuckPaths().getBuckOut().toString());
 
     assertFlags(
         filesystem,
         "Apps/Weather/Weather/EXViewController.m",
         target.withFlavors(
             InternalFlavor.of("iphonesimulator-x86_64"),
-            InternalFlavor.of(
-                "compile-" + sanitize("Weather/EXViewController.m.o"))),
+            InternalFlavor.of("compile-" + sanitize("Weather/EXViewController.m.o"))),
         Paths.get("Weather/EXViewController.m.o"),
         /* isLibrary */ false,
         fileToEntry,
@@ -209,8 +208,7 @@ public class CompilationDatabaseIntegrationTest {
         "Apps/Weather/Weather/main.m",
         target.withFlavors(
             InternalFlavor.of("iphonesimulator-x86_64"),
-            InternalFlavor.of(
-                "compile-" + sanitize("Weather/main.m.o"))),
+            InternalFlavor.of("compile-" + sanitize("Weather/main.m.o"))),
         Paths.get("Weather/main.m.o"),
         /* isLibrary */ false,
         fileToEntry,
@@ -226,7 +224,8 @@ public class CompilationDatabaseIntegrationTest {
       boolean isLibrary,
       Map<String, CxxCompilationDatabaseEntry> fileToEntry,
       ImmutableSet<String> additionalFrameworks,
-      Iterable<String> includes) throws IOException {
+      Iterable<String> includes)
+      throws IOException {
     Path tmpRoot = tmp.getRoot().toRealPath();
     String key = tmpRoot.resolve(source).toString();
     CxxCompilationDatabaseEntry entry = fileToEntry.get(key);
@@ -235,9 +234,8 @@ public class CompilationDatabaseIntegrationTest {
     Path xcodeDeveloperDir = tmpRoot.resolve(XCODE_DEVELOPER_DIR);
     Path platformDir = xcodeDeveloperDir.resolve("Platforms/iPhoneSimulator.platform");
     Path sdkRoot = platformDir.resolve("Developer/SDKs/iPhoneSimulator.sdk");
-    String clang = xcodeDeveloperDir
-        .resolve("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang")
-        .toString();
+    String clang =
+        xcodeDeveloperDir.resolve("Toolchains/XcodeDefault.xctoolchain/usr/bin/clang").toString();
     String language = "objective-c";
     String languageStandard = "-std=gnu11";
     if (source.endsWith(".mm")) {
@@ -245,19 +243,18 @@ public class CompilationDatabaseIntegrationTest {
       languageStandard = "-std=c++11";
       clang += "++";
     }
-    ImmutableList<String> commandArgs1 = ImmutableList.of(
-        "'" + languageStandard + "'",
-        "-Wno-deprecated",
-        "-Wno-conversion");
+    ImmutableList<String> commandArgs1 =
+        ImmutableList.of("'" + languageStandard + "'", "-Wno-deprecated", "-Wno-conversion");
 
-    ImmutableList<String> commandArgs2 = ImmutableList.of(
-        "-isysroot",
-        sdkRoot.toString(),
-        "-iquote",
-        tmpRoot.toString(),
-        "-arch",
-        "x86_64",
-        "'-mios-simulator-version-min=8.0'");
+    ImmutableList<String> commandArgs2 =
+        ImmutableList.of(
+            "-isysroot",
+            sdkRoot.toString(),
+            "-arch",
+            "x86_64",
+            "'-mios-simulator-version-min=8.0'",
+            "-iquote",
+            tmpRoot.toString());
 
     List<String> commandArgs = new ArrayList<>();
     commandArgs.add(clang);
@@ -292,10 +289,6 @@ public class CompilationDatabaseIntegrationTest {
     commandArgs.add("." + Strings.repeat("/", 399));
     commandArgs.add("-x");
     commandArgs.add(language);
-    commandArgs.add("'-fdebug-prefix-map=" + tmpRoot + "=.'");
-    commandArgs.add("'-fdebug-prefix-map=" + xcodeDeveloperDir + "=APPLE_DEVELOPER_DIR'");
-    commandArgs.add("'-fdebug-prefix-map=" + platformDir + "=APPLE_PLATFORM_DIR'");
-    commandArgs.add("'-fdebug-prefix-map=" + sdkRoot + "=APPLE_SDKROOT'");
     commandArgs.add("-c");
     commandArgs.add("-MD");
     commandArgs.add("-MF");
@@ -303,6 +296,10 @@ public class CompilationDatabaseIntegrationTest {
     commandArgs.add(source);
     commandArgs.add("-o");
     commandArgs.add(output);
-    assertThat(ImmutableList.copyOf(entry.getCommand().split(" ")), equalTo(commandArgs));
+    assertThat(
+        RichStream.from(entry.getCommand().split(" "))
+            .filter(c -> !c.contains("-fdebug-prefix-map"))
+            .toImmutableList(),
+        equalTo(commandArgs));
   }
 }

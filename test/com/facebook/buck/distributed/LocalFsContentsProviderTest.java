@@ -18,7 +18,9 @@ package com.facebook.buck.distributed;
 
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.google.common.base.Charsets;
-
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
@@ -26,15 +28,10 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-
 public class LocalFsContentsProviderTest {
   private static final byte[] FILE_CONTENTS = "topspin".getBytes(Charsets.UTF_8);
 
-  @Rule
-  public TemporaryFolder tempDir = new TemporaryFolder();
+  @Rule public TemporaryFolder tempDir = new TemporaryFolder();
 
   private Path cacheRootDir;
   private BuildJobStateFileHashEntry entry;
@@ -49,7 +46,7 @@ public class LocalFsContentsProviderTest {
   }
 
   @Test
-  public void testGettingNonExistentFile() throws IOException {
+  public void testGettingNonExistentFile() throws InterruptedException, IOException {
     LocalFsContentsProvider provider = new LocalFsContentsProvider(cacheRootDir);
     Assert.assertFalse(Files.isRegularFile(targetAbsPath));
     provider.materializeFileContents(entry, targetAbsPath);
@@ -57,7 +54,7 @@ public class LocalFsContentsProviderTest {
   }
 
   @Test
-  public void testGettingExistentFile() throws IOException {
+  public void testGettingExistentFile() throws InterruptedException, IOException {
     LocalFsContentsProvider provider = new LocalFsContentsProvider(cacheRootDir);
     Assert.assertFalse(Files.isRegularFile(targetAbsPath));
 

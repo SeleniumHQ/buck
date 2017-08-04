@@ -19,56 +19,53 @@ package com.facebook.buck.jvm.java;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
-
+import java.io.IOException;
+import java.util.Optional;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
-import java.io.IOException;
-import java.util.Optional;
-
 public class PrebuiltJarTest {
 
-  @Rule
-  public TemporaryPaths temp = new TemporaryPaths();
+  @Rule public TemporaryPaths temp = new TemporaryPaths();
 
   private PrebuiltJar junitJarRule;
   private FakeProjectFilesystem filesystem;
-
 
   @Before
   public void setUp() throws IOException {
     filesystem = new FakeProjectFilesystem(temp.newFolder());
 
-    BuildRuleParams buildRuleParams =
-        new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//lib:junit"))
-            .setProjectFilesystem(filesystem)
-            .build();
+    BuildTarget buildTarget = BuildTargetFactory.newInstance("//lib:junit");
+    BuildRuleParams buildRuleParams = TestBuildRuleParams.create();
 
-    junitJarRule = new PrebuiltJar(
-        buildRuleParams,
-        new SourcePathResolver(new SourcePathRuleFinder(
-            new BuildRuleResolver(
-              TargetGraph.EMPTY,
-              new DefaultTargetNodeToBuildRuleTransformer())
-        )),
-        new FakeSourcePath("abi.jar"),
-        Optional.of(new FakeSourcePath("lib/junit-4.11-sources.jar")),
-        /* gwtJar */ Optional.empty(),
-        Optional.of("http://junit-team.github.io/junit/javadoc/latest/"),
-        /* mavenCoords */ Optional.empty(),
-        /* provided */ false);
+    junitJarRule =
+        new PrebuiltJar(
+            buildTarget,
+            filesystem,
+            buildRuleParams,
+            DefaultSourcePathResolver.from(
+                new SourcePathRuleFinder(
+                    new BuildRuleResolver(
+                        TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()))),
+            new FakeSourcePath("abi.jar"),
+            Optional.of(new FakeSourcePath("lib/junit-4.11-sources.jar")),
+            /* gwtJar */ Optional.empty(),
+            Optional.of("http://junit-team.github.io/junit/javadoc/latest/"),
+            /* mavenCoords */ Optional.empty(),
+            /* provided */ false);
   }
 
   @Test

@@ -17,11 +17,14 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.cxx.StripStep;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -29,33 +32,39 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.collect.ImmutableList;
-
+import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
+import java.util.SortedSet;
 
 public class StripLinkable extends AbstractBuildRule {
 
-  @AddToRuleKey
-  private final Tool stripTool;
+  @AddToRuleKey private final Tool stripTool;
 
-  @AddToRuleKey
-  private final SourcePath sourcePathToStrip;
+  @AddToRuleKey private final SourcePath sourcePathToStrip;
 
-  @AddToRuleKey
-  private final String strippedObjectName;
+  @AddToRuleKey private final String strippedObjectName;
 
   private final Path resultDir;
+  private final ImmutableSortedSet<BuildRule> buildDeps;
 
   public StripLinkable(
-      BuildRuleParams buildRuleParams,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      ImmutableSortedSet<BuildRule> buildDeps,
       Tool stripTool,
       SourcePath sourcePathToStrip,
       String strippedObjectName) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem);
+    this.buildDeps = buildDeps;
     this.stripTool = stripTool;
     this.strippedObjectName = strippedObjectName;
     this.sourcePathToStrip = sourcePathToStrip;
-    this.resultDir =
-        BuildTargets.getGenPath(getProjectFilesystem(), buildRuleParams.getBuildTarget(), "%s");
+    this.resultDir = BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "%s");
+  }
+
+  @Override
+  public SortedSet<BuildRule> getBuildDeps() {
+    return buildDeps;
   }
 
   @Override
@@ -64,7 +73,10 @@ public class StripLinkable extends AbstractBuildRule {
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.add(MkdirStep.of(getProjectFilesystem(), resultDir));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), resultDir)));
     Path output = context.getSourcePathResolver().getRelativePath(getSourcePathToOutput());
     steps.add(
         new StripStep(
@@ -83,7 +95,6 @@ public class StripLinkable extends AbstractBuildRule {
   @Override
   public SourcePath getSourcePathToOutput() {
     return new ExplicitBuildTargetSourcePath(
-        getBuildTarget(),
-        resultDir.resolve(strippedObjectName));
+        getBuildTarget(), resultDir.resolve(strippedObjectName));
   }
 }

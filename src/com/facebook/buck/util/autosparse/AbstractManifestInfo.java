@@ -1,5 +1,5 @@
 /*
- * Copyright 2015-present Facebook, Inc.
+ * Copyright 2016-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -17,15 +17,13 @@
 package com.facebook.buck.util.autosparse;
 
 import com.facebook.buck.util.immutables.BuckStyleTuple;
-
-import org.immutables.value.Value;
-
 import java.util.EnumSet;
+import org.immutables.value.Value;
 
 /**
  * Track information on a file entry in a version control manifest.
  *
- * Currently only the hash value (opaque hex value, unique per revision of a file) and file flags
+ * <p>Currently only the hash value (opaque hex value, unique per revision of a file) and file flags
  * (is it a link, executable flag set) are tracked.
  */
 @Value.Immutable(copy = false)
@@ -36,10 +34,9 @@ public abstract class AbstractManifestInfo {
     LINK,
   }
 
-  public abstract String getHash();
   abstract EnumSet<FileFlags> getFlags();
 
-  public static ManifestInfo of(String hash, String flagsString) {
+  public static ManifestInfo of(String flagsString) {
     EnumSet<FileFlags> flags = EnumSet.noneOf(FileFlags.class);
     if (flagsString.contains("x")) {
       flags.add(FileFlags.EXECUTABLE);
@@ -47,7 +44,7 @@ public abstract class AbstractManifestInfo {
     if (flagsString.contains("l")) {
       flags.add(FileFlags.LINK);
     }
-    return ManifestInfo.of(hash, flags);
+    return ManifestInfo.of(flags);
   }
 
   @Value.Lazy

@@ -20,7 +20,6 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
-
 import java.io.IOException;
 import java.nio.file.Path;
 
@@ -43,13 +42,9 @@ public class RecordFileSha1Step implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) {
-    try {
-      buildableContext.addMetadata(metadataKey, filesystem.computeSha1(inputFile).getHash());
-    } catch (IOException e) {
-      context.logError(e, "Error hashing %s", inputFile.toString());
-      return StepExecutionResult.ERROR;
-    }
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
+    buildableContext.addMetadata(metadataKey, filesystem.computeSha1(inputFile).getHash());
     return StepExecutionResult.SUCCESS;
   }
 
@@ -60,9 +55,7 @@ public class RecordFileSha1Step implements Step {
 
   @Override
   public String getDescription(ExecutionContext context) {
-    return String.format("%s --input %s --metadata-key %s",
-        getShortName(),
-        inputFile.toString(),
-        metadataKey);
+    return String.format(
+        "%s --input %s --metadata-key %s", getShortName(), inputFile.toString(), metadataKey);
   }
 }

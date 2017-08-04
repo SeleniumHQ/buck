@@ -30,8 +30,9 @@ struct StampedeId {
   1 : optional string id;
 }
 
-# Uniquely identifies the run of a specific remote build server. One StampedeId will have one or
-# more RunId's associated with it. (one RunId per Minion that contributes to the build).
+# Uniquely identifies the run of a specific remote build server.
+# One StampedeId will have one or more RunId's associated with it.
+# (one RunId per Minion that contributes to the build).
 struct RunId {
   1 : optional string id;
 }
@@ -117,6 +118,15 @@ enum LogRequestType {
   SCRIBE_DATA = 1,
 }
 
+enum BuildMode {
+  UNKNOWN = 0,
+  REMOTE_BUILD = 1,
+  // A random BuildSlave will be the Coordinator.
+  DISTRIBUTED_BUILD_WITH_REMOTE_COORDINATOR = 2
+  // The machine launching the build is the Coordinator.
+  DISTRIBUTED_BUILD_WITH_LOCAL_COORDINATOR = 3,
+}
+
 struct PathInfo {
   1: optional string contentHash;
   2: optional string path;
@@ -139,6 +149,13 @@ struct BuckVersion {
   3: optional FileInfo developmentVersion;
 }
 
+struct BuildModeInfo {
+  1: optional BuildMode mode = BuildMode.UNKNOWN;
+  2: optional i32 numberOfMinions;
+  3: optional string coordinatorAddress;
+  4: optional i32 coordinatorPort;
+}
+
 struct BuildJob {
   1: optional StampedeId stampedeId;
   2: optional DebugInfo debug;
@@ -146,6 +163,9 @@ struct BuildJob {
   4: optional BuckVersion buckVersion;
   5: optional map<string, BuildSlaveInfo> slaveInfoByRunId;
   6: optional list<PathInfo> dotFiles;
+  7: optional BuildModeInfo buildModeInfo;
+  8: optional string repository;
+  9: optional string tenantId;
 }
 
 struct Announcement {
@@ -186,8 +206,15 @@ struct BuildSlaveEventsRange {
 ## Request/Response structs
 ##############################################################################
 
+# Creates a brand new distributed build request with some initial configuration.
+# NOTE: The distributed build won't start at this point.
 struct CreateBuildRequest {
   1: optional i64 createTimestampMillis;
+  2: optional BuildMode buildMode = BuildMode.REMOTE_BUILD;
+  // Maximum number of minions to be used in this distributed build.
+  3: optional i32 numberOfMinions;
+  4: optional string repository;
+  5: optional string tenantId;
 }
 
 struct CreateBuildResponse {
@@ -328,6 +355,27 @@ struct FetchBuildSlaveStatusResponse {
   1: optional binary buildSlaveStatus;
 }
 
+struct StoreBuildSlaveFinishedStatsRequest {
+  1: optional StampedeId stampedeId;
+  2: optional RunId runId;
+  3: optional binary buildSlaveFinishedStats;
+}
+
+struct StoreBuildSlaveFinishedStatsResponse {
+}
+
+# Retrieves binary encoded build slave stats for the given runId.
+# Structure of the stats object can be found in client-side build_slave.thrift.
+struct FetchBuildSlaveFinishedStatsRequest {
+  1: optional StampedeId stampedeId;
+  2: optional RunId runId;
+}
+
+struct FetchBuildSlaveFinishedStatsResponse {
+  # If the stats object existed, it will be set here. Otherwise field left unset
+  1: optional binary buildSlaveFinishedStats;
+}
+
 # Used by build slaves to stream events (e.g. console events) back to the
 # client that initiated the distributed build.
 struct AppendBuildSlaveEventsRequest {
@@ -347,6 +395,20 @@ struct MultiGetBuildSlaveEventsRequest {
 
 struct MultiGetBuildSlaveEventsResponse {
   1: optional list<BuildSlaveEventsRange> responses;
+}
+
+struct RuleKeyLogEntry {
+  1: optional string ruleKey;
+  2: optional bool wasStored;
+  3: optional i64 lastStoredTimestampMillis;
+}
+
+struct FetchRuleKeyLogsRequest {
+  1: optional list<string> ruleKeys;
+}
+
+struct FetchRuleKeyLogsResponse {
+  1: optional list<RuleKeyLogEntry> ruleKeyLogs;
 }
 
 ##############################################################################
@@ -374,6 +436,10 @@ enum FrontendRequestType {
   FETCH_BUILD_SLAVE_STATUS = 18,
   APPEND_BUILD_SLAVE_EVENTS = 19,
   MULTI_GET_BUILD_SLAVE_EVENTS = 20,
+  SET_BUILD_MODE = 21,
+  FETCH_RULE_KEY_LOGS = 22,
+  STORE_BUILD_SLAVE_FINISHED_STATS = 23,
+  FETCH_BUILD_SLAVE_FINISHED_STATS = 24,
 
   // [100-199] Values are reserved for the buck cache request types.
 }
@@ -393,12 +459,17 @@ struct FrontendRequest {
   14: optional AnnouncementRequest announcementRequest;
   15: optional SetBuckDotFilePathsRequest setBuckDotFilePathsRequest;
   16: optional MultiGetBuildSlaveLogDirRequest multiGetBuildSlaveLogDirRequest;
-  17: optional
-    MultiGetBuildSlaveRealTimeLogsRequest multiGetBuildSlaveRealTimeLogsRequest;
+  17: optional MultiGetBuildSlaveRealTimeLogsRequest
+    multiGetBuildSlaveRealTimeLogsRequest;
   18: optional UpdateBuildSlaveStatusRequest updateBuildSlaveStatusRequest;
   19: optional FetchBuildSlaveStatusRequest fetchBuildSlaveStatusRequest;
   20: optional AppendBuildSlaveEventsRequest appendBuildSlaveEventsRequest;
   21: optional MultiGetBuildSlaveEventsRequest multiGetBuildSlaveEventsRequest;
+  22: optional FetchRuleKeyLogsRequest fetchRuleKeyLogsRequest;
+  23: optional StoreBuildSlaveFinishedStatsRequest
+    storeBuildSlaveFinishedStatsRequest;
+  24: optional FetchBuildSlaveFinishedStatsRequest
+    fetchBuildSlaveFinishedStatsRequest;
 
   // [100-199] Values are reserved for the buck cache request types.
 }
@@ -424,6 +495,11 @@ struct FrontendResponse {
   24: optional AppendBuildSlaveEventsResponse appendBuildSlaveEventsResponse;
   25: optional MultiGetBuildSlaveEventsResponse
     multiGetBuildSlaveEventsResponse;
+  26: optional FetchRuleKeyLogsResponse fetchRuleKeyLogsResponse;
+  27: optional StoreBuildSlaveFinishedStatsResponse
+    storeBuildSlaveFinishedStatsResponse;
+  28: optional FetchBuildSlaveFinishedStatsResponse
+    fetchBuildSlaveFinishedStatsResponse;
 
   // [100-199] Values are reserved for the buck cache request types.
 }

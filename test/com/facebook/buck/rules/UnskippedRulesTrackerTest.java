@@ -16,7 +16,6 @@
 
 package com.facebook.buck.rules;
 
-import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
@@ -32,24 +31,17 @@ import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.timing.FakeClock;
-import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.eventbus.Subscribe;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListeningExecutorService;
-
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.stream.Stream;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.stream.Stream;
-
 public class UnskippedRulesTrackerTest {
-
-  private SourcePathResolver sourcePathResolver;
 
   private UnskippedRulesTracker unskippedRulesTracker;
   private BuckEventBus eventBus;
@@ -68,26 +60,21 @@ public class UnskippedRulesTrackerTest {
   public void setUp() {
     BuildRuleResolver resolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    sourcePathResolver = new SourcePathResolver(ruleFinder);
-    ListeningExecutorService executor = listeningDecorator(
-        MostExecutors.newMultiThreadExecutor(
-            "UnskippedRulesTracker", 7));
-    RuleDepsCache depsCache = new RuleDepsCache(executor, resolver);
-    unskippedRulesTracker = new UnskippedRulesTracker(depsCache, resolver, executor);
+    RuleDepsCache depsCache = new RuleDepsCache(resolver);
+    unskippedRulesTracker = new UnskippedRulesTracker(depsCache, resolver);
     eventBus = new DefaultBuckEventBus(new FakeClock(1), new BuildId());
-    eventBus.register(new Object() {
-      @Subscribe
-      public void onUnskippedRuleCountUpdated(BuckEvent event) {
-        events.add(event);
-      }
-    });
+    eventBus.register(
+        new Object() {
+          @Subscribe
+          public void onUnskippedRuleCountUpdated(BuckEvent event) {
+            events.add(event);
+          }
+        });
     ruleH = resolver.addToIndex(createRule("//:h"));
     ruleG = resolver.addToIndex(createRule("//:g"));
     ruleF = resolver.addToIndex(createRule("//:f"));
     ruleE = resolver.addToIndex(createRule("//:e", ImmutableSet.of(ruleG, ruleH)));
-    ruleD =
-        resolver.addToIndex(createRule("//:d", ImmutableSet.of(ruleG), ImmutableSet.of(ruleF)));
+    ruleD = resolver.addToIndex(createRule("//:d", ImmutableSet.of(ruleG), ImmutableSet.of(ruleF)));
     ruleC = resolver.addToIndex(createRule("//:c", ImmutableSet.of(ruleD, ruleE)));
     ruleB = resolver.addToIndex(createRule("//:b", ImmutableSet.of(), ImmutableSet.of(ruleD)));
     ruleA = resolver.addToIndex(createRule("//:a", ImmutableSet.of(ruleD)));
@@ -110,87 +97,87 @@ public class UnskippedRulesTrackerTest {
 
   @Test
   public void addingRuleMarksItsTransitiveDepsAsUnskipped() throws InterruptedException {
-    Futures.getUnchecked(unskippedRulesTracker.registerTopLevelRule(ruleA, eventBus));
+    unskippedRulesTracker.registerTopLevelRule(ruleA, eventBus);
     assertReceivedEvent(4);
-    Futures.getUnchecked(unskippedRulesTracker.registerTopLevelRule(ruleC, eventBus));
+    unskippedRulesTracker.registerTopLevelRule(ruleC, eventBus);
     assertReceivedEvent(7);
   }
 
   @Test
   public void addingRulesDepsDoesNotChangeState() throws InterruptedException {
-    Futures.getUnchecked(unskippedRulesTracker.registerTopLevelRule(ruleA, eventBus));
+    unskippedRulesTracker.registerTopLevelRule(ruleA, eventBus);
     assertReceivedEvent(4);
-    Futures.getUnchecked(unskippedRulesTracker.registerTopLevelRule(ruleD, eventBus));
+    unskippedRulesTracker.registerTopLevelRule(ruleD, eventBus);
     assertNoNewEvents();
   }
 
   @Test
   public void usingRuleMarksItsDepsAsSkipped() throws InterruptedException {
-    Futures.getUnchecked(unskippedRulesTracker.registerTopLevelRule(ruleC, eventBus));
+    unskippedRulesTracker.registerTopLevelRule(ruleC, eventBus);
     assertReceivedEvent(6);
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleE, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleE, eventBus);
     assertReceivedEvent(5);
   }
 
   @Test
   public void usedRuleIsNeverSkipped() throws InterruptedException {
-    Futures.getUnchecked(unskippedRulesTracker.registerTopLevelRule(ruleA, eventBus));
+    unskippedRulesTracker.registerTopLevelRule(ruleA, eventBus);
     assertReceivedEvent(4);
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleF, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleF, eventBus);
     assertNoNewEvents();
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleD, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleD, eventBus);
     assertReceivedEvent(3);
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleA, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleA, eventBus);
     assertNoNewEvents();
   }
 
   @Test
   public void rulesCanBeMarkedAsUsedEvenIfNoTopLevelRuleIsRegistered() throws InterruptedException {
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleF, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleF, eventBus);
     assertReceivedEvent(1);
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleD, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleD, eventBus);
     assertReceivedEvent(2);
-    Futures.getUnchecked(unskippedRulesTracker.registerTopLevelRule(ruleA, eventBus));
+    unskippedRulesTracker.registerTopLevelRule(ruleA, eventBus);
     assertReceivedEvent(3);
   }
 
   @Test
   public void onlyTopLevelRuleExecuted() throws InterruptedException {
-    Futures.getUnchecked(unskippedRulesTracker.registerTopLevelRule(ruleA, eventBus));
+    unskippedRulesTracker.registerTopLevelRule(ruleA, eventBus);
     assertReceivedEvent(4);
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleA, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleA, eventBus);
     assertReceivedEvent(1);
   }
 
   @Test
   public void usingARuleDoesNotMarkItsRuntimeDepsAsSkipped() throws InterruptedException {
-    Futures.getUnchecked(unskippedRulesTracker.registerTopLevelRule(ruleB, eventBus));
+    unskippedRulesTracker.registerTopLevelRule(ruleB, eventBus);
     assertReceivedEvent(4);
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleB, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleB, eventBus);
     assertNoNewEvents();
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleD, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleD, eventBus);
     assertReceivedEvent(3);
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleF, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleF, eventBus);
     assertNoNewEvents();
   }
 
   @Test
   public void multipleTopLevelRules() throws InterruptedException {
-    Futures.getUnchecked(unskippedRulesTracker.registerTopLevelRule(ruleA, eventBus));
+    unskippedRulesTracker.registerTopLevelRule(ruleA, eventBus);
     assertReceivedEvent(4);
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleF, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleF, eventBus);
     assertNoNewEvents();
-    Futures.getUnchecked(unskippedRulesTracker.registerTopLevelRule(ruleB, eventBus));
+    unskippedRulesTracker.registerTopLevelRule(ruleB, eventBus);
     assertReceivedEvent(5);
-    Futures.getUnchecked(unskippedRulesTracker.registerTopLevelRule(ruleC, eventBus));
+    unskippedRulesTracker.registerTopLevelRule(ruleC, eventBus);
     assertReceivedEvent(8);
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleD, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleD, eventBus);
     assertNoNewEvents();
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleA, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleA, eventBus);
     assertNoNewEvents();
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleC, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleC, eventBus);
     assertReceivedEvent(5);
-    Futures.getUnchecked(unskippedRulesTracker.markRuleAsUsed(ruleB, eventBus));
+    unskippedRulesTracker.markRuleAsUsed(ruleB, eventBus);
     assertNoNewEvents();
   }
 
@@ -213,49 +200,37 @@ public class UnskippedRulesTrackerTest {
   }
 
   private BuildRule createRule(String buildTarget) {
+    return new FakeBuildRule(BuildTargetFactory.newInstance(buildTarget), ImmutableSortedSet.of());
+  }
+
+  private BuildRule createRule(String buildTarget, ImmutableSet<BuildRule> deps) {
     return new FakeBuildRule(
-        BuildTargetFactory.newInstance(buildTarget),
-        sourcePathResolver,
-        ImmutableSortedSet.of());
+        BuildTargetFactory.newInstance(buildTarget), ImmutableSortedSet.copyOf(deps));
   }
 
   private BuildRule createRule(
-      String buildTarget,
-      ImmutableSet<BuildRule> deps) {
-    return new FakeBuildRule(
-        BuildTargetFactory.newInstance(buildTarget),
-        sourcePathResolver,
-        ImmutableSortedSet.copyOf(deps));
-  }
-
-  private BuildRule createRule(
-      String buildTarget,
-      ImmutableSet<BuildRule> deps,
-      ImmutableSet<BuildRule> runtimeDeps) {
+      String buildTarget, ImmutableSet<BuildRule> deps, ImmutableSet<BuildRule> runtimeDeps) {
     return new FakeBuildRuleWithRuntimeDeps(
         BuildTargetFactory.newInstance(buildTarget),
-        sourcePathResolver,
         ImmutableSortedSet.copyOf(deps),
         ImmutableSortedSet.copyOf(runtimeDeps));
   }
 
-  private static class FakeBuildRuleWithRuntimeDeps
-      extends FakeBuildRule
+  private static class FakeBuildRuleWithRuntimeDeps extends FakeBuildRule
       implements HasRuntimeDeps {
 
     private final ImmutableSortedSet<BuildRule> runtimeDeps;
 
     public FakeBuildRuleWithRuntimeDeps(
         BuildTarget target,
-        SourcePathResolver resolver,
         ImmutableSortedSet<BuildRule> deps,
         ImmutableSortedSet<BuildRule> runtimeDeps) {
-      super(target, resolver, deps);
+      super(target, deps);
       this.runtimeDeps = runtimeDeps;
     }
 
     @Override
-    public Stream<BuildTarget> getRuntimeDeps() {
+    public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
       return runtimeDeps.stream().map(BuildRule::getBuildTarget);
     }
   }
@@ -276,5 +251,4 @@ public class UnskippedRulesTrackerTest {
       return "FakeEvent";
     }
   }
-
 }

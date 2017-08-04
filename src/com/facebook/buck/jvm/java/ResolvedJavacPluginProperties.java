@@ -23,8 +23,8 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.file.Path;
@@ -39,25 +39,39 @@ public class ResolvedJavacPluginProperties implements RuleKeyAppendable {
       SourcePathResolver resolver) {
     this.inner = inner;
 
-    classpathSupplier = Suppliers.memoize(() -> inner.getClasspathEntries().stream()
-        .map(resolver::getAbsolutePath)
-        .map(filesystem::resolve)
-        .map(Path::toUri)
-        .map(uri -> {
-          try {
-            return uri.toURL();
-          } catch (MalformedURLException e) {
-            // The paths we're being given should have all been resolved from the file
-            // system already. We'd need to be unfortunate to get here. Bubble up a runtime
-            // exception.
-            throw new RuntimeException(e);
-          }
-        })
-        .toArray(size -> new URL[size]));
+    classpathSupplier =
+        Suppliers.memoize(
+            () ->
+                inner
+                    .getClasspathEntries()
+                    .stream()
+                    .map(resolver::getAbsolutePath)
+                    .map(filesystem::resolve)
+                    .map(Path::toUri)
+                    .map(
+                        uri -> {
+                          try {
+                            return uri.toURL();
+                          } catch (MalformedURLException e) {
+                            // The paths we're being given should have all been resolved from the file
+                            // system already. We'd need to be unfortunate to get here. Bubble up a runtime
+                            // exception.
+                            throw new RuntimeException(e);
+                          }
+                        })
+                    .toArray(size -> new URL[size]));
   }
 
   public boolean getCanReuseClassLoader() {
     return inner.getCanReuseClassLoader();
+  }
+
+  public boolean getDoesNotAffectAbi() {
+    return inner.getDoesNotAffectAbi();
+  }
+
+  public boolean getSupportAbiGenerationFromSource() {
+    return inner.getSupportsAbiGenerationFromSource();
   }
 
   public ImmutableSortedSet<String> getProcessorNames() {
@@ -75,5 +89,13 @@ public class ResolvedJavacPluginProperties implements RuleKeyAppendable {
   @Override
   public void appendToRuleKey(RuleKeyObjectSink sink) {
     inner.appendToRuleKey(sink);
+  }
+
+  public JavacPluginJsr199Fields getJavacPluginJsr199Fields() {
+    return JavacPluginJsr199Fields.builder()
+        .setCanReuseClassLoader(getCanReuseClassLoader())
+        .setClasspath(ImmutableList.copyOf(getClasspath()))
+        .setProcessorNames(getProcessorNames())
+        .build();
   }
 }

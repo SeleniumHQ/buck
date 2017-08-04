@@ -21,13 +21,11 @@ import com.facebook.buck.util.ClassLoaderCache;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
-
 import java.io.IOException;
 import java.util.List;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
 import javax.annotation.processing.Processor;
 
 class AnnotationProcessorFactory implements AutoCloseable {
@@ -53,19 +51,17 @@ class AnnotationProcessorFactory implements AutoCloseable {
     localClassLoaderCache.close();
   }
 
-  public List<Processor> createProcessors(
-      ImmutableList<ResolvedJavacPluginProperties> processorsProperties) {
-    return processorsProperties.stream()
+  public List<Processor> createProcessors(ImmutableList<JavacPluginJsr199Fields> fields) {
+    return fields
+        .stream()
         .map(this::createProcessorsWithCommonClasspath)
         .flatMap(Function.identity())
         .collect(Collectors.toList());
   }
 
-  private Stream<Processor> createProcessorsWithCommonClasspath(
-      ResolvedJavacPluginProperties processorGroup) {
-    ClassLoader classLoader = getClassLoaderForProcessorGroup(processorGroup);
-    return processorGroup.getProcessorNames().stream()
-        .map(name -> createProcessor(classLoader, name));
+  private Stream<Processor> createProcessorsWithCommonClasspath(JavacPluginJsr199Fields fields) {
+    ClassLoader classLoader = getClassLoaderForProcessorGroup(fields);
+    return fields.getProcessorNames().stream().map(name -> createProcessor(classLoader, name));
   }
 
   private Processor createProcessor(ClassLoader classLoader, String name) {
@@ -76,13 +72,12 @@ class AnnotationProcessorFactory implements AutoCloseable {
       // If this happens, then the build is really in trouble. Better warn the user.
       throw new HumanReadableException(
           "%s: javac unable to load annotation processor: %s",
-          target.getFullyQualifiedName(),
-          name);
+          target.getFullyQualifiedName(), name);
     }
   }
 
   @VisibleForTesting
-  ClassLoader getClassLoaderForProcessorGroup(ResolvedJavacPluginProperties processorGroup) {
+  ClassLoader getClassLoaderForProcessorGroup(JavacPluginJsr199Fields processorGroup) {
     ClassLoaderCache cache;
     // We can avoid lots of overhead in large builds by reusing the same classloader for annotation
     // processors. However, some annotation processors use static variables in a way that assumes
@@ -95,7 +90,6 @@ class AnnotationProcessorFactory implements AutoCloseable {
       cache = localClassLoaderCache;
     }
     return cache.getClassLoaderForClassPath(
-        compilerClassLoader,
-        ImmutableList.copyOf(processorGroup.getClasspath()));
+        compilerClassLoader, ImmutableList.copyOf(processorGroup.getClasspath()));
   }
 }

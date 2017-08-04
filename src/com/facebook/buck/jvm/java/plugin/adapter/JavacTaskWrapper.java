@@ -20,10 +20,8 @@ import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.Tree;
 import com.sun.source.util.JavacTask;
 import com.sun.source.util.TaskListener;
-
 import java.io.IOException;
 import java.util.Locale;
-
 import javax.annotation.processing.Processor;
 import javax.lang.model.element.Element;
 import javax.lang.model.type.TypeMirror;
@@ -58,18 +56,14 @@ abstract class JavacTaskWrapper extends JavacTask {
     inner.setTaskListener(taskListener);
   }
 
+  @Override
   public void addTaskListener(TaskListener taskListener) {
-    if (taskListener != null) {
-      throw new UnsupportedOperationException(
-          "Need a java 8 tools stub in third-party to support this");
-    }
+    inner.addTaskListener(taskListener);
   }
 
+  @Override
   public void removeTaskListener(TaskListener taskListener) {
-    if (taskListener != null) {
-      throw new UnsupportedOperationException(
-          "Need a java 8 tools stub in third-party to support this");
-    }
+    inner.removeTaskListener(taskListener);
   }
 
   @Override

@@ -20,6 +20,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -27,7 +28,6 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.testutil.TargetGraphFactory;
-
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -36,13 +36,13 @@ public class CxxLocationMacroExpanderTest {
   @Test
   public void expandCxxGenrule() throws Exception {
     CxxGenruleBuilder builder =
-        new CxxGenruleBuilder(BuildTargetFactory.newInstance("//:rule"))
-            .setOut("out.txt");
+        new CxxGenruleBuilder(BuildTargetFactory.newInstance("//:rule")).setOut("out.txt");
     TargetNode<?, ?> node = builder.build();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(node);
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     CxxGenrule cxxGenrule = (CxxGenrule) resolver.requireRule(node.getBuildTarget());
     CxxLocationMacroExpander expander =
         new CxxLocationMacroExpander(CxxPlatformUtils.DEFAULT_PLATFORM);
@@ -55,9 +55,8 @@ public class CxxLocationMacroExpanderTest {
     assertThat(
         expanded,
         Matchers.equalTo(
-            pathResolver.getAbsolutePath(cxxGenrule.getGenrule(CxxPlatformUtils.DEFAULT_PLATFORM))
+            pathResolver
+                .getAbsolutePath(cxxGenrule.getGenrule(CxxPlatformUtils.DEFAULT_PLATFORM))
                 .toString()));
-
   }
-
 }

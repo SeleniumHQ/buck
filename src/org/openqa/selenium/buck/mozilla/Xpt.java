@@ -17,25 +17,25 @@
 package org.openqa.selenium.buck.mozilla;
 
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.io.Files;
-
 import java.nio.file.Path;
 
-public class Xpt extends AbstractBuildRule {
+public class Xpt extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @AddToRuleKey
   private final SourcePath fallback;
@@ -45,17 +45,17 @@ public class Xpt extends AbstractBuildRule {
   private final SourcePath src;
   private final Path out;
 
-  public Xpt(
+  Xpt(
+      BuildTarget target,
+      ProjectFilesystem filesystem,
       BuildRuleParams params,
-      SourcePathResolver resolver,
+      String name,
       SourcePath src,
       SourcePath fallback) {
-    super(params);
+    super(target, filesystem, params);
 
     this.fallback = Preconditions.checkNotNull(fallback);
     this.src = Preconditions.checkNotNull(src);
-    Path relativePath = resolver.getRelativePath(src);
-    String name = Files.getNameWithoutExtension(relativePath.toString()) + ".xpt";
     this.out = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), name);
   }
 
@@ -68,7 +68,11 @@ public class Xpt extends AbstractBuildRule {
     context.getEventBus().post(ConsoleEvent.warning("Defaulting to fallback for " + out));
     Path from = context.getSourcePathResolver().getAbsolutePath(fallback);
 
-    steps.add(MkdirStep.of(getProjectFilesystem(), out.getParent()));
+    steps.add(MkdirStep.of(
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(),
+            getProjectFilesystem(),
+            out.getParent())));
     steps.add(CopyStep.forFile(getProjectFilesystem(), from, out));
 
     buildableContext.recordArtifact(out);

@@ -25,11 +25,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.io.ByteStreams;
-
-import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
-import org.apache.commons.compress.archivers.zip.ZipFile;
-
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -40,10 +35,14 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermission;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.zip.ZipError;
+import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
+import org.apache.commons.compress.archivers.zip.ZipFile;
 
 public class Unzip {
 
@@ -56,17 +55,15 @@ public class Unzip {
   }
 
   private static void writeZipContents(
-      ZipFile zip,
-      ZipArchiveEntry entry,
-      ProjectFilesystem filesystem,
-      Path target) throws IOException {
+      ZipFile zip, ZipArchiveEntry entry, ProjectFilesystem filesystem, Path target)
+      throws IOException {
     // Write file
     try (InputStream is = zip.getInputStream(entry)) {
       if (entry.isUnixSymlink()) {
         filesystem.createSymLink(
             target,
             filesystem.getPath(new String(ByteStreams.toByteArray(is), Charsets.UTF_8)),
-                  /* force */ true);
+            /* force */ true);
       } else {
         try (OutputStream out = filesystem.newFileOutputStream(target)) {
           ByteStreams.copy(is, out);
@@ -173,14 +170,13 @@ public class Unzip {
     }
   }
 
-  /**
-   * Unzips a file to a destination and returns the paths of the written files.
-   */
+  /** Unzips a file to a destination and returns the paths of the written files. */
   public static ImmutableList<Path> extractZipFile(
       Path zipFile,
       ProjectFilesystem filesystem,
       Path relativePath,
-      ExistingFileMode existingFileMode) throws IOException {
+      ExistingFileMode existingFileMode)
+      throws IOException {
 
     // We want to remove stale contents of directories listed in zipFile, but avoid deleting and
     // re-creating any directories that already exist. We *also* want to avoid a full recursive
@@ -197,7 +193,7 @@ public class Unzip {
       }
       // A zip file isn't required to list intermediate paths (e.g., it can contain "foo/" and
       // "foo/bar/baz"), but we need to know not to delete those intermediates, so fill them in.
-      for (SortedMap.Entry<Path, ZipArchiveEntry> p : pathMap.entrySet()) {
+      for (SortedMap.Entry<Path, ZipArchiveEntry> p : new ArrayList<>(pathMap.entrySet())) {
         if (!isTopLevel(p.getKey(), pathMap)) {
           fillIntermediatePaths(p.getKey(), pathMap);
         }
@@ -209,9 +205,9 @@ public class Unzip {
           if (filesystem.isDirectory(target, LinkOption.NOFOLLOW_LINKS)) {
             // We have a pre-existing directory: delete its contents if they aren't in the zip.
             if (existingFileMode == ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES) {
-              for (File f : filesystem.listFiles(target)) {
-                if (!pathMap.containsKey(f.toPath())) {
-                  filesystem.deleteRecursivelyIfExists(f.toPath());
+              for (Path path : filesystem.getDirectoryContents(target)) {
+                if (!pathMap.containsKey(path)) {
+                  filesystem.deleteRecursivelyIfExists(path);
                 }
               }
             }
@@ -222,7 +218,7 @@ public class Unzip {
             filesystem.mkdirs(target);
           }
         } else {
-          if (filesystem.isFile(target, LinkOption.NOFOLLOW_LINKS)) {  // NOPMD for clarity
+          if (filesystem.isFile(target, LinkOption.NOFOLLOW_LINKS)) { // NOPMD for clarity
             // pass
           } else if (filesystem.exists(target, LinkOption.NOFOLLOW_LINKS)) {
             filesystem.deleteRecursivelyIfExists(target);
@@ -238,33 +234,27 @@ public class Unzip {
   }
 
   public static ImmutableList<Path> extractZipFile(
-      Path zipFile,
-      ProjectFilesystem filesystem,
-      ExistingFileMode existingFileMode) throws IOException {
-    return extractZipFile(
-        zipFile,
-        filesystem,
-        filesystem.getPath(""),
-        existingFileMode);
+      Path zipFile, ProjectFilesystem filesystem, ExistingFileMode existingFileMode)
+      throws IOException {
+    return extractZipFile(zipFile, filesystem, filesystem.getPath(""), existingFileMode);
   }
 
   public static ImmutableList<Path> extractZipFile(
-      Path zipFile,
-      final Path destination,
-      ExistingFileMode existingFileMode) throws IOException {
+      Path zipFile, final Path destination, ExistingFileMode existingFileMode)
+      throws InterruptedException, IOException {
     // Create output directory if it does not exist
     Files.createDirectories(destination);
     return extractZipFile(
-        zipFile,
-        new ProjectFilesystem(destination),
-        destination.getFileSystem().getPath(""),
-        existingFileMode).stream()
+            zipFile,
+            new ProjectFilesystem(destination),
+            destination.getFileSystem().getPath(""),
+            existingFileMode)
+        .stream()
         .map(input -> destination.resolve(input).toAbsolutePath())
         .collect(MoreCollectors.toImmutableList());
   }
 
-  public static ImmutableSet<Path> getZipMembers(Path archiveAbsolutePath)
-      throws IOException {
+  public static ImmutableSet<Path> getZipMembers(Path archiveAbsolutePath) throws IOException {
     try (FileSystem zipFs = FileSystems.newFileSystem(archiveAbsolutePath, null)) {
       Path root = Iterables.getOnlyElement(zipFs.getRootDirectories());
       return Files.walk(root)
@@ -272,7 +262,12 @@ public class Unzip {
           .map(root::relativize)
           .map(path -> Paths.get(path.toString())) // Clear the filesystem from the path
           .collect(MoreCollectors.toImmutableSet());
+    } catch (ZipError error) {
+      // For some reason the zip filesystem support throws an error when an IOException would do
+      // just as well.
+      throw new IOException(
+          String.format("Could not read %s because of %s", archiveAbsolutePath, error.toString()),
+          error);
     }
   }
-
 }

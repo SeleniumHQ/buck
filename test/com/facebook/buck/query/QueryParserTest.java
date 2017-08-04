@@ -26,7 +26,6 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.query.QueryEnvironment.Argument;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.google.common.collect.ImmutableList;
-
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
@@ -37,23 +36,26 @@ public class QueryParserTest {
 
   private QueryEnvironment queryEnvironment;
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
-  @Rule
-  public ExpectedException thrown = ExpectedException.none();
+  @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Before
   public void makeEnvironment() {
+    QueryEnvironment.TargetEvaluator targetEvaluator =
+        createMock(QueryEnvironment.TargetEvaluator.class);
+    expect(targetEvaluator.getType()).andStubReturn(QueryEnvironment.TargetEvaluator.Type.LAZY);
     queryEnvironment = createMock(QueryEnvironment.class);
     expect(queryEnvironment.getFunctions()).andStubReturn(QueryEnvironment.DEFAULT_QUERY_FUNCTIONS);
+    expect(queryEnvironment.getTargetEvaluator()).andReturn(targetEvaluator);
+    replay(targetEvaluator);
     replay(queryEnvironment);
   }
 
   @Test
   public void testDeps() throws Exception {
-    ImmutableList<Argument> args = ImmutableList.of(Argument.of(new TargetLiteral("//foo:bar")));
-    QueryExpression expected = new FunctionExpression(new DepsFunction(), args);
+    ImmutableList<Argument> args = ImmutableList.of(Argument.of(TargetLiteral.of("//foo:bar")));
+    QueryExpression expected = FunctionExpression.of(new DepsFunction(), args);
 
     String query = "deps('//foo:bar')";
     QueryExpression result = QueryParser.parse(query, queryEnvironment);
@@ -62,14 +64,13 @@ public class QueryParserTest {
 
   @Test
   public void testTestsOfDepsSet() throws Exception {
-    ImmutableList<TargetLiteral> args = ImmutableList.of(
-        new TargetLiteral("//foo:bar"),
-        new TargetLiteral("//other:lib"));
-    QueryExpression depsExpr = new FunctionExpression(
-        new DepsFunction(),
-        ImmutableList.of(Argument.of(new SetExpression(args))));
+    ImmutableList<TargetLiteral> args =
+        ImmutableList.of(TargetLiteral.of("//foo:bar"), TargetLiteral.of("//other:lib"));
+    QueryExpression depsExpr =
+        FunctionExpression.of(
+            new DepsFunction(), ImmutableList.of(Argument.of(SetExpression.of(args))));
     QueryExpression testsofExpr =
-        new FunctionExpression(new TestsOfFunction(), ImmutableList.of(Argument.of(depsExpr)));
+        FunctionExpression.of(new TestsOfFunction(), ImmutableList.of(Argument.of(depsExpr)));
 
     String query = "testsof(deps(set('//foo:bar' //other:lib)))";
     QueryExpression result = QueryParser.parse(query, queryEnvironment);
@@ -85,7 +86,7 @@ public class QueryParserTest {
   }
 
   @Test
-   public void shouldThrowExceptionWhenMissingParens() throws QueryException {
+  public void shouldThrowExceptionWhenMissingParens() throws QueryException {
     String query = "testsof(deps(set('//foo:bar' //other:lib))";
     thrown.expect(QueryException.class);
     thrown.expectMessage("premature end of input");

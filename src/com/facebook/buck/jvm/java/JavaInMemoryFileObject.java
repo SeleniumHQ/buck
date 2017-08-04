@@ -16,8 +16,9 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.zip.CustomZipOutputStream;
-
+import com.facebook.buck.zip.CustomZipEntry;
+import com.facebook.buck.zip.JarBuilder;
+import com.facebook.buck.zip.JarEntrySupplier;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
@@ -29,9 +30,6 @@ import java.io.OutputStreamWriter;
 import java.io.Reader;
 import java.io.Writer;
 import java.net.URI;
-import java.util.concurrent.Semaphore;
-import java.util.zip.ZipEntry;
-
 import javax.tools.SimpleJavaFileObject;
 
 /**
@@ -47,19 +45,10 @@ public class JavaInMemoryFileObject extends JarFileObject {
 
   private boolean isOpened = false;
   private boolean isWritten = false;
-  private final CustomZipOutputStream jarOutputStream;
-  private final Semaphore jarFileSemaphore;
   private final ByteArrayOutputStream bos = new ByteArrayOutputStream(BUFFER_SIZE);
 
-  public JavaInMemoryFileObject(
-      URI uri,
-      String pathInJar,
-      Kind kind,
-      CustomZipOutputStream jarOutputStream,
-      Semaphore jarFileSemaphore) {
+  public JavaInMemoryFileObject(URI uri, String pathInJar, Kind kind) {
     super(uri, pathInJar, kind);
-    this.jarOutputStream = jarOutputStream;
-    this.jarFileSemaphore = jarFileSemaphore;
   }
 
   @Override
@@ -76,7 +65,6 @@ public class JavaInMemoryFileObject extends JarFileObject {
       throw new IOException(ALREADY_OPENED);
     }
     isOpened = true;
-    final ZipEntry entry = JavaInMemoryFileManager.createEntry(getName());
     return new OutputStream() {
       @Override
       public void write(int b) throws IOException {
@@ -86,15 +74,7 @@ public class JavaInMemoryFileObject extends JarFileObject {
       @Override
       public void close() throws IOException {
         bos.close();
-        jarFileSemaphore.acquireUninterruptibly();
-        try {
-          jarOutputStream.putNextEntry(entry);
-          jarOutputStream.write(bos.toByteArray());
-          jarOutputStream.closeEntry();
-          isWritten = true;
-        } finally {
-          jarFileSemaphore.release();
-        }
+        isWritten = true;
       }
     };
   }
@@ -106,11 +86,24 @@ public class JavaInMemoryFileObject extends JarFileObject {
 
   @Override
   public CharSequence getCharContent(boolean ignoreEncodingErrors) throws IOException {
+    if (!isWritten) {
+      throw new FileNotFoundException(uri.toString());
+    }
     return new String(bos.toByteArray());
   }
 
   @Override
   public Writer openWriter() throws IOException {
     return new OutputStreamWriter(this.openOutputStream());
+  }
+
+  @Override
+  public void writeToJar(JarBuilder jarBuilder, String owner) {
+    if (!isWritten) {
+      // Nothing was written to this file, so it doesn't really exist.
+      return;
+    }
+    jarBuilder.addEntry(
+        new JarEntrySupplier(new CustomZipEntry(getName()), owner, this::openInputStream));
   }
 }

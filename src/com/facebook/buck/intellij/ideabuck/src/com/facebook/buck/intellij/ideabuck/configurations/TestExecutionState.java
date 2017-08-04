@@ -20,6 +20,7 @@ import com.facebook.buck.intellij.ideabuck.build.BuckBuildCommandHandler;
 import com.facebook.buck.intellij.ideabuck.build.BuckCommand;
 import com.facebook.buck.intellij.ideabuck.build.BuckCommandHandler;
 import com.facebook.buck.intellij.ideabuck.config.BuckModule;
+import com.facebook.buck.intellij.ideabuck.ui.BuckToolWindowFactory;
 import com.intellij.debugger.DebugEnvironment;
 import com.intellij.debugger.DebuggerManagerEx;
 import com.intellij.debugger.DefaultDebugEnvironment;
@@ -58,18 +59,17 @@ import com.intellij.xdebugger.XDebugProcess;
 import com.intellij.xdebugger.XDebugProcessStarter;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebuggerManager;
-
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 class TestExecutionState implements RunProfileState {
   protected static final Logger LOG = Logger.getInstance(BuckCommandHandler.class);
 
-  public static final Pattern DEBUG_SUSPEND_PATTERN = Pattern.compile(
-      "Debugging. Suspending JVM. Connect a JDWP debugger to port (\\d+) to proceed.");
+  public static final Pattern DEBUG_SUSPEND_PATTERN =
+      Pattern.compile(
+          "Debugging. Suspending JVM. Connect a JDWP debugger to port (\\d+) to proceed.");
   final TestConfiguration mConfiguration;
   final Project mProject;
 
@@ -80,18 +80,14 @@ class TestExecutionState implements RunProfileState {
 
   @Nullable
   @Override
-  public ExecutionResult execute(
-      Executor executor, @NotNull ProgramRunner runner) throws ExecutionException {
+  public ExecutionResult execute(Executor executor, @NotNull ProgramRunner runner)
+      throws ExecutionException {
     final ProcessHandler processHandler = runBuildCommand(executor);
-    final TestConsoleProperties properties = new BuckTestConsoleProperties(
-        processHandler,
-        mProject,
-        mConfiguration, "Buck test", executor
-    );
-    final ConsoleView console = SMTestRunnerConnectionUtil.createAndAttachConsole(
-        "buck test",
-        processHandler,
-        properties);
+    final TestConsoleProperties properties =
+        new BuckTestConsoleProperties(
+            processHandler, mProject, mConfiguration, "Buck test", executor);
+    final ConsoleView console =
+        SMTestRunnerConnectionUtil.createAndAttachConsole("buck test", processHandler, properties);
     return new DefaultExecutionResult(console, processHandler, AnAction.EMPTY_ARRAY);
   }
 
@@ -104,111 +100,111 @@ class TestExecutionState implements RunProfileState {
 
     buckModule.attach(target);
 
-    final BuckBuildCommandHandler handler = new BuckBuildCommandHandler(
-        mProject,
-        mProject.getBaseDir(),
-        BuckCommand.TEST,
-        /* doStartNotify */ false) {
-      @Override
-      protected void notifyLines(
-          Key outputType, Iterable<String> lines) {
-        super.notifyLines(outputType, lines);
-        if (outputType != ProcessOutputTypes.STDERR) {
-          return;
-        }
-        for (String line : lines) {
-          final Matcher matcher = DEBUG_SUSPEND_PATTERN.matcher(line);
-          if (matcher.find()) {
-            final String port = matcher.group(1);
-            attachDebugger(title, port);
+    final BuckBuildCommandHandler handler =
+        new BuckBuildCommandHandler(
+            mProject, mProject.getBaseDir(), BuckCommand.TEST, /* doStartNotify */ false) {
+          @Override
+          protected void notifyLines(Key outputType, Iterable<String> lines) {
+            super.notifyLines(outputType, lines);
+            if (outputType != ProcessOutputTypes.STDERR) {
+              return;
+            }
+            for (String line : lines) {
+              final Matcher matcher = DEBUG_SUSPEND_PATTERN.matcher(line);
+              if (matcher.find()) {
+                final String port = matcher.group(1);
+                attachDebugger(title, port);
+              }
+            }
           }
-        }
-      }
-    };
+        };
     if (!target.isEmpty()) {
       handler.command().addParameter(target);
     }
     if (!testSelectors.isEmpty()) {
-      handler.command()
-          .addParameter("--test-selectors");
-      handler.command()
-          .addParameter(testSelectors);
+      handler.command().addParameter("--test-selectors");
+      handler.command().addParameter(testSelectors);
     }
     if (!additionalParams.isEmpty()) {
       for (String param : additionalParams.split("\\s")) {
-        handler.command()
-            .addParameter(param);
+        handler.command().addParameter(param);
       }
     }
     if (executor.getId().equals(DefaultDebugExecutor.EXECUTOR_ID)) {
-      handler.command()
-          .addParameter("--debug");
+      handler.command().addParameter("--debug");
     }
     handler.start();
     final OSProcessHandler result = handler.getHandler();
-    showProgress(result, title);
+    schedulePostExecutionActions(result, title);
     return result;
   }
 
-  private void showProgress(final OSProcessHandler result, final String title) {
+  private void schedulePostExecutionActions(final OSProcessHandler result, final String title) {
     final ProgressManager manager = ProgressManager.getInstance();
-    ApplicationManager.getApplication().invokeLater(() -> {
-      manager.run(new Task.Backgroundable(mProject, title, true) {
-        public void run(@NotNull final ProgressIndicator indicator) {
-          try {
-            result.waitFor();
-          } finally {
-            indicator.cancel();
-          }
-        }
-      });
-    });
+    ApplicationManager.getApplication()
+        .invokeLater(
+            () -> {
+              manager.run(
+                  new Task.Backgroundable(mProject, title, true) {
+                    public void run(@NotNull final ProgressIndicator indicator) {
+                      try {
+                        result.waitFor();
+                      } finally {
+                        indicator.cancel();
+                      }
+                      if (!BuckToolWindowFactory.isRunToolWindowVisible(mProject)) {
+                        BuckToolWindowFactory.showRunToolWindow(mProject);
+                      }
+                    }
+                  });
+            });
   }
 
   private void attachDebugger(String title, String port) {
-    final RemoteConnection remoteConnection = new RemoteConnection(
-        /* useSockets */ true,
-        "localhost", port,
-        /* serverMode */ false);
+    final RemoteConnection remoteConnection =
+        new RemoteConnection(/* useSockets */ true, "localhost", port, /* serverMode */ false);
     final RemoteStateState state = new RemoteStateState(mProject, remoteConnection);
     final String name = title + " debugger (" + port + ")";
-    final ConfigurationFactory cfgFactory = ConfigurationTypeUtil.findConfigurationType("Remote")
-        .getConfigurationFactories()[0];
-    RunnerAndConfigurationSettings runSettings = RunManager.getInstance(mProject)
-        .createRunConfiguration(name, cfgFactory);
+    final ConfigurationFactory cfgFactory =
+        ConfigurationTypeUtil.findConfigurationType("Remote").getConfigurationFactories()[0];
+    RunnerAndConfigurationSettings runSettings =
+        RunManager.getInstance(mProject).createRunConfiguration(name, cfgFactory);
     final Executor debugExecutor = DefaultDebugExecutor.getDebugExecutorInstance();
-    final ExecutionEnvironment env = new ExecutionEnvironmentBuilder(mProject, debugExecutor)
-        .runProfile(runSettings.getConfiguration())
-        .build();
+    final ExecutionEnvironment env =
+        new ExecutionEnvironmentBuilder(mProject, debugExecutor)
+            .runProfile(runSettings.getConfiguration())
+            .build();
     final int pollTimeout = 3000;
-    final DebugEnvironment environment = new DefaultDebugEnvironment(
-        env,
-        state,
-        remoteConnection,
-        pollTimeout);
+    final DebugEnvironment environment =
+        new DefaultDebugEnvironment(env, state, remoteConnection, pollTimeout);
 
-    ApplicationManager.getApplication().invokeLater(() -> {
-          try {
-            final DebuggerSession debuggerSession = DebuggerManagerEx.getInstanceEx(mProject)
-                .attachVirtualMachine(environment);
-            if (debuggerSession == null) {
-              return;
-            }
-            XDebuggerManager.getInstance(mProject).startSessionAndShowTab(
-                name,
-                null,
-                new XDebugProcessStarter() {
-                  @Override
-                  @NotNull
-                  public XDebugProcess start(@NotNull XDebugSession session) {
-                    return JavaDebugProcess.create(session, debuggerSession);
-                  }
-                });
-          } catch (ExecutionException e) {
-            LOG.error("failed to attach to debugger on port " + port +
-                " with polling timeout " + pollTimeout);
-          }
-        }
-    );
+    ApplicationManager.getApplication()
+        .invokeLater(
+            () -> {
+              try {
+                final DebuggerSession debuggerSession =
+                    DebuggerManagerEx.getInstanceEx(mProject).attachVirtualMachine(environment);
+                if (debuggerSession == null) {
+                  return;
+                }
+                XDebuggerManager.getInstance(mProject)
+                    .startSessionAndShowTab(
+                        name,
+                        null,
+                        new XDebugProcessStarter() {
+                          @Override
+                          @NotNull
+                          public XDebugProcess start(@NotNull XDebugSession session) {
+                            return JavaDebugProcess.create(session, debuggerSession);
+                          }
+                        });
+              } catch (ExecutionException e) {
+                LOG.error(
+                    "failed to attach to debugger on port "
+                        + port
+                        + " with polling timeout "
+                        + pollTimeout);
+              }
+            });
   }
 }

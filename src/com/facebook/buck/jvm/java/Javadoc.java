@@ -18,11 +18,14 @@ package com.facebook.buck.jvm.java;
 
 import static com.facebook.buck.zip.ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.maven.AetherUtil;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -42,60 +45,64 @@ import com.facebook.buck.zip.ZipStep;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-
 import java.io.File;
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class Javadoc extends AbstractBuildRule implements MavenPublishable {
+public class Javadoc extends AbstractBuildRuleWithDeclaredAndExtraDeps implements MavenPublishable {
 
   public static final Flavor DOC_JAR = InternalFlavor.of("doc");
 
-  @AddToRuleKey
-  private final ImmutableSet<SourcePath> sources;
-  @AddToRuleKey
-  private final Optional<String> mavenCoords;
-  @AddToRuleKey
-  private final Optional<SourcePath> mavenPomTemplate;
-  @AddToRuleKey
-  private final Iterable<HasMavenCoordinates> mavenDeps;
+  @AddToRuleKey private final ImmutableSet<SourcePath> sources;
+  @AddToRuleKey private final Optional<String> mavenCoords;
+  @AddToRuleKey private final Optional<SourcePath> mavenPomTemplate;
+  @AddToRuleKey private final Iterable<HasMavenCoordinates> mavenDeps;
 
   private final Path output;
   private final Path scratchDir;
 
   protected Javadoc(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       Optional<String> mavenCoords,
       Optional<SourcePath> mavenPomTemplate,
       Iterable<HasMavenCoordinates> mavenDeps,
       ImmutableSet<SourcePath> sources) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
 
     this.mavenCoords = mavenCoords.map(coord -> AetherUtil.addClassifier(coord, "javadoc"));
     this.mavenPomTemplate = mavenPomTemplate;
     this.mavenDeps = mavenDeps;
     this.sources = sources;
 
-    this.output = BuildTargets.getGenPath(
-        getProjectFilesystem(),
-        getBuildTarget(),
-        String.format("%%s/%s-javadoc.jar", getBuildTarget().getShortName()));
-    this.scratchDir = BuildTargets.getScratchPath(
-        getProjectFilesystem(),
-        getBuildTarget(),
-        String.format("%%s/%s-javadoc.tmp", getBuildTarget().getShortName()));
+    this.output =
+        BuildTargets.getGenPath(
+            getProjectFilesystem(),
+            getBuildTarget(),
+            String.format("%%s/%s-javadoc.jar", getBuildTarget().getShortName()));
+    this.scratchDir =
+        BuildTargets.getScratchPath(
+            getProjectFilesystem(),
+            getBuildTarget(),
+            String.format("%%s/%s-javadoc.tmp", getBuildTarget().getShortName()));
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     buildableContext.recordArtifact(output);
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
-    steps.add(RmStep.of(getProjectFilesystem(), output));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())));
+    steps.add(
+        RmStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output)));
 
     // Fast path: nothing to do so just create an empty zip and return.
     if (sources.isEmpty()) {
@@ -112,60 +119,72 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
 
     Path sourcesListFilePath = scratchDir.resolve("all-sources.txt");
 
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), scratchDir));
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), scratchDir)));
     // Write an @-file with all the source files in
-    steps.add(new WriteFileStep(
-        getProjectFilesystem(),
-        Joiner.on("\n").join(
-            sources.stream()
-                .map(context.getSourcePathResolver()::getAbsolutePath)
-                .map(Path::toString)
-                .iterator()),
-        sourcesListFilePath,
-          /* can execute */ false));
+    steps.add(
+        new WriteFileStep(
+            getProjectFilesystem(),
+            Joiner.on("\n")
+                .join(
+                    sources
+                        .stream()
+                        .map(context.getSourcePathResolver()::getAbsolutePath)
+                        .map(Path::toString)
+                        .iterator()),
+            sourcesListFilePath,
+            /* can execute */ false));
 
     Path atArgs = scratchDir.resolve("options");
     // Write an @-file with the classpath
     StringBuilder argsBuilder = new StringBuilder("-classpath ");
-    Joiner.on(File.pathSeparator).appendTo(
-        argsBuilder,
-        getBuildDeps().stream()
-            .filter(HasClasspathEntries.class::isInstance)
-            .flatMap(rule -> ((HasClasspathEntries) rule).getTransitiveClasspaths().stream())
-            .map(context.getSourcePathResolver()::getAbsolutePath)
-            .map(Object::toString)
-            .iterator());
-    steps.add(new WriteFileStep(
-        getProjectFilesystem(),
-        argsBuilder.toString(),
-        atArgs,
-          /* can execute */ false));
+    Joiner.on(File.pathSeparator)
+        .appendTo(
+            argsBuilder,
+            getBuildDeps()
+                .stream()
+                .filter(HasClasspathEntries.class::isInstance)
+                .flatMap(rule -> ((HasClasspathEntries) rule).getTransitiveClasspaths().stream())
+                .map(context.getSourcePathResolver()::getAbsolutePath)
+                .map(Object::toString)
+                .iterator());
+    steps.add(
+        new WriteFileStep(
+            getProjectFilesystem(), argsBuilder.toString(), atArgs, /* can execute */ false));
 
     Path uncompressedOutputDir = scratchDir.resolve("docs");
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), uncompressedOutputDir));
-    steps.add(new ShellStep(getProjectFilesystem().resolve(scratchDir)) {
-      @Override
-      protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
-        return ImmutableList.of(
-            "javadoc",
-            "-Xdoclint:none",
-            "-notimestamp",
-            "-d", uncompressedOutputDir.getFileName().toString(),
-            "@" + getProjectFilesystem().resolve(atArgs),
-            "@" + getProjectFilesystem().resolve(sourcesListFilePath));
-      }
 
-      @Override
-      public String getShortName() {
-        return "javadoc";
-      }
-    });
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), uncompressedOutputDir)));
+    steps.add(
+        new ShellStep(getProjectFilesystem().resolve(scratchDir)) {
+          @Override
+          protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
+            return ImmutableList.of(
+                "javadoc",
+                "-Xdoclint:none",
+                "-notimestamp",
+                "-d",
+                uncompressedOutputDir.getFileName().toString(),
+                "@" + getProjectFilesystem().resolve(atArgs),
+                "@" + getProjectFilesystem().resolve(sourcesListFilePath));
+          }
+
+          @Override
+          public String getShortName() {
+            return "javadoc";
+          }
+        });
     steps.add(
         new ZipStep(
             getProjectFilesystem(),
             output,
             ImmutableSet.of(),
-              /* junk paths */ false,
+            /* junk paths */ false,
             DEFAULT_COMPRESSION_LEVEL,
             uncompressedOutputDir));
 
@@ -189,7 +208,7 @@ public class Javadoc extends AbstractBuildRule implements MavenPublishable {
 
   @Override
   public Iterable<BuildRule> getPackagedDependencies() {
-    return ImmutableSet.of(this);  // I think that this is right
+    return ImmutableSet.of(this); // I think that this is right
   }
 
   @Override

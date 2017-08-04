@@ -17,7 +17,7 @@
 package com.facebook.buck.model;
 
 import com.facebook.buck.log.views.JsonViews;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -28,30 +28,28 @@ import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
-
-import org.immutables.value.Value;
-
+import com.google.common.collect.Sets;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SortedSet;
+import org.immutables.value.Value;
 
 @JsonAutoDetect(
-    fieldVisibility = JsonAutoDetect.Visibility.NONE,
-    getterVisibility = JsonAutoDetect.Visibility.NONE,
-    setterVisibility = JsonAutoDetect.Visibility.NONE)
-@BuckStyleImmutable
-@Value.Immutable(prehash = true)
+  fieldVisibility = JsonAutoDetect.Visibility.NONE,
+  getterVisibility = JsonAutoDetect.Visibility.NONE,
+  setterVisibility = JsonAutoDetect.Visibility.NONE
+)
+@BuckStyleTuple
+@Value.Immutable(prehash = true, builder = false)
 abstract class AbstractBuildTarget implements Comparable<AbstractBuildTarget> {
 
   private static final Ordering<Iterable<Flavor>> LEXICOGRAPHICAL_ORDERING =
       Ordering.<Flavor>natural().lexicographical();
 
-  @Value.Parameter
   public abstract UnflavoredBuildTarget getUnflavoredBuildTarget();
 
   @Value.NaturalOrder
-  @Value.Parameter
   public abstract SortedSet<Flavor> getFlavors();
 
   @Value.Check
@@ -133,29 +131,13 @@ abstract class AbstractBuildTarget implements Comparable<AbstractBuildTarget> {
   }
 
   public static BuildTarget of(UnflavoredBuildTarget unflavoredBuildTarget) {
+    return BuildTarget.of(unflavoredBuildTarget, ImmutableSortedSet.of());
+  }
+
+  /** Helper for creating a build target with no flavors and no cell name. */
+  public static BuildTarget of(Path cellPath, String baseName, String shortName) {
     return BuildTarget.of(
-        unflavoredBuildTarget,
-        ImmutableSortedSet.of());
-  }
-
-  public static BuildTarget.Builder builder(BuildTarget buildTarget) {
-    return BuildTarget
-        .builder()
-        .setUnflavoredBuildTarget(buildTarget.getUnflavoredBuildTarget())
-        .addAllFlavors(buildTarget.getFlavors());
-  }
-
-  public static BuildTarget.Builder builder(UnflavoredBuildTarget buildTarget) {
-    return BuildTarget
-        .builder()
-        .setUnflavoredBuildTarget(buildTarget);
-  }
-
-  public static BuildTarget.Builder builder(Path cellPath, String baseName, String shortName) {
-    return BuildTarget
-        .builder()
-        .setUnflavoredBuildTarget(
-            UnflavoredBuildTarget.of(cellPath, Optional.empty(), baseName, shortName));
+        UnflavoredBuildTarget.of(cellPath, Optional.empty(), baseName, shortName));
   }
 
   /** @return {@link #getFullyQualifiedName()} */
@@ -177,38 +159,24 @@ abstract class AbstractBuildTarget implements Comparable<AbstractBuildTarget> {
   }
 
   public BuildTarget withoutFlavors(Set<Flavor> flavors) {
-    BuildTarget.Builder builder = BuildTarget.builder();
-    builder.setUnflavoredBuildTarget(getUnflavoredBuildTarget());
-    for (Flavor flavor : getFlavors()) {
-      if (!flavors.contains(flavor)) {
-        builder.addFlavors(flavor);
-      }
-    }
-    return builder.build();
+    return BuildTarget.of(getUnflavoredBuildTarget(), Sets.difference(getFlavors(), flavors));
   }
 
   public BuildTarget withoutFlavors(Flavor... flavors) {
     return withoutFlavors(ImmutableSet.copyOf(flavors));
   }
 
-  public BuildTarget withAppendedFlavors(Set<Flavor> flavorsToAppend) {
-    BuildTarget.Builder builder = BuildTarget.builder(BuildTarget.copyOf(this));
-    builder.addAllFlavors(flavorsToAppend);
-    return builder.build();
+  public BuildTarget withAppendedFlavors(Set<Flavor> flavors) {
+    return BuildTarget.of(getUnflavoredBuildTarget(), Sets.union(getFlavors(), flavors));
   }
 
   public BuildTarget withAppendedFlavors(Flavor... flavors) {
-    BuildTarget.Builder builder = BuildTarget.builder(BuildTarget.copyOf(this));
-    builder.addFlavors(flavors);
-    return builder.build();
+    return withAppendedFlavors(ImmutableSet.copyOf(flavors));
   }
 
   public BuildTarget withoutCell() {
-    return BuildTarget.builder(
-        getUnflavoredBuildTarget().getCellPath(),
-        getBaseName(),
-        getShortName())
-        .addAllFlavors(getFlavors())
-        .build();
+    return BuildTarget.of(
+        UnflavoredBuildTarget.of(getCellPath(), Optional.empty(), getBaseName(), getShortName()),
+        getFlavors());
   }
 }

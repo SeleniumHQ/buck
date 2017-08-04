@@ -27,47 +27,43 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
-import com.facebook.buck.util.XmlDomParser;
+import com.facebook.buck.util.ThrowingPrintWriter;
+import com.facebook.buck.util.xml.XmlDomParser;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
-
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Path;
+import java.util.Collection;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathExpression;
+import javax.xml.xpath.XPathExpressionException;
+import javax.xml.xpath.XPathFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.PrintWriter;
-import java.nio.file.Path;
-import java.util.Collection;
-import java.util.Optional;
-import java.util.Set;
-
-import javax.xml.xpath.XPathConstants;
-import javax.xml.xpath.XPathExpression;
-import javax.xml.xpath.XPathExpressionException;
-import javax.xml.xpath.XPathFactory;
-
 /**
- * Step which parses resources in an android {@code res} directory and compiles them into a
- * {@code R.txt} file, following the exact same format as the Android build tool {@code aapt}.
+ * Step which parses resources in an android {@code res} directory and compiles them into a {@code
+ * R.txt} file, following the exact same format as the Android build tool {@code aapt}.
+ *
  * <p>
  */
 public class MiniAapt implements Step {
 
-  /**
-   * See {@link com.facebook.buck.android.AaptStep} for a list of files that we ignore.
-   */
+  /** See {@link com.facebook.buck.android.AaptStep} for a list of files that we ignore. */
   public static final ImmutableList<String> IGNORED_FILE_EXTENSIONS = ImmutableList.of("orig");
 
   private static final String ID_DEFINITION_PREFIX = "@+id/";
@@ -75,19 +71,17 @@ public class MiniAapt implements Step {
   private static final String CUSTOM_DRAWABLE_PREFIX = "app-";
 
   private static final XPathExpression ANDROID_ID_USAGE =
-      createExpression("//@*[starts-with(., '@') and " +
-              "not(starts-with(., '@+')) and " +
-              "not(starts-with(., '@android:')) and " +
-              "not(starts-with(., '@null'))]");
+      createExpression(
+          "//@*[starts-with(., '@') and "
+              + "not(starts-with(., '@+')) and "
+              + "not(starts-with(., '@android:')) and "
+              + "not(starts-with(., '@null'))]");
 
   private static final XPathExpression ANDROID_ID_DEFINITION =
-      createExpression("//@*[starts-with(., '@+') and " +
-              "not(starts-with(., '@+android:id'))]");
+      createExpression("//@*[starts-with(., '@+') and " + "not(starts-with(., '@+android:id'))]");
 
   private static final ImmutableMap<String, RType> RESOURCE_TYPES = getResourceTypes();
-  private static final ImmutableSet<String> IGNORED_TAGS = ImmutableSet.of(
-      "eat-comment",
-      "skip");
+  private static final ImmutableSet<String> IGNORED_TAGS = ImmutableSet.of("eat-comment", "skip");
 
   private final SourcePathResolver resolver;
   private final ProjectFilesystem filesystem;
@@ -157,52 +151,40 @@ public class MiniAapt implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
     ImmutableSet.Builder<RDotTxtEntry> references = ImmutableSet.builder();
 
     try {
       collectResources(filesystem, context.getBuckEventBus());
       processXmlFilesForIds(filesystem, references);
-    } catch (IOException | XPathExpressionException | ResourceParseException e) {
+    } catch (XPathExpressionException | ResourceParseException e) {
       context.logError(e, "Error parsing resources to generate resource IDs for %s.", resDirectory);
       return StepExecutionResult.ERROR;
     }
 
-    try {
-      Set<RDotTxtEntry> missing = verifyReferences(filesystem, references.build());
-      if (!missing.isEmpty()) {
-        context.getBuckEventBus().post(ConsoleEvent.severe(
-            "The following resources were not found when processing %s: \n%s\n",
-            resDirectory,
-            Joiner.on('\n').join(missing)));
-        return StepExecutionResult.ERROR;
-      }
-    } catch (IOException e) {
-      context.logError(e, "Error verifying resources for %s.", resDirectory);
+    Set<RDotTxtEntry> missing = verifyReferences(filesystem, references.build());
+    if (!missing.isEmpty()) {
+      context
+          .getBuckEventBus()
+          .post(
+              ConsoleEvent.severe(
+                  "The following resources were not found when processing %s: \n%s\n",
+                  resDirectory, Joiner.on('\n').join(missing)));
       return StepExecutionResult.ERROR;
     }
 
     if (resourceUnion) {
-      try {
-        resourceUnion();
-      } catch (IOException e) {
-        context.logError(e, "Error performing resource union for %s.", resDirectory);
-        return StepExecutionResult.ERROR;
-      }
+      resourceUnion();
     }
 
-    try (PrintWriter writer =
-             new PrintWriter(filesystem.newFileOutputStream(pathToTextSymbolsFile))) {
+    try (ThrowingPrintWriter writer =
+        new ThrowingPrintWriter(filesystem.newFileOutputStream(pathToTextSymbolsFile))) {
       Set<RDotTxtEntry> sortedResources =
-          ImmutableSortedSet.copyOf(
-              Ordering.natural(),
-              resourceCollector.getResources());
+          ImmutableSortedSet.copyOf(Ordering.natural(), resourceCollector.getResources());
       for (RDotTxtEntry entry : sortedResources) {
         writer.printf("%s %s %s %s\n", entry.idType, entry.type, entry.name, entry.idValue);
       }
-    } catch (IOException e) {
-      context.logError(e, "Error writing file: %s", pathToTextSymbolsFile);
-      return StepExecutionResult.ERROR;
     }
 
     return StepExecutionResult.SUCCESS;
@@ -210,13 +192,17 @@ public class MiniAapt implements Step {
 
   /**
    * Collect resource information from R.txt for each dep and perform a resource union.
+   *
    * @throws IOException
    */
   public void resourceUnion() throws IOException {
     for (Path depRTxt : pathsToSymbolsOfDeps) {
-      Iterable<String> lines = FluentIterable.from(filesystem.readLines(depRTxt))
-          .filter(input -> !Strings.isNullOrEmpty(input))
-          .toList();
+      Iterable<String> lines =
+          filesystem
+              .readLines(depRTxt)
+              .stream()
+              .filter(input -> !Strings.isNullOrEmpty(input))
+              .collect(Collectors.toList());
       for (String line : lines) {
         Optional<RDotTxtEntry> entry = RDotTxtEntry.parse(line);
         Preconditions.checkState(entry.isPresent());
@@ -228,7 +214,9 @@ public class MiniAapt implements Step {
   /**
    * Collects file names under the {@code res} directory, except those under directories starting
    * with {@code values}, as resources based on their parent directory.
-   * <p>So for instance, if the directory structure is something like:</p>
+   *
+   * <p>So for instance, if the directory structure is something like:
+   *
    * <pre>
    *   res/
    *       values/ ...
@@ -240,21 +228,23 @@ public class MiniAapt implements Step {
    *              my_view.xml
    *              another_view.xml
    * </pre>
+   *
    * the resulting resources would contain:
+   *
    * <ul>
-   *   <li>R.drawable.image</li>
-   *   <li>R.drawable.nine_patch</li>
-   *   <li>R.layout.my_view</li>
-   *   <li>R.layout.another_view</li>
+   *   <li>R.drawable.image
+   *   <li>R.drawable.nine_patch
+   *   <li>R.layout.my_view
+   *   <li>R.layout.another_view
    * </ul>
-   * <p>
-   * For files under the {@code values*} directories, see
-   * {@link #processValuesFile(ProjectFilesystem, Path)}
+   *
+   * <p>For files under the {@code values*} directories, see {@link
+   * #processValuesFile(ProjectFilesystem, Path)}
    */
   private void collectResources(ProjectFilesystem filesystem, BuckEventBus eventBus)
       throws IOException, ResourceParseException {
-    Collection<Path> contents = filesystem.getDirectoryContents(
-        resolver.getAbsolutePath(resDirectory));
+    Collection<Path> contents =
+        filesystem.getDirectoryContents(resolver.getAbsolutePath(resDirectory));
     for (Path dir : contents) {
       if (!filesystem.isDirectory(dir) && !filesystem.isIgnored(dir)) {
         if (!shouldIgnoreFile(dir, filesystem)) {
@@ -272,7 +262,6 @@ public class MiniAapt implements Step {
       } else {
         processFileNamesInDirectory(filesystem, dir);
       }
-
     }
   }
 
@@ -301,9 +290,7 @@ public class MiniAapt implements Step {
       if (rType == RType.DRAWABLE) {
         processDrawables(filesystem, resourceFile);
       } else {
-        resourceCollector.addIntResourceIfNotPresent(
-            rType,
-            resourceName);
+        resourceCollector.addIntResourceIfNotPresent(rType, resourceName);
       }
     }
   }
@@ -328,15 +315,11 @@ public class MiniAapt implements Step {
     }
 
     if (isCustomDrawable) {
-      resourceCollector.addCustomDrawableResourceIfNotPresent(
-          RType.DRAWABLE,
-          resourceName);
+      resourceCollector.addCustomDrawableResourceIfNotPresent(RType.DRAWABLE, resourceName);
     } else if (isGrayscaleImage) {
       resourceCollector.addGrayscaleImageResourceIfNotPresent(RType.DRAWABLE, resourceName);
     } else {
-      resourceCollector.addIntResourceIfNotPresent(
-          RType.DRAWABLE,
-          resourceName);
+      resourceCollector.addIntResourceIfNotPresent(RType.DRAWABLE, resourceName);
     }
   }
 
@@ -355,11 +338,12 @@ public class MiniAapt implements Step {
   }
 
   /**
-   * Processes an {@code xml} file immediately under a {@code values} directory. See
-   * <a href="http://developer.android.com/guide/topics/resources/more-resources.html>More Resource
+   * Processes an {@code xml} file immediately under a {@code values} directory. See <a
+   * href="http://developer.android.com/guide/topics/resources/more-resources.html>More Resource
    * Types</a> to find out more about how resources are defined.
-   * <p>
-   * For an input file with contents like:
+   *
+   * <p>For an input file with contents like:
+   *
    * <pre>
    *   <?xml version="1.0" encoding="utf-8"?>
    *   <resources>
@@ -369,12 +353,14 @@ public class MiniAapt implements Step {
    *     <item name="my_fraction" type="fraction">1.5</item>
    *   </resources>
    * </pre>
+   *
    * the resulting resources would be:
+   *
    * <ul>
-   *   <li>R.integer.number</li>
-   *   <li>R.dimen.dimension</li>
-   *   <li>R.string.hello</li>
-   *   <li>R.fraction.my_fraction</li>
+   *   <li>R.integer.number
+   *   <li>R.dimen.dimension
+   *   <li>R.string.hello
+   *   <li>R.fraction.my_fraction
    * </ul>
    */
   @VisibleForTesting
@@ -403,8 +389,7 @@ public class MiniAapt implements Step {
           if (typeNode == null) {
             throw new ResourceParseException(
                 "Error parsing file '%s', expected a 'type' attribute in: \n'%s'\n",
-                valuesFile,
-                node.toString());
+                valuesFile, node.toString());
           }
           resourceType = typeNode.getNodeValue();
         }
@@ -415,9 +400,7 @@ public class MiniAapt implements Step {
 
         if (!RESOURCE_TYPES.containsKey(resourceType)) {
           throw new ResourceParseException(
-              "Invalid resource type '<%s>' in '%s'.",
-              resourceType,
-              valuesFile);
+              "Invalid resource type '<%s>' in '%s'.", resourceType, valuesFile);
         }
 
         RType rType = Preconditions.checkNotNull(RESOURCE_TYPES.get(resourceType));
@@ -432,10 +415,9 @@ public class MiniAapt implements Step {
 
       int count = 0;
       for (Node attrNode = node.getFirstChild();
-           attrNode != null;
-           attrNode = attrNode.getNextSibling()) {
-        if (attrNode.getNodeType() != Node.ELEMENT_NODE ||
-            !attrNode.getNodeName().equals("attr")) {
+          attrNode != null;
+          attrNode = attrNode.getNextSibling()) {
+        if (attrNode.getNodeType() != Node.ELEMENT_NODE || !attrNode.getNodeName().equals("attr")) {
           continue;
         }
 
@@ -444,11 +426,9 @@ public class MiniAapt implements Step {
         resourceCollector.addResource(
             RType.STYLEABLE,
             IdType.INT,
-            String.format(
-                "%s_%s",
-                resourceName,
-                attrName),
-            Integer.toString(count++));
+            String.format("%s_%s", resourceName, attrName),
+            Integer.toString(count++),
+            resourceName);
 
         if (!rawAttrName.startsWith("android:")) {
           resourceCollector.addIntResourceIfNotPresent(RType.ATTR, attrName);
@@ -462,8 +442,7 @@ public class MiniAapt implements Step {
   }
 
   void processXmlFilesForIds(
-      ProjectFilesystem filesystem,
-      ImmutableSet.Builder<RDotTxtEntry> references)
+      ProjectFilesystem filesystem, ImmutableSet.Builder<RDotTxtEntry> references)
       throws IOException, XPathExpressionException, ResourceParseException {
     Path absoluteResDir = resolver.getAbsolutePath(resDirectory);
     Path relativeResDir = resolver.getRelativePath(resDirectory);
@@ -480,9 +459,7 @@ public class MiniAapt implements Step {
 
   @VisibleForTesting
   void processXmlFile(
-      ProjectFilesystem filesystem,
-      Path xmlFile,
-      ImmutableSet.Builder<RDotTxtEntry> references)
+      ProjectFilesystem filesystem, Path xmlFile, ImmutableSet.Builder<RDotTxtEntry> references)
       throws IOException, XPathExpressionException, ResourceParseException {
     try (InputStream stream = filesystem.newFileInputStream(xmlFile)) {
       Document dom = parseXml(xmlFile, stream);
@@ -496,12 +473,10 @@ public class MiniAapt implements Step {
         Preconditions.checkState(resourceName.startsWith(ID_DEFINITION_PREFIX));
 
         resourceCollector.addIntResourceIfNotPresent(
-            RType.ID,
-            resourceName.substring(ID_DEFINITION_PREFIX.length()));
+            RType.ID, resourceName.substring(ID_DEFINITION_PREFIX.length()));
       }
 
-      NodeList nodesUsingIds =
-          (NodeList) ANDROID_ID_USAGE.evaluate(dom, XPathConstants.NODESET);
+      NodeList nodesUsingIds = (NodeList) ANDROID_ID_USAGE.evaluate(dom, XPathConstants.NODESET);
       for (int i = 0; i < nodesUsingIds.getLength(); i++) {
         String resourceName = nodesUsingIds.item(i).getNodeValue();
         int slashPosition = resourceName.indexOf('/');
@@ -521,7 +496,6 @@ public class MiniAapt implements Step {
         }
         RType rType = Preconditions.checkNotNull(RESOURCE_TYPES.get(rawRType));
 
-
         references.add(new FakeRDotTxtEntry(IdType.INT, rType, sanitizeName(name)));
       }
     }
@@ -533,9 +507,7 @@ public class MiniAapt implements Step {
       return XmlDomParser.parse(inputStream);
     } catch (SAXException e) {
       throw new ResourceParseException(
-          "Error parsing xml file '%s': %s.",
-          filepath,
-          e.getMessage());
+          "Error parsing xml file '%s': %s.", filepath, e.getMessage());
     }
   }
 
@@ -544,8 +516,7 @@ public class MiniAapt implements Step {
     if (attribute == null) {
       throw new ResourceParseException(
           "Error: expected a 'name' attribute in node '%s' with value '%s'",
-          node.getNodeName(),
-          node.getTextContent());
+          node.getNodeName(), node.getTextContent());
     }
     return attribute.getNodeValue();
   }
@@ -559,24 +530,26 @@ public class MiniAapt implements Step {
   }
 
   private static boolean shouldIgnoreFile(Path path, ProjectFilesystem filesystem)
-      throws IOException{
-    return filesystem.isHidden(path) ||
-        IGNORED_FILE_EXTENSIONS.contains(
-            com.google.common.io.Files.getFileExtension(path.getFileName().toString())) ||
-        AaptStep.isSilentlyIgnored(path);
+      throws IOException {
+    return filesystem.isHidden(path)
+        || IGNORED_FILE_EXTENSIONS.contains(
+            com.google.common.io.Files.getFileExtension(path.getFileName().toString()))
+        || AaptStep.isSilentlyIgnored(path);
   }
 
   @VisibleForTesting
   ImmutableSet<RDotTxtEntry> verifyReferences(
-      ProjectFilesystem filesystem,
-      ImmutableSet<RDotTxtEntry> references) throws IOException {
+      ProjectFilesystem filesystem, ImmutableSet<RDotTxtEntry> references) throws IOException {
     ImmutableSet.Builder<RDotTxtEntry> unresolved = ImmutableSet.builder();
     ImmutableSet.Builder<RDotTxtEntry> definitionsBuilder = ImmutableSet.builder();
     definitionsBuilder.addAll(resourceCollector.getResources());
     for (Path depRTxt : pathsToSymbolsOfDeps) {
-      Iterable<String> lines = FluentIterable.from(filesystem.readLines(depRTxt))
-          .filter(input -> !Strings.isNullOrEmpty(input))
-          .toList();
+      Iterable<String> lines =
+          filesystem
+              .readLines(depRTxt)
+              .stream()
+              .filter(input -> !Strings.isNullOrEmpty(input))
+              .collect(Collectors.toList());
       for (String line : lines) {
         Optional<RDotTxtEntry> entry = RDotTxtEntry.parse(line);
         Preconditions.checkState(entry.isPresent());

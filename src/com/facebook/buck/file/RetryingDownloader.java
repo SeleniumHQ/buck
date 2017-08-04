@@ -18,7 +18,7 @@ package com.facebook.buck.file;
 
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.Logger;
-
+import com.facebook.buck.util.RetryingException;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
@@ -27,8 +27,8 @@ import java.util.List;
 
 /**
  * {@link Downloader} decorator which adds retry logic to any decorated downloader instance.
- * <p>
- * TODO(ttsugrii): support flexible backoff strategy (at least exponential).
+ *
+ * <p>TODO(ttsugrii): support flexible backoff strategy (at least exponential).
  */
 public class RetryingDownloader implements Downloader {
   private static final Logger LOG = Logger.get(RetryingDownloader.class);
@@ -41,8 +41,7 @@ public class RetryingDownloader implements Downloader {
   }
 
   @Override
-  public boolean fetch(
-      BuckEventBus eventBus, URI uri, Path output) throws IOException {
+  public boolean fetch(BuckEventBus eventBus, URI uri, Path output) throws IOException {
     List<IOException> allExceptions = new ArrayList<>();
     for (int retryCount = 0; retryCount <= maxNumberOfRetries; retryCount++) {
       try {
@@ -63,25 +62,10 @@ public class RetryingDownloader implements Downloader {
     return new RetryingDownloader(downloader, maxNumberOfRetries);
   }
 
-  public static class RetryingDownloaderException extends IOException {
-    RetryingDownloaderException(List<IOException> allExceptions) {
-      super(generateMessage(allExceptions), allExceptions.get(allExceptions.size() - 1));
-    }
+  public static class RetryingDownloaderException extends RetryingException {
 
-    @Override
-    public String toString() {
-      return String.format("RetryingDownloaderException{%s}", getMessage());
-    }
-
-    private static String generateMessage(List<IOException> exceptions) {
-      StringBuilder builder = new StringBuilder();
-      builder.append(String.format(
-          "Too many fails after %1$d retries. Exceptions:",
-          exceptions.size()));
-      for (int i = 0; i < exceptions.size(); ++i) {
-        builder.append(String.format(" %d:[%s]", i, exceptions.get(i).toString()));
-      }
-      return builder.toString();
+    public RetryingDownloaderException(List<IOException> allExceptions) {
+      super(allExceptions);
     }
   }
 }

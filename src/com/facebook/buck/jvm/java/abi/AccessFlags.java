@@ -16,32 +16,53 @@
 
 package com.facebook.buck.jvm.java.abi;
 
-import org.objectweb.asm.Opcodes;
-
 import java.util.Set;
-
-import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
+import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
-import javax.lang.model.type.DeclaredType;
+import javax.lang.model.util.Elements;
+import org.objectweb.asm.Opcodes;
 
-/**
- * Computes the access flags (see JVMS8 4.1, 4.5, 4.6) for {@link Element}s.
- */
+/** Computes the access flags (see JVMS8 4.1, 4.5, 4.6) for {@link Element}s. */
 public final class AccessFlags {
-  private AccessFlags() {
+  private final Elements elements;
 
+  public AccessFlags(Elements elements) {
+    this.elements = elements;
   }
 
   /**
-   * Gets the class access flags (see JVMS8 4.1) for the given type element, augmented
-   * by the special ASM pseudo-access flag for @Deprecated types.
+   * Gets the class access flags (see JVMS8 4.1) for the given type element as they should appear in
+   * the ClassNode of a class file. Inner-class specific flags are not allowed in that node,
+   * presumably for compatibility reasons.
    */
-  public static int getAccessFlags(TypeElement typeElement) {
+  public int getAccessFlagsForClassNode(TypeElement e) {
+    // Static never makes it into the file for classes
+    int accessFlags = getAccessFlags(e) & ~Opcodes.ACC_STATIC;
+    if (e.getNestingKind() != NestingKind.TOP_LEVEL) {
+      if (e.getModifiers().contains(Modifier.PROTECTED)) {
+        // It looks like inner classes with protected visibility get marked as public, and then
+        // their InnerClasses attributes override that more specifically
+        accessFlags = (accessFlags & ~Opcodes.ACC_PROTECTED) | Opcodes.ACC_PUBLIC;
+      } else if (e.getModifiers().contains(Modifier.PRIVATE)) {
+        // It looks like inner classes with private visibility get marked as package, and then
+        // their InnerClasses attributes override that more specifically
+        accessFlags = (accessFlags & ~Opcodes.ACC_PRIVATE);
+      }
+    }
+
+    return accessFlags;
+  }
+
+  /**
+   * Gets the class access flags (see JVMS8 4.1) for the given type element, augmented by the
+   * special ASM pseudo-access flag for @Deprecated types.
+   */
+  public int getAccessFlags(TypeElement typeElement) {
     int result = getCommonAccessFlags(typeElement);
 
     switch (typeElement.getKind()) {
@@ -52,26 +73,23 @@ public final class AccessFlags {
         result = result | Opcodes.ACC_ABSTRACT;
         break;
       case ENUM:
-        result = result | Opcodes.ACC_SUPER;  // JVMS 4.1
+        result = result | Opcodes.ACC_SUPER; // JVMS 4.1
         result = result | Opcodes.ACC_ENUM;
 
-        // Enums have this lovely property that they can have abstract members without themselves
-        // having to be declared abstract
-        for (Element enclosed : typeElement.getEnclosedElements()) {
-          if (enclosed.getModifiers().contains(Modifier.ABSTRACT)) {
-            result = result | Opcodes.ACC_ABSTRACT;
-            break;
-          }
-        }
+        // Enums have this lovely property that you can't declare them abstract in source, even
+        // if they have abstract methods or incompletely implemented interfaces, yet the class
+        // file will have ACC_ABSTRACT in that case. Because it's a pain to figure out if an
+        // enum is abstract (and impossible in the no-deps case), and you can't instantiate or
+        // subclass one directly anyway, we just leave the flag off.
         break;
       case INTERFACE:
         // No ACC_SUPER here per JVMS 4.1
         result = result | Opcodes.ACC_ABSTRACT;
         result = result | Opcodes.ACC_INTERFACE;
         break;
-      // $CASES-OMITTED$
+        // $CASES-OMITTED$
       default:
-        result = result | Opcodes.ACC_SUPER;  // JVMS 4.1
+        result = result | Opcodes.ACC_SUPER; // JVMS 4.1
         break;
     }
 
@@ -79,10 +97,10 @@ public final class AccessFlags {
   }
 
   /**
-   * Gets the method access flags (see JVMS8 4.6) for the given executable element, augmented
-   * by the special ASM pseudo-access flag for @Deprecated methods.
+   * Gets the method access flags (see JVMS8 4.6) for the given executable element, augmented by the
+   * special ASM pseudo-access flag for @Deprecated methods.
    */
-  public static int getAccessFlags(ExecutableElement executableElement) {
+  public int getAccessFlags(ExecutableElement executableElement) {
     int result = getCommonAccessFlags(executableElement);
 
     if (executableElement.isVarArgs()) {
@@ -93,10 +111,10 @@ public final class AccessFlags {
   }
 
   /**
-   * Gets the field access flags (see JVMS8 4.5) for the given variable element, augmented
-   * by the special ASM pseudo-access flag for @Deprecated fields.
+   * Gets the field access flags (see JVMS8 4.5) for the given variable element, augmented by the
+   * special ASM pseudo-access flag for @Deprecated fields.
    */
-  public static int getAccessFlags(VariableElement variableElement) {
+  public int getAccessFlags(VariableElement variableElement) {
     int result = getCommonAccessFlags(variableElement);
 
     if (variableElement.getKind() == ElementKind.ENUM_CONSTANT) {
@@ -107,33 +125,17 @@ public final class AccessFlags {
   }
 
   /**
-   * Gets the access flags (see JVMS8 4.1, 4.5, 4.6) for the given element, from among
-   * those that are common to all kinds of elements.
+   * Gets the access flags (see JVMS8 4.1, 4.5, 4.6) for the given element, from among those that
+   * are common to all kinds of elements.
    */
-  private static int getCommonAccessFlags(Element element) {
+  private int getCommonAccessFlags(Element element) {
     int result = modifiersToAccessFlags(element.getModifiers());
 
-    if (isDeprecated(element)) {
+    if (elements.isDeprecated(element)) {
       result = result | Opcodes.ACC_DEPRECATED;
     }
 
     return result;
-  }
-
-  private static boolean isDeprecated(Element element) {
-    for (AnnotationMirror annotationMirror : element.getAnnotationMirrors()) {
-      DeclaredType annotationType = annotationMirror.getAnnotationType();
-      TypeElement annotationTypeElement = (TypeElement) annotationType.asElement();
-
-      // Note: We can't use Types.isSameType against a type obtained from
-      // Elements.getTypeElement().asType() here because it appears that getTypeElement actually
-      // returns a different element for some fundamental classes than is actually used for
-      // compilation.
-      if (annotationTypeElement.getQualifiedName().contentEquals("java.lang.Deprecated")) {
-        return true;
-      }
-    }
-    return false;
   }
 
   /**
@@ -147,9 +149,7 @@ public final class AccessFlags {
     return result;
   }
 
-  /**
-   * Gets the access flag (see JVMS8 4.1, 4.5, 4.6) corresponding to the given modifier.
-   */
+  /** Gets the access flag (see JVMS8 4.1, 4.5, 4.6) corresponding to the given modifier. */
   private static int modifierToAccessFlag(Modifier modifier) {
     switch (modifier) {
       case PUBLIC:

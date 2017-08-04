@@ -24,15 +24,18 @@ import com.google.common.collect.Maps;
 import com.google.common.io.ByteStreams;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-
+import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.util.Map;
+import java.util.concurrent.Executors;
 
 public class InMemoryArtifactCache implements ArtifactCache {
-
   private final Map<RuleKey, Artifact> artifacts = Maps.newConcurrentMap();
+  private final ListeningExecutorService service =
+      MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
 
   public int getArtifactCount() {
     return artifacts.size();
@@ -43,7 +46,11 @@ public class InMemoryArtifactCache implements ArtifactCache {
   }
 
   @Override
-  public CacheResult fetch(RuleKey ruleKey, LazyPath output) {
+  public ListenableFuture<CacheResult> fetchAsync(RuleKey ruleKey, LazyPath output) {
+    return service.submit(() -> fetch(ruleKey, output));
+  }
+
+  private CacheResult fetch(RuleKey ruleKey, LazyPath output) {
     Artifact artifact = artifacts.get(ruleKey);
     if (artifact == null) {
       return CacheResult.miss();
@@ -53,12 +60,11 @@ public class InMemoryArtifactCache implements ArtifactCache {
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
-    return CacheResult.hit("in-memory", artifact.metadata, artifact.data.length);
+    return CacheResult.hit(
+        "in-memory", ArtifactCacheMode.dir, artifact.metadata, artifact.data.length);
   }
 
-  public void store(
-      ArtifactInfo info,
-      byte[] data) {
+  public void store(ArtifactInfo info, byte[] data) {
     Artifact artifact = new Artifact();
     artifact.metadata = info.getMetadata();
     artifact.data = data;
@@ -68,9 +74,7 @@ public class InMemoryArtifactCache implements ArtifactCache {
   }
 
   @Override
-  public ListenableFuture<Void> store(
-      ArtifactInfo info,
-      BorrowablePath output) {
+  public ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output) {
     try (InputStream inputStream = Files.newInputStream(output.getPath())) {
       store(info, ByteStreams.toByteArray(inputStream));
     } catch (IOException e) {
@@ -86,8 +90,7 @@ public class InMemoryArtifactCache implements ArtifactCache {
   }
 
   @Override
-  public void close() {
-  }
+  public void close() {}
 
   public boolean isEmpty() {
     return artifacts.isEmpty();
@@ -97,5 +100,4 @@ public class InMemoryArtifactCache implements ArtifactCache {
     public ImmutableMap<String, String> metadata;
     public byte[] data;
   }
-
 }

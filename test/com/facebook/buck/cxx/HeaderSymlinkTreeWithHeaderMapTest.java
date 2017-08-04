@@ -20,6 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
 import com.facebook.buck.hashing.FileHashLoader;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -27,6 +28,7 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
@@ -45,24 +47,22 @@ import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
+import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
 
 public class HeaderSymlinkTreeWithHeaderMapTest {
 
-  @Rule
-  public final TemporaryPaths tmpDir = new TemporaryPaths();
+  @Rule public final TemporaryPaths tmpDir = new TemporaryPaths();
 
   private ProjectFilesystem projectFilesystem;
   private BuildTarget buildTarget;
@@ -91,33 +91,26 @@ public class HeaderSymlinkTreeWithHeaderMapTest {
     Files.write(file2, "hello world".getBytes(Charsets.UTF_8));
 
     // Setup the map representing the link tree.
-    links = ImmutableMap.of(
-        link1,
-        new PathSourcePath(
-            projectFilesystem,
-            MorePaths.relativize(tmpDir.getRoot(), file1)),
-        link2,
-        new PathSourcePath(
-            projectFilesystem,
-            MorePaths.relativize(tmpDir.getRoot(), file2)));
+    links =
+        ImmutableMap.of(
+            link1,
+            new PathSourcePath(projectFilesystem, MorePaths.relativize(tmpDir.getRoot(), file1)),
+            link2,
+            new PathSourcePath(projectFilesystem, MorePaths.relativize(tmpDir.getRoot(), file2)));
 
     // The output path used by the buildable for the link tree.
     symlinkTreeRoot =
         BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s/symlink-tree-root");
 
-    ruleResolver = new BuildRuleResolver(
-        TargetGraph.EMPTY,
-        new DefaultTargetNodeToBuildRuleTransformer());
+    ruleResolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    resolver = new SourcePathResolver(ruleFinder);
+    resolver = DefaultSourcePathResolver.from(ruleFinder);
 
     // Setup the symlink tree buildable.
-    symlinkTreeBuildRule = HeaderSymlinkTreeWithHeaderMap.create(
-        buildTarget,
-        projectFilesystem,
-        symlinkTreeRoot,
-        links,
-        ruleFinder);
+    symlinkTreeBuildRule =
+        HeaderSymlinkTreeWithHeaderMap.create(
+            buildTarget, projectFilesystem, symlinkTreeRoot, links);
   }
 
   @Test
@@ -127,28 +120,33 @@ public class HeaderSymlinkTreeWithHeaderMapTest {
 
     ImmutableList<Step> expectedBuildSteps =
         new ImmutableList.Builder<Step>()
-            .addAll(MakeCleanDirectoryStep.of(projectFilesystem, symlinkTreeRoot))
-            .add(new SymlinkTreeStep(
-                projectFilesystem,
-                symlinkTreeRoot,
-                resolver.getMappedPaths(links)))
-            .add(new HeaderMapStep(
-                projectFilesystem,
-                HeaderSymlinkTreeWithHeaderMap.getPath(projectFilesystem, buildTarget),
-                ImmutableMap.of(
-                    Paths.get("file"),
-                    projectFilesystem.getBuckPaths().getBuckOut()
-                        .relativize(symlinkTreeRoot)
-                        .resolve("file"),
-                    Paths.get("directory/then/file"),
-                    projectFilesystem.getBuckPaths().getBuckOut()
-                        .relativize(symlinkTreeRoot)
-                        .resolve("directory/then/file"))))
-        .build();
+            .addAll(
+                MakeCleanDirectoryStep.of(
+                    BuildCellRelativePath.fromCellRelativePath(
+                        buildContext.getBuildCellRootPath(), projectFilesystem, symlinkTreeRoot)))
+            .add(
+                new SymlinkTreeStep(
+                    projectFilesystem, symlinkTreeRoot, resolver.getMappedPaths(links)))
+            .add(
+                new HeaderMapStep(
+                    projectFilesystem,
+                    HeaderSymlinkTreeWithHeaderMap.getPath(projectFilesystem, buildTarget),
+                    ImmutableMap.of(
+                        Paths.get("file"),
+                        projectFilesystem
+                            .getBuckPaths()
+                            .getBuckOut()
+                            .relativize(symlinkTreeRoot)
+                            .resolve("file"),
+                        Paths.get("directory/then/file"),
+                        projectFilesystem
+                            .getBuckPaths()
+                            .getBuckOut()
+                            .relativize(symlinkTreeRoot)
+                            .resolve("directory/then/file"))))
+            .build();
     ImmutableList<Step> actualBuildSteps =
-        symlinkTreeBuildRule.getBuildSteps(
-            buildContext,
-            buildableContext);
+        symlinkTreeBuildRule.getBuildSteps(buildContext, buildableContext);
     assertEquals(expectedBuildSteps, actualBuildSteps.subList(1, actualBuildSteps.size()));
   }
 
@@ -164,33 +162,32 @@ public class HeaderSymlinkTreeWithHeaderMapTest {
             ImmutableMap.of(
                 Paths.get("different/link"),
                 new PathSourcePath(
-                    projectFilesystem,
-                    MorePaths.relativize(tmpDir.getRoot(), aFile))),
-            ruleFinder);
+                    projectFilesystem, MorePaths.relativize(tmpDir.getRoot(), aFile))));
 
     // Calculate their rule keys and verify they're different.
-    DefaultFileHashCache hashCache = DefaultFileHashCache.createDefaultFileHashCache(
-        new ProjectFilesystem(tmpDir.getRoot()));
+    DefaultFileHashCache hashCache =
+        DefaultFileHashCache.createDefaultFileHashCache(
+            new ProjectFilesystem(tmpDir.getRoot()), FileHashCacheMode.DEFAULT);
     FileHashLoader hashLoader = new StackedFileHashCache(ImmutableList.of(hashCache));
-    RuleKey key1 = new DefaultRuleKeyFactory(0, hashLoader, resolver, ruleFinder).build(
-        symlinkTreeBuildRule);
-    RuleKey key2 = new DefaultRuleKeyFactory(0, hashLoader, resolver, ruleFinder).build(
-        modifiedSymlinkTreeBuildRule);
+    RuleKey key1 =
+        new DefaultRuleKeyFactory(0, hashLoader, resolver, ruleFinder).build(symlinkTreeBuildRule);
+    RuleKey key2 =
+        new DefaultRuleKeyFactory(0, hashLoader, resolver, ruleFinder)
+            .build(modifiedSymlinkTreeBuildRule);
     assertNotEquals(key1, key2);
   }
 
   @Test
-  public void testSymlinkTreeRuleKeyChangesIfLinkTargetsChange() throws IOException {
+  public void testSymlinkTreeRuleKeyChangesIfLinkTargetsChange()
+      throws InterruptedException, IOException {
     ruleResolver.addToIndex(symlinkTreeBuildRule);
 
-    DefaultFileHashCache hashCache = DefaultFileHashCache.createDefaultFileHashCache(
-        new ProjectFilesystem(tmpDir.getRoot()));
+    DefaultFileHashCache hashCache =
+        DefaultFileHashCache.createDefaultFileHashCache(
+            new ProjectFilesystem(tmpDir.getRoot()), FileHashCacheMode.DEFAULT);
     FileHashLoader hashLoader = new StackedFileHashCache(ImmutableList.of(hashCache));
-    DefaultRuleKeyFactory ruleKeyFactory = new DefaultRuleKeyFactory(
-        0,
-        hashLoader,
-        resolver,
-        ruleFinder);
+    DefaultRuleKeyFactory ruleKeyFactory =
+        new DefaultRuleKeyFactory(0, hashLoader, resolver, ruleFinder);
 
     // Calculate the rule key
     RuleKey key1 = ruleKeyFactory.build(symlinkTreeBuildRule);
@@ -199,11 +196,7 @@ public class HeaderSymlinkTreeWithHeaderMapTest {
     Path existingFile = resolver.getAbsolutePath(links.values().asList().get(0));
     Files.write(existingFile, "something new".getBytes(Charsets.UTF_8));
     hashCache.invalidateAll();
-    ruleKeyFactory = new DefaultRuleKeyFactory(
-        0,
-        hashLoader,
-        resolver,
-        ruleFinder);
+    ruleKeyFactory = new DefaultRuleKeyFactory(0, hashLoader, resolver, ruleFinder);
 
     // Re-calculate the rule key
     RuleKey key2 = ruleKeyFactory.build(symlinkTreeBuildRule);
@@ -217,12 +210,9 @@ public class HeaderSymlinkTreeWithHeaderMapTest {
       throws IOException {
     ruleResolver.addToIndex(symlinkTreeBuildRule);
 
-    InputBasedRuleKeyFactory ruleKeyFactory = new InputBasedRuleKeyFactory(
-        0,
-        FakeFileHashCache.createFromStrings(
-            ImmutableMap.of()),
-        resolver,
-        ruleFinder);
+    InputBasedRuleKeyFactory ruleKeyFactory =
+        new InputBasedRuleKeyFactory(
+            0, FakeFileHashCache.createFromStrings(ImmutableMap.of()), resolver, ruleFinder);
 
     // Calculate the rule key
     RuleKey key1 = ruleKeyFactory.build(symlinkTreeBuildRule);
@@ -230,12 +220,9 @@ public class HeaderSymlinkTreeWithHeaderMapTest {
     // Change the contents of the target of the link.
     Path existingFile = resolver.getAbsolutePath(links.values().asList().get(0));
     Files.write(existingFile, "something new".getBytes(Charsets.UTF_8));
-    ruleKeyFactory = new InputBasedRuleKeyFactory(
-        0,
-        FakeFileHashCache.createFromStrings(
-            ImmutableMap.of()),
-        resolver,
-        ruleFinder);
+    ruleKeyFactory =
+        new InputBasedRuleKeyFactory(
+            0, FakeFileHashCache.createFromStrings(ImmutableMap.of()), resolver, ruleFinder);
 
     // Re-calculate the rule key
     RuleKey key2 = ruleKeyFactory.build(symlinkTreeBuildRule);
@@ -243,5 +230,4 @@ public class HeaderSymlinkTreeWithHeaderMapTest {
     // Verify that the rules keys are the same.
     assertEquals(key1, key2);
   }
-
 }

@@ -28,9 +28,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.TreeMultimap;
-
-import org.xml.sax.SAXException;
-
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -43,40 +40,37 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
-
 import javax.xml.parsers.ParserConfigurationException;
+import org.xml.sax.SAXException;
 
-/**
- * Utility class to discover the location of SDKs contained inside an Xcode
- * installation.
- */
+/** Utility class to discover the location of SDKs contained inside an Xcode installation. */
 public class AppleSdkDiscovery {
 
   private static final Logger LOG = Logger.get(AppleSdkDiscovery.class);
 
-  private static final Ordering<AppleSdk> APPLE_SDK_VERSION_ORDERING = new Ordering<AppleSdk>() {
-    VersionStringComparator versionComparator = new VersionStringComparator();
-    @Override
-    public int compare(AppleSdk thisSdk, AppleSdk thatSdk) {
-      int result = versionComparator.compare(thisSdk.getVersion(), thatSdk.getVersion());
-      return result == 0 ? thisSdk.getName().compareTo(thatSdk.getName()) : result;
-    }
-  };
+  private static final Ordering<AppleSdk> APPLE_SDK_VERSION_ORDERING =
+      new Ordering<AppleSdk>() {
+        VersionStringComparator versionComparator = new VersionStringComparator();
+
+        @Override
+        public int compare(AppleSdk thisSdk, AppleSdk thatSdk) {
+          int result = versionComparator.compare(thisSdk.getVersion(), thatSdk.getVersion());
+          return result == 0 ? thisSdk.getName().compareTo(thatSdk.getName()) : result;
+        }
+      };
 
   private static final String DEFAULT_TOOLCHAIN_ID = "com.apple.dt.toolchain.XcodeDefault";
 
   // Utility class; do not instantiate.
-  private AppleSdkDiscovery() { }
+  private AppleSdkDiscovery() {}
 
   /**
-   * Given a path to an Xcode developer directory and a map of
-   * (xctoolchain ID: path) pairs as returned by
-   * {@link AppleToolchainDiscovery}, walks through the platforms
-   * and builds a map of ({@link AppleSdk}: {@link AppleSdkPaths})
-   * objects describing the paths to the SDKs inside.
+   * Given a path to an Xcode developer directory and a map of (xctoolchain ID: path) pairs as
+   * returned by {@link AppleToolchainDiscovery}, walks through the platforms and builds a map of
+   * ({@link AppleSdk}: {@link AppleSdkPaths}) objects describing the paths to the SDKs inside.
    *
-   * The {@link AppleSdk#getName()} strings match the ones displayed by {@code xcodebuild -showsdks}
-   * and look like {@code macosx10.9}, {@code iphoneos8.0}, {@code iphonesimulator8.0},
+   * <p>The {@link AppleSdk#getName()} strings match the ones displayed by {@code xcodebuild
+   * -showsdks} and look like {@code macosx10.9}, {@code iphoneos8.0}, {@code iphonesimulator8.0},
    * etc.
    */
   public static ImmutableMap<AppleSdk, AppleSdkPaths> discoverAppleSdkPaths(
@@ -104,9 +98,7 @@ public class AppleSdkDiscovery {
     // To do this, we store a map of (platform: [sdk1, sdk2, ...])
     // pairs where the SDKs for each platform are ordered by version.
     TreeMultimap<ApplePlatform, AppleSdk> orderedSdksForPlatform =
-        TreeMultimap.create(
-            Ordering.natural(),
-            APPLE_SDK_VERSION_ORDERING);
+        TreeMultimap.create(Ordering.natural(), APPLE_SDK_VERSION_ORDERING);
 
     for (Path platforms : platformPaths) {
       if (!Files.exists(platforms)) {
@@ -115,19 +107,22 @@ public class AppleSdkDiscovery {
       }
       LOG.debug("Searching for Xcode SDKs in %s", platforms);
 
-      try (DirectoryStream<Path> platformStream = Files.newDirectoryStream(
-          platforms,
-               "*.platform")) {
+      try (DirectoryStream<Path> platformStream =
+          Files.newDirectoryStream(platforms, "*.platform")) {
         for (Path platformDir : platformStream) {
           Path developerSdksPath = platformDir.resolve("Developer/SDKs");
-          try (DirectoryStream<Path> sdkStream = Files.newDirectoryStream(
-                   developerSdksPath,
-                   "*.sdk")) {
+          try (DirectoryStream<Path> sdkStream =
+              Files.newDirectoryStream(developerSdksPath, "*.sdk")) {
             Set<Path> scannedSdkDirs = new HashSet<>();
             for (Path sdkDir : sdkStream) {
               LOG.debug("Fetching SDK name for %s", sdkDir);
 
-              sdkDir = sdkDir.toRealPath();
+              try {
+                sdkDir = sdkDir.toRealPath();
+              } catch (NoSuchFileException e) {
+                LOG.warn(e, "SDK at path %s is a dangling link, ignoring", sdkDir);
+                continue;
+              }
               if (scannedSdkDirs.contains(sdkDir)) {
                 LOG.debug("Skipping already scanned SDK directory %s", sdkDir);
                 continue;
@@ -135,7 +130,7 @@ public class AppleSdkDiscovery {
 
               AppleSdk.Builder sdkBuilder = AppleSdk.builder();
               if (buildSdkFromPath(
-                      sdkDir, sdkBuilder, xcodeToolchains, defaultToolchain, appleConfig)) {
+                  sdkDir, sdkBuilder, xcodeToolchains, defaultToolchain, appleConfig)) {
                 AppleSdk sdk = sdkBuilder.build();
                 LOG.debug("Found SDK %s", sdk);
 
@@ -143,11 +138,12 @@ public class AppleSdkDiscovery {
                 for (AppleToolchain toolchain : sdk.getToolchains()) {
                   xcodePathsBuilder.addToolchainPaths(toolchain.getPath());
                 }
-                AppleSdkPaths xcodePaths = xcodePathsBuilder
-                    .setDeveloperPath(developerDir)
-                    .setPlatformPath(platformDir)
-                    .setSdkPath(sdkDir)
-                    .build();
+                AppleSdkPaths xcodePaths =
+                    xcodePathsBuilder
+                        .setDeveloperPath(developerDir)
+                        .setPlatformPath(platformDir)
+                        .setSdkPath(sdkDir)
+                        .build();
                 appleSdkPathsBuilder.put(sdk, xcodePaths);
                 orderedSdksForPlatform.put(sdk.getApplePlatform(), sdk);
               }
@@ -190,13 +186,14 @@ public class AppleSdkDiscovery {
   }
 
   private static boolean buildSdkFromPath(
-        Path sdkDir,
-        AppleSdk.Builder sdkBuilder,
-        ImmutableMap<String, AppleToolchain> xcodeToolchains,
-        Optional<AppleToolchain> defaultToolchain,
-        AppleConfig appleConfig) throws IOException {
+      Path sdkDir,
+      AppleSdk.Builder sdkBuilder,
+      ImmutableMap<String, AppleToolchain> xcodeToolchains,
+      Optional<AppleToolchain> defaultToolchain,
+      AppleConfig appleConfig)
+      throws IOException {
     try (InputStream sdkSettingsPlist = Files.newInputStream(sdkDir.resolve("SDKSettings.plist"));
-         BufferedInputStream bufferedSdkSettingsPlist = new BufferedInputStream(sdkSettingsPlist)) {
+        BufferedInputStream bufferedSdkSettingsPlist = new BufferedInputStream(sdkSettingsPlist)) {
       NSDictionary sdkSettings;
       try {
         sdkSettings = (NSDictionary) PropertyListParser.parse(bufferedSdkSettingsPlist);
@@ -209,18 +206,20 @@ public class AppleSdkDiscovery {
       String name = sdkSettings.objectForKey("CanonicalName").toString();
       String version = sdkSettings.objectForKey("Version").toString();
       NSDictionary defaultProperties = (NSDictionary) sdkSettings.objectForKey("DefaultProperties");
+      NSString platformName = (NSString) defaultProperties.objectForKey("PLATFORM_NAME");
 
       Optional<ImmutableList<String>> toolchains =
-          appleConfig.getToolchainsOverrideForSDKName(name);
+          appleConfig.getToolchainsOverrideForSDKName(platformName.toString());
       boolean foundToolchain = false;
       if (!toolchains.isPresent()) {
         NSArray settingsToolchains = (NSArray) sdkSettings.objectForKey("Toolchains");
         if (settingsToolchains != null) {
-          toolchains = Optional.of(
-              Arrays.stream(settingsToolchains.getArray())
-                  .map(Object::toString)
-                  .collect(MoreCollectors.toImmutableList()));
-          }
+          toolchains =
+              Optional.of(
+                  Arrays.stream(settingsToolchains.getArray())
+                      .map(Object::toString)
+                      .collect(MoreCollectors.toImmutableList()));
+        }
       }
 
       if (toolchains.isPresent()) {
@@ -242,7 +241,6 @@ public class AppleSdkDiscovery {
         LOG.warn("No toolchains found and no default toolchain. Skipping SDK path %s.", sdkDir);
         return false;
       } else {
-        NSString platformName = (NSString) defaultProperties.objectForKey("PLATFORM_NAME");
         ApplePlatform applePlatform = ApplePlatform.of(platformName.toString());
         sdkBuilder.setName(name).setVersion(version).setApplePlatform(applePlatform);
         ImmutableList<String> architectures = validArchitecturesForPlatform(applePlatform, sdkDir);
@@ -256,8 +254,7 @@ public class AppleSdkDiscovery {
   }
 
   private static ImmutableList<String> validArchitecturesForPlatform(
-      ApplePlatform platform,
-      Path sdkDir) throws IOException {
+      ApplePlatform platform, Path sdkDir) throws IOException {
     ImmutableList<String> architectures = platform.getArchitectures();
     try (DirectoryStream<Path> sdkFiles = Files.newDirectoryStream(sdkDir)) {
       ImmutableList.Builder<String> architectureSubdirsBuilder = ImmutableList.builder();

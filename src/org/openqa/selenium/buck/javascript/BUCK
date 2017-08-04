@@ -1,5 +1,5 @@
 
-java_library(name = 'javascript',
+java_immutables_library(name = 'javascript',
   srcs = glob(['*.java']),
   deps = [
     '//src/com/facebook/buck/cli:config',
@@ -8,7 +8,9 @@ java_library(name = 'javascript',
     '//src/com/facebook/buck/model:model',
     '//src/com/facebook/buck/parser:rule_pattern',
     '//src/com/facebook/buck/rules:build_rule',
+    '//src/com/facebook/buck/rules:interfaces',
     '//src/com/facebook/buck/rules:rules',
+    '//src/com/facebook/buck/rules:source_path',
     '//src/com/facebook/buck/shell:steps',
     '//src/com/facebook/buck/step/fs:fs',
     '//src/com/facebook/buck/step:step',

@@ -27,11 +27,13 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.guava.GuavaModule;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
-
-import java.io.File;
+import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Map;
 
 public class ObjectMappers {
 
@@ -40,13 +42,13 @@ public class ObjectMappers {
   public static final ObjectReader READER;
   public static final ObjectWriter WRITER;
 
-  public static <T> T readValue(File file, Class<T> clazz) throws IOException {
-    try (JsonParser parser = createParser(file)){
+  public static <T> T readValue(Path file, Class<T> clazz) throws IOException {
+    try (JsonParser parser = createParser(file)) {
       return READER.readValue(parser, clazz);
     }
   }
 
-  public static <T> T readValue(File file, TypeReference<T> clazz) throws IOException {
+  public static <T> T readValue(Path file, TypeReference<T> clazz) throws IOException {
     try (JsonParser parser = createParser(file)) {
       return READER.readValue(parser, clazz);
     }
@@ -64,12 +66,8 @@ public class ObjectMappers {
     }
   }
 
-  public static JsonParser createParser(File file) throws IOException {
-    return jsonFactory.createParser(file);
-  }
-
-  public static JsonParser createParser(InputStream stream) throws IOException {
-    return jsonFactory.createParser(stream);
+  public static JsonParser createParser(Path path) throws IOException {
+    return jsonFactory.createParser(new BufferedInputStream(Files.newInputStream(path)));
   }
 
   public static JsonParser createParser(String json) throws IOException {
@@ -80,8 +78,16 @@ public class ObjectMappers {
     return jsonFactory.createParser(json);
   }
 
+  public static JsonParser createParser(InputStream stream) throws IOException {
+    return jsonFactory.createParser(stream);
+  }
+
   public static JsonGenerator createGenerator(OutputStream stream) throws IOException {
     return jsonFactory.createGenerator(stream);
+  }
+
+  public static <T> T convertValue(Map<String, Object> map, Class<T> clazz) {
+    return mapper.convertValue(map, clazz);
   }
 
   // This is mutable, and doesn't share a cache with the rest of Buck.
@@ -91,11 +97,14 @@ public class ObjectMappers {
     return create();
   }
 
+  // Callers must not modify (i.e. reconfigure) this ObjectMapper.
+  private static final ObjectMapper mapper;
+
   // Callers must not modify (i.e. reconfigure) this JsonFactory.
   private static final JsonFactory jsonFactory;
 
   static {
-    ObjectMapper mapper = create();
+    mapper = create();
     READER = mapper.reader();
     WRITER = mapper.writer();
     jsonFactory = mapper.getFactory();
@@ -107,12 +116,12 @@ public class ObjectMappers {
     // and it makes BufferedOutputStreams to be useless
     mapper.disable(SerializationFeature.FLUSH_AFTER_WRITE_VALUE);
     mapper.setSerializationInclusion(JsonInclude.Include.NON_ABSENT);
+    mapper.configure(JsonParser.Feature.AUTO_CLOSE_SOURCE, true);
     // Add support for serializing Guava collections.
     mapper.registerModule(new GuavaModule());
     mapper.registerModule(new Jdk8Module());
     return mapper;
   }
 
-  private ObjectMappers() {
-  }
+  private ObjectMappers() {}
 }

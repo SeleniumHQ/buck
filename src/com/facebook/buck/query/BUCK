@@ -1,15 +1,14 @@
-standard_java_library(
+java_immutables_library(
     name = "query",
-    immutable_types = [
-        "QueryBuildTarget",
-        "QueryFileTarget",
-    ],
+    srcs = glob(["*.java"]),
     tests = [
         "//test/com/facebook/buck/query:query",
     ],
+    visibility = ["PUBLIC"],
     deps = [
         "//src/com/facebook/buck/model:model",
         "//src/com/facebook/buck/rules:build_rule",
+        "//src/com/facebook/buck/rules:source_path",
         "//src/com/facebook/buck/rules/coercer:coercer",
         "//src/com/facebook/buck/rules/coercer:interface",
         "//src/com/facebook/buck/util:exceptions",

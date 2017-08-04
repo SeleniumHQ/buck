@@ -16,62 +16,63 @@
 
 package com.facebook.buck.python;
 
-import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.NoopBuildRule;
-
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import java.util.stream.Stream;
 
-public class PythonLibrary extends NoopBuildRule implements PythonPackagable, HasRuntimeDeps {
+public class PythonLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
+    implements PythonPackagable, HasRuntimeDeps {
 
   private final BuildRuleResolver resolver;
 
   PythonLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.resolver = resolver;
   }
 
   @Override
   @SuppressWarnings("unchecked")
   public Iterable<BuildRule> getPythonPackageDeps(
-      PythonPlatform pythonPlatform,
-      CxxPlatform cxxPlatform)
-      throws NoSuchBuildTargetException {
+      PythonPlatform pythonPlatform, CxxPlatform cxxPlatform) throws NoSuchBuildTargetException {
     return resolver
         .requireMetadata(
-            getBuildTarget().withAppendedFlavors(
-                PythonLibraryDescription.MetadataType.PACKAGE_DEPS.getFlavor(),
-                pythonPlatform.getFlavor(),
-                cxxPlatform.getFlavor()),
+            getBuildTarget()
+                .withAppendedFlavors(
+                    PythonLibraryDescription.MetadataType.PACKAGE_DEPS.getFlavor(),
+                    pythonPlatform.getFlavor(),
+                    cxxPlatform.getFlavor()),
             Iterable.class)
         .orElseThrow(IllegalStateException::new);
   }
 
   @Override
   public PythonPackageComponents getPythonPackageComponents(
-      PythonPlatform pythonPlatform,
-      CxxPlatform cxxPlatform)
-      throws NoSuchBuildTargetException {
+      PythonPlatform pythonPlatform, CxxPlatform cxxPlatform) throws NoSuchBuildTargetException {
     return resolver
         .requireMetadata(
-            getBuildTarget().withAppendedFlavors(
-                PythonLibraryDescription.MetadataType.PACKAGE_COMPONENTS.getFlavor(),
-                pythonPlatform.getFlavor(),
-                cxxPlatform.getFlavor()),
+            getBuildTarget()
+                .withAppendedFlavors(
+                    PythonLibraryDescription.MetadataType.PACKAGE_COMPONENTS.getFlavor(),
+                    pythonPlatform.getFlavor(),
+                    cxxPlatform.getFlavor()),
             PythonPackageComponents.class)
         .orElseThrow(IllegalStateException::new);
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return getDeclaredDeps().stream().map(BuildRule::getBuildTarget);
   }
-
 }

@@ -17,14 +17,13 @@
 package com.facebook.buck.rust;
 
 import com.facebook.buck.cli.FakeBuckConfig;
-import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.DefaultLinkerProvider;
-import com.facebook.buck.cxx.LinkerProvider;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.LinkerProvider;
 import com.facebook.buck.rules.ConstantToolProvider;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.ToolProvider;
 import com.google.common.collect.ImmutableList;
-
 import java.nio.file.Paths;
 import java.util.Optional;
 
@@ -63,9 +62,7 @@ public class FakeRustConfig extends RustBuckConfig {
   }
 
   @Override
-  LinkerProvider getLinkerProvider(
-      CxxPlatform cxxPlatform,
-      LinkerProvider.Type defaultType) {
+  LinkerProvider getLinkerProvider(CxxPlatform cxxPlatform, LinkerProvider.Type defaultType) {
     return linker.orElseGet(() -> super.getLinkerProvider(cxxPlatform, defaultType));
   }
 

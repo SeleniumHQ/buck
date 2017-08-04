@@ -16,31 +16,31 @@
 
 package com.facebook.buck.jvm.java.plugin.adapter;
 
+import com.facebook.buck.util.liteinfersupport.Preconditions;
 import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.util.TaskEvent;
 import com.sun.source.util.TaskListener;
 import com.sun.source.util.TreePathScanner;
-
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.function.Consumer;
-
+import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.util.Elements;
+import javax.tools.JavaFileObject;
 
-/**
- * A {@link TaskListener} that runs some code after the final enter phase.
- */
+/** A {@link TaskListener} that runs some code after the final enter phase. */
 public class PostEnterTaskListener implements TaskListener {
   private final BuckJavacTask task;
-  private final Consumer<Set<TypeElement>> callback;
-  private final Set<TypeElement> topLevelTypes = new LinkedHashSet<TypeElement>();
+  private final Consumer<Set<Element>> callback;
+  private final Set<Element> topLevelElements = new LinkedHashSet<Element>();
 
   private boolean annotationProcessing = false;
   private int pendingEnterCalls = 0;
 
-  public PostEnterTaskListener(BuckJavacTask task, Consumer<Set<TypeElement>> callback) {
+  public PostEnterTaskListener(BuckJavacTask task, Consumer<Set<Element>> callback) {
     this.task = task;
     this.callback = callback;
   }
@@ -54,11 +54,11 @@ public class PostEnterTaskListener implements TaskListener {
         break;
       case ENTER:
         if (pendingEnterCalls == 0) {
-          topLevelTypes.clear();
+          topLevelElements.clear();
         }
         pendingEnterCalls += 1;
         break;
-      // $CASES-OMITTED$
+        // $CASES-OMITTED$
       default:
         break;
     }
@@ -76,25 +76,33 @@ public class PostEnterTaskListener implements TaskListener {
         new TreePathScanner<Void, Void>() {
           @Override
           public Void visitCompilationUnit(CompilationUnitTree node, Void aVoid) {
+            if (e.getSourceFile().isNameCompatible("package-info", JavaFileObject.Kind.SOURCE)) {
+              Elements elements = task.getElements();
+              Element packageElement =
+                  Preconditions.checkNotNull(
+                      elements.getPackageElement(node.getPackageName().toString()));
+              topLevelElements.add(packageElement);
+            }
+
             return super.scan(node.getTypeDecls(), null);
           }
 
           @Override
           public Void visitClass(ClassTree node, Void aVoid) {
             TypeElement typeElement = (TypeElement) task.getTrees().getElement(getCurrentPath());
-            topLevelTypes.add(typeElement);
+            topLevelElements.add(typeElement);
             return null;
           }
         }.scan(compilationUnit, null);
         break;
-      // $CASES-OMITTED$
+        // $CASES-OMITTED$
       default:
         break;
     }
 
     if (e.getKind() == TaskEvent.Kind.ENTER && !annotationProcessing && pendingEnterCalls == 0) {
-      Set<TypeElement> unmodifiableTopLevelTypes = Collections.unmodifiableSet(topLevelTypes);
-      callback.accept(unmodifiableTopLevelTypes);
+      Set<Element> unmodifiableTopLevelElements = Collections.unmodifiableSet(topLevelElements);
+      callback.accept(unmodifiableTopLevelElements);
     }
   }
 }

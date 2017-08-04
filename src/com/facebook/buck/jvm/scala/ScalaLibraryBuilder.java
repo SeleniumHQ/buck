@@ -16,34 +16,41 @@
 
 package com.facebook.buck.jvm.scala;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.DefaultJavaLibraryBuilder;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.TargetGraph;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-
 
 public class ScalaLibraryBuilder extends DefaultJavaLibraryBuilder {
   private final ScalaBuckConfig scalaBuckConfig;
   private ImmutableList<String> extraArguments = ImmutableList.of();
 
   ScalaLibraryBuilder(
+      TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
+      CellPathResolver cellRoots,
       ScalaBuckConfig scalaBuckConfig) {
-    super(params, buildRuleResolver);
+    super(targetGraph, buildTarget, projectFilesystem, params, buildRuleResolver, cellRoots);
     this.scalaBuckConfig = scalaBuckConfig;
   }
 
-  public ScalaLibraryBuilder setArgs(ScalaLibraryDescription.Arg args) {
-    this.setSrcs(args.srcs)
-        .setResources(args.resources)
-        .setResourcesRoot(args.resourcesRoot)
-        .setProvidedDeps(args.providedDeps)
-        .setManifestFile(args.manifestFile)
-        .setMavenCoords(args.mavenCoords);
-    extraArguments = args.extraArguments;
+  public ScalaLibraryBuilder setArgs(ScalaLibraryDescription.CoreArg args) {
+    this.setSrcs(args.getSrcs())
+        .setResources(args.getResources())
+        .setResourcesRoot(args.getResourcesRoot())
+        .setProvidedDeps(args.getProvidedDeps())
+        .setManifestFile(args.getManifestFile())
+        .setMavenCoords(args.getMavenCoords());
+    extraArguments = args.getExtraArguments();
 
     return this;
   }

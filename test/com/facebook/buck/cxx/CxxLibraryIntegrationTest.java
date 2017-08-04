@@ -26,6 +26,8 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.ObjectFileScrubbers;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -37,12 +39,6 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.environment.Platform;
-
-import org.apache.commons.compress.archivers.ar.ArArchiveEntry;
-import org.apache.commons.compress.archivers.ar.ArArchiveInputStream;
-import org.junit.Rule;
-import org.junit.Test;
-
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -50,16 +46,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Optional;
+import org.apache.commons.compress.archivers.ar.ArArchiveEntry;
+import org.apache.commons.compress.archivers.ar.ArArchiveInputStream;
+import org.junit.Rule;
+import org.junit.Test;
 
 public class CxxLibraryIntegrationTest {
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
   public void exportedPreprocessorFlagsApplyToBothTargetAndDependents() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "exported_preprocessor_flags", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "exported_preprocessor_flags", tmp);
     workspace.setUp();
     workspace.runBuckBuild("//:main").assertSuccess();
   }
@@ -68,8 +67,8 @@ public class CxxLibraryIntegrationTest {
   public void appleBinaryBuildsOnApplePlatform() throws IOException {
     assumeThat(Platform.detect(), is(Platform.MACOS));
 
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "apple_cxx_library", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "apple_cxx_library", tmp);
     workspace.setUp();
     workspace.runBuckBuild("//:main#iphonesimulator-i386").assertSuccess();
   }
@@ -78,16 +77,16 @@ public class CxxLibraryIntegrationTest {
   public void appleLibraryBuildsOnApplePlatform() throws IOException {
     assumeThat(Platform.detect(), is(Platform.MACOS));
 
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "apple_cxx_library", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "apple_cxx_library", tmp);
     workspace.setUp();
     workspace.runBuckBuild("//:lib#iphonesimulator-i386,static").assertSuccess();
   }
 
   @Test
   public void libraryCanIncludeAllItsHeadersAndExportedHeadersOfItsDeps() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "private_and_exported_headers", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "private_and_exported_headers", tmp);
     workspace.setUp();
 
     ProjectWorkspace.ProcessResult result = workspace.runBuckBuild("//:good-bin");
@@ -96,8 +95,8 @@ public class CxxLibraryIntegrationTest {
 
   @Test
   public void libraryCannotIncludePrivateHeadersOfDeps() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "private_and_exported_headers", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "private_and_exported_headers", tmp);
     workspace.setUp();
 
     ProjectWorkspace.ProcessResult result = workspace.runBuckBuild("//:bad-bin");
@@ -105,10 +104,10 @@ public class CxxLibraryIntegrationTest {
   }
 
   @Test
-  public void libraryBuildPathIsSoName() throws IOException {
+  public void libraryBuildPathIsSoName() throws InterruptedException, IOException {
     assumeTrue(Platform.detect() == Platform.LINUX);
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "shared_library", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "shared_library", tmp);
     workspace.setUp();
     ProjectWorkspace.ProcessResult result = workspace.runBuckBuild("//:binary");
     assertTrue(
@@ -118,8 +117,7 @@ public class CxxLibraryIntegrationTest {
                     new ProjectFilesystem(workspace.getDestPath()),
                     BuildTargetFactory.newInstance("//subdir:library")
                         .withFlavors(
-                            DefaultCxxPlatforms.FLAVOR,
-                            CxxDescriptionEnhancer.SHARED_FLAVOR),
+                            DefaultCxxPlatforms.FLAVOR, CxxDescriptionEnhancer.SHARED_FLAVOR),
                     "%s/libsubdir_library.so"))));
     result.assertSuccess();
   }
@@ -157,20 +155,14 @@ public class CxxLibraryIntegrationTest {
   @Test
   public void runInferOnSimpleLibraryWithoutDeps() throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
-    ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
-        this,
-        tmp,
-        Optional.empty());
+    ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(this, tmp, Optional.empty());
     workspace.runBuckBuild("//foo:dep_one#infer").assertSuccess();
   }
 
   @Test
   public void runInferCaptureOnLibraryWithHeadersOnly() throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
-    ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(
-        this,
-        tmp,
-        Optional.empty());
+    ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(this, tmp, Optional.empty());
     workspace.runBuckBuild("//foo:headers_only_lib#infer-capture-all").assertSuccess();
   }
 
@@ -183,20 +175,18 @@ public class CxxLibraryIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_library", tmp);
     workspace.setUp();
     Path archive =
-        workspace.buildAndReturnOutput(
-            "-c", "cxx.archive_contents=thin",
-            "//:foo#default,static");
+        workspace.buildAndReturnOutput("-c", "cxx.archive_contents=thin", "//:foo#default,static");
 
     // NOTE: Replace the thin header with a normal header just so the commons compress parser
     // can parse the archive contents.
     try (OutputStream outputStream =
-             Files.newOutputStream(workspace.getPath(archive), StandardOpenOption.WRITE)) {
+        Files.newOutputStream(workspace.getPath(archive), StandardOpenOption.WRITE)) {
       outputStream.write(ObjectFileScrubbers.GLOBAL_HEADER);
     }
 
     // Now iterate the archive and verify it contains no absolute paths.
-    try (ArArchiveInputStream stream = new ArArchiveInputStream(
-        new FileInputStream(workspace.getPath(archive).toFile()))) {
+    try (ArArchiveInputStream stream =
+        new ArArchiveInputStream(new FileInputStream(workspace.getPath(archive).toFile()))) {
       ArArchiveEntry entry;
       while ((entry = stream.getNextArEntry()) != null) {
         if (!entry.getName().isEmpty()) {
@@ -209,15 +199,15 @@ public class CxxLibraryIntegrationTest {
   }
 
   @Test
-  public void testCxxLibraryWithDefaultsInFlagBuildsSomething() throws IOException {
+  public void testCxxLibraryWithDefaultsInFlagBuildsSomething()
+      throws InterruptedException, IOException {
     assumeTrue(Platform.detect() == Platform.MACOS);
     AssumeAndroidPlatform.assumeSdkIsAvailable();
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "simple", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "simple", tmp);
     workspace.setUp();
 
-    BuildTarget target =
-        BuildTargetFactory.newInstance("//foo:library_with_header");
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:library_with_header");
     ProjectWorkspace.ProcessResult result =
         workspace.runBuckCommand(
             "build",
@@ -228,10 +218,9 @@ public class CxxLibraryIntegrationTest {
             "defaults.cxx_library.platform=android-armv7");
     result.assertSuccess();
 
-    BuildTarget implicitTarget = target.withAppendedFlavors(
-        InternalFlavor.of("static-pic"),
-        InternalFlavor.of("android-armv7")
-    );
+    BuildTarget implicitTarget =
+        target.withAppendedFlavors(
+            InternalFlavor.of("static-pic"), InternalFlavor.of("android-armv7"));
     workspace.getBuildLog().assertTargetBuiltLocally(implicitTarget.getFullyQualifiedName());
   }
 
@@ -244,16 +233,13 @@ public class CxxLibraryIntegrationTest {
     workspace.runBuckBuild("-v=3", "//:test_prebuilt").assertSuccess();
     workspace.runBuckBuild("-v=3", "//:test_lib").assertFailure();
     workspace.runBuckBuild("-v=3", "//:test_both").assertFailure();
-
   }
 
   @Test
   public void explicitHeaderOnlyDependency() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(
-            this,
-            "explicit_header_only_dependency",
-            tmp);
+            this, "explicit_header_only_dependency", tmp);
     workspace.setUp();
     workspace.runBuckBuild("//:binary").assertSuccess();
     ProjectWorkspace.ProcessResult shouldFail =
@@ -274,10 +260,7 @@ public class CxxLibraryIntegrationTest {
     // get stripped. Skip the test on linux (a gcc platform) for now.
     assumeTrue(Platform.detect() != Platform.LINUX);
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(
-            this,
-            "explicit_header_only_caching",
-            tmp);
+        TestDataHelper.createProjectWorkspaceForScenario(this, "explicit_header_only_caching", tmp);
     workspace.setUp();
     workspace.enableDirCache();
     workspace.runBuckBuild("//:binary").assertSuccess();
@@ -291,10 +274,7 @@ public class CxxLibraryIntegrationTest {
   @Test
   public void sourceFromCxxGenrule() throws IOException {
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(
-            this,
-            "sources_from_cxx_genrule",
-            tmp);
+        TestDataHelper.createProjectWorkspaceForScenario(this, "sources_from_cxx_genrule", tmp);
     workspace.setUp();
     workspace.runBuckBuild("//:lib#default,shared").assertSuccess();
   }
@@ -302,15 +282,13 @@ public class CxxLibraryIntegrationTest {
   @Test
   public void headerFromCxxGenrule() throws IOException {
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(
-            this,
-            "sources_from_cxx_genrule",
-            tmp);
+        TestDataHelper.createProjectWorkspaceForScenario(this, "sources_from_cxx_genrule", tmp);
     workspace.setUp();
     workspace.runBuckBuild("//:lib_header#default,shared").assertSuccess();
   }
 
-  private void assumeSymLinkTreeWithHeaderMap(Path rootPath) throws IOException {
+  private void assumeSymLinkTreeWithHeaderMap(Path rootPath)
+      throws InterruptedException, IOException {
     // We can only disable symlink trees if header map is supported.
     CxxPreprocessables.HeaderMode headerMode =
         CxxPlatformUtils.getHeaderModeForDefaultPlatform(rootPath);
@@ -318,75 +296,122 @@ public class CxxLibraryIntegrationTest {
   }
 
   @Test
-  public void buildWithHeadersSymlink()
-      throws IOException {
+  public void buildWithHeadersSymlink() throws InterruptedException, IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "headers_symlinks", tmp);
     workspace.setUp();
-    workspace.runBuckBuild(
-        "-v=3",
-        "//:main#default").assertSuccess();
+    workspace.runBuckBuild("-v=3", "//:main#default").assertSuccess();
     Path rootPath = tmp.getRoot();
     assumeSymLinkTreeWithHeaderMap(rootPath);
-    assertTrue(Files.exists(rootPath.resolve(
-        "buck-out/gen/foobar#header-mode-symlink-tree-with-header-map,headers/foobar/public.h")));
-    assertTrue(Files.exists(rootPath.resolve(
-        "buck-out/gen/foobar#default,private-headers/foobar/private.h")));
+    assertTrue(
+        Files.exists(
+            rootPath.resolve(
+                "buck-out/gen/foobar#header-mode-symlink-tree-with-header-map,headers/foobar/public.h")));
+    assertTrue(
+        Files.exists(
+            rootPath.resolve("buck-out/gen/foobar#default,private-headers/foobar/private.h")));
   }
 
   @Test
-  public void buildWithoutPublicHeadersSymlink()
-      throws IOException {
+  public void buildWithoutPublicHeadersSymlink() throws InterruptedException, IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "headers_symlinks", tmp);
     workspace.setUp();
-    workspace.runBuckBuild(
-        "-c", "cxx.exported_headers_symlinks_enabled=false",
-        "-v=3",
-        "//:main#default").assertSuccess();
+    workspace
+        .runBuckBuild(
+            "-c", "cxx.exported_headers_symlinks_enabled=false", "-v=3", "//:main#default")
+        .assertSuccess();
     Path rootPath = tmp.getRoot();
     assumeSymLinkTreeWithHeaderMap(rootPath);
-    assertFalse(Files.exists(rootPath.resolve(
-        "buck-out/gen/foobar#header-mode-symlink-tree-with-header-map,headers/foobar/public.h")));
-    assertTrue(Files.exists(rootPath.resolve(
-        "buck-out/gen/foobar#default,private-headers/foobar/private.h")));
+    assertFalse(
+        Files.exists(
+            rootPath.resolve(
+                "buck-out/gen/foobar#header-mode-symlink-tree-with-header-map,headers/foobar/public.h")));
+    assertTrue(
+        Files.exists(
+            rootPath.resolve("buck-out/gen/foobar#default,private-headers/foobar/private.h")));
   }
 
   @Test
-  public void buildWithoutPrivateHeadersSymlink()
-      throws IOException {
+  public void buildWithoutPrivateHeadersSymlink() throws InterruptedException, IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "headers_symlinks", tmp);
     workspace.setUp();
-    workspace.runBuckBuild(
-        "-c", "cxx.headers_symlinks_enabled=false",
-        "-v=3",
-        "//:main#default").assertSuccess();
+    workspace
+        .runBuckBuild("-c", "cxx.headers_symlinks_enabled=false", "-v=3", "//:main#default")
+        .assertSuccess();
     Path rootPath = tmp.getRoot();
     assumeSymLinkTreeWithHeaderMap(rootPath);
-    assertTrue(Files.exists(rootPath.resolve(
-        "buck-out/gen/foobar#header-mode-symlink-tree-with-header-map,headers/foobar/public.h")));
-    assertFalse(Files.exists(rootPath.resolve(
-        "buck-out/gen/foobar#default,private-headers/foobar/private.h")));
+    assertTrue(
+        Files.exists(
+            rootPath.resolve(
+                "buck-out/gen/foobar#header-mode-symlink-tree-with-header-map,headers/foobar/public.h")));
+    assertFalse(
+        Files.exists(
+            rootPath.resolve("buck-out/gen/foobar#default,private-headers/foobar/private.h")));
   }
 
   @Test
-  public void buildWithoutHeadersSymlink()
-      throws IOException {
+  public void buildWithoutHeadersSymlink() throws InterruptedException, IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "headers_symlinks", tmp);
     workspace.setUp();
-    workspace.runBuckBuild(
-        "-c", "cxx.headers_symlinks_enabled=false",
-        "-c", "cxx.exported_headers_symlinks_enabled=false",
-        "-v=3",
-        "//:main#default").assertSuccess();
+    workspace
+        .runBuckBuild(
+            "-c",
+            "cxx.headers_symlinks_enabled=false",
+            "-c",
+            "cxx.exported_headers_symlinks_enabled=false",
+            "-v=3",
+            "//:main#default")
+        .assertSuccess();
     Path rootPath = tmp.getRoot();
     assumeSymLinkTreeWithHeaderMap(rootPath);
-    assertFalse(Files.exists(rootPath.resolve(
-        "buck-out/gen/foobar#header-mode-symlink-tree-with-header-map,headers/foobar/public.h")));
-    assertFalse(Files.exists(rootPath.resolve(
-        "buck-out/gen/foobar#default,private-headers/foobar/private.h")));
+    assertFalse(
+        Files.exists(
+            rootPath.resolve(
+                "buck-out/gen/foobar#header-mode-symlink-tree-with-header-map,headers/foobar/public.h")));
+    assertFalse(
+        Files.exists(
+            rootPath.resolve("buck-out/gen/foobar#default,private-headers/foobar/private.h")));
   }
 
+  @Test
+  public void testExplicitReexportOfHeaderDeps() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "reexport_header_deps", tmp);
+    workspace.setUp();
+    // auto-reexport is off, but reexporting via exported_deps
+    workspace.runBuckBuild("//:bin-explicit-reexport").assertSuccess();
+    // auto-reexport is off, but not reexporting via exported_deps
+    workspace.runBuckBuild("//:bin-explicit-noexport").assertFailure();
+    // auto-reexport is off, no reexport, and a dependency-free exported header
+    workspace.runBuckBuild("//:bin-internal-dep-noexport").assertSuccess();
+    // auto-reexport is on, but not reexporting via exported_deps
+    workspace.runBuckBuild("//:bin-auto-reexport").assertSuccess();
+  }
+
+  @Test
+  public void locationMacroInCompilerFlags() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "compiler_flags", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild("//:lib#default,static").assertSuccess();
+  }
+
+  @Test
+  public void locationMacroInPreprocessorFlags() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "preprocessor_flags", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild("//:lib#default,static").assertSuccess();
+  }
+
+  @Test
+  public void locationMacroInExportedPreprocessorFlags() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "exported_preprocessor_flags", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild("//:lib_with_location_macro#default,static").assertSuccess();
+  }
 }

@@ -22,25 +22,23 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.FakeCellPathResolver;
+import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.versions.TargetNodeTranslator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
-import org.hamcrest.Matchers;
-import org.junit.Test;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
+import org.hamcrest.Matchers;
+import org.junit.Test;
 
 public class StringWithMacrosTypeCoercerTest {
 
   private static final ProjectFilesystem FILESYSTEM = new FakeProjectFilesystem();
-  private static final CellPathResolver CELL_PATH_RESOLVER = new FakeCellPathResolver(FILESYSTEM);
+  private static final CellPathResolver CELL_PATH_RESOLVER = TestCellPathResolver.get(FILESYSTEM);
   private static final Path BASE_PATH = Paths.get("");
 
   @Test
@@ -56,32 +54,25 @@ public class StringWithMacrosTypeCoercerTest {
   public void embeddedMacro() throws CoerceFailedException {
     StringWithMacrosTypeCoercer coercer =
         StringWithMacrosTypeCoercer.from(
-            ImmutableMap.of("test", TestMacro.class),
-            ImmutableList.of(new TestMacroTypeCoercer()));
+            ImmutableMap.of("test", TestMacro.class), ImmutableList.of(new TestMacroTypeCoercer()));
     assertThat(
         coercer.coerce(CELL_PATH_RESOLVER, FILESYSTEM, BASE_PATH, "string with $(test arg) macro"),
         Matchers.equalTo(
             StringWithMacrosUtils.format(
-                "string with %s macro",
-                new TestMacro(ImmutableList.of("arg")))));
+                "string with %s macro", new TestMacro(ImmutableList.of("arg")))));
     assertThat(
         coercer.coerce(CELL_PATH_RESOLVER, FILESYSTEM, BASE_PATH, "string with $(test arg)"),
         Matchers.equalTo(
             StringWithMacrosUtils.format(
-                "string with %s",
-                new TestMacro(ImmutableList.of("arg")))));
+                "string with %s", new TestMacro(ImmutableList.of("arg")))));
     assertThat(
         coercer.coerce(CELL_PATH_RESOLVER, FILESYSTEM, BASE_PATH, "$(test arg) macro"),
         Matchers.equalTo(
-            StringWithMacrosUtils.format(
-                "%s macro",
-                new TestMacro(ImmutableList.of("arg")))));
+            StringWithMacrosUtils.format("%s macro", new TestMacro(ImmutableList.of("arg")))));
     assertThat(
         coercer.coerce(CELL_PATH_RESOLVER, FILESYSTEM, BASE_PATH, "$(test arg)"),
         Matchers.equalTo(
-            StringWithMacrosUtils.format(
-                "%s",
-                new TestMacro(ImmutableList.of("arg")))));
+            StringWithMacrosUtils.format("%s", new TestMacro(ImmutableList.of("arg")))));
   }
 
   @Test
@@ -94,15 +85,11 @@ public class StringWithMacrosTypeCoercerTest {
             ImmutableList.of(new TestMacroTypeCoercer()));
     assertThat(
         coercer.coerce(
-            CELL_PATH_RESOLVER,
-            FILESYSTEM,
-            BASE_PATH,
-            "first $(test1 arg1) second $(test2 arg2)"),
+            CELL_PATH_RESOLVER, FILESYSTEM, BASE_PATH, "first $(test1 arg1) second $(test2 arg2)"),
         Matchers.equalTo(
             StringWithMacrosUtils.format(
                 "first %s second %s",
-                new TestMacro(ImmutableList.of("arg1")),
-                new TestMacro(ImmutableList.of("arg2")))));
+                new TestMacro(ImmutableList.of("arg1")), new TestMacro(ImmutableList.of("arg2")))));
   }
 
   private static class TestMacro implements Macro {
@@ -139,7 +126,6 @@ public class StringWithMacrosTypeCoercerTest {
         TargetNodeTranslator translator) {
       return Optional.empty();
     }
-
   }
 
   private static class TestMacroTypeCoercer implements MacroTypeCoercer<TestMacro> {
@@ -155,8 +141,7 @@ public class StringWithMacrosTypeCoercerTest {
     }
 
     @Override
-    public void traverse(TestMacro macro, TypeCoercer.Traversal traversal) {
-    }
+    public void traverse(TestMacro macro, TypeCoercer.Traversal traversal) {}
 
     @Override
     public TestMacro coerce(
@@ -167,7 +152,5 @@ public class StringWithMacrosTypeCoercerTest {
         throws CoerceFailedException {
       return new TestMacro(args);
     }
-
   }
-
 }

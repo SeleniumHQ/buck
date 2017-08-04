@@ -28,14 +28,14 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
-import com.facebook.buck.shell.WorkerJobParams;
-import com.facebook.buck.shell.WorkerProcessPoolFactory;
 import com.facebook.buck.shell.WorkerShellStep;
 import com.facebook.buck.shell.WorkerTool;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Suppliers;
+import com.facebook.buck.worker.WorkerJobParams;
+import com.facebook.buck.worker.WorkerProcessIdentity;
+import com.facebook.buck.worker.WorkerProcessParams;
+import com.facebook.buck.worker.WorkerProcessPoolFactory;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Optional;
@@ -52,17 +52,20 @@ public class JsUtil {
       SourcePathResolver sourcePathResolver,
       ProjectFilesystem projectFilesystem) {
     final Tool tool = worker.getTool();
-    final WorkerJobParams params = WorkerJobParams.of(
-        worker.getTempDir(),
-        tool.getCommandPrefix(sourcePathResolver),
-        worker.getArgs(sourcePathResolver),
-        tool.getEnvironment(sourcePathResolver),
-        jobArgs,
-        worker.getMaxWorkers(),
-        worker.isPersistent()
-            ? Optional.of(buildTarget.getCellPath().toString() + buildTarget.toString())
-            : Optional.empty(),
-        Optional.of(worker.getInstanceKey()));
+    final WorkerJobParams params =
+        WorkerJobParams.of(
+            jobArgs,
+            WorkerProcessParams.of(
+                worker.getTempDir(),
+                tool.getCommandPrefix(sourcePathResolver),
+                tool.getEnvironment(sourcePathResolver),
+                worker.getMaxWorkers(),
+                worker.isPersistent()
+                    ? Optional.of(
+                        WorkerProcessIdentity.of(
+                            buildTarget.getCellPath().toString() + buildTarget.toString(),
+                            worker.getInstanceKey()))
+                    : Optional.empty()));
     return new WorkerShellStep(
         Optional.of(params),
         Optional.empty(),
@@ -74,76 +77,47 @@ public class JsUtil {
       Collection<SourcePath> items,
       SourcePathResolver sourcePathResolver,
       Function<Path, String> mapper) {
-    return items.stream()
+    return items
+        .stream()
         .map(sourcePathResolver::getAbsolutePath)
         .map(mapper)
         .collect(Collectors.joining(" "));
   }
 
   static BuildTarget verifyIsJsLibraryTarget(
-      BuildTarget target,
-      BuildTarget parent,
-      TargetGraph targetGraph) {
+      BuildTarget target, BuildTarget parent, TargetGraph targetGraph) {
     Description<?> targetDescription = targetGraph.get(target).getDescription();
     if (targetDescription.getClass() != JsLibraryDescription.class) {
-      throw humanReadableException(
-          target,
+      throw new HumanReadableException(
+          "%s target '%s' can only depend on js_library targets, but one of its dependencies, "
+              + "'%s', is of type %s.",
+          buildRuleTypeForTarget(parent, targetGraph),
           parent,
-          targetGraph);
+          target,
+          buildRuleTypeForTarget(target, targetGraph));
     }
 
     return target;
   }
 
-  static JsLibrary verifyIsJsLibrary(
-      BuildRule rule,
-      BuildTarget parent,
-      TargetGraph targetGraph) {
-    if (!(rule instanceof JsLibrary)) {
-      throw humanReadableException(
-          rule.getBuildTarget(),
-          parent,
-          targetGraph);
-    }
-    return (JsLibrary) rule;
-  }
-
-  private static HumanReadableException humanReadableException(
-      BuildTarget target,
-      BuildTarget parent,
-      TargetGraph targetGraph) {
-    return new HumanReadableException(
-        "%s target '%s' can only depend on js_library targets, but one of its dependencies, " +
-            "'%s', is of type %s.",
-        buildRuleTypeForTarget(parent, targetGraph),
-        parent,
-        target,
-        buildRuleTypeForTarget(target, targetGraph));
-  }
-
-  private static String buildRuleTypeForTarget(
-      BuildTarget target,
-      TargetGraph targetGraph) {
+  private static String buildRuleTypeForTarget(BuildTarget target, TargetGraph targetGraph) {
     return Description.getBuildRuleType(targetGraph.get(target).getDescription()).getName();
   }
 
   static BuildRuleParams withWorkerDependencyOnly(
-      BuildRuleParams params,
-      BuildRuleResolver resolver,
-      BuildTarget worker) {
-    return params.copyReplacingDeclaredAndExtraDeps(
-        Suppliers.ofInstance(ImmutableSortedSet.of()),
-        Suppliers.ofInstance(ImmutableSortedSet.of(resolver.getRule(worker))));
+      BuildRuleParams params, BuildRuleResolver resolver, BuildTarget worker) {
+    BuildRule workerRule = resolver.getRule(worker);
+    return copyParamsWithDependencies(params, workerRule);
+  }
+
+  static BuildRuleParams copyParamsWithDependencies(BuildRuleParams params, BuildRule... rules) {
+    return params.withoutDeclaredDeps().withExtraDeps(ImmutableSortedSet.copyOf(rules));
   }
 
   static SourcePath relativeToOutputRoot(
-      BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
-      String subpath) {
+      BuildTarget buildTarget, ProjectFilesystem projectFilesystem, String subpath) {
     return new ExplicitBuildTargetSourcePath(
         buildTarget,
-        BuildTargets
-            .getGenPath(projectFilesystem, buildTarget, "%s")
-            .resolve(subpath));
+        BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s").resolve(subpath));
   }
 }

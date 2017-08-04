@@ -19,22 +19,20 @@ package com.facebook.buck.haskell;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeThat;
 
-import com.facebook.buck.cxx.Linker;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.cxx.platform.Linker;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
-
+import java.io.IOException;
+import java.util.Collection;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
-
-import java.io.IOException;
-import java.util.Collection;
 
 @RunWith(Parameterized.class)
 public class HaskellBinaryIntegrationTest {
@@ -43,16 +41,15 @@ public class HaskellBinaryIntegrationTest {
   public static Collection<Object[]> data() {
     return ImmutableList.copyOf(
         new Object[][] {
-            {Linker.LinkableDepType.STATIC},
-            {Linker.LinkableDepType.STATIC_PIC},
-            {Linker.LinkableDepType.SHARED},
+          {Linker.LinkableDepType.STATIC},
+          {Linker.LinkableDepType.STATIC_PIC},
+          {Linker.LinkableDepType.SHARED},
         });
   }
 
   private ProjectWorkspace workspace;
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   @Parameterized.Parameter(value = 0)
   public Linker.LinkableDepType linkStyle;
@@ -62,17 +59,20 @@ public class HaskellBinaryIntegrationTest {
   }
 
   @Before
-  public void setUp() throws IOException {
+  public void setUp() throws IOException, InterruptedException {
 
     // We don't currently support windows.
     assumeThat(Platform.detect(), Matchers.not(Platform.WINDOWS));
 
     // Verify that the system contains a compiler.
-    HaskellTestUtils.assumeSystemCompiler();
+    HaskellVersion version = HaskellTestUtils.assumeSystemCompiler();
 
     // Setup the workspace.
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "binary_test", tmp);
     workspace.setUp();
+
+    // Write out the `.buckconfig`.
+    workspace.writeContentsToPath(HaskellTestUtils.formatHaskellConfig(version), ".buckconfig");
   }
 
   @Test
@@ -84,11 +84,18 @@ public class HaskellBinaryIntegrationTest {
   }
 
   @Test
-  public void dependency() throws IOException {
+  public void ghcLinkerFlags() throws IOException {
     ProjectWorkspace.ProcessResult result =
         workspace.runBuckCommand(
-            "run",
-            "//:dependent#default," + getLinkFlavor());
+            "run", "//:foo_rtsflags#default," + getLinkFlavor(), "-- +RTS -A512m -RTS");
+    result.assertSuccess();
+    assertThat(result.getStdout(), Matchers.equalTo("5"));
+  }
+
+  @Test
+  public void dependency() throws IOException {
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand("run", "//:dependent#default," + getLinkFlavor());
     result.assertSuccess();
     assertThat(result.getStdout(), Matchers.equalTo("5"));
   }
@@ -96,9 +103,7 @@ public class HaskellBinaryIntegrationTest {
   @Test
   public void foreign() throws IOException {
     ProjectWorkspace.ProcessResult result =
-        workspace.runBuckCommand(
-            "run",
-            "//:foreign#default," + getLinkFlavor());
+        workspace.runBuckCommand("run", "//:foreign#default," + getLinkFlavor());
     result.assertSuccess();
     assertThat(result.getStdout(), Matchers.equalTo("hello world"));
   }
@@ -107,9 +112,7 @@ public class HaskellBinaryIntegrationTest {
   public void cxxGenrule() throws IOException {
     ProjectWorkspace.ProcessResult result =
         workspace.runBuckCommand(
-            "run",
-            "-c", "cxx.cppflags=-some-flag",
-            "//:gen_main#default," + getLinkFlavor());
+            "run", "-c", "cxx.cppflags=-some-flag", "//:gen_main#default," + getLinkFlavor());
     result.assertSuccess();
     assertThat(result.getStdout().trim(), Matchers.equalTo("-some-flag"));
   }
@@ -117,18 +120,13 @@ public class HaskellBinaryIntegrationTest {
   @Test
   public void cHeader() throws IOException {
     ProjectWorkspace.ProcessResult result =
-        workspace.runBuckCommand(
-            "run",
-            "//:hs_header#default," + getLinkFlavor());
+        workspace.runBuckCommand("run", "//:hs_header#default," + getLinkFlavor());
     result.assertSuccess();
     assertThat(result.getStdout(), Matchers.equalTo("hello"));
 
     // Now modify the header, and verify this gets reflected in the rebuilt binary.
     workspace.replaceFileContents("header.h", "hello", "good bye");
-    result =
-        workspace.runBuckCommand(
-            "run",
-            "//:hs_header#default," + getLinkFlavor());
+    result = workspace.runBuckCommand("run", "//:hs_header#default," + getLinkFlavor());
     result.assertSuccess();
     assertThat(result.getStdout(), Matchers.equalTo("good bye"));
   }
@@ -139,5 +137,4 @@ public class HaskellBinaryIntegrationTest {
         workspace.runBuckBuild("//:error#default," + getLinkFlavor());
     result.assertFailure();
   }
-
 }

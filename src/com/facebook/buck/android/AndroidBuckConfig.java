@@ -18,8 +18,8 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.util.environment.Platform;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
@@ -67,8 +67,20 @@ public class AndroidBuckConfig {
     return delegate.getValue("ndk", "clang_version");
   }
 
-  public Optional<NdkCxxPlatforms.CxxRuntime> getNdkCxxRuntime() {
-    return delegate.getEnum("ndk", "cxx_runtime", NdkCxxPlatforms.CxxRuntime.class);
+  public Optional<NdkCxxRuntime> getNdkCxxRuntime() {
+    return delegate.getEnum("ndk", "cxx_runtime", NdkCxxRuntime.class);
+  }
+
+  public ImmutableList<String> getExtraNdkCFlags() {
+    return delegate.getListWithoutComments("ndk", "extra_cflags", ' ');
+  }
+
+  public ImmutableList<String> getExtraNdkCxxFlags() {
+    return delegate.getListWithoutComments("ndk", "extra_cxxflags", ' ');
+  }
+
+  public ImmutableList<String> getExtraNdkLdFlags() {
+    return delegate.getListWithoutComments("ndk", "extra_ldflags", ' ');
   }
 
   /**
@@ -105,7 +117,9 @@ public class AndroidBuckConfig {
     }
 
     Path pathToTool = Paths.get(pathString.get(), platformDir, tool);
-    return delegate.checkPathExists(pathToTool.toString(), "Overridden path not found: ");
+    return Optional.of(
+        delegate.checkPathExistsAndResolve(
+            pathToTool.toString(),
+            String.format("Overridden %s:%s path not found: ", "tools", tool)));
   }
-
 }

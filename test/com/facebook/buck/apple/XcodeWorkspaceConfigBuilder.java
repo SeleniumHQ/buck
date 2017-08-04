@@ -22,13 +22,12 @@ import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.BuildRule;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 
-public class XcodeWorkspaceConfigBuilder extends AbstractNodeBuilder<
-    XcodeWorkspaceConfigDescription.Arg,
-    XcodeWorkspaceConfigDescription,
-    BuildRule> {
+public class XcodeWorkspaceConfigBuilder
+    extends AbstractNodeBuilder<
+        XcodeWorkspaceConfigDescriptionArg.Builder, XcodeWorkspaceConfigDescriptionArg,
+        XcodeWorkspaceConfigDescription, BuildRule> {
 
   protected XcodeWorkspaceConfigBuilder(BuildTarget target) {
     super(new XcodeWorkspaceConfigDescription(), target);
@@ -39,40 +38,39 @@ public class XcodeWorkspaceConfigBuilder extends AbstractNodeBuilder<
   }
 
   public XcodeWorkspaceConfigBuilder setSrcTarget(Optional<BuildTarget> srcTarget) {
-    arg.srcTarget = srcTarget;
+    getArgForPopulating().setSrcTarget(srcTarget);
     return this;
   }
 
   public XcodeWorkspaceConfigBuilder setExtraTests(ImmutableSortedSet<BuildTarget> extraTests) {
-    arg.extraTests = extraTests;
+    getArgForPopulating().setExtraTests(extraTests);
     return this;
   }
 
   public XcodeWorkspaceConfigBuilder setExtraTargets(ImmutableSortedSet<BuildTarget> extraTargets) {
-    arg.extraTargets = extraTargets;
+    getArgForPopulating().setExtraTargets(extraTargets);
     return this;
   }
 
   public XcodeWorkspaceConfigBuilder setWorkspaceName(Optional<String> workspaceName) {
-    arg.workspaceName = workspaceName;
+    getArgForPopulating().setWorkspaceName(workspaceName);
     return this;
   }
 
   public XcodeWorkspaceConfigBuilder setExtraSchemes(
       ImmutableSortedMap<String, BuildTarget> extraSchemes) {
-    arg.extraSchemes = extraSchemes;
+    getArgForPopulating().setExtraSchemes(extraSchemes);
     return this;
   }
 
   public XcodeWorkspaceConfigBuilder setExplicitRunnablePath(Optional<String> runnablePath) {
-    arg.explicitRunnablePath = runnablePath;
+    getArgForPopulating().setExplicitRunnablePath(runnablePath);
     return this;
   }
 
   public XcodeWorkspaceConfigBuilder setLaunchStyle(
       Optional<XCScheme.LaunchAction.LaunchStyle> launchStyle) {
-    arg.launchStyle = launchStyle;
+    getArgForPopulating().setLaunchStyle(launchStyle);
     return this;
   }
-
 }

@@ -37,8 +37,6 @@ import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
-
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
@@ -47,11 +45,11 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
 import javax.annotation.Nullable;
 
 /**
@@ -60,17 +58,17 @@ import javax.annotation.Nullable;
  */
 public class FilterResourcesStep implements Step {
 
-  private static final Pattern DRAWABLE_PATH_PATTERN = Pattern.compile(
-      ".*drawable.*/.*(png|jpg|jpeg|gif|webp|xml)", Pattern.CASE_INSENSITIVE);
+  private static final Pattern DRAWABLE_PATH_PATTERN =
+      Pattern.compile(".*drawable.*/.*(png|jpg|jpeg|gif|webp|xml)", Pattern.CASE_INSENSITIVE);
   // Android doesn't scale these, so we don't need to scale or filter them either.
-  private static final Pattern DRAWABLE_EXCLUDE_PATTERN = Pattern.compile(
-      ".*-nodpi.*", Pattern.CASE_INSENSITIVE);
+  private static final Pattern DRAWABLE_EXCLUDE_PATTERN =
+      Pattern.compile(".*-nodpi.*", Pattern.CASE_INSENSITIVE);
 
   private static final Logger LOG = Logger.get(FilterResourcesStep.class);
 
   @VisibleForTesting
-  static final Pattern NON_ENGLISH_STRINGS_FILE_PATH = Pattern.compile(
-      "\\b|.*/res/values-([a-z]{2})(?:-r([A-Z]{2}))*/strings.xml");
+  static final Pattern NON_ENGLISH_STRINGS_FILE_PATH =
+      Pattern.compile("\\b|.*/res/values-([a-z]{2})(?:-r([A-Z]{2}))*/strings.xml");
 
   private final ProjectFilesystem filesystem;
   private final ImmutableBiMap<Path, Path> inResDirToOutResDirMap;
@@ -79,15 +77,13 @@ public class FilterResourcesStep implements Step {
   private final ImmutableSet<Path> whitelistedStringDirs;
   private final ImmutableSet<String> locales;
   private final FilteredDirectoryCopier filteredDirectoryCopier;
-  @Nullable
-  private final Set<ResourceFilters.Density> targetDensities;
-  @Nullable
-  private final DrawableFinder drawableFinder;
-  @Nullable
-  private final ImageScaler imageScaler;
+  @Nullable private final Set<ResourceFilters.Density> targetDensities;
+  @Nullable private final DrawableFinder drawableFinder;
+  @Nullable private final ImageScaler imageScaler;
 
   /**
    * Creates a command that filters a specified set of directories.
+   *
    * @param inResDirToOutResDirMap set of {@code res} directories to filter
    * @param filterByDensity whether to filter all resources by DPI
    * @param enableStringWhitelisting whether to filter strings based on a whitelist
@@ -118,8 +114,8 @@ public class FilterResourcesStep implements Step {
       @Nullable ImageScaler imageScaler) {
 
     Preconditions.checkArgument(filterByDensity || enableStringWhitelisting || !locales.isEmpty());
-    Preconditions.checkArgument(!filterByDensity ||
-        (targetDensities != null && drawableFinder != null));
+    Preconditions.checkArgument(
+        !filterByDensity || (targetDensities != null && drawableFinder != null));
 
     this.filesystem = filesystem;
     this.inResDirToOutResDirMap = inResDirToOutResDirMap;
@@ -136,42 +132,32 @@ public class FilterResourcesStep implements Step {
   @Override
   public StepExecutionResult execute(ExecutionContext context)
       throws IOException, InterruptedException {
-    return StepExecutionResult.of(doExecute(context));
-  }
-
-  private int doExecute(ExecutionContext context) throws IOException, InterruptedException {
     boolean canDownscale = imageScaler != null && imageScaler.isAvailable(context);
     LOG.info(
         "FilterResourcesStep: canDownscale: %s. imageScalar non-null: %s.",
-        canDownscale,
-        imageScaler != null);
+        canDownscale, imageScaler != null);
 
     // Create filtered copies of all resource directories. These will be passed to aapt instead.
     filteredDirectoryCopier.copyDirs(
-        filesystem,
-        inResDirToOutResDirMap,
-        getFilteringPredicate(context));
+        filesystem, inResDirToOutResDirMap, getFilteringPredicate(context));
 
     // If an ImageScaler was specified, but only if it is available, try to apply it.
     if (canDownscale && filterByDensity) {
       scaleUnmatchedDrawables(context);
     }
 
-    return 0;
+    return StepExecutionResult.of(0);
   }
 
   @VisibleForTesting
-  Predicate<Path> getFilteringPredicate(
-      ExecutionContext context) throws IOException {
+  Predicate<Path> getFilteringPredicate(ExecutionContext context) throws IOException {
     List<Predicate<Path>> pathPredicates = new ArrayList<>();
 
     if (filterByDensity) {
       Preconditions.checkNotNull(targetDensities);
       Set<Path> rootResourceDirs = inResDirToOutResDirMap.keySet();
 
-      pathPredicates.add(ResourceFilters.createDensityFilter(
-          filesystem,
-          targetDensities));
+      pathPredicates.add(ResourceFilters.createDensityFilter(filesystem, targetDensities));
 
       Preconditions.checkNotNull(drawableFinder);
       Set<Path> drawables = drawableFinder.findDrawables(rootResourceDirs, filesystem);
@@ -186,8 +172,8 @@ public class FilterResourcesStep implements Step {
     if (localeFilterEnabled || enableStringWhitelisting) {
       pathPredicates.add(
           path -> {
-            Matcher matcher = NON_ENGLISH_STRINGS_FILE_PATH.matcher(
-                MorePaths.pathWithUnixSeparators(path));
+            Matcher matcher =
+                NON_ENGLISH_STRINGS_FILE_PATH.matcher(MorePaths.pathWithUnixSeparators(path));
             if (!matcher.matches()) {
               return true;
             }
@@ -231,9 +217,9 @@ public class FilterResourcesStep implements Step {
   /**
    * Looks through filtered drawables for files not of the target density and replaces them with
    * scaled versions.
-   * <p/>
-   * Any drawables found by this step didn't have equivalents in the target density. If they are of
-   * a higher density, we can replicate what Android does and downscale them at compile-time.
+   *
+   * <p>Any drawables found by this step didn't have equivalents in the target density. If they are
+   * of a higher density, we can replicate what Android does and downscale them at compile-time.
    */
   private void scaleUnmatchedDrawables(ExecutionContext context)
       throws IOException, InterruptedException {
@@ -241,9 +227,8 @@ public class FilterResourcesStep implements Step {
 
     // Go over all the images that remain after filtering.
     Preconditions.checkNotNull(drawableFinder);
-    Collection<Path> drawables = drawableFinder.findDrawables(
-        inResDirToOutResDirMap.values(),
-        filesystem);
+    Collection<Path> drawables =
+        drawableFinder.findDrawables(inResDirToOutResDirMap.values(), filesystem);
     for (Path drawable : drawables) {
       if (drawable.toString().endsWith(".xml")) {
         // Skip SVG and network drawables.
@@ -269,9 +254,12 @@ public class FilterResourcesStep implements Step {
         // the qualifier in the context of a path to a drawable.
         String fromDensity =
             (density == ResourceFilters.Density.NO_QUALIFIER ? "" : "-") + density.toString();
-        Path destination = Paths.get(MorePaths.pathWithUnixSeparators(drawable).replaceFirst(
-            "((?:^|/)drawable[^/]*)" + Pattern.quote(fromDensity) + "(-|$|/)",
-            "$1-" + targetDensity + "$2"));
+        Path destination =
+            Paths.get(
+                MorePaths.pathWithUnixSeparators(drawable)
+                    .replaceFirst(
+                        "((?:^|/)drawable[^/]*)" + Pattern.quote(fromDensity) + "(-|$|/)",
+                        "$1-" + targetDensity + "$2"));
 
         double factor = targetDensity.value() / density.value();
         if (factor >= 1.0) {
@@ -289,16 +277,15 @@ public class FilterResourcesStep implements Step {
 
         // Delete newly-empty directories to prevent missing resources errors in apkbuilder.
         Path parent = drawable.getParent();
-        if (filesystem.listFiles(parent).length == 0) {
+        if (filesystem.getDirectoryContents(parent).isEmpty()) {
           filesystem.deleteFileAtPath(parent);
         }
-
       }
     }
   }
 
   public interface DrawableFinder {
-    public ImmutableSet<Path> findDrawables(Collection<Path> dirs, ProjectFilesystem filesystem)
+    ImmutableSet<Path> findDrawables(Collection<Path> dirs, ProjectFilesystem filesystem)
         throws IOException;
   }
 
@@ -315,18 +302,20 @@ public class FilterResourcesStep implements Step {
         throws IOException {
       final ImmutableSet.Builder<Path> drawableBuilder = ImmutableSet.builder();
       for (Path dir : dirs) {
-        filesystem.walkRelativeFileTree(dir, new SimpleFileVisitor<Path>() {
-          @Override
-          public FileVisitResult visitFile(Path path, BasicFileAttributes attributes) {
-            String unixPath = MorePaths.pathWithUnixSeparators(path);
-            if (DRAWABLE_PATH_PATTERN.matcher(unixPath).matches() &&
-                !DRAWABLE_EXCLUDE_PATTERN.matcher(unixPath).matches()) {
-              // The path is normalized so that the value can be matched against patterns.
-              drawableBuilder.add(path);
-            }
-            return FileVisitResult.CONTINUE;
-          }
-        });
+        filesystem.walkRelativeFileTree(
+            dir,
+            new SimpleFileVisitor<Path>() {
+              @Override
+              public FileVisitResult visitFile(Path path, BasicFileAttributes attributes) {
+                String unixPath = MorePaths.pathWithUnixSeparators(path);
+                if (DRAWABLE_PATH_PATTERN.matcher(unixPath).matches()
+                    && !DRAWABLE_EXCLUDE_PATTERN.matcher(unixPath).matches()) {
+                  // The path is normalized so that the value can be matched against patterns.
+                  drawableBuilder.add(path);
+                }
+                return FileVisitResult.CONTINUE;
+              }
+            });
       }
       return drawableBuilder.build();
     }
@@ -334,6 +323,7 @@ public class FilterResourcesStep implements Step {
 
   public interface ImageScaler {
     boolean isAvailable(ExecutionContext context);
+
     void scale(double factor, Path source, Path destination, ExecutionContext context)
         throws IOException, InterruptedException;
   }
@@ -353,20 +343,22 @@ public class FilterResourcesStep implements Step {
 
     @Override
     public boolean isAvailable(ExecutionContext context) {
-      return new ExecutableFinder().getOptionalExecutable(
-          Paths.get("convert"),
-          context.getEnvironment()).isPresent();
+      return new ExecutableFinder()
+          .getOptionalExecutable(Paths.get("convert"), context.getEnvironment())
+          .isPresent();
     }
 
     @Override
     public void scale(double factor, Path source, Path destination, ExecutionContext context)
         throws IOException, InterruptedException {
-      Step convertStep = new BashStep(
-          workingDirectory,
-          "convert",
-          "-adaptive-resize", (int) (factor * 100) + "%",
-          Escaper.escapeAsBashString(source),
-          Escaper.escapeAsBashString(destination));
+      Step convertStep =
+          new BashStep(
+              workingDirectory,
+              "convert",
+              "-adaptive-resize",
+              (int) (factor * 100) + "%",
+              Escaper.escapeAsBashString(source),
+              Escaper.escapeAsBashString(destination));
 
       if (!convertStep.execute(context).isSuccess()) {
         throw new HumanReadableException("Cannot scale " + source + " to " + destination);
@@ -374,9 +366,7 @@ public class FilterResourcesStep implements Step {
     }
   }
 
-  /**
-   * Helper class for interpreting the resource_filter argument to android_binary().
-   */
+  /** Helper class for interpreting the resource_filter argument to android_binary(). */
   public static class ResourceFilter implements RuleKeyAppendable {
 
     static final ResourceFilter EMPTY_FILTER = new ResourceFilter(ImmutableList.of());
@@ -387,7 +377,7 @@ public class FilterResourcesStep implements Step {
 
     public ResourceFilter(List<String> resourceFilter) {
       this.filter = ImmutableSet.copyOf(resourceFilter);
-      this.densities = Sets.newHashSet();
+      this.densities = new HashSet<>();
 
       boolean downscale = false;
       for (String component : filter) {
@@ -435,18 +425,14 @@ public class FilterResourcesStep implements Step {
 
   public static class Builder {
 
-    @Nullable
-    private ProjectFilesystem filesystem;
-    @Nullable
-    private ImmutableBiMap<Path, Path> inResDirToOutResDirMap;
-    @Nullable
-    private ResourceFilter resourceFilter;
+    @Nullable private ProjectFilesystem filesystem;
+    @Nullable private ImmutableBiMap<Path, Path> inResDirToOutResDirMap;
+    @Nullable private ResourceFilter resourceFilter;
     private ImmutableSet<Path> whitelistedStringDirs = ImmutableSet.of();
     private ImmutableSet<String> locales = ImmutableSet.of();
     private boolean enableStringWhitelisting = false;
 
-    private Builder() {
-    }
+    private Builder() {}
 
     public Builder setProjectFilesystem(ProjectFilesystem filesystem) {
       this.filesystem = filesystem;
@@ -493,9 +479,9 @@ public class FilterResourcesStep implements Step {
           DefaultFilteredDirectoryCopier.getInstance(),
           resourceFilter.getDensities(),
           DefaultDrawableFinder.getInstance(),
-          resourceFilter.shouldDownscale() ?
-              new ImageMagickScaler(filesystem.getRootPath()) :
-              null);
+          resourceFilter.shouldDownscale()
+              ? new ImageMagickScaler(filesystem.getRootPath())
+              : null);
     }
   }
 }

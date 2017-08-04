@@ -49,7 +49,7 @@
 
   <property name="buck.pythonpath" value="${typing.dir}:${pathlib.dir}:${pywatchman.dir}:${nailgun.dir}:${testutil.integration.dir}" />
 
-  <property name="immutables-value-standalone.jar" value="${third-party.dir}/java/immutables/value-2.3.8.jar" />
+  <property name="immutables-value-standalone.jar" value="${third-party.dir}/java/immutables/value-2.4.6.jar" />
 
   <property name="manual.gensrc.dir" value="${basedir}/src-gen" />
   <property name="manual.gensrc.classes.dir" value="${build.dir}/src-gen/classes" />
@@ -57,6 +57,8 @@
   <property name="gensrc.dir" value="${build.dir}/gen" />
   <property name="test.gensrc.dir" value="${build.dir}/test-gen" />
   <property name="aosp.gensrc.dir" value="${build.dir}/aosp-gen" />
+
+  <property name="devbuild" value="0" />
 
   <!-- Javadoc in 1.8 became stricter about parsing the docs. This disables some of those checks -->
   <available property="jdk1.8" classname="java.util.stream.Stream"/>
@@ -72,6 +74,7 @@
   <fileset dir="${third-party.dir}/java" id="buck.jars">
     <include name="args4j/args4j-2.0.30.jar" />
     <include name="ddmlib/ddmlib-25.2.0.jar" />
+    <include name="diffutils/diffutils-1.3.0.jar" />
     <include name="guava/guava-20.0.jar" />
     <include name="ini4j/ini4j-0.5.2.jar" />
     <include name="jackson/jackson-annotations-2.7.8.jar" />
@@ -82,9 +85,9 @@
     <include name="jsr/jsr305.jar" />
     <include name="android/sdklib-25.2.0.jar" />
     <include name="nailgun/nailgun-server-0.9.2-SNAPSHOT.jar" />
-    <include name="jna/jna-4.2.0.jar" />
-    <include name="jna/jna-platform-4.2.0.jar" />
-    <include name="rocksdbjni/rocksdbjni-5.1.2.jar" />
+    <include name="jna/jna-4.4.0.jar" />
+    <include name="jna/jna-platform-4.4.0.jar" />
+    <include name="sqlite/sqlite-jdbc-3.16.1.jar" />
   </fileset>
 
   <fileset dir="${third-party.dir}/java" id="third-party.jars">
@@ -114,12 +117,13 @@
     <include name="guice/guice-multibindings-3.0.jar" />
     <include name="gson/gson-2.2.4.jar" />
     <include name="icu4j/icu4j-54.1.1.jar" />
-    <include name="immutables/value-2.3.8.jar" />
+    <include name="immutables/value-2.4.6.jar" />
     <include name="infer-annotations/infer-annotations-4.1.jar" />
     <include name="nuprocess/nuprocess-1.1.0.jar" />
     <include name="jacoco/org.jacoco.core-0.7.7.201606060606.jar" />
     <include name="jacoco/org.jacoco.report-0.7.7.201606060606.jar" />
     <include name="jetty/jetty-all-9.2.10.v20150310.jar" />
+    <include name="jdom/jdom-2.0.6.jar" />
     <include name="jimfs/jimfs-1.1.jar" />
     <include name="jsr/javax.inject-1.jar" />
     <include name="okhttp/okhttp-3.6.0.jar" />
@@ -226,18 +230,31 @@
     </javac>
   </target>
 
+  <path id="testrunner.classpath">
+    <fileset refid="testrunner.jars" />
+  </path>
+
+  <fileset dir="${third-party.dir}/java" id="testrunner.jars">
+    <include name="ddmlib/ddmlib-25.2.0.jar" />
+    <include name="guava/guava-20.0.jar" />
+    <include name="jsr/jsr305.jar" />
+    <include name="junit/junit-4.12.jar" />
+    <include name="testng/testng-6.8.jar" />
+  </fileset>
+
   <target name="compile-testrunner" depends="checkversion">
     <mkdir dir="${testrunner.classes.dir}" />
     <javac srcdir="${src.dir}"
            includes="com/facebook/buck/log/AppendableLogRecord.java,com/facebook/buck/testrunner/**,com/facebook/buck/util/concurrent/MoreExecutors.java,com/facebook/buck/jvm/java/runner/**"
            destdir="${testrunner.classes.dir}"
-           classpathref="junit"
+           classpathref="testrunner.classpath"
            debug="on"
            includeAntRuntime="no"
            >
       <compilerarg value="-Xlint:rawtypes" />
       <compilerarg value="-Xlint:unchecked" />
       <compilerarg value="-Xlint:serial" />
+      <compilerarg value="-Werror" />
     </javac>
   </target>
 
@@ -322,6 +339,7 @@
       <ecj-params>
         <!-- suppress ManifestMerger2 warnings -->
         <compilerarg value="-err:-all"/>
+        <compilerarg value="-warn:-all"/>
       </ecj-params>
     </ecj>
   </target>
@@ -347,6 +365,12 @@
     -->
     <element name="ecj-params" optional="true" />
     <sequential>
+      <condition property="eclipse.jdt.core.prefs.file"
+                 value="org.eclipse.jdt.core.prefs"
+                 else="org.eclipse.jdt.core.prefs-dev"
+                 >
+        <equals arg1="${devbuild}" arg2="0" />
+      </condition>
       <javac srcdir="@{srcdir}"
              sourcepath=""
              destdir="@{destdir}"
@@ -366,7 +390,7 @@
           http://help.eclipse.org/kepler/index.jsp?topic=%2Forg.eclipse.jdt.doc.isv%2Freference%2Fapi%2Forg%2Feclipse%2Fjdt%2Fcore%2FJavaCore.html
           Apparently Eclipse refuses to publish traditional Javadoc with manageable URLs.
         -->
-        <compilerarg line="-properties '${eclipse.dir}/org.eclipse.jdt.core.prefs'" />
+        <compilerarg line="-properties '${eclipse.dir}/${eclipse.jdt.core.prefs.file}'" />
         <compilerarg value="-Xlint:rawtypes" />
         <compilerarg value="-Xlint:unchecked" />
         <compilerarg value="-Xlint:serial" />
@@ -493,26 +517,6 @@
         executable="./run-all-tests">
       <env key="PATH" path="${env.PATH}:${dx.etc.dir}"/>
     </exec>
-  </target>
-
-  <target name="jar" depends="buck-jar, report-generator-jar"/>
-
-  <target name="buck-jar"
-          depends="compile"
-          description="build buck.jar"
-          >
-
-    <jar destfile="${build.dir}/buck.jar" update="true">
-      <zipfileset refid="buck.jars" />
-      <zipfileset refid="third-party.jars" />
-      <fileset dir="${src.dir}"
-               excludes="**/*.java, **/BUCK"
-               />
-      <fileset dir="${classes.dir}" />
-      <manifest>
-        <attribute name="Main-Class" value="com.facebook.buck.cli.Main" />
-      </manifest>
-    </jar>
   </target>
 
   <target name="report-generator-jar" depends="compile">
@@ -756,63 +760,6 @@
     </pmd>
   </target>
 
-  <path id="checkstyle-classpath">
-    <fileset dir="${basedir}/third-party/java/checkstyle" includes="*.jar" />
-  </path>
-
-  <!--
-  Runs checkstyle on the file(s) specified in the property "lint.files",
-  separated by commas.
-  -->
-  <target name="checkstyle-files-xml" if="lint.files">
-    <taskdef resource="com/puppycrawl/tools/checkstyle/ant/checkstyle-ant-task.properties"
-           classpathref="checkstyle-classpath"/>
-    <checkstyle config="checkstyle.xml">
-      <formatter type="xml" toFile="${lint.outputpath}" />
-      <fileset dir="${basedir}" includes="${lint.files}">
-        <exclude name="**/testdata/**"/>
-      </fileset>
-    </checkstyle>
-  </target>
-
-    <!--
-  Runs checkstyle on the file(s) specified in the property "lint.files",
-  separated by commas.
-  -->
-  <target name="checkstyle-xml">
-    <taskdef resource="com/puppycrawl/tools/checkstyle/ant/checkstyle-ant-task.properties"
-           classpathref="checkstyle-classpath"/>
-    <checkstyle config="checkstyle.xml">
-      <formatter type="xml" toFile="${lint.outputpath}" />
-      <fileset dir="${src.dir}">
-        <include name="**/*.java"/>
-      </fileset>
-      <fileset dir="${test.dir}">
-        <include name="**/*.java"/>
-        <exclude name="**/testdata/**"/>
-      </fileset>
-    </checkstyle>
-  </target>
-
-  <!--
-  Runs checkstyle on all source and test files.
-  -->
-  <target name="checkstyle">
-    <taskdef resource="com/puppycrawl/tools/checkstyle/ant/checkstyle-ant-task.properties"
-           classpathref="checkstyle-classpath"/>
-    <checkstyle config="checkstyle.xml" maxWarnings="0">
-      <fileset dir="${src.dir}">
-        <include name="**/*.java"/>
-        <exclude name="com/facebook/buck/intellij/ideabuck/gen/**"/>
-      </fileset>
-      <fileset dir="${test.dir}">
-        <include name="**/*.java"/>
-        <exclude name="**/testdata/**"/>
-      </fileset>
-      <formatter type="plain"/>
-    </checkstyle>
-  </target>
-
   <taskdef name="forbiddenapis" classname="de.thetaphi.forbiddenapis.AntTask" classpath="third-party/java/forbiddenapis/forbiddenapis-1.8.jar"/>
 
   <target name="forbidden-checks" depends="compile">
@@ -837,7 +784,7 @@
     </exec>
   </target>
 
-  <target name="lint" depends="pmd, checkstyle, missing-test-files-check" />
+  <target name="lint" depends="pmd, missing-test-files-check" />
 
   <target name="test" depends="java-test, py-test" description="runs the unit tests" />
 
@@ -958,5 +905,5 @@
   <target name="travis" depends="verify-javadoc, verify-soydoc, lint" />
 
   <target name="pre-checkin" depends="clean, default, compile-tests, lint"/>
-  <target name="all" depends="jar, test, javadoc" />
+  <target name="all" depends="default, test, javadoc" />
 </project>

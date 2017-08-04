@@ -23,7 +23,6 @@ import com.facebook.buck.rules.TargetNode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-
 import java.util.HashMap;
 import java.util.Map;
 
@@ -38,8 +37,29 @@ public class TargetGraphFactory {
       BuildTarget unflavoredTarget =
           BuildTarget.of(node.getBuildTarget().getUnflavoredBuildTarget());
       if (node.getBuildTarget().isFlavored() && !builder.containsKey(unflavoredTarget)) {
-        builder.put(unflavoredTarget, node);
+        builder.put(unflavoredTarget, node.withFlavors(ImmutableSet.of()));
       }
+    }
+    ImmutableMap<BuildTarget, TargetNode<?, ?>> map = ImmutableMap.copyOf(builder);
+
+    MutableDirectedGraph<TargetNode<?, ?>> graph = new MutableDirectedGraph<>();
+    for (TargetNode<?, ?> node : map.values()) {
+      graph.addNode(node);
+      for (BuildTarget dep : node.getBuildDeps()) {
+        graph.addEdge(node, Preconditions.checkNotNull(map.get(dep), dep));
+      }
+    }
+    return new TargetGraph(graph, map);
+  }
+
+  /**
+   * Like {@link #newInstance(TargetNode[])} but does not also add a node for unflavored version of
+   * the given node.
+   */
+  public static TargetGraph newInstanceExact(TargetNode<?, ?>... nodes) {
+    Map<BuildTarget, TargetNode<?, ?>> builder = new HashMap<>();
+    for (TargetNode<?, ?> node : nodes) {
+      builder.put(node.getBuildTarget(), node);
     }
     ImmutableMap<BuildTarget, TargetNode<?, ?>> map = ImmutableMap.copyOf(builder);
 
@@ -56,5 +76,4 @@ public class TargetGraphFactory {
   public static TargetGraph newInstance(TargetNode<?, ?>... nodes) {
     return newInstance(ImmutableSet.copyOf(nodes));
   }
-
 }

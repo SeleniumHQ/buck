@@ -18,12 +18,11 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Pair;
+import com.google.common.collect.ComparisonChain;
+import java.util.Objects;
 
-/**
- * A {@link BuildTargetSourcePath} which resolves to the value of another SourcePath.
- */
-public class ForwardingBuildTargetSourcePath
-    extends BuildTargetSourcePath<ForwardingBuildTargetSourcePath> {
+/** A {@link BuildTargetSourcePath} which resolves to the value of another SourcePath. */
+public class ForwardingBuildTargetSourcePath extends BuildTargetSourcePath {
   private final SourcePath delegate;
 
   public ForwardingBuildTargetSourcePath(BuildTarget target, SourcePath delegate) {
@@ -36,21 +35,45 @@ public class ForwardingBuildTargetSourcePath
   }
 
   @Override
-  protected Object asReference() {
-    return new Pair<>(getTarget(), delegate);
+  public int hashCode() {
+    return Objects.hash(getTarget(), delegate);
   }
 
   @Override
-  protected int compareReferences(ForwardingBuildTargetSourcePath o) {
-    if (o == this) {
+  public boolean equals(Object other) {
+    if (this == other) {
+      return true;
+    }
+
+    if (!(other instanceof ForwardingBuildTargetSourcePath)) {
+      return false;
+    }
+
+    ForwardingBuildTargetSourcePath that = (ForwardingBuildTargetSourcePath) other;
+    return getTarget().equals(that.getTarget()) && delegate.equals(that.delegate);
+  }
+
+  @Override
+  public String toString() {
+    return String.valueOf(new Pair<>(getTarget(), delegate));
+  }
+
+  @Override
+  public int compareTo(SourcePath other) {
+    if (other == this) {
       return 0;
     }
 
-    int res = getTarget().compareTo(o.getTarget());
-    if (res != 0) {
-      return res;
+    int classComparison = compareClasses(other);
+    if (classComparison != 0) {
+      return classComparison;
     }
 
-    return delegate.compareTo(o.delegate);
+    ForwardingBuildTargetSourcePath that = (ForwardingBuildTargetSourcePath) other;
+
+    return ComparisonChain.start()
+        .compare(getTarget(), that.getTarget())
+        .compare(delegate, that.delegate)
+        .result();
   }
 }

@@ -16,21 +16,24 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.RichStream;
-import com.google.common.collect.FluentIterable;
+import com.facebook.buck.versions.VersionException;
+import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-
+import com.google.common.collect.Sets;
 import java.util.Iterator;
+import java.util.stream.Collectors;
 
 public class TargetGraphAndTargets {
   private final TargetGraph targetGraph;
   private final ImmutableSet<TargetNode<?, ?>> projectRoots;
 
-  private TargetGraphAndTargets(
-      TargetGraph targetGraph,
-      Iterable<TargetNode<?, ?>> projectRoots) {
+  private TargetGraphAndTargets(TargetGraph targetGraph, Iterable<TargetNode<?, ?>> projectRoots) {
     this.targetGraph = targetGraph;
     this.projectRoots = ImmutableSet.copyOf(projectRoots);
   }
@@ -47,8 +50,7 @@ public class TargetGraphAndTargets {
    * @param nodes Nodes whose test targets we would like to find
    * @return A set of all test targets that test the targets in {@code nodes}.
    */
-  public static ImmutableSet<BuildTarget> getExplicitTestTargets(
-      Iterator<TargetNode<?, ?>> nodes) {
+  public static ImmutableSet<BuildTarget> getExplicitTestTargets(Iterator<TargetNode<?, ?>> nodes) {
     return RichStream.from(nodes)
         .flatMap(node -> TargetNodes.getTestTargetsForNode(node).stream())
         .toImmutableSet();
@@ -57,7 +59,6 @@ public class TargetGraphAndTargets {
   public static TargetGraphAndTargets create(
       final ImmutableSet<BuildTarget> graphRoots,
       TargetGraph projectGraph,
-      AssociatedTargetNodePredicate associatedProjectPredicate,
       boolean isWithTests,
       ImmutableSet<BuildTarget> explicitTests) {
     // Get the roots of the main graph. This contains all the targets in the project slice, or all
@@ -66,40 +67,40 @@ public class TargetGraphAndTargets {
 
     // Optionally get the roots of the test graph. This contains all the tests that cover the roots
     // of the main graph or their dependencies.
-    ImmutableSet<TargetNode<?, ?>> associatedTests = ImmutableSet.of();
+    Iterable<TargetNode<?, ?>> associatedTests = ImmutableSet.of();
     if (isWithTests) {
-      associatedTests =
-          ImmutableSet.copyOf(ImmutableSet.copyOf(projectGraph.getAll(explicitTests)));
+      associatedTests = projectGraph.getAll(explicitTests);
     }
 
-    ImmutableSet<TargetNode<?, ?>> associatedProjects = getAssociatedTargetNodes(
-        projectGraph,
-        Iterables.concat(projectRoots, associatedTests),
-        associatedProjectPredicate);
-
-    TargetGraph targetGraph = projectGraph.getSubgraph(
-        Iterables.concat(projectRoots, associatedTests, associatedProjects));
+    TargetGraph targetGraph =
+        projectGraph.getSubgraph(Iterables.concat(projectRoots, associatedTests));
 
     return new TargetGraphAndTargets(targetGraph, projectRoots);
   }
 
-  /**
-   * @param projectGraph A TargetGraph containing all nodes that could be related.
-   * @param subgraphRoots Target nodes forming the roots of the subgraph to which the returned nodes
-   *                      are related.
-   * @param associatedTargetNodePredicate A predicate to determine whether a node is related or not.
-   * @return A set of nodes related to {@code subgraphRoots} or their dependencies.
-   */
-  private static ImmutableSet<TargetNode<?, ?>> getAssociatedTargetNodes(
-      TargetGraph projectGraph,
-      Iterable<TargetNode<?, ?>> subgraphRoots,
-      final AssociatedTargetNodePredicate associatedTargetNodePredicate) {
-    final TargetGraph subgraph = projectGraph.getSubgraph(subgraphRoots);
-
-    return FluentIterable
-        .from(projectGraph.getNodes())
-        .filter(
-            node -> associatedTargetNodePredicate.apply(node, subgraph))
-        .toSet();
+  public static TargetGraphAndTargets toVersionedTargetGraphAndTargets(
+      TargetGraphAndTargets targetGraphAndTargets,
+      VersionedTargetGraphCache versionedTargetGraphCache,
+      BuckEventBus buckEventBus,
+      BuckConfig buckConfig,
+      TypeCoercerFactory typeCoercerFactory,
+      ImmutableSet<BuildTarget> explicitTestTargets)
+      throws VersionException, InterruptedException {
+    TargetGraphAndBuildTargets targetGraphAndBuildTargets =
+        TargetGraphAndBuildTargets.of(
+            targetGraphAndTargets.getTargetGraph(),
+            Sets.union(
+                targetGraphAndTargets
+                    .getProjectRoots()
+                    .stream()
+                    .map(root -> root.getBuildTarget())
+                    .collect(Collectors.toSet()),
+                explicitTestTargets));
+    TargetGraphAndBuildTargets versionedTargetGraphAndBuildTargets =
+        versionedTargetGraphCache.toVersionedTargetGraph(
+            buckEventBus, buckConfig, typeCoercerFactory, targetGraphAndBuildTargets);
+    return new TargetGraphAndTargets(
+        versionedTargetGraphAndBuildTargets.getTargetGraph(),
+        targetGraphAndTargets.getProjectRoots());
   }
 }

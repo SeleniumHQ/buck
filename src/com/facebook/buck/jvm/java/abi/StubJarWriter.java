@@ -16,17 +16,15 @@
 
 package com.facebook.buck.jvm.java.abi;
 
-import org.objectweb.asm.tree.ClassNode;
-
+import com.facebook.buck.util.function.ThrowingSupplier;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
 
 /** An interface for writing to stub jars. */
 interface StubJarWriter extends AutoCloseable {
-  void writeResource(Path relativePath, InputStream resourceContents) throws IOException;
-
-  void writeClass(Path relativePath, ClassNode stub) throws IOException;
+  void writeEntry(Path relativePath, ThrowingSupplier<InputStream, IOException> streamSupplier)
+      throws IOException;
 
   @Override
   void close() throws IOException;

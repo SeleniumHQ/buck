@@ -29,12 +29,10 @@ import com.google.common.base.Function;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
+import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Extracts macros from input strings and calls registered expanders to handle their input.
- */
+/** Extracts macros from input strings and calls registered expanders to handle their input. */
 public class MacroHandler {
 
   private static final MacroFinder MACRO_FINDER = new MacroFinder();
@@ -63,7 +61,7 @@ public class MacroHandler {
     ImmutableMap.Builder<String, MacroExpander> builder = ImmutableMap.builder();
     for (Map.Entry<String, MacroExpander> entry : source.entrySet()) {
       builder.put(entry.getKey(), entry.getValue());
-      builder.put("@" + entry.getKey(), new OutputToFileExpander(entry.getValue()));
+      builder.put("@" + entry.getKey(), entry.getValue());
     }
     return builder.build();
   }
@@ -82,46 +80,89 @@ public class MacroHandler {
       final BuildRuleResolver resolver,
       String blob)
       throws MacroException {
-    ImmutableMap<String, MacroReplacer> replacers = getMacroReplacers(
-        target,
-        cellNames,
-        resolver);
+    return expand(target, cellNames, resolver, blob, new HashMap<>());
+  }
+
+  public String expand(
+      final BuildTarget target,
+      final CellPathResolver cellNames,
+      final BuildRuleResolver resolver,
+      String blob,
+      Map<MacroMatchResult, Object> precomputedWorkCache)
+      throws MacroException {
+    ImmutableMap<String, MacroReplacer> replacers =
+        getMacroReplacers(target, cellNames, resolver, precomputedWorkCache);
     return MACRO_FINDER.replace(replacers, blob, true);
   }
 
   public ImmutableMap<String, MacroReplacer> getMacroReplacers(
       final BuildTarget target,
-      final CellPathResolver cellNames, final BuildRuleResolver resolver) {
+      final CellPathResolver cellNames,
+      final BuildRuleResolver resolver) {
+    return getMacroReplacers(target, cellNames, resolver, new HashMap<>());
+  }
+
+  public ImmutableMap<String, MacroReplacer> getMacroReplacers(
+      final BuildTarget target,
+      final CellPathResolver cellNames,
+      final BuildRuleResolver resolver,
+      Map<MacroMatchResult, Object> precomputedWorkCache) {
     ImmutableMap.Builder<String, MacroReplacer> replacers = ImmutableMap.builder();
     for (final Map.Entry<String, MacroExpander> entry : expanders.entrySet()) {
-      replacers.put(
-          entry.getKey(),
-          input -> getExpander(entry.getKey()).expand(
-              target,
-              cellNames,
-              resolver,
-              input));
+      MacroReplacer replacer;
+      final boolean shouldOutputToFile = entry.getKey().startsWith("@");
+      try {
+        final MacroExpander expander = getExpander(entry.getKey());
+        replacer =
+            input -> {
+              Object precomputedWork =
+                  ensurePrecomputedWork(
+                      input, expander, precomputedWorkCache, target, cellNames, resolver);
+              if (shouldOutputToFile) {
+                return expander.expandForFile(
+                    target, cellNames, resolver, input.getMacroInput(), precomputedWork);
+              } else {
+                return expander.expand(
+                    target, cellNames, resolver, input.getMacroInput(), precomputedWork);
+              }
+            };
+      } catch (MacroException e) {
+        throw new RuntimeException("No matching macro handler found", e);
+      }
+      if (entry.getKey().startsWith("@")) {
+        replacer = OutputToFileExpanderUtils.wrapReplacerWithFileOutput(replacer, target, resolver);
+      }
+      replacers.put(entry.getKey(), replacer);
     }
     return replacers.build();
+  }
+
+  public ImmutableList<BuildRule> extractBuildTimeDeps(
+      BuildTarget target, CellPathResolver cellNames, BuildRuleResolver resolver, String blob)
+      throws MacroException {
+    return extractBuildTimeDeps(target, cellNames, resolver, blob, new HashMap<>());
   }
 
   public ImmutableList<BuildRule> extractBuildTimeDeps(
       BuildTarget target,
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
-      String blob)
+      String blob,
+      Map<MacroMatchResult, Object> precomputedWorkCache)
       throws MacroException {
     ImmutableList.Builder<BuildRule> deps = ImmutableList.builder();
 
     // Iterate over all macros found in the string, collecting all `BuildTargets` each expander
     // extract for their respective macros.
     for (MacroMatchResult matchResult : getMacroMatchResults(blob)) {
-      deps.addAll(
-          getExpander(matchResult.getMacroType()).extractBuildTimeDeps(
-              target,
-              cellNames,
-              resolver,
-              matchResult.getMacroInput()));
+      MacroExpander expander = getExpander(matchResult.getMacroType());
+      Object precomputedWork =
+          ensurePrecomputedWork(
+              matchResult, expander, precomputedWorkCache, target, cellNames, resolver);
+      ImmutableList<BuildRule> buildTimeDeps =
+          expander.extractBuildTimeDeps(
+              target, cellNames, resolver, matchResult.getMacroInput(), precomputedWork);
+      deps.addAll(buildTimeDeps);
     }
 
     return deps.build();
@@ -138,20 +179,28 @@ public class MacroHandler {
     // Iterate over all macros found in the string, collecting all `BuildTargets` each expander
     // extract for their respective macros.
     for (MacroMatchResult matchResult : getMacroMatchResults(blob)) {
-      getExpander(matchResult.getMacroType()).extractParseTimeDeps(
-          target,
-          cellNames,
-          matchResult.getMacroInput(),
-          buildDepsBuilder,
-          targetGraphOnlyDepsBuilder);
+      getExpander(matchResult.getMacroType())
+          .extractParseTimeDeps(
+              target,
+              cellNames,
+              matchResult.getMacroInput(),
+              buildDepsBuilder,
+              targetGraphOnlyDepsBuilder);
     }
+  }
+
+  public ImmutableList<Object> extractRuleKeyAppendables(
+      BuildTarget target, CellPathResolver cellNames, BuildRuleResolver resolver, String blob)
+      throws MacroException {
+    return extractRuleKeyAppendables(target, cellNames, resolver, blob, new HashMap<>());
   }
 
   public ImmutableList<Object> extractRuleKeyAppendables(
       BuildTarget target,
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
-      String blob)
+      String blob,
+      Map<MacroMatchResult, Object> precomputedWorkCache)
       throws MacroException {
 
     ImmutableList.Builder<Object> targets = ImmutableList.builder();
@@ -159,11 +208,13 @@ public class MacroHandler {
     // Iterate over all macros found in the string, collecting all `BuildTargets` each expander
     // extract for their respective macros.
     for (MacroMatchResult matchResult : getMacroMatchResults(blob)) {
-      Object ruleKeyAppendable = getExpander(matchResult.getMacroType()).extractRuleKeyAppendables(
-          target,
-          cellNames,
-          resolver,
-          matchResult.getMacroInput());
+      MacroExpander expander = getExpander(matchResult.getMacroType());
+      Object precomputedWork =
+          ensurePrecomputedWork(
+              matchResult, expander, precomputedWorkCache, target, cellNames, resolver);
+      Object ruleKeyAppendable =
+          expander.extractRuleKeyAppendables(
+              target, cellNames, resolver, matchResult.getMacroInput(), precomputedWork);
       if (ruleKeyAppendable != null) {
         targets.add(ruleKeyAppendable);
       }
@@ -174,5 +225,21 @@ public class MacroHandler {
 
   public ImmutableList<MacroMatchResult> getMacroMatchResults(String blob) throws MacroException {
     return MACRO_FINDER.findAll(expanders.keySet(), blob);
+  }
+
+  private static Object ensurePrecomputedWork(
+      MacroMatchResult matchResult,
+      MacroExpander expander,
+      Map<MacroMatchResult, Object> precomputedWorkCache,
+      BuildTarget target,
+      CellPathResolver cellNames,
+      BuildRuleResolver resolver)
+      throws MacroException {
+    if (!precomputedWorkCache.containsKey(matchResult)) {
+      precomputedWorkCache.put(
+          matchResult,
+          expander.precomputeWork(target, cellNames, resolver, matchResult.getMacroInput()));
+    }
+    return precomputedWorkCache.get(matchResult);
   }
 }

@@ -19,18 +19,18 @@ package com.facebook.buck.lua;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 
 public class LuaLibraryBuilder
-    extends AbstractNodeBuilder<LuaLibraryDescription.Arg, LuaLibraryDescription, LuaLibrary> {
+    extends AbstractNodeBuilder<
+        LuaLibraryDescriptionArg.Builder, LuaLibraryDescriptionArg, LuaLibraryDescription,
+        LuaLibrary> {
 
-  public LuaLibraryBuilder(
-      LuaLibraryDescription description,
-      BuildTarget target) {
+  public LuaLibraryBuilder(LuaLibraryDescription description, BuildTarget target) {
     super(description, target);
   }
 
@@ -39,18 +39,23 @@ public class LuaLibraryBuilder
   }
 
   public LuaLibraryBuilder setBaseModule(String baseModule) {
-    arg.baseModule = Optional.of(baseModule);
+    getArgForPopulating().setBaseModule(Optional.of(baseModule));
     return this;
   }
 
   public LuaLibraryBuilder setSrcs(ImmutableSortedSet<SourcePath> srcs) {
-    arg.srcs = SourceList.ofUnnamedSources(srcs);
+    getArgForPopulating().setSrcs(SourceList.ofUnnamedSources(srcs));
     return this;
   }
 
   public LuaLibraryBuilder setSrcs(ImmutableSortedMap<String, SourcePath> srcs) {
-    arg.srcs = SourceList.ofNamedSources(srcs);
+    getArgForPopulating().setSrcs(SourceList.ofNamedSources(srcs));
     return this;
   }
 
+  public LuaLibraryBuilder setPlatformDeps(
+      PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> deps) {
+    getArgForPopulating().setPlatformDeps(deps);
+    return this;
+  }
 }

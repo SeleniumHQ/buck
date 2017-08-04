@@ -16,8 +16,8 @@
 
 package com.facebook.buck.event;
 
-
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 public class ExperimentEvent extends AbstractBuckEvent {
   private final String tag;
@@ -30,8 +30,8 @@ public class ExperimentEvent extends AbstractBuckEvent {
       String tag,
       String variant,
       String propertyName,
-      Long value,
-      String content) {
+      @Nullable Long value,
+      @Nullable String content) {
     super(EventKey.unique());
     this.tag = tag;
     this.variant = variant;
@@ -69,5 +69,4 @@ public class ExperimentEvent extends AbstractBuckEvent {
   public Optional<String> getContent() {
     return content;
   }
-
 }

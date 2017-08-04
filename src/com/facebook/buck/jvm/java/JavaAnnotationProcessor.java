@@ -16,35 +16,35 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 
-public class JavaAnnotationProcessor
-    extends NoopBuildRule
+public class JavaAnnotationProcessor extends NoopBuildRuleWithDeclaredAndExtraDeps
     implements SupportsInputBasedRuleKey {
-  @AddToRuleKey
-  private final JavacPluginProperties properties;
+  @AddToRuleKey private final JavacPluginProperties properties;
   private final ResolvedJavacPluginProperties resolvedProperties;
 
   public JavaAnnotationProcessor(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathResolver pathResolver,
       JavacPluginProperties properties) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
 
     this.properties = properties;
 
-    resolvedProperties = new ResolvedJavacPluginProperties(
-        properties,
-        getProjectFilesystem(),
-        pathResolver);
+    resolvedProperties =
+        new ResolvedJavacPluginProperties(properties, getProjectFilesystem(), pathResolver);
   }
 
   public JavacPluginProperties getUnresolvedProperties() {
-    return properties;  // Shut up PMD
+    return properties; // Shut up PMD
   }
 
   public ResolvedJavacPluginProperties getProcessorProperties() {

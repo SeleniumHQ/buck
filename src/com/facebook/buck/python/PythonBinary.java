@@ -19,7 +19,7 @@ package com.facebook.buck.python;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRule;
@@ -27,39 +27,37 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableSet;
-
 import java.nio.file.Path;
+import java.util.SortedSet;
 import java.util.stream.Stream;
 
-public abstract class PythonBinary
-    extends AbstractBuildRule
+public abstract class PythonBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements BinaryBuildRule, HasRuntimeDeps {
 
-  private final Supplier<? extends ImmutableCollection<BuildRule>> originalDeclaredDeps;
+  private final Supplier<? extends SortedSet<BuildRule>> originalDeclaredDeps;
   private final PythonPlatform pythonPlatform;
   private final String mainModule;
-  @AddToRuleKey
-  private final PythonPackageComponents components;
+  @AddToRuleKey private final PythonPackageComponents components;
   private final ImmutableSet<String> preloadLibraries;
-  @AddToRuleKey
-  private final String pexExtension;
-  @AddToRuleKey
-  private final boolean legacyOutputPath;
+  @AddToRuleKey private final String pexExtension;
+  @AddToRuleKey private final boolean legacyOutputPath;
 
   public PythonBinary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
-      Supplier<? extends ImmutableCollection<BuildRule>> originalDeclaredDeps,
+      Supplier<? extends SortedSet<BuildRule>> originalDeclaredDeps,
       PythonPlatform pythonPlatform,
       String mainModule,
       PythonPackageComponents components,
       ImmutableSet<String> preloadLibraries,
       String pexExtension,
       boolean legacyOutputPath) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.originalDeclaredDeps = originalDeclaredDeps;
     this.pythonPlatform = pythonPlatform;
     this.mainModule = mainModule;
@@ -110,7 +108,7 @@ public abstract class PythonBinary
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return originalDeclaredDeps.get().stream().map(BuildRule::getBuildTarget);
   }
 }

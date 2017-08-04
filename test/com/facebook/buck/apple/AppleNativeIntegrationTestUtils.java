@@ -23,7 +23,8 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.collect.ImmutableMap;
-
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Optional;
 
 public class AppleNativeIntegrationTestUtils {
@@ -34,13 +35,24 @@ public class AppleNativeIntegrationTestUtils {
       BuckConfig buckConfig) {
     AppleConfig appleConfig = buckConfig.getView(AppleConfig.class);
     ProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
-    return appleConfig.getAppleSdkPaths(executor);
+    Optional<Path> appleDeveloperDirectory =
+        appleConfig.getAppleDeveloperDirectorySupplier(executor).get();
+    try {
+      ImmutableMap<String, AppleToolchain> toolchains =
+          AppleToolchainDiscovery.discoverAppleToolchains(
+              appleDeveloperDirectory, appleConfig.getExtraToolchainPaths());
+      return AppleSdkDiscovery.discoverAppleSdkPaths(
+          appleDeveloperDirectory, appleConfig.getExtraPlatformPaths(), toolchains, appleConfig);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   private static Optional<AppleSdk> anySdkForPlatform(
-      final ApplePlatform platform,
-      final ImmutableMap<AppleSdk, AppleSdkPaths> sdkPaths) {
-    return sdkPaths.keySet().stream()
+      final ApplePlatform platform, final ImmutableMap<AppleSdk, AppleSdkPaths> sdkPaths) {
+    return sdkPaths
+        .keySet()
+        .stream()
         .filter(sdk -> sdk.getApplePlatform().equals(platform))
         .findFirst();
   }
@@ -58,17 +70,17 @@ public class AppleNativeIntegrationTestUtils {
       return false;
     }
     AppleSdk anySdk = anySdkOptional.get();
-    AppleCxxPlatform appleCxxPlatform = AppleCxxPlatforms.buildWithExecutableChecker(
-        new FakeProjectFilesystem(),
-        anySdk,
-        "fakeversion",
-        "fakearch",
-        sdkPaths.get(anySdk),
-        buckConfig,
-        new XcodeToolFinder(),
-        FakeAppleRuleDescriptions.FAKE_XCODE_BUILD_VERSION_CACHE,
-        Optional.empty());
+    AppleCxxPlatform appleCxxPlatform =
+        AppleCxxPlatforms.buildWithExecutableChecker(
+            new FakeProjectFilesystem(),
+            anySdk,
+            "fakeversion",
+            "fakearch",
+            sdkPaths.get(anySdk),
+            buckConfig,
+            new XcodeToolFinder(),
+            FakeAppleRuleDescriptions.FAKE_XCODE_BUILD_VERSION_CACHE,
+            Optional.empty());
     return appleCxxPlatform.getSwiftPlatform().isPresent();
   }
-
 }

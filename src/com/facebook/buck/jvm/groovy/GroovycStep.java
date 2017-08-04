@@ -31,10 +31,10 @@ import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -76,19 +76,15 @@ class GroovycStep implements Step {
   @Override
   public StepExecutionResult execute(ExecutionContext context)
       throws IOException, InterruptedException {
-    try {
-      ProcessExecutorParams params = ProcessExecutorParams.builder()
-          .setCommand(createCommand())
-          .setEnvironment(context.getEnvironment())
-          .setDirectory(filesystem.getRootPath().toAbsolutePath())
-          .build();
-      writePathToSourcesList(sourceFilePaths);
-      ProcessExecutor processExecutor = context.getProcessExecutor();
-      return StepExecutionResult.of(processExecutor.launchAndExecute(params));
-    } catch (IOException e) {
-      e.printStackTrace(context.getStdErr());
-      return StepExecutionResult.of(-1);
-    }
+    ProcessExecutorParams params =
+        ProcessExecutorParams.builder()
+            .setCommand(createCommand())
+            .setEnvironment(context.getEnvironment())
+            .setDirectory(filesystem.getRootPath().toAbsolutePath())
+            .build();
+    writePathToSourcesList(sourceFilePaths);
+    ProcessExecutor processExecutor = context.getProcessExecutor();
+    return StepExecutionResult.of(processExecutor.launchAndExecute(params));
   }
 
   @Override
@@ -144,7 +140,9 @@ class GroovycStep implements Step {
               if (option.equals("sourcepath")) {
                 return;
               }
-              command.add("-J" + String.format("%s=%s", option, value));
+              if (!Strings.isNullOrEmpty(value)) {
+                command.add("-J" + String.format("%s=%s", option, value));
+              }
             }
 
             @Override

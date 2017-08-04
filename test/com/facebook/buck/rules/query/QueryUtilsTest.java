@@ -21,19 +21,17 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.FakeCellPathResolver;
+import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-
+import java.util.stream.Collectors;
 import org.hamcrest.Matchers;
 import org.junit.Test;
-
-import java.util.stream.Collectors;
 
 public class QueryUtilsTest {
 
   private static final BuildTarget TARGET = BuildTargetFactory.newInstance("//:rule");
   private static final CellPathResolver CELL_NAMES =
-      new FakeCellPathResolver(new FakeProjectFilesystem());
+      TestCellPathResolver.get(new FakeProjectFilesystem());
 
   @Test
   public void extractParseTimeTargets() {
@@ -42,5 +40,4 @@ public class QueryUtilsTest {
             .collect(Collectors.toList()),
         Matchers.contains(BuildTargetFactory.newInstance("//some:rule")));
   }
-
 }

@@ -16,20 +16,16 @@
 
 package com.facebook.buck.jvm.java;
 
-import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
-
 import com.facebook.buck.android.AndroidPackageable;
 import com.facebook.buck.android.AndroidPackageableCollector;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
@@ -38,38 +34,25 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import com.google.common.hash.HashCode;
-
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.Set;
 
 public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, AndroidPackageable {
-
-  private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
 
   private ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of();
 
   public FakeJavaLibrary(
-      BuildTarget target,
-      SourcePathResolver resolver,
-      ProjectFilesystem filesystem,
-      ImmutableSortedSet<BuildRule> deps) {
-    super(target, filesystem, resolver, deps.toArray(new BuildRule[deps.size()]));
+      BuildTarget target, ProjectFilesystem filesystem, ImmutableSortedSet<BuildRule> deps) {
+    super(target, filesystem, deps.toArray(new BuildRule[deps.size()]));
   }
 
-  public FakeJavaLibrary(
-      BuildTarget target,
-      SourcePathResolver resolver,
-      ImmutableSortedSet<BuildRule> deps) {
-    super(target, resolver, deps);
+  public FakeJavaLibrary(BuildTarget target, ImmutableSortedSet<BuildRule> deps) {
+    super(target, deps);
   }
 
-  public FakeJavaLibrary(BuildTarget target, SourcePathResolver resolver) {
-    super(target, resolver);
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return OUTPUT_TYPE;
+  public FakeJavaLibrary(BuildTarget target) {
+    super(target);
   }
 
   @Override
@@ -78,7 +61,7 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getDepsForTransitiveClasspathEntries() {
+  public Set<BuildRule> getDepsForTransitiveClasspathEntries() {
     return getBuildDeps();
   }
 
@@ -106,6 +89,11 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
   }
 
   @Override
+  public ImmutableSortedSet<SourcePath> getJarContents() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
   public ImmutableSortedSet<SourcePath> getJavaSrcs() {
     return srcs;
   }
@@ -122,9 +110,10 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
 
   public FakeJavaLibrary setJavaSrcs(ImmutableSortedSet<Path> srcs) {
     Preconditions.checkNotNull(srcs);
-    this.srcs = FluentIterable.from(srcs)
-        .transform(p -> (SourcePath) new PathSourcePath(new FakeProjectFilesystem(), p))
-        .toSortedSet(Ordering.natural());
+    this.srcs =
+        FluentIterable.from(srcs)
+            .transform(p -> (SourcePath) new PathSourcePath(new FakeProjectFilesystem(), p))
+            .toSortedSet(Ordering.natural());
     return this;
   }
 

@@ -21,18 +21,14 @@ import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.MoreIterables;
-import com.facebook.buck.util.OptionalCompat;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
-
 import java.nio.file.Path;
 import java.util.Optional;
 
-/**
- * OCaml linking step. Dependencies and inputs should be topologically ordered
- */
+/** OCaml linking step. Dependencies and inputs should be topologically ordered */
 public class OcamlLinkStep extends ShellStep {
 
   public final ImmutableMap<String, String> environment;
@@ -64,9 +60,7 @@ public class OcamlLinkStep extends ShellStep {
       SourcePathResolver pathResolver) {
     ImmutableList.Builder<String> ocamlInputBuilder = ImmutableList.builder();
 
-    final String linkExt = isBytecode
-        ? OcamlCompilables.OCAML_CMA
-        : OcamlCompilables.OCAML_CMXA;
+    final String linkExt = isBytecode ? OcamlCompilables.OCAML_CMA : OcamlCompilables.OCAML_CMXA;
 
     for (String linkInput : Arg.stringify(depInput, pathResolver)) {
       if (isLibrary && linkInput.endsWith(linkExt)) {
@@ -128,26 +122,25 @@ public class OcamlLinkStep extends ShellStep {
 
   @Override
   protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
-    ImmutableList.Builder<String> cmd = ImmutableList.<String>builder()
-        .addAll(ocamlCompilerCommandPrefix)
-        .addAll(OcamlCompilables.DEFAULT_OCAML_FLAGS);
+    ImmutableList.Builder<String> cmd =
+        ImmutableList.<String>builder()
+            .addAll(ocamlCompilerCommandPrefix)
+            .addAll(OcamlCompilables.DEFAULT_OCAML_FLAGS);
 
     if (stdlib.isPresent()) {
-        cmd.add("-nostdlib", OcamlCompilables.OCAML_INCLUDE_FLAG, stdlib.get());
+      cmd.add("-nostdlib", OcamlCompilables.OCAML_INCLUDE_FLAG, stdlib.get());
     }
 
-    return cmd
-        .add("-cc", cxxCompiler.get(0))
-        .addAll(
-            MoreIterables.zipAndConcat(
-                Iterables.cycle("-ccopt"),
-                cxxCompiler.subList(1, cxxCompiler.size())))
-        .addAll(OptionalCompat.asSet(isLibrary ? Optional.of("-a") : Optional.empty()))
-        .addAll(
-            OptionalCompat.asSet(!isLibrary && isBytecode ?
-                Optional.of("-custom") :
-                Optional.empty()))
-        .add("-o", output.toString())
+    cmd.add("-cc", cxxCompiler.get(0));
+    cmd.addAll(
+        MoreIterables.zipAndConcat(
+            Iterables.cycle("-ccopt"), cxxCompiler.subList(1, cxxCompiler.size())));
+    if (isLibrary) {
+      cmd.add("-a");
+    } else if (isBytecode) {
+      cmd.add("-custom");
+    }
+    return cmd.add("-o", output.toString())
         .addAll(flags)
         .addAll(ocamlInput)
         .addAll(input.stream().map(Object::toString).iterator())

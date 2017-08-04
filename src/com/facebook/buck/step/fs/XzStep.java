@@ -17,7 +17,6 @@
 package com.facebook.buck.step.fs;
 
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -25,16 +24,14 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.io.ByteStreams;
-
-import org.tukaani.xz.LZMA2Options;
-import org.tukaani.xz.XZ;
-import org.tukaani.xz.XZOutputStream;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import org.tukaani.xz.LZMA2Options;
+import org.tukaani.xz.XZ;
+import org.tukaani.xz.XZOutputStream;
 
 /**
  * A {@link Step} to compress a file with XZ / LZMA2.
@@ -45,7 +42,6 @@ import java.nio.file.Paths;
  */
 public class XzStep implements Step {
   public static final int DEFAULT_COMPRESSION_LEVEL = 4;
-  private static final Logger LOG = Logger.get(XzStep.class);
 
   private final ProjectFilesystem filesystem;
   private final Path sourceFile;
@@ -56,14 +52,15 @@ public class XzStep implements Step {
 
   /**
    * Create an {@link XzStep} to compress a file using XZ.
+   *
    * @param sourceFile file to compress
    * @param destinationFile where to store compressed data
    * @param compressionLevel a value between 0-9, it impacts memory requirements for decompression
    * @param keep by default, {@code xz} deletes the source file when compressing. This argument
    *     forces {@code xz} to keep it.
-   * @param check integrity check to use. Must be one of {@link XZ#CHECK_CRC32},
-   *     {@link XZ#CHECK_CRC64}, {@link XZ#CHECK_SHA256}, {@link XZ#CHECK_NONE}
-   *     (Note: XZ Embedded can only verify CRC32).
+   * @param check integrity check to use. Must be one of {@link XZ#CHECK_CRC32}, {@link
+   *     XZ#CHECK_CRC64}, {@link XZ#CHECK_SHA256}, {@link XZ#CHECK_NONE} (Note: XZ Embedded can only
+   *     verify CRC32).
    */
   @VisibleForTesting
   XzStep(
@@ -76,8 +73,9 @@ public class XzStep implements Step {
     this.filesystem = filesystem;
     this.sourceFile = sourceFile;
     this.destinationFile = destinationFile;
-    Preconditions.checkArgument(compressionLevel >= LZMA2Options.PRESET_MIN &&
-        compressionLevel <= LZMA2Options.PRESET_MAX, "compressionLevel out of bounds.");
+    Preconditions.checkArgument(
+        compressionLevel >= LZMA2Options.PRESET_MIN && compressionLevel <= LZMA2Options.PRESET_MAX,
+        "compressionLevel out of bounds.");
     this.compressionLevel = compressionLevel;
     this.keep = keep;
     this.check = check;
@@ -86,8 +84,9 @@ public class XzStep implements Step {
   /**
    * Creates an XzStep to compress a file with XZ compression level 4.
    *
-   * <p> The destination file will be {@code sourceFile} with the added {@code .xz} extension.
-   * <p> Decompression will require 5MiB of RAM.
+   * <p>The destination file will be {@code sourceFile} with the added {@code .xz} extension.
+   *
+   * <p>Decompression will require 5MiB of RAM.
    *
    * @param sourceFile file to compress
    */
@@ -98,7 +97,7 @@ public class XzStep implements Step {
   /**
    * Creates an XzStep to compress a file with XZ compression level 4.
    *
-   * <p> Decompression will require 5MiB of RAM.
+   * <p>Decompression will require 5MiB of RAM.
    *
    * @param sourceFile file to compress
    * @param outputPath desired output path
@@ -110,30 +109,27 @@ public class XzStep implements Step {
   /**
    * Creates an XzStep to compress a file with the given XZ compression level and output path.
    *
-   * <p> Decompression will require up to 64MiB of RAM.
+   * <p>Decompression will require up to 64MiB of RAM.
    *
    * @param sourceFile file to compress
    * @param outputPath the desired output path.
    * @param compressionLevel level of compression (from 0-9)
    */
   public XzStep(
-      ProjectFilesystem filesystem,
-      Path sourceFile,
-      Path outputPath,
-      int compressionLevel) {
+      ProjectFilesystem filesystem, Path sourceFile, Path outputPath, int compressionLevel) {
     this(filesystem, sourceFile, outputPath, compressionLevel, /* keep */ false, XZ.CHECK_CRC32);
   }
 
   /**
    * Creates an XzStep to compress a file with XZ at a user supplied compression level .
    *
-   * <p> The destination file will be {@code sourceFile} with the added {@code .xz} extension.
-   * <p> Decompression will require up to 64MiB of RAM.
+   * <p>The destination file will be {@code sourceFile} with the added {@code .xz} extension.
+   *
+   * <p>Decompression will require up to 64MiB of RAM.
    *
    * @param sourceFile file to compress
-   * @param compressionLevel value from 0 to 9. Higher values result in better
-   * compression, but also need more time to compress and will need more RAM
-   * to decompress.
+   * @param compressionLevel value from 0 to 9. Higher values result in better compression, but also
+   *     need more time to compress and will need more RAM to decompress.
    */
   public XzStep(ProjectFilesystem filesystem, Path sourceFile, int compressionLevel) {
     this(
@@ -146,21 +142,17 @@ public class XzStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) {
-    try (
-        InputStream in = filesystem.newFileInputStream(sourceFile);
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
+    try (InputStream in = filesystem.newFileInputStream(sourceFile);
         OutputStream out = filesystem.newFileOutputStream(destinationFile);
-        XZOutputStream xzOut = new XZOutputStream(out, new LZMA2Options(compressionLevel), check)
-    ) {
+        XZOutputStream xzOut = new XZOutputStream(out, new LZMA2Options(compressionLevel), check)) {
       XzMemorySemaphore.acquireMemory(compressionLevel);
       ByteStreams.copy(in, xzOut);
       xzOut.finish();
       if (!keep) {
         filesystem.deleteFileAtPath(sourceFile);
       }
-    } catch (IOException e) {
-      LOG.error(e);
-      return StepExecutionResult.ERROR;
     } finally {
       XzMemorySemaphore.releaseMemory(compressionLevel);
     }
@@ -173,8 +165,15 @@ public class XzStep implements Step {
 
   @Override
   public String getDescription(ExecutionContext context) {
-    return Joiner.on(" ").skipNulls().join(
-     "xz", "-z", "-" + compressionLevel, (keep ? "--keep" : null), "--check=crc32", sourceFile);
+    return Joiner.on(" ")
+        .skipNulls()
+        .join(
+            "xz",
+            "-z",
+            "-" + compressionLevel,
+            (keep ? "--keep" : null),
+            "--check=crc32",
+            sourceFile);
   }
 
   @Override

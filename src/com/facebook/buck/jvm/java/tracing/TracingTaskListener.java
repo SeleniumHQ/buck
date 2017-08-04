@@ -18,12 +18,10 @@ package com.facebook.buck.jvm.java.tracing;
 
 import com.facebook.buck.jvm.java.plugin.api.BuckJavacTaskListener;
 import com.facebook.buck.jvm.java.plugin.api.TaskEventMirror;
-
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-
 import javax.annotation.Nullable;
-
 
 /**
  * A {@link BuckJavacTaskListener} that traces all events to a {@link JavacPhaseTracer}. The event
@@ -33,8 +31,7 @@ import javax.annotation.Nullable;
 public class TracingTaskListener implements BuckJavacTaskListener {
   private final JavacPhaseTracer tracing;
   private final TraceCleaner traceCleaner;
-  @Nullable
-  private final BuckJavacTaskListener inner;
+  @Nullable private final BuckJavacTaskListener inner;
 
   public TracingTaskListener(JavacPhaseTracer tracing, @Nullable BuckJavacTaskListener next) {
     inner = next;
@@ -67,6 +64,7 @@ public class TracingTaskListener implements BuckJavacTaskListener {
         tracing.beginGenerate(getFileName(e), getTypeName(e));
         break;
       case ANNOTATION_PROCESSING:
+      case COMPILATION:
       default:
         // The tracing doesn't care about these events
         break;
@@ -93,6 +91,7 @@ public class TracingTaskListener implements BuckJavacTaskListener {
         tracing.endGenerate();
         break;
       case ANNOTATION_PROCESSING:
+      case COMPILATION:
       default:
         // The tracing doesn't care about these events
         break;
@@ -105,14 +104,14 @@ public class TracingTaskListener implements BuckJavacTaskListener {
     }
   }
 
-  /**
-   * Cleans up the slightly dirty aspects of the event stream.
-   */
+  /** Cleans up the slightly dirty aspects of the event stream. */
   static class TraceCleaner {
     private final JavacPhaseTracer tracing;
     private int enterCount = 0;
     private List<String> enteredFiles = new ArrayList<>();
     private int analyzeCount = 0;
+    private List<String> analyzedFiles = new ArrayList<>();
+    private List<String> analyzedTypes = new ArrayList<>();
 
     public TraceCleaner(JavacPhaseTracer tracing) {
       this.tracing = tracing;
@@ -122,11 +121,13 @@ public class TracingTaskListener implements BuckJavacTaskListener {
      * Generally the compiler enters all compilation units at once. It fires start events for all of
      * them, does the work, then fires finish events for all of them. There are a couple of issues
      * with this from a tracing perspective:
+     *
      * <ul>
-     * <li>It generates a ton of slices</li>
-     * <li>The finish events are in the same order as the start ones (we'd expect them to be in
-     * reverse order if this were true tracing)</li>
+     *   <li>It generates a ton of slices
+     *   <li>The finish events are in the same order as the start ones (we'd expect them to be in
+     *       reverse order if this were true tracing)
      * </ul>
+     *
      * To clean this up into a trace-friendly event stream, we coalesce all the enter events for a
      * given round into one.
      *
@@ -141,9 +142,7 @@ public class TracingTaskListener implements BuckJavacTaskListener {
       enteredFiles.add(filename);
     }
 
-    /**
-     * @see #startEnter(String)
-     */
+    /** @see #startEnter(String) */
     void finishEnter() {
       enterCount -= 1;
 
@@ -156,25 +155,32 @@ public class TracingTaskListener implements BuckJavacTaskListener {
     /**
      * There are some cases in which a finish analyze event can be received without a corresponding
      * start. Rather than output malformed trace data, we detect that case and synthesize a start
-     * event.
+     * event. There are other cases in which all analyze start events are issued together, and then
+     * all analyze finish events. In those cases, we consolidate into one event.
      *
      * @see #finishAnalyze(String, String)
      */
     void startAnalyze(@Nullable String filename, @Nullable String typename) {
+      analyzedFiles.add(filename);
+      analyzedTypes.add(typename);
+
       analyzeCount += 1;
-      tracing.beginAnalyze(filename, typename);
+      if (analyzeCount == 1) {
+        tracing.beginAnalyze();
+      }
     }
 
-    /**
-     * @see #startAnalyze(String, String)
-     */
+    /** @see #startAnalyze(String, String) */
     void finishAnalyze(@Nullable String filename, @Nullable String typename) {
       if (analyzeCount > 0) {
         analyzeCount -= 1;
-        tracing.endAnalyze();
+        if (analyzeCount == 0) {
+          tracing.endAnalyze(analyzedFiles, analyzedTypes);
+        }
       } else {
-        tracing.beginAnalyze(filename, typename);
-        tracing.endAnalyze();
+        tracing.beginAnalyze();
+        tracing.endAnalyze(
+            Collections.singletonList(filename), Collections.singletonList(typename));
       }
     }
   }
@@ -185,7 +191,7 @@ public class TracingTaskListener implements BuckJavacTaskListener {
       return null;
     }
 
-    return e.getSourceFile().toString();
+    return e.getSourceFile().toUri().toString();
   }
 
   @Nullable

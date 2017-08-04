@@ -20,14 +20,12 @@ import com.facebook.buck.query.QueryEnvironment.ArgumentType;
 import com.facebook.buck.query.QueryEnvironment.QueryFunction;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.ListeningExecutorService;
-
 import java.util.Set;
 
 /**
  * A "testsof" query expression, which computes the tests of the given targets.
  *
- * This operator behavior is documented at docs/command/query.soy
+ * <p>This operator behavior is documented at docs/command/query.soy
  *
  * <pre>expr ::= TESTSOF '(' expr ')'</pre>
  */
@@ -36,8 +34,7 @@ public class TestsOfFunction implements QueryFunction {
   private static final ImmutableList<ArgumentType> ARGUMENT_TYPES =
       ImmutableList.of(ArgumentType.EXPRESSION);
 
-  public TestsOfFunction() {
-  }
+  public TestsOfFunction() {}
 
   @Override
   public String getName() {
@@ -56,10 +53,9 @@ public class TestsOfFunction implements QueryFunction {
 
   @Override
   public ImmutableSet<QueryTarget> eval(
-      QueryEnvironment env,
-      ImmutableList<Argument> args,
-      ListeningExecutorService executor) throws QueryException, InterruptedException {
-    Set<QueryTarget> targets = args.get(0).getExpression().eval(env, executor);
+      QueryEvaluator evaluator, QueryEnvironment env, ImmutableList<Argument> args)
+      throws QueryException {
+    Set<QueryTarget> targets = evaluator.eval(args.get(0).getExpression(), env);
     ImmutableSet.Builder<QueryTarget> tests = new ImmutableSet.Builder<>();
     for (QueryTarget target : targets) {
       tests.addAll(env.getTestsForTarget(target));

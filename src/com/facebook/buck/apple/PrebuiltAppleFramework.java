@@ -16,22 +16,22 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
-import com.facebook.buck.cxx.HeaderVisibility;
-import com.facebook.buck.cxx.ImmutableCxxPreprocessorInputCacheKey;
-import com.facebook.buck.cxx.Linker;
-import com.facebook.buck.cxx.NativeLinkable;
-import com.facebook.buck.cxx.NativeLinkableInput;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.platform.NativeLinkable;
+import com.facebook.buck.cxx.platform.NativeLinkableInput;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.HasOutputName;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -54,7 +54,6 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashMap;
@@ -62,20 +61,17 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
-public class PrebuiltAppleFramework
-    extends AbstractBuildRuleWithResolver
+public class PrebuiltAppleFramework extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements CxxPreprocessorDep, NativeLinkable, HasOutputName {
 
   @AddToRuleKey(stringify = true)
   private final Path out;
 
-  @AddToRuleKey
-  private final NativeLinkable.Linkage preferredLinkage;
+  @AddToRuleKey private final NativeLinkable.Linkage preferredLinkage;
 
   private final BuildRuleResolver ruleResolver;
 
-  @AddToRuleKey
-  private final SourcePath frameworkPath;
+  @AddToRuleKey private final SourcePath frameworkPath;
   private final String frameworkName;
   private final Function<? super CxxPlatform, ImmutableList<String>> exportedLinkerFlags;
   private final ImmutableSet<FrameworkPath> frameworks;
@@ -84,11 +80,13 @@ public class PrebuiltAppleFramework
   private final Map<Pair<Flavor, Linker.LinkableDepType>, NativeLinkableInput> nativeLinkableCache =
       new HashMap<>();
 
-  private final LoadingCache<CxxPreprocessables.CxxPreprocessorInputCacheKey,
-      ImmutableMap<BuildTarget, CxxPreprocessorInput>> transitiveCxxPreprocessorInputCache =
-      CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
+  private final LoadingCache<CxxPlatform, ImmutableMap<BuildTarget, CxxPreprocessorInput>>
+      transitiveCxxPreprocessorInputCache =
+          CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
 
   public PrebuiltAppleFramework(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       SourcePathResolver pathResolver,
@@ -97,7 +95,7 @@ public class PrebuiltAppleFramework
       ImmutableSet<FrameworkPath> frameworks,
       Optional<Pattern> supportedPlatformsRegex,
       Function<? super CxxPlatform, ImmutableList<String>> exportedLinkerFlags) {
-    super(params, pathResolver);
+    super(buildTarget, projectFilesystem, params);
     this.frameworkPath = frameworkPath;
     this.ruleResolver = ruleResolver;
     this.exportedLinkerFlags = exportedLinkerFlags;
@@ -105,27 +103,31 @@ public class PrebuiltAppleFramework
     this.frameworks = frameworks;
     this.supportedPlatformsRegex = supportedPlatformsRegex;
 
-    BuildTarget target = params.getBuildTarget();
     this.frameworkName = pathResolver.getAbsolutePath(frameworkPath).getFileName().toString();
-    this.out = BuildTargets.getGenPath(getProjectFilesystem(), target, "%s").resolve(frameworkName);
+    this.out =
+        BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "%s").resolve(frameworkName);
   }
 
   private boolean isPlatformSupported(CxxPlatform cxxPlatform) {
-    return !supportedPlatformsRegex.isPresent() ||
-        supportedPlatformsRegex.get()
-            .matcher(cxxPlatform.getFlavor().toString())
-            .find();
+    return !supportedPlatformsRegex.isPresent()
+        || supportedPlatformsRegex.get().matcher(cxxPlatform.getFlavor().toString()).find();
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     // This file is copied rather than symlinked so that when it is included in an archive zip and
     // unpacked on another machine, it is an ordinary file in both scenarios.
     ImmutableList.Builder<Step> builder = ImmutableList.builder();
-    builder.add(MkdirStep.of(getProjectFilesystem(), out.getParent()));
-    builder.add(RmStep.of(getProjectFilesystem(), out).withRecursive(true));
+    builder.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), out.getParent())));
+    builder.add(
+        RmStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), out))
+            .withRecursive(true));
     builder.add(
         CopyStep.forDirectory(
             getProjectFilesystem(),
@@ -148,48 +150,36 @@ public class PrebuiltAppleFramework
   }
 
   @Override
-  public Iterable<? extends CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
+  public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }
-    return FluentIterable.from(getBuildDeps())
-        .filter(CxxPreprocessorDep.class);
+    return FluentIterable.from(getBuildDeps()).filter(CxxPreprocessorDep.class);
   }
 
   @Override
-  public CxxPreprocessorInput getCxxPreprocessorInput(
-      final CxxPlatform cxxPlatform,
-      HeaderVisibility headerVisibility) throws NoSuchBuildTargetException {
+  public CxxPreprocessorInput getCxxPreprocessorInput(final CxxPlatform cxxPlatform)
+      throws NoSuchBuildTargetException {
     CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder();
 
-    switch (headerVisibility) {
-      case PUBLIC:
-        if (isPlatformSupported(cxxPlatform)) {
-          builder.addAllFrameworks(frameworks);
+    if (isPlatformSupported(cxxPlatform)) {
+      builder.addAllFrameworks(frameworks);
 
-          ruleResolver.requireRule(this.getBuildTarget());
-          builder.addFrameworks(FrameworkPath.ofSourcePath(getSourcePathToOutput()));
-        }
-        return builder.build();
-      case PRIVATE:
-        return builder.build();
+      ruleResolver.requireRule(this.getBuildTarget());
+      builder.addFrameworks(FrameworkPath.ofSourcePath(getSourcePathToOutput()));
     }
-
-    throw new RuntimeException("Invalid header visibility: " + headerVisibility);
+    return builder.build();
   }
 
   @Override
   public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-      CxxPlatform cxxPlatform,
-      HeaderVisibility headerVisibility) throws NoSuchBuildTargetException {
-    return transitiveCxxPreprocessorInputCache.getUnchecked(
-        ImmutableCxxPreprocessorInputCacheKey.of(cxxPlatform, headerVisibility));
+      CxxPlatform cxxPlatform) throws NoSuchBuildTargetException {
+    return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform);
   }
 
   @Override
   public Iterable<NativeLinkable> getNativeLinkableDeps() {
-    return FluentIterable.from(getDeclaredDeps())
-        .filter(NativeLinkable.class);
+    return FluentIterable.from(getDeclaredDeps()).filter(NativeLinkable.class);
   }
 
   @Override
@@ -206,8 +196,7 @@ public class PrebuiltAppleFramework
   }
 
   private NativeLinkableInput getNativeLinkableInputUncached(
-      CxxPlatform cxxPlatform,
-      Linker.LinkableDepType type) {
+      CxxPlatform cxxPlatform, Linker.LinkableDepType type) {
     if (!isPlatformSupported(cxxPlatform)) {
       return NativeLinkableInput.of();
     }
@@ -220,25 +209,21 @@ public class PrebuiltAppleFramework
 
     frameworkPaths.add(FrameworkPath.ofSourcePath(getSourcePathToOutput()));
     if (type == Linker.LinkableDepType.SHARED) {
-      linkerArgsBuilder.addAll(StringArg.from(
-          "-rpath",
-          "@loader_path/Frameworks",
-          "-rpath",
-          "@executable_path/Frameworks"
-      ));
+      linkerArgsBuilder.addAll(
+          StringArg.from(
+              "-rpath", "@loader_path/Frameworks", "-rpath", "@executable_path/Frameworks"));
     }
 
     final ImmutableList<Arg> linkerArgs = linkerArgsBuilder.build();
-    return NativeLinkableInput.of(
-        linkerArgs,
-        frameworkPaths.build(),
-        Collections.emptySet());
+    return NativeLinkableInput.of(linkerArgs, frameworkPaths.build(), Collections.emptySet());
   }
 
   @Override
   public NativeLinkableInput getNativeLinkableInput(
       CxxPlatform cxxPlatform,
-      Linker.LinkableDepType type)
+      Linker.LinkableDepType type,
+      boolean forceLinkWhole,
+      ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions)
       throws NoSuchBuildTargetException {
     Pair<Flavor, Linker.LinkableDepType> key = new Pair<>(cxxPlatform.getFlavor(), type);
     NativeLinkableInput input = nativeLinkableCache.get(key);

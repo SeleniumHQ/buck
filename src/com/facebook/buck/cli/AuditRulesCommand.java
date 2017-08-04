@@ -20,7 +20,6 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.json.ProjectBuildFileParser;
 import com.facebook.buck.rules.BuckPyFunction;
-import com.facebook.buck.rules.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
@@ -34,10 +33,6 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
-import org.kohsuke.args4j.Argument;
-import org.kohsuke.args4j.Option;
-
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Path;
@@ -50,13 +45,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.SortedSet;
-
+import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nullable;
+import org.kohsuke.args4j.Argument;
+import org.kohsuke.args4j.Option;
 
 /**
- * Evaluates a build file and prints out an equivalent build file with all includes/macros
- * expanded. When complex macros are in play, this helps clarify what the resulting build rule
- * definitions are.
+ * Evaluates a build file and prints out an equivalent build file with all includes/macros expanded.
+ * When complex macros are in play, this helps clarify what the resulting build rule definitions
+ * are.
  */
 public class AuditRulesCommand extends AbstractCommand {
 
@@ -66,20 +64,18 @@ public class AuditRulesCommand extends AbstractCommand {
   /** Properties that should be listed last in the declaration of a build rule. */
   private static final ImmutableSet<String> LAST_PROPERTIES = ImmutableSet.of("deps", "visibility");
 
-  @Option(name = "--type",
-      aliases = { "-t" },
-      usage = "The types of rule to filter by")
+  @Option(
+    name = "--type",
+    aliases = {"-t"},
+    usage = "The types of rule to filter by"
+  )
   @Nullable
   private List<String> types = null;
 
   @Option(name = "--json", usage = "Print JSON representation of each rule")
   private boolean json;
 
-  @Option(name = "--include_empty_values", usage = "Whether to include missing or empty values")
-  private boolean includeEmpties;
-
-  @Argument
-  private List<String> arguments = new ArrayList<>();
+  @Argument private List<String> arguments = new ArrayList<>();
 
   public List<String> getArguments() {
     return arguments;
@@ -97,11 +93,11 @@ public class AuditRulesCommand extends AbstractCommand {
   @Override
   public int runWithoutHelp(CommandRunnerParams params) throws IOException, InterruptedException {
     ProjectFilesystem projectFilesystem = params.getCell().getFilesystem();
-    try (ProjectBuildFileParser parser = params.getCell().createBuildFileParser(
-        new ConstructorArgMarshaller(new DefaultTypeCoercerFactory()),
-        params.getConsole(),
-        params.getBuckEventBus(),
-        /* ignoreBuckAutodepsFiles */ false)) {
+    try (ProjectBuildFileParser parser =
+        params
+            .getCell()
+            .createBuildFileParser(
+                new DefaultTypeCoercerFactory(), params.getConsole(), params.getBuckEventBus())) {
       PrintStream out = params.getConsole().getStdOut();
       for (String pathToBuildFile : getArguments()) {
         if (!json) {
@@ -119,7 +115,7 @@ public class AuditRulesCommand extends AbstractCommand {
         // Parse the rules from the build file.
         List<Map<String, Object>> rawRules;
         try {
-          rawRules = parser.getAll(path);
+          rawRules = parser.getAll(path, new AtomicLong());
         } catch (BuildFileParseException e) {
           throw new HumanReadableException(e);
         }
@@ -144,13 +140,15 @@ public class AuditRulesCommand extends AbstractCommand {
   private void printRulesToStdout(
       CommandRunnerParams params,
       List<Map<String, Object>> rawRules,
-      final Predicate<String> includeType) throws IOException {
-    Iterable<Map<String, Object>> filteredRules = FluentIterable
-        .from(rawRules)
-        .filter(rawRule -> {
-          String type = (String) rawRule.get(BuckPyFunction.TYPE_PROPERTY_NAME);
-          return includeType.apply(type);
-        });
+      final Predicate<String> includeType)
+      throws IOException {
+    Iterable<Map<String, Object>> filteredRules =
+        FluentIterable.from(rawRules)
+            .filter(
+                rawRule -> {
+                  String type = (String) rawRule.get(BuckPyFunction.TYPE_PROPERTY_NAME);
+                  return includeType.apply(type);
+                });
 
     PrintStream stdOut = params.getConsole().getStdOut();
 
@@ -163,9 +161,10 @@ public class AuditRulesCommand extends AbstractCommand {
       }
 
       // We create a new JsonGenerator that does not close the stream.
-      try (JsonGenerator generator = ObjectMappers.createGenerator(stdOut)
-          .disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET)
-          .useDefaultPrettyPrinter()) {
+      try (JsonGenerator generator =
+          ObjectMappers.createGenerator(stdOut)
+              .disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET)
+              .useDefaultPrettyPrinter()) {
         ObjectMappers.WRITER.writeValue(generator, rulesKeyedByName);
       }
       stdOut.print('\n');
@@ -181,17 +180,17 @@ public class AuditRulesCommand extends AbstractCommand {
     out.printf("%s(\n", type);
 
     // The properties in the order they should be displayed for this rule.
-    LinkedHashSet<String> properties = Sets.newLinkedHashSet();
+    LinkedHashSet<String> properties = new LinkedHashSet<>();
 
     // Always display the "name" property first.
     properties.add("name");
 
     // Add the properties specific to the rule.
-    SortedSet<String> customProperties = Sets.newTreeSet();
+    SortedSet<String> customProperties = new TreeSet<>();
     for (String key : rawRule.keySet()) {
       // Ignore keys that start with "buck.".
-      if (!(key.startsWith(BuckPyFunction.INTERNAL_PROPERTY_NAME_PREFIX) ||
-          LAST_PROPERTIES.contains(key))) {
+      if (!(key.startsWith(BuckPyFunction.INTERNAL_PROPERTY_NAME_PREFIX)
+          || LAST_PROPERTIES.contains(key))) {
         customProperties.add(key);
       }
     }
@@ -215,15 +214,13 @@ public class AuditRulesCommand extends AbstractCommand {
   }
 
   private boolean shouldInclude(@Nullable Object rawValue) {
-    if (includeEmpties) {
-      return true;
-    }
-    return rawValue != null && rawValue != Optional.empty() &&
-        !(rawValue instanceof Collection && ((Collection<?>) rawValue).isEmpty());
+    return rawValue != null
+        && rawValue != Optional.empty()
+        && !(rawValue instanceof Collection && ((Collection<?>) rawValue).isEmpty());
   }
 
   /**
-   * @param value in a Map returned by {@link ProjectBuildFileParser#getAll(Path)}.
+   * @param value in a Map returned by {@link ProjectBuildFileParser#getAll(Path, AtomicLong)}.
    * @return a string that represents the Python equivalent of the value.
    */
   @VisibleForTesting
@@ -245,9 +242,7 @@ public class AuditRulesCommand extends AbstractCommand {
 
       String indentPlus1 = indent + INDENT;
       for (Object item : (List<?>) value) {
-        out.append(indentPlus1)
-            .append(createDisplayString(indentPlus1, item))
-            .append(",\n");
+        out.append(indentPlus1).append(createDisplayString(indentPlus1, item)).append(",\n");
       }
 
       out.append(indent).append("]");
@@ -270,5 +265,4 @@ public class AuditRulesCommand extends AbstractCommand {
       throw new IllegalStateException();
     }
   }
-
 }

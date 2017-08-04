@@ -16,39 +16,48 @@
 
 package com.facebook.buck.dotnet;
 
-import com.facebook.buck.rules.AbstractDescriptionArg;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import org.immutables.value.Value;
 
 public class PrebuiltDotnetLibraryDescription
-    implements Description<PrebuiltDotnetLibraryDescription.Arg> {
+    implements Description<PrebuiltDotnetLibraryDescriptionArg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<PrebuiltDotnetLibraryDescriptionArg> getConstructorArgType() {
+    return PrebuiltDotnetLibraryDescriptionArg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) {
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
-    return new PrebuiltDotnetLibrary(params, pathResolver, args.assembly);
+      PrebuiltDotnetLibraryDescriptionArg args) {
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+    return new PrebuiltDotnetLibrary(
+        buildTarget, projectFilesystem, params, pathResolver, args.getAssembly());
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends AbstractDescriptionArg {
-    public SourcePath assembly;
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractPrebuiltDotnetLibraryDescriptionArg extends CommonDescriptionArg {
+    SourcePath getAssembly();
   }
 }

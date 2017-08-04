@@ -20,6 +20,8 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.classes.ClasspathTraversal;
 import com.facebook.buck.jvm.java.classes.DefaultClasspathTraverser;
 import com.facebook.buck.jvm.java.classes.FileLike;
+import com.facebook.buck.jvm.java.classes.FileLikes;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
@@ -32,7 +34,6 @@ import com.google.common.collect.Multimap;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -47,6 +48,8 @@ import java.util.Set;
  */
 public class HashInputJarsToDexStep extends AbstractExecutionStep
     implements SmartDexingStep.DexInputHashesProvider {
+
+  private static final Logger LOG = Logger.get(HashInputJarsToDexStep.class);
 
   private final ProjectFilesystem filesystem;
   private final Supplier<Set<Path>> primaryInputsToDex;
@@ -72,7 +75,8 @@ public class HashInputJarsToDexStep extends AbstractExecutionStep
   }
 
   @Override
-  public StepExecutionResult execute(final ExecutionContext context) {
+  public StepExecutionResult execute(final ExecutionContext context)
+      throws IOException, InterruptedException {
     ImmutableList.Builder<Path> allInputs = ImmutableList.builder();
     allInputs.addAll(primaryInputsToDex.get());
     if (secondaryOutputToInputs.isPresent()) {
@@ -82,25 +86,26 @@ public class HashInputJarsToDexStep extends AbstractExecutionStep
     final Map<String, HashCode> classNamesToHashes = classNamesToHashesSupplier.get();
 
     for (Path path : allInputs.build()) {
-      try {
-        final Hasher hasher = Hashing.sha1().newHasher();
-        new DefaultClasspathTraverser().traverse(
-            new ClasspathTraversal(Collections.singleton(path), filesystem) {
-              @Override
-              public void visit(FileLike fileLike) throws IOException {
-                String className = fileLike.getRelativePath().replaceAll("\\.class$", "");
-                if (classNamesToHashes.containsKey(className)) {
-                  HashCode classHash =
-                      Preconditions.checkNotNull(classNamesToHashes.get(className));
-                  hasher.putBytes(classHash.asBytes());
+      final Hasher hasher = Hashing.sha1().newHasher();
+      new DefaultClasspathTraverser()
+          .traverse(
+              new ClasspathTraversal(Collections.singleton(path), filesystem) {
+                @Override
+                public void visit(FileLike fileLike) throws IOException {
+                  if (FileLikes.isClassFile(fileLike)) {
+                    String className = FileLikes.getFileNameWithoutClassSuffix(fileLike);
+
+                    if (classNamesToHashes.containsKey(className)) {
+                      HashCode classHash =
+                          Preconditions.checkNotNull(classNamesToHashes.get(className));
+                      hasher.putBytes(classHash.asBytes());
+                    } else {
+                      LOG.warn("%s hashes not found", className);
+                    }
+                  }
                 }
-              }
-            });
-        dexInputsToHashes.put(path, Sha1HashCode.fromHashCode(hasher.hash()));
-      } catch (IOException e) {
-        context.logError(e, "Error hashing smart dex input: %s", path);
-        return StepExecutionResult.ERROR;
-      }
+              });
+      dexInputsToHashes.put(path, Sha1HashCode.fromHashCode(hasher.hash()));
     }
     stepFinished = true;
     return StepExecutionResult.SUCCESS;
@@ -108,9 +113,10 @@ public class HashInputJarsToDexStep extends AbstractExecutionStep
 
   @Override
   public ImmutableMap<Path, Sha1HashCode> getDexInputHashes() {
-    Preconditions.checkState(stepFinished,
-        "Either the step did not complete successfully or getDexInputHashes() was called before " +
-            "it could finish its execution.");
+    Preconditions.checkState(
+        stepFinished,
+        "Either the step did not complete successfully or getDexInputHashes() was called before "
+            + "it could finish its execution.");
     return dexInputsToHashes.build();
   }
 }

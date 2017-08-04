@@ -16,12 +16,15 @@
 
 package com.facebook.buck.distributed;
 
+import static com.facebook.buck.util.BuckConstant.DIST_BUILD_SLAVE_BUCK_OUT_LOG_DIR_NAME;
+
 import com.facebook.buck.distributed.thrift.BuildSlaveConsoleEvent;
 import com.facebook.buck.distributed.thrift.ConsoleEventSeverity;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Preconditions;
-
+import java.nio.file.Path;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -34,8 +37,7 @@ public class DistBuildUtil {
   private DistBuildUtil() {}
 
   public static BuildSlaveConsoleEvent createBuildSlaveConsoleEvent(
-      ConsoleEvent event,
-      long timestampMillis) {
+      ConsoleEvent event, long timestampMillis) {
     BuildSlaveConsoleEvent buildSlaveConsoleEvent = new BuildSlaveConsoleEvent();
     buildSlaveConsoleEvent.setTimestampMillis(timestampMillis);
     buildSlaveConsoleEvent.setMessage(event.getMessage());
@@ -65,12 +67,26 @@ public class DistBuildUtil {
       case SEVERE:
         return ConsoleEvent.create(Level.SEVERE, timestampPrefix + event.getMessage());
       default:
-        LOG.error(String.format(
-            "Unsupported type of ConsoleEventSeverity received in BuildSlaveConsoleEvent: [%d]" +
-                "Defaulting to SEVERE.",
-            event.getSeverity().getValue()
-        ));
+        LOG.error(
+            String.format(
+                "Unsupported type of ConsoleEventSeverity received in BuildSlaveConsoleEvent: [%d]"
+                    + "Defaulting to SEVERE.",
+                event.getSeverity().getValue()));
         return ConsoleEvent.create(Level.SEVERE, timestampPrefix + event.getMessage());
     }
+  }
+
+  private static Path getLogDirForRunId(String runId, Path logDirectoryPath) {
+    return logDirectoryPath.resolve(
+        String.format(BuckConstant.DIST_BUILD_SLAVE_TOPLEVEL_LOG_DIR_NAME_TEMPLATE, runId));
+  }
+
+  public static Path getStreamLogFilePath(String runId, String streamType, Path logDirectoryPath) {
+    return getLogDirForRunId(runId, logDirectoryPath).resolve(String.format("%s.log", streamType));
+  }
+
+  public static Path getRemoteBuckLogPath(String runId, Path logDirectoryPath) {
+    return getLogDirForRunId(runId, logDirectoryPath)
+        .resolve(DIST_BUILD_SLAVE_BUCK_OUT_LOG_DIR_NAME);
   }
 }

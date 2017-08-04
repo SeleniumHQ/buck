@@ -25,55 +25,53 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
 import java.util.Map;
+import java.util.Optional;
 
 /**
- * An abstraction for modeling the arguments that contribute to a command run by a
- * {@link BuildRule}.
+ * An abstraction for modeling the arguments that contribute to a command run by a {@link
+ * BuildRule}, and also carry information for computing a rule key.
  */
-public abstract class Arg implements RuleKeyAppendable {
+public interface Arg extends RuleKeyAppendable {
+
+  static Optional<String> flattenToSpaceSeparatedString(
+      Optional<Arg> arg, SourcePathResolver pathResolver) {
+    return arg.map((input1) -> stringifyList(input1, pathResolver))
+        .map(input -> Joiner.on(' ').join(input));
+  }
+
+  /** @return any {@link BuildRule}s that need to be built before this argument can be used. */
+  ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder);
+
+  /** @return any {@link BuildRule}s that need to be built before this argument can be used. */
+  ImmutableCollection<SourcePath> getInputs();
 
   /**
-   * @return any {@link BuildRule}s that need to be built before this argument can be used.
+   * Append the contents of the Arg to the supplied builder. This call may inject any number of
+   * elements (including zero) into the builder. This is only ever safe to call when the rule is
+   * running, as it may do things like resolving source paths.
    */
-  public abstract ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder);
+  void appendToCommandLine(
+      ImmutableCollection.Builder<String> builder, SourcePathResolver pathResolver);
 
-  /**
-   * @return any {@link BuildRule}s that need to be built before this argument can be used.
-   */
-  public abstract ImmutableCollection<SourcePath> getInputs();
-
-  /**
-   * Append the contents of the Arg to the supplied builder. This call may inject any number
-   * of elements (including zero) into the builder. This is only ever safe to call when the
-   * rule is running, as it may do things like resolving source paths.
-   */
-  public abstract void appendToCommandLine(
-      ImmutableCollection.Builder<String> builder,
-      SourcePathResolver pathResolver);
-
-  /**
-   * @return a {@link String} representation suitable to use for debugging.
-   */
+  /** @return a {@link String} representation suitable to use for debugging. */
   @Override
-  public abstract String toString();
-
-  @Override
-  public abstract boolean equals(Object other);
+  String toString();
 
   @Override
-  public abstract int hashCode();
+  boolean equals(Object other);
 
-  public static ImmutableList<String> stringifyList(Arg input, SourcePathResolver pathResolver) {
+  @Override
+  int hashCode();
+
+  static ImmutableList<String> stringifyList(Arg input, SourcePathResolver pathResolver) {
     ImmutableList.Builder<String> builder = ImmutableList.builder();
     input.appendToCommandLine(builder, pathResolver);
     return builder.build();
   }
 
-  public static ImmutableList<String> stringify(
-      ImmutableCollection<Arg> args,
-      SourcePathResolver pathResolver) {
+  static ImmutableList<String> stringify(
+      Iterable<? extends Arg> args, SourcePathResolver pathResolver) {
     ImmutableList.Builder<String> builder = ImmutableList.builder();
     for (Arg arg : args) {
       arg.appendToCommandLine(builder, pathResolver);
@@ -81,16 +79,14 @@ public abstract class Arg implements RuleKeyAppendable {
     return builder.build();
   }
 
-  public static <K> ImmutableMap<K, String> stringify(
-      ImmutableMap<K, Arg> argMap,
-      SourcePathResolver pathResolver) {
+  static <K> ImmutableMap<K, String> stringify(
+      ImmutableMap<K, ? extends Arg> argMap, SourcePathResolver pathResolver) {
     ImmutableMap.Builder<K, String> stringMap = ImmutableMap.builder();
-    for (Map.Entry<K, Arg> ent : argMap.entrySet()) {
+    for (Map.Entry<K, ? extends Arg> ent : argMap.entrySet()) {
       ImmutableList.Builder<String> builder = ImmutableList.builder();
       ent.getValue().appendToCommandLine(builder, pathResolver);
       stringMap.put(ent.getKey(), Joiner.on(" ").join(builder.build()));
     }
     return stringMap.build();
   }
-
 }

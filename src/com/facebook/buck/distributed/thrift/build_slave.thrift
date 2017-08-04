@@ -41,6 +41,17 @@ struct BuildSlaveConsoleEvent {
 ## Buck build slave status
 ##############################################################################
 
+struct CacheRateStats {
+    1: optional i32 cacheHitsCount;
+    2: optional i32 cacheMissesCount;
+    3: optional i32 cacheIgnoresCount;
+    4: optional i32 cacheErrorsCount;
+    5: optional i32 cacheLocalKeyUnchangedHitsCount;
+
+    10: optional i32 totalRulesCount;
+    11: optional i32 updatedRulesCount;
+}
+
 struct BuildSlaveStatus {
     1: optional stampede.StampedeId stampedeId;
     2: optional stampede.RunId runId;
@@ -51,9 +62,34 @@ struct BuildSlaveStatus {
     13: optional i32 rulesSuccessCount;
     14: optional i32 rulesFailureCount;
 
-    20: optional i32 cacheHitsCount;
-    21: optional i32 cacheMissesCount;
-    22: optional i32 cacheIgnoresCount;
-    23: optional i32 cacheErrorsCount;
-    24: optional i32 cacheLocalKeyUnchangedHitsCount;
+    20: optional CacheRateStats cacheRateStats;
+    21: optional i64 httpArtifactTotalBytesUploaded;
+    22: optional i32 httpArtifactUploadsScheduledCount;
+    23: optional i32 httpArtifactUploadsOngoingCount;
+    24: optional i32 httpArtifactUploadsSuccessCount;
+    25: optional i32 httpArtifactUploadsFailureCount;
+
+    30: optional i32 filesMaterializedCount;
+}
+
+struct FileMaterializationStats {
+    1: optional i32 totalFilesMaterializedCount;
+    2: optional i32 filesMaterializedFromCASCount;
+    3: optional i64 totalTimeSpentMaterializingFilesFromCASMillis;
+}
+
+struct BuildSlavePerStageTimingStats {
+    1: optional i64 distBuildStateFetchTimeMillis;
+    2: optional i64 distBuildStateLoadingTimeMillis;
+    3: optional i64 sourceFilePreloadTimeMillis;
+    4: optional i64 targetGraphDeserializationTimeMillis;
+    5: optional i64 actionGraphCreationTimeMillis;
+    6: optional i64 totalBuildtimeMillis;
+}
+
+struct BuildSlaveFinishedStats {
+    1: optional BuildSlaveStatus buildSlaveStatus;
+    2: optional i32 exitCode;
+    3: optional FileMaterializationStats fileMaterializationStats;
+    4: optional BuildSlavePerStageTimingStats buildSlavePerStageTimingStats;
 }

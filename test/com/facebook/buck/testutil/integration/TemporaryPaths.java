@@ -17,9 +17,6 @@
 package com.facebook.buck.testutil.integration;
 
 import com.facebook.buck.io.MoreFiles;
-
-import org.junit.rules.ExternalResource;
-
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -27,6 +24,7 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Arrays;
+import org.junit.rules.ExternalResource;
 
 /**
  * Apes the API of JUnit's <code>TemporaryFolder</code> but returns {@link Path} references and can
@@ -34,6 +32,9 @@ import java.util.Arrays;
  */
 public class TemporaryPaths extends ExternalResource {
 
+  private static final String DEFAULT_PREFIX = "junit-temp-path";
+
+  private final String prefix;
   private final boolean keepContents;
   private Path root;
 
@@ -42,6 +43,15 @@ public class TemporaryPaths extends ExternalResource {
   }
 
   public TemporaryPaths(boolean keepContents) {
+    this(DEFAULT_PREFIX, keepContents);
+  }
+
+  public TemporaryPaths(String prefix) {
+    this(prefix, false);
+  }
+
+  public TemporaryPaths(String prefix, boolean keepContents) {
+    this.prefix = prefix;
     this.keepContents = keepContents;
   }
 
@@ -50,9 +60,8 @@ public class TemporaryPaths extends ExternalResource {
     if (root != null) {
       return;
     }
-    root = Files.createTempDirectory("junit-temp-path").toRealPath();
+    root = Files.createTempDirectory(prefix).toRealPath();
   }
-
 
   public Path getRoot() {
     return root;
@@ -75,17 +84,19 @@ public class TemporaryPaths extends ExternalResource {
     }
 
     try {
-      Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+      Files.walkFileTree(
+          root,
+          new SimpleFileVisitor<Path>() {
             @Override
-            public FileVisitResult visitFile(
-                Path file, BasicFileAttributes attrs) throws IOException {
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                throws IOException {
               Files.delete(file);
               return FileVisitResult.CONTINUE;
             }
 
             @Override
-            public FileVisitResult postVisitDirectory(Path dir,
-                IOException exc) throws IOException {
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc)
+                throws IOException {
               Files.delete(dir);
               return FileVisitResult.CONTINUE;
             }

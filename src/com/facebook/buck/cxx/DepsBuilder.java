@@ -20,11 +20,10 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.args.Arg;
 import com.google.common.collect.ImmutableSortedSet;
 
-/**
- * Builder suitable for generating the dependency list of a build rule.
- */
+/** Builder suitable for generating the dependency list of a build rule. */
 public class DepsBuilder {
   private final ImmutableSortedSet.Builder<BuildRule> builder = ImmutableSortedSet.naturalOrder();
   private final SourcePathRuleFinder ruleFinder;
@@ -58,11 +57,14 @@ public class DepsBuilder {
 
   public DepsBuilder add(PreprocessorDelegate delegate) {
     add(delegate.getPreprocessor());
+    for (Arg arg : delegate.getPreprocessorFlags().getOtherFlags().getAllFlags()) {
+      builder.addAll(arg.getDeps(ruleFinder));
+    }
     return this;
   }
 
   public DepsBuilder add(CompilerDelegate delegate) {
-    add(delegate.getCompiler());
+    builder.addAll(delegate.getDeps(ruleFinder));
     return this;
   }
 }

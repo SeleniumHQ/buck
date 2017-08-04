@@ -14,7 +14,6 @@
  * under the License.
  */
 
-
 package com.facebook.buck.rules.macros;
 
 import com.facebook.buck.model.BuildTarget;
@@ -24,25 +23,24 @@ import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.util.MoreCollectors;
-import com.google.common.base.CharMatcher;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Ordering;
-
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * Used to expand the macro {@literal $(query_outputs "some(query(:expression))")} to the
- * set of the outputs of the targets matching the query.
- * Example queries
+ * Used to expand the macro {@literal $(query_outputs "some(query(:expression))")} to the set of the
+ * outputs of the targets matching the query. Example queries
+ *
  * <pre>
  *   '$(query_outputs "deps(:foo)")'
  *   '$(query_outputs "filter(bar, classpath(:bar))")'
@@ -70,15 +68,19 @@ public class QueryOutputsMacroExpander extends QueryMacroExpander<QueryOutputsMa
       BuildTarget target,
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
-      QueryOutputsMacro input)
+      QueryOutputsMacro input,
+      QueryResults precomputedWork)
       throws MacroException {
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
-    String queryExpression = CharMatcher.anyOf("\"'").trimFrom(input.getQuery().getQuery());
-    return resolveQuery(target, cellNames, resolver, queryExpression)
-        .map(queryTarget -> {
-          Preconditions.checkState(queryTarget instanceof QueryBuildTarget);
-          return resolver.getRule(((QueryBuildTarget) queryTarget).getBuildTarget());
-        })
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+    return precomputedWork
+        .results
+        .stream()
+        .map(
+            queryTarget -> {
+              Preconditions.checkState(queryTarget instanceof QueryBuildTarget);
+              return resolver.getRule(((QueryBuildTarget) queryTarget).getBuildTarget());
+            })
         .map(BuildRule::getSourcePathToOutput)
         .filter(Objects::nonNull)
         .map(pathResolver::getAbsolutePath)
@@ -92,22 +94,25 @@ public class QueryOutputsMacroExpander extends QueryMacroExpander<QueryOutputsMa
       BuildTarget target,
       CellPathResolver cellNames,
       final BuildRuleResolver resolver,
-      QueryOutputsMacro input)
+      QueryOutputsMacro input,
+      QueryResults precomputedWork)
       throws MacroException {
-    String queryExpression = CharMatcher.anyOf("\"'").trimFrom(input.getQuery().getQuery());
 
     // Return a list of SourcePaths to the outputs of our query results. This enables input-based
     // rule key hits.
-    return resolveQuery(target, cellNames, resolver, queryExpression)
-        .map(queryTarget -> {
-          Preconditions.checkState(queryTarget instanceof QueryBuildTarget);
-          try {
-            return resolver.requireRule(((QueryBuildTarget) queryTarget).getBuildTarget());
-          } catch (NoSuchBuildTargetException e) {
-            throw new RuntimeException(
-                new MacroException("Error extracting rule key appendables", e));
-          }
-        })
+    return precomputedWork
+        .results
+        .stream()
+        .map(
+            queryTarget -> {
+              Preconditions.checkState(queryTarget instanceof QueryBuildTarget);
+              try {
+                return resolver.requireRule(((QueryBuildTarget) queryTarget).getBuildTarget());
+              } catch (NoSuchBuildTargetException e) {
+                throw new RuntimeException(
+                    new MacroException("Error extracting rule key appendables", e));
+              }
+            })
         .map(BuildRule::getSourcePathToOutput)
         .filter(Objects::nonNull)
         .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural()));
@@ -123,15 +128,18 @@ public class QueryOutputsMacroExpander extends QueryMacroExpander<QueryOutputsMa
       BuildTarget target,
       CellPathResolver cellNames,
       final BuildRuleResolver resolver,
-      QueryOutputsMacro input)
+      QueryOutputsMacro input,
+      QueryResults precomputedWork)
       throws MacroException {
-    String queryExpression = CharMatcher.anyOf("\"'").trimFrom(input.getQuery().getQuery());
-    return ImmutableList.copyOf(resolveQuery(target, cellNames, resolver, queryExpression)
-        .map(queryTarget -> {
-          Preconditions.checkState(queryTarget instanceof QueryBuildTarget);
-          return resolver.getRule(((QueryBuildTarget) queryTarget).getBuildTarget());
-        })
+    return precomputedWork
+        .results
+        .stream()
+        .map(
+            queryTarget -> {
+              Preconditions.checkState(queryTarget instanceof QueryBuildTarget);
+              return resolver.getRule(((QueryBuildTarget) queryTarget).getBuildTarget());
+            })
         .sorted()
-        .collect(Collectors.toList()));
+        .collect(MoreCollectors.toImmutableList());
   }
 }

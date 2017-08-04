@@ -29,7 +29,6 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.timing.DefaultClock;
 import com.google.common.collect.ImmutableMap;
-
 import org.junit.Test;
 
 public class FakeBuildEngineTest {
@@ -37,15 +36,13 @@ public class FakeBuildEngineTest {
   @Test
   public void buildRuleFutureHasResult() throws Exception {
     BuildTarget fakeBuildTarget = BuildTargetFactory.newInstance("//foo:bar");
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    ));
-    FakeBuildRule fakeBuildRule = new FakeBuildRule(fakeBuildTarget, pathResolver);
+    FakeBuildRule fakeBuildRule = new FakeBuildRule(fakeBuildTarget);
     BuildResult fakeBuildResult =
         BuildResult.success(fakeBuildRule, BUILT_LOCALLY, CacheResult.miss());
-    FakeBuildEngine fakeEngine = new FakeBuildEngine(
-        ImmutableMap.of(fakeBuildTarget, fakeBuildResult),
-        ImmutableMap.of(fakeBuildTarget, new RuleKey("00")));
+    FakeBuildEngine fakeEngine =
+        new FakeBuildEngine(
+            ImmutableMap.of(fakeBuildTarget, fakeBuildResult),
+            ImmutableMap.of(fakeBuildTarget, new RuleKey("00")));
     assertThat(
         fakeEngine
             .build(
@@ -57,6 +54,7 @@ public class FakeBuildEngineTest {
                     .build(),
                 TestExecutionContext.newInstance(),
                 fakeBuildRule)
+            .getResult()
             .get(),
         equalTo(fakeBuildResult));
   }
@@ -64,69 +62,53 @@ public class FakeBuildEngineTest {
   @Test
   public void buildRuleResultIsPresent() throws Exception {
     BuildTarget fakeBuildTarget = BuildTargetFactory.newInstance("//foo:bar");
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    ));
-    FakeBuildRule fakeBuildRule = new FakeBuildRule(fakeBuildTarget, pathResolver);
+    FakeBuildRule fakeBuildRule = new FakeBuildRule(fakeBuildTarget);
     BuildResult fakeBuildResult =
         BuildResult.success(fakeBuildRule, BUILT_LOCALLY, CacheResult.miss());
-    FakeBuildEngine fakeEngine = new FakeBuildEngine(
-        ImmutableMap.of(fakeBuildTarget, fakeBuildResult),
-        ImmutableMap.of(fakeBuildTarget, new RuleKey("00")));
-    assertThat(
-        fakeEngine.getBuildRuleResult(fakeBuildTarget),
-        equalTo(fakeBuildResult));
+    FakeBuildEngine fakeEngine =
+        new FakeBuildEngine(
+            ImmutableMap.of(fakeBuildTarget, fakeBuildResult),
+            ImmutableMap.of(fakeBuildTarget, new RuleKey("00")));
+    assertThat(fakeEngine.getBuildRuleResult(fakeBuildTarget), equalTo(fakeBuildResult));
   }
 
   @Test
   public void buildRuleIsBuilt() throws Exception {
     BuildTarget fakeBuildTarget = BuildTargetFactory.newInstance("//foo:bar");
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    ));
-    FakeBuildRule fakeBuildRule = new FakeBuildRule(fakeBuildTarget, pathResolver);
+    FakeBuildRule fakeBuildRule = new FakeBuildRule(fakeBuildTarget);
     BuildResult fakeBuildResult =
         BuildResult.success(fakeBuildRule, BUILT_LOCALLY, CacheResult.miss());
-    FakeBuildEngine fakeEngine = new FakeBuildEngine(
-        ImmutableMap.of(fakeBuildTarget, fakeBuildResult),
-        ImmutableMap.of(fakeBuildTarget, new RuleKey("00")));
-    assertThat(
-        fakeEngine.isRuleBuilt(fakeBuildTarget),
-        is(true));
+    FakeBuildEngine fakeEngine =
+        new FakeBuildEngine(
+            ImmutableMap.of(fakeBuildTarget, fakeBuildResult),
+            ImmutableMap.of(fakeBuildTarget, new RuleKey("00")));
+    assertThat(fakeEngine.isRuleBuilt(fakeBuildTarget), is(true));
   }
 
   @Test
   public void unbuiltRuleIsNotBuilt() throws Exception {
     BuildTarget fakeBuildTarget = BuildTargetFactory.newInstance("//foo:bar");
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    ));
-    FakeBuildRule fakeBuildRule = new FakeBuildRule(fakeBuildTarget, pathResolver);
+    FakeBuildRule fakeBuildRule = new FakeBuildRule(fakeBuildTarget);
     BuildResult fakeBuildResult =
         BuildResult.success(fakeBuildRule, BUILT_LOCALLY, CacheResult.miss());
-    FakeBuildEngine fakeEngine = new FakeBuildEngine(
-        ImmutableMap.of(fakeBuildTarget, fakeBuildResult),
-        ImmutableMap.of(fakeBuildTarget, new RuleKey("00")));
+    FakeBuildEngine fakeEngine =
+        new FakeBuildEngine(
+            ImmutableMap.of(fakeBuildTarget, fakeBuildResult),
+            ImmutableMap.of(fakeBuildTarget, new RuleKey("00")));
     BuildTarget anotherFakeBuildTarget = BuildTargetFactory.newInstance("//foo:baz");
-    assertThat(
-        fakeEngine.isRuleBuilt(anotherFakeBuildTarget),
-        is(false));
+    assertThat(fakeEngine.isRuleBuilt(anotherFakeBuildTarget), is(false));
   }
 
   @Test
   public void ruleKeyIsPresent() throws Exception {
     BuildTarget fakeBuildTarget = BuildTargetFactory.newInstance("//foo:bar");
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    ));
-    FakeBuildRule fakeBuildRule = new FakeBuildRule(fakeBuildTarget, pathResolver);
+    FakeBuildRule fakeBuildRule = new FakeBuildRule(fakeBuildTarget);
     BuildResult fakeBuildResult =
         BuildResult.success(fakeBuildRule, BUILT_LOCALLY, CacheResult.miss());
-    FakeBuildEngine fakeEngine = new FakeBuildEngine(
-        ImmutableMap.of(fakeBuildTarget, fakeBuildResult),
-        ImmutableMap.of(fakeBuildTarget, new RuleKey("00")));
-    assertThat(
-        fakeEngine.getRuleKey(fakeBuildTarget),
-        equalTo(new RuleKey("00")));
+    FakeBuildEngine fakeEngine =
+        new FakeBuildEngine(
+            ImmutableMap.of(fakeBuildTarget, fakeBuildResult),
+            ImmutableMap.of(fakeBuildTarget, new RuleKey("00")));
+    assertThat(fakeEngine.getRuleKey(fakeBuildTarget), equalTo(new RuleKey("00")));
   }
 }

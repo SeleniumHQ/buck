@@ -23,17 +23,14 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
 public class NoopArtifactCache implements ArtifactCache {
-
   @Override
-  public CacheResult fetch(RuleKey ruleKey, LazyPath output) {
+  public ListenableFuture<CacheResult> fetchAsync(RuleKey ruleKey, LazyPath output) {
     // Do nothing.
-    return CacheResult.miss();
+    return Futures.immediateFuture(CacheResult.miss());
   }
 
   @Override
-  public ListenableFuture<Void> store(
-      ArtifactInfo info,
-      BorrowablePath output) {
+  public ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output) {
     return Futures.immediateFuture(null);
   }
 

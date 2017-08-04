@@ -20,26 +20,35 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.parser.thrift.BuildFileEnvProperty;
+import com.facebook.buck.parser.thrift.RemoteDaemonicCellState;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.concurrent.AutoCloseableLock;
 import com.facebook.buck.util.concurrent.AutoCloseableReadWriteUpdateLock;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.MapDifference;
 import com.google.common.collect.Maps;
 import com.google.common.collect.SetMultimap;
-
+import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
-
 import javax.annotation.concurrent.GuardedBy;
 
 class DaemonicCellState {
@@ -53,19 +62,16 @@ class DaemonicCellState {
         new ConcurrentMapCache<>(parsingThreads);
 
     @Override
-    public Optional<T> lookupComputedNode(
-        Cell cell,
-        BuildTarget target) throws BuildTargetException {
+    public Optional<T> lookupComputedNode(Cell cell, BuildTarget target)
+        throws BuildTargetException {
       try (AutoCloseableLock readLock = rawAndComputedNodesLock.readLock()) {
         return Optional.ofNullable(allComputedNodes.getIfPresent(target));
       }
     }
 
     @Override
-    public T putComputedNodeIfNotPresent(
-        Cell cell,
-        BuildTarget target,
-        T targetNode) throws BuildTargetException {
+    public T putComputedNodeIfNotPresent(Cell cell, BuildTarget target, T targetNode)
+        throws BuildTargetException {
       try (AutoCloseableLock writeLock = rawAndComputedNodesLock.writeLock()) {
         T updatedNode = allComputedNodes.putIfAbsentAndGet(target, targetNode);
         Preconditions.checkState(
@@ -86,19 +92,20 @@ class DaemonicCellState {
 
   @GuardedBy("rawAndComputedNodesLock")
   private final SetMultimap<Path, Path> buildFileDependents;
+
   @GuardedBy("rawAndComputedNodesLock")
   private final SetMultimap<UnflavoredBuildTarget, BuildTarget> targetsCornucopia;
-  @GuardedBy("rawAndComputedNodesLock")
-  private final Map<Path, ImmutableMap<String, ImmutableMap<String, Optional<String>>>>
-      buildFileConfigs;
+
   @GuardedBy("rawAndComputedNodesLock")
   private final Map<Path, ImmutableMap<String, Optional<String>>> buildFileEnv;
+
   @GuardedBy("rawAndComputedNodesLock")
   private final ConcurrentMapCache<Path, ImmutableSet<Map<String, Object>>> allRawNodes;
   // Tracks all targets in `allRawNodes`.  Used to verify that every target in `allComputedNodes`
   // is also in `allRawNodes`, as we use the latter for bookkeeping invalidations.
   @GuardedBy("rawAndComputedNodesLock")
   private final Set<UnflavoredBuildTarget> allRawNodeTargets;
+
   @GuardedBy("rawAndComputedNodesLock")
   private final ConcurrentMap<Class<?>, CacheImpl<?>> typedNodeCaches;
 
@@ -112,7 +119,6 @@ class DaemonicCellState {
     this.cellCanonicalName = cell.getCanonicalName();
     this.buildFileDependents = HashMultimap.create();
     this.targetsCornucopia = HashMultimap.create();
-    this.buildFileConfigs = new HashMap<>();
     this.buildFileEnv = new HashMap<>();
     this.allRawNodes = new ConcurrentMapCache<>(parsingThreads);
     this.allRawNodeTargets = new HashSet<>();
@@ -160,7 +166,6 @@ class DaemonicCellState {
       final Path buildFile,
       final ImmutableSet<Map<String, Object>> withoutMetaIncludes,
       final ImmutableSet<Path> dependentsOfEveryNode,
-      ImmutableMap<String, ImmutableMap<String, Optional<String>>> configs,
       ImmutableMap<String, Optional<String>> env) {
     try (AutoCloseableLock writeLock = rawAndComputedNodesLock.writeLock()) {
       ImmutableSet<Map<String, Object>> updated =
@@ -168,12 +173,8 @@ class DaemonicCellState {
       for (Map<String, Object> node : updated) {
         allRawNodeTargets.add(
             RawNodeParsePipeline.parseBuildTargetFromRawRule(
-                cellRoot,
-                cellCanonicalName,
-                node,
-                buildFile));
+                cellRoot, cellCanonicalName, node, buildFile));
       }
-      buildFileConfigs.put(buildFile, configs);
       buildFileEnv.put(buildFile, env);
       if (updated == withoutMetaIncludes) {
         // We now know all the nodes. They all implicitly depend on everything in
@@ -196,10 +197,7 @@ class DaemonicCellState {
         for (Map<String, Object> rawNode : rawNodes) {
           UnflavoredBuildTarget target =
               RawNodeParsePipeline.parseBuildTargetFromRawRule(
-                  cellRoot,
-                  cellCanonicalName,
-                  rawNode,
-                  path);
+                  cellRoot, cellCanonicalName, rawNode, path);
           LOG.debug("Invalidating target for path %s: %s", path, target);
           for (CacheImpl<?> cache : typedNodeCaches.values()) {
             cache.allComputedNodes.invalidateAll(targetsCornucopia.get(target));
@@ -220,48 +218,10 @@ class DaemonicCellState {
         invalidatedRawNodes += invalidatePath(dependent);
       }
       buildFileDependents.removeAll(path);
-      buildFileConfigs.remove(path);
       buildFileEnv.remove(path);
 
       return invalidatedRawNodes;
     }
-  }
-
-  boolean invalidateIfBuckConfigHasChanged(Cell cell, Path buildFile) {
-    // TODO(mzlee): Check whether usedConfigs includes the buildFileName
-    ImmutableMap<String, ImmutableMap<String, Optional<String>>> usedConfigs;
-    try (AutoCloseableLock readLock = rawAndComputedNodesLock.readLock()) {
-      usedConfigs = buildFileConfigs.get(buildFile);
-    }
-    if (usedConfigs == null) {
-      // TODO(mzlee): Figure out when/how we can safely update this
-      this.cell.set(cell);
-      return false;
-    }
-    for (Map.Entry<String, ImmutableMap<String, Optional<String>>> keyEnt :
-        usedConfigs.entrySet()) {
-      for (Map.Entry<String, Optional<String>> valueEnt : keyEnt.getValue().entrySet()) {
-        // Make sure to use `BuckConfig.getRawValue()` here as we need to compare the same values
-        // we pass into the build file parser, which preserves empty config settings as the empty
-        // string.  It's not entirely important we use (e.g. empty settings as `Optional.empty()` or
-        // `Optional.of("")`), but we do need to be consistent.
-        Optional<String> value =
-            cell.getBuckConfig().getRawValue(keyEnt.getKey(), valueEnt.getKey());
-        if (!value.equals(valueEnt.getValue())) {
-          LOG.verbose(
-              "invalidating for config change: %s (%s.%s: %s != %s)",
-              buildFile,
-              keyEnt.getKey(),
-              valueEnt.getKey(),
-              value,
-              valueEnt.getValue());
-          invalidatePath(buildFile);
-          this.cell.set(cell);
-          return true;
-        }
-      }
-    }
-    return false;
   }
 
   Optional<MapDifference<String, String>> invalidateIfEnvHasChanged(Cell cell, Path buildFile) {
@@ -285,9 +245,122 @@ class DaemonicCellState {
             Maps.difference(
                 value.map(v -> ImmutableMap.of(ent.getKey(), v)).orElse(ImmutableMap.of()),
                 ent.getValue()
-                    .map(v -> ImmutableMap.of(ent.getKey(), v)).orElse(ImmutableMap.of())));
+                    .map(v -> ImmutableMap.of(ent.getKey(), v))
+                    .orElse(ImmutableMap.of())));
       }
     }
     return Optional.empty();
+  }
+
+  private Map<String, String> getAllRawNodesForSerialisation() throws IOException {
+    Map<String, String> result = new HashMap<>();
+    Path root = getCellRoot();
+    ObjectMapper objectMapper = new ObjectMapper();
+    for (Path path : allRawNodes.keySet()) {
+      ImmutableSet<Map<String, Object>> v = allRawNodes.getIfPresent(path);
+      if (v != null) {
+        result.put(root.relativize(path).toString(), objectMapper.writeValueAsString(v));
+      }
+    }
+    return result;
+  }
+
+  private Map<String, List<String>> getBuildFileDependentsForSerialisation() {
+    Map<String, List<String>> result = new HashMap<>();
+    Path root = getCellRoot();
+    Map<Path, Collection<Path>> view = buildFileDependents.asMap();
+    for (Path path : view.keySet()) {
+      Collection<Path> paths = view.get(path);
+      if (paths != null) {
+        ImmutableList<String> pathList =
+            paths
+                .stream()
+                .map(v -> root.relativize(v).toString())
+                .collect(MoreCollectors.toImmutableList());
+        result.put(root.relativize(path).toString(), pathList);
+      }
+    }
+
+    return result;
+  }
+
+  private Map<String, Map<String, BuildFileEnvProperty>> getBuildFileEnvForSerialisation() {
+    Map<String, Map<String, BuildFileEnvProperty>> result = new HashMap<>();
+    for (Path path : buildFileEnv.keySet()) {
+      ImmutableMap.Builder<String, BuildFileEnvProperty> buildFileEnvValuesMapBuilder =
+          ImmutableMap.builder();
+      ImmutableMap<String, Optional<String>> values = buildFileEnv.get(path);
+      if (values != null) {
+        values.forEach(
+            (k, v) -> {
+              BuildFileEnvProperty prop = new BuildFileEnvProperty();
+              v.ifPresent(prop::setValue);
+              buildFileEnvValuesMapBuilder.put(k, prop);
+            });
+      }
+      result.put(path.toString(), buildFileEnvValuesMapBuilder.build());
+    }
+
+    return result;
+  }
+
+  RemoteDaemonicCellState serialise() throws IOException {
+    RemoteDaemonicCellState result = new RemoteDaemonicCellState();
+    try (AutoCloseableLock readLock = rawAndComputedNodesLock.readLock()) {
+      result.allRawNodesJsons = getAllRawNodesForSerialisation();
+      result.buildFileDependents = getBuildFileDependentsForSerialisation();
+      result.buildFileEnv = getBuildFileEnvForSerialisation();
+    }
+    return result;
+  }
+
+  static DaemonicCellState deserialise(
+      RemoteDaemonicCellState remote, Cell cell, int parsingThreads) throws IOException {
+    DaemonicCellState daemonicCellState = new DaemonicCellState(cell, parsingThreads);
+    Path root = cell.getRoot();
+    for (String pathString : remote.buildFileDependents.keySet()) {
+      Path key = root.resolve(pathString);
+      remote
+          .buildFileDependents
+          .get(pathString)
+          .forEach(
+              valuePathString -> {
+                daemonicCellState.buildFileDependents.put(key, root.resolve(valuePathString));
+              });
+    }
+
+    for (String pathString : remote.buildFileEnv.keySet()) {
+      Path key = Paths.get(pathString);
+      Map<String, BuildFileEnvProperty> remoteValues = remote.buildFileEnv.get(pathString);
+      ImmutableMap.Builder<String, Optional<String>> builder = ImmutableMap.builder();
+      for (String k : remoteValues.keySet()) {
+        BuildFileEnvProperty prop = remoteValues.get(k);
+        if (prop != null && !prop.isSetValue()) {
+          builder.put(k, Optional.empty());
+        } else {
+          builder.put(k, Optional.of(prop.value));
+        }
+      }
+      daemonicCellState.buildFileEnv.put(key, builder.build());
+    }
+
+    for (String pathString : remote.allRawNodesJsons.keySet()) {
+      String json = remote.allRawNodesJsons.get(pathString);
+      ImmutableSet<Map<String, Object>> deserialisedRawNodes =
+          ObjectMappers.readValue(json, new TypeReference<ImmutableSet<Map<String, Object>>>() {});
+      Path key = root.resolve(pathString);
+      daemonicCellState.allRawNodes.putIfAbsentAndGet(key, deserialisedRawNodes);
+      deserialisedRawNodes.forEach(
+          rawNode -> {
+            daemonicCellState.allRawNodeTargets.add(
+                UnflavoredBuildTarget.of(
+                    root,
+                    cell.getCanonicalName(),
+                    "//" + rawNode.get("buck.base_path"),
+                    (String) rawNode.get("name")));
+          });
+    }
+
+    return daemonicCellState;
   }
 }

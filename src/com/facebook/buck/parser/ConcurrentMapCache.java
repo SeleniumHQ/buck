@@ -16,10 +16,10 @@
 
 package com.facebook.buck.parser;
 
+import java.util.Collection;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-
 import javax.annotation.Nullable;
 
 /**
@@ -28,23 +28,17 @@ import javax.annotation.Nullable;
  */
 class ConcurrentMapCache<K, V> {
 
-  /**
-   * Resizing is expensive.  This saves us four resizes from the normal default of 16.
-   */
+  /** Resizing is expensive. This saves us four resizes from the normal default of 16. */
   static final int DEFAULT_INITIAL_CAPACITY = 256;
 
-  /**
-   * Taken from {@link ConcurrentMap}.
-   */
+  /** Taken from {@link ConcurrentMap}. */
   static final float DEFAULT_LOAD_FACTOR = 0.75f;
 
   private final ConcurrentMap<K, V> values;
 
   public ConcurrentMapCache(int numThreads) {
-    this.values = new ConcurrentHashMap<>(
-        DEFAULT_INITIAL_CAPACITY,
-        DEFAULT_LOAD_FACTOR,
-        numThreads);
+    this.values =
+        new ConcurrentHashMap<>(DEFAULT_INITIAL_CAPACITY, DEFAULT_LOAD_FACTOR, numThreads);
   }
 
   public V putIfAbsentAndGet(K key, V newValue) {
@@ -65,5 +59,13 @@ class ConcurrentMapCache<K, V> {
 
   public void invalidate(K key) {
     values.remove(key);
+  }
+
+  public Set<K> keySet() {
+    return this.values.keySet();
+  }
+
+  public Collection<V> values() {
+    return this.values.values();
   }
 }

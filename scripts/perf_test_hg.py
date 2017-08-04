@@ -155,11 +155,9 @@ def buck_build_target(args, cwd, targets, log_as_perftest=True):
         'BUCK_REPOSITORY_DIRTY': '0'
     })
     if log_as_perftest:
-        env.update({
-            'BUCK_EXTRA_JAVA_ARGS':
-            '-Dbuck.perftest_id=%s, -Dbuck.perftest_side=new' %
-            args.perftest_id
-        })
+        with open('.buckjavaargs.local', 'a') as f:
+            f.write('-Dbuck.perftest_id=%s\n' % (args.perftest_id,))
+            f.write('-Dbuck.perftest_side=new\n')
     start = datetime.now()
     tmpFile = tempfile.TemporaryFile()
     try:
@@ -366,6 +364,10 @@ def main():
             os.makedirs(cwd_root)
         move_mount(args.repo_under_test, cwd_root)
     else:
+        # If cwd_root exists, it means that a previous attempt to run
+        # this script wasn't able to clean up that folder properly.
+        # In this case, we clean up that folder.
+        shutil.rmtree(cwd_root, ignore_errors=True)
         os.rename(args.repo_under_test, cwd_root)
 
     try:

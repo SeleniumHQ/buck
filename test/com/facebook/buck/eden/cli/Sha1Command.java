@@ -21,35 +21,28 @@ import com.facebook.buck.eden.EdenMount;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.eden.thrift.EdenError;
 import com.facebook.thrift.TException;
-
-import org.kohsuke.args4j.Argument;
-import org.kohsuke.args4j.Option;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
+import org.kohsuke.args4j.Argument;
+import org.kohsuke.args4j.Option;
 
 public class Sha1Command implements Command {
 
-  @Option(name = "mount", aliases = {"-m"})
+  @Option(
+    name = "mount",
+    aliases = {"-m"}
+  )
   private String mountPoint;
 
-  @Argument
-  private List<String> paths = new ArrayList<>();
+  @Argument private List<String> paths = new ArrayList<>();
 
   @Override
-  public int run() throws EdenError, IOException, TException {
-    Optional<EdenClient> client = EdenClient.newInstance();
-    if (!client.isPresent()) {
-      System.err.println("Could not connect to Eden");
-      return 1;
-    }
-
+  public int run(EdenClient client) throws EdenError, IOException, TException {
     Path mountPoint = Paths.get(this.mountPoint);
-    EdenMount mount = client.get().getMountFor(mountPoint);
+    EdenMount mount = client.getMountFor(mountPoint).get();
 
     for (String path : paths) {
       Path entry = mountPoint.relativize(Paths.get(path));

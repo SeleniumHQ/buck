@@ -27,13 +27,10 @@ import com.facebook.buck.rules.SourcePath;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.MoreExecutors;
 
-
 public class AndroidInstrumentationApkBuilder
-    extends
-    AbstractNodeBuilder<
-        AndroidInstrumentationApkDescription.Arg,
-        AndroidInstrumentationApkDescription,
-        AndroidInstrumentationApk> {
+    extends AbstractNodeBuilder<
+        AndroidInstrumentationApkDescriptionArg.Builder, AndroidInstrumentationApkDescriptionArg,
+        AndroidInstrumentationApkDescription, AndroidInstrumentationApk> {
 
   private AndroidInstrumentationApkBuilder(BuildTarget target) {
     super(
@@ -53,13 +50,12 @@ public class AndroidInstrumentationApkBuilder
   }
 
   public AndroidInstrumentationApkBuilder setManifest(SourcePath manifest) {
-    arg.manifest = manifest;
+    getArgForPopulating().setManifest(manifest);
     return this;
   }
 
   public AndroidInstrumentationApkBuilder setApk(BuildTarget apk) {
-    arg.apk = apk;
+    getArgForPopulating().setApk(apk);
     return this;
   }
-
 }

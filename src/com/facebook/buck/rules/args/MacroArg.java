@@ -17,13 +17,13 @@
 package com.facebook.buck.rules.args;
 
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.MacroException;
 import com.facebook.buck.model.MacroMatchResult;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.model.MacroException;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.macros.MacroHandler;
@@ -33,19 +33,20 @@ import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 
-/**
- * An {@link Arg} which contains macros that need to be expanded.
- */
-public class MacroArg extends Arg {
+/** An {@link Arg} which contains macros that need to be expanded. */
+public class MacroArg implements Arg {
 
   protected final MacroHandler expander;
   protected final BuildTarget target;
   protected final CellPathResolver cellNames;
   protected final BuildRuleResolver resolver;
   protected final String unexpanded;
+
+  protected Map<MacroMatchResult, Object> precomputedWorkCache = new HashMap<>();
 
   public MacroArg(
       MacroHandler expander,
@@ -62,8 +63,7 @@ public class MacroArg extends Arg {
 
   @Override
   public void appendToCommandLine(
-      ImmutableCollection.Builder<String> builder,
-      SourcePathResolver pathResolver) {
+      ImmutableCollection.Builder<String> builder, SourcePathResolver pathResolver) {
     try {
       builder.add(expander.expand(target, cellNames, resolver, unexpanded));
     } catch (MacroException e) {
@@ -74,7 +74,8 @@ public class MacroArg extends Arg {
   @Override
   public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
     try {
-      return expander.extractBuildTimeDeps(target, cellNames, resolver, unexpanded);
+      return expander.extractBuildTimeDeps(
+          target, cellNames, resolver, unexpanded, precomputedWorkCache);
     } catch (MacroException e) {
       throw new HumanReadableException(e, "%s: %s", target, e.getMessage());
     }
@@ -84,7 +85,9 @@ public class MacroArg extends Arg {
   public ImmutableCollection<SourcePath> getInputs() {
     ImmutableCollection<BuildRule> rules;
     try {
-      rules = expander.extractBuildTimeDeps(target, cellNames, resolver, unexpanded);
+      rules =
+          expander.extractBuildTimeDeps(
+              target, cellNames, resolver, unexpanded, precomputedWorkCache);
     } catch (MacroException e) {
       throw new HumanReadableException(e, "%s: %s", target, e.getMessage());
     }
@@ -98,11 +101,11 @@ public class MacroArg extends Arg {
   @Override
   public void appendToRuleKey(RuleKeyObjectSink sink) {
     try {
-      sink
-          .setReflectively("arg", unexpanded)
+      sink.setReflectively("arg", unexpanded)
           .setReflectively(
               "macros",
-              expander.extractRuleKeyAppendables(target, cellNames, resolver, unexpanded));
+              expander.extractRuleKeyAppendables(
+                  target, cellNames, resolver, unexpanded, precomputedWorkCache));
     } catch (MacroException e) {
       throw new HumanReadableException(e, "%s: %s", target, e.getMessage());
     }
@@ -122,8 +125,8 @@ public class MacroArg extends Arg {
       return false;
     }
     MacroArg macroArg = (MacroArg) o;
-    return Objects.equals(target, macroArg.target) &&
-        Objects.equals(unexpanded, macroArg.unexpanded);
+    return Objects.equals(target, macroArg.target)
+        && Objects.equals(unexpanded, macroArg.unexpanded);
   }
 
   @Override

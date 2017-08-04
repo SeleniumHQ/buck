@@ -6,26 +6,28 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.Zip;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.google.common.collect.ImmutableSortedSet;
-
 import org.junit.Rule;
 import org.junit.Test;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 
 public class SourceJarTest {
 
@@ -33,13 +35,15 @@ public class SourceJarTest {
   public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
-  public void outputNameShouldIndicateThatTheOutputIsASrcJar() {
+  public void outputNameShouldIndicateThatTheOutputIsASrcJar() throws InterruptedException {
     BuildRuleResolver resolver = new BuildRuleResolver(
         TargetGraph.EMPTY,
         new DefaultTargetNodeToBuildRuleTransformer());
 
     SourceJar rule = new SourceJar(
-        new FakeBuildRuleParamsBuilder("//example:target").build(),
+        BuildTargetFactory.newInstance("//example:target"),
+        FakeProjectFilesystem.createJavaOnlyFilesystem(),
+        new BuildRuleParams(TreeSet::new, TreeSet::new, ImmutableSortedSet.of()),
         "8",
         ImmutableSortedSet.of(),
         Optional.empty(),
@@ -50,7 +54,7 @@ public class SourceJarTest {
     SourcePath output = rule.getSourcePathToOutput();
 
     assertNotNull(output);
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     assertThat(pathResolver.getRelativePath(output).toString(), endsWith(Javac.SRC_JAR));
   }
 

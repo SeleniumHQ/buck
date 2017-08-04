@@ -1,7 +1,3 @@
-standard_java_testutil(
-    name = "testutil",
-)
-
 standard_java_test(
     name = "args",
     deps = [
@@ -20,7 +16,6 @@ standard_java_test(
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
         "//src/com/facebook/buck/cli:config",
         "//src/com/facebook/buck/config:config",
-        "//src/com/facebook/buck/cxx:platform",
         "//src/com/facebook/buck/cxx:rules",
         "//src/com/facebook/buck/dalvik:dalvik_stats_tool",
         "//src/com/facebook/buck/event:event",
@@ -64,6 +59,8 @@ standard_java_test(
         "//src/com/facebook/buck/rules:relative_cell_name",
         "//src/com/facebook/buck/rules:rule_key",
         "//src/com/facebook/buck/rules:rules",
+        "//src/com/facebook/buck/rules:source_path",
+        "//src/com/facebook/buck/rules:transformer",
         "//src/com/facebook/buck/rules/args:args",
         "//src/com/facebook/buck/rules/coercer:coercer",
         "//src/com/facebook/buck/rules/coercer:interface",
@@ -74,9 +71,6 @@ standard_java_test(
         "//src/com/facebook/buck/shell:rules",
         "//src/com/facebook/buck/shell:steps",
         "//src/com/facebook/buck/shell:worker",
-        "//src/com/facebook/buck/shell:worker_job_params",
-        "//src/com/facebook/buck/shell:worker_pool_factory",
-        "//src/com/facebook/buck/shell:worker_process",
         "//src/com/facebook/buck/shell:worker_tool",
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",
@@ -101,6 +95,9 @@ standard_java_test(
         "//src/com/facebook/buck/versions:translator",
         "//src/com/facebook/buck/versions:types",
         "//src/com/facebook/buck/versions:versions",
+        "//src/com/facebook/buck/worker:worker_job_params",
+        "//src/com/facebook/buck/worker:worker_pool_factory",
+        "//src/com/facebook/buck/worker:worker_process",
         "//src/com/facebook/buck/zip:constants",
         "//src/com/facebook/buck/zip:stream",
         "//test/com/facebook/buck/model:testutil",
@@ -117,7 +114,6 @@ standard_java_test(
         "//third-party/java/asm:asm",
         "//third-party/java/dd-plist:dd-plist",
         "//third-party/java/ddmlib:ddmlib",
-        "//third-party/java/gson:gson",
         "//third-party/java/guava:guava",
         "//third-party/java/hamcrest:java-hamcrest",
         "//third-party/java/immutables:immutables",

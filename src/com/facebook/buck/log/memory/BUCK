@@ -1,8 +1,11 @@
-standard_java_library(
+java_library(
     name = "memory",
+    srcs = glob(["*.java"]),
+    visibility = ["PUBLIC"],
     deps = [
         "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/log:log",
+        "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/util:object_mapper",
         "//src/com/facebook/buck/util/network:network",
         "//third-party/java/guava:guava",

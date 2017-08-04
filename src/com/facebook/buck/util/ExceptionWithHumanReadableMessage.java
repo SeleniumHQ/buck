@@ -18,8 +18,6 @@ package com.facebook.buck.util;
 
 public interface ExceptionWithHumanReadableMessage {
 
-  /**
-   * @return a human-readable error message
-   */
-  public String getHumanReadableErrorMessage();
+  /** @return a human-readable error message */
+  String getHumanReadableErrorMessage();
 }

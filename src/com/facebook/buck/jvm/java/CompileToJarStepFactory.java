@@ -22,33 +22,31 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 /**
- * Creates the necessary steps to compile the source files, apply post process classes commands,
- * and pack the output .class files into a Jar.
+ * Creates the necessary steps to compile the source files, apply post process classes commands, and
+ * pack the output .class files into a Jar.
  */
-public interface CompileToJarStepFactory extends RuleKeyAppendable {
+public interface CompileToJarStepFactory {
 
   default BuildRuleParams addInputs(BuildRuleParams params, SourcePathRuleFinder ruleFinder) {
-    return params.copyReplacingDeclaredAndExtraDeps(
-        () -> ImmutableSortedSet.copyOf(Iterables.concat(
-            params.getDeclaredDeps().get(),
-            getDeclaredDeps(ruleFinder))),
-        () -> ImmutableSortedSet.copyOf(Iterables.concat(
-            params.getExtraDeps().get(),
-            getExtraDeps(ruleFinder))));
+    return params
+        .withDeclaredDeps(
+            () ->
+                ImmutableSortedSet.copyOf(
+                    Iterables.concat(params.getDeclaredDeps().get(), getDeclaredDeps(ruleFinder))))
+        .withExtraDeps(
+            () ->
+                ImmutableSortedSet.copyOf(
+                    Iterables.concat(params.getExtraDeps().get(), getExtraDeps(ruleFinder))));
   }
 
   Iterable<BuildRule> getDeclaredDeps(SourcePathRuleFinder ruleFinder);
@@ -60,16 +58,25 @@ public interface CompileToJarStepFactory extends RuleKeyAppendable {
       ImmutableSortedSet<Path> sourceFilePaths,
       BuildTarget invokingRule,
       SourcePathResolver resolver,
-      SourcePathRuleFinder ruleFinder,
       ProjectFilesystem filesystem,
       ImmutableSortedSet<Path> declaredClasspathEntries,
       Path outputDirectory,
+      Optional<Path> generatedCodeDirectory,
       Optional<Path> workingDirectory,
+      Optional<Path> depFilePath,
       Path pathToSrcsList,
-      ClassUsageFileWriter usedClassesFile,
       /* output params */
       ImmutableList.Builder<Step> steps,
       BuildableContext buildableContext);
+
+  void createJarStep(
+      ProjectFilesystem filesystem,
+      Path outputDirectory,
+      Optional<String> mainClass,
+      Optional<Path> manifestFile,
+      RemoveClassesPatternsMatcher classesToRemoveFromJar,
+      Path outputJar,
+      ImmutableList.Builder<Step> steps);
 
   void createCompileToJarStep(
       BuildContext context,
@@ -80,7 +87,9 @@ public interface CompileToJarStepFactory extends RuleKeyAppendable {
       ProjectFilesystem filesystem,
       ImmutableSortedSet<Path> declaredClasspathEntries,
       Path outputDirectory,
+      Optional<Path> generatedCodeDirectory,
       Optional<Path> workingDirectory,
+      Optional<Path> depFilePath,
       Path pathToSrcsList,
       ImmutableList<String> postprocessClassesCommands,
       ImmutableSortedSet<Path> entriesToJar,
@@ -88,8 +97,7 @@ public interface CompileToJarStepFactory extends RuleKeyAppendable {
       Optional<Path> manifestFile,
       Path outputJar,
       /* output params */
-      ClassUsageFileWriter usedClassesFileWriter,
       ImmutableList.Builder<Step> steps,
       BuildableContext buildableContext,
-      ImmutableSet<Pattern> classesToRemoveFromJar);
+      RemoveClassesPatternsMatcher classesToRemoveFromJar);
 }

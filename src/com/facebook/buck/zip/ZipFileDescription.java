@@ -16,49 +16,49 @@
 
 package com.facebook.buck.zip;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.HasSrcs;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionPropagator;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.collect.ImmutableSortedSet;
+import org.immutables.value.Value;
 
-import java.util.Optional;
-
-public class ZipFileDescription implements
-    Description<ZipFileDescription.Arg>,
-    VersionPropagator<ZipFileDescription.Arg> {
+public class ZipFileDescription
+    implements Description<ZipFileDescriptionArg>, VersionPropagator<ZipFileDescriptionArg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<ZipFileDescriptionArg> getConstructorArgType() {
+    return ZipFileDescriptionArg.class;
   }
 
   @Override
-  public <A extends Arg> Zip createBuildRule(
+  public Zip createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) {
-    return new Zip(
-        params,
-        args.out.orElse(params.getBuildTarget().getShortName() + ".zip"),
-        args.srcs,
-        args.flatten.orElse(false));
+      ZipFileDescriptionArg args) {
+    return new Zip(buildTarget, projectFilesystem, params, args.getOut(), args.getSrcs(), args.getFlatten());
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends AbstractDescriptionArg {
-    public Optional<String> out;
-    public ImmutableSortedSet<SourcePath> srcs;
-    public Optional<Boolean> flatten;
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractZipFileDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs {
+    @Value.Default
+    default String getOut() {
+      return getName() + ".zip";
+    }
 
-    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    @Value.Default
+    default boolean getFlatten() { return false; }
   }
 }

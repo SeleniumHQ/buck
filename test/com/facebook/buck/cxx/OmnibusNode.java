@@ -15,6 +15,10 @@
  */
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.platform.NativeLinkable;
+import com.facebook.buck.cxx.platform.NativeLinkableInput;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.FakeSourcePath;
@@ -22,6 +26,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 class OmnibusNode implements NativeLinkable {
 
@@ -48,9 +53,7 @@ class OmnibusNode implements NativeLinkable {
     this(target, deps, exportedDeps, Linkage.ANY);
   }
 
-  public OmnibusNode(
-      String target,
-      Iterable<? extends NativeLinkable> deps) {
+  public OmnibusNode(String target, Iterable<? extends NativeLinkable> deps) {
     this(target, deps, ImmutableList.of());
   }
 
@@ -76,10 +79,10 @@ class OmnibusNode implements NativeLinkable {
   @Override
   public NativeLinkableInput getNativeLinkableInput(
       CxxPlatform cxxPlatform,
-      Linker.LinkableDepType type) {
-    return NativeLinkableInput.builder()
-        .addArgs(StringArg.of(getBuildTarget().toString()))
-        .build();
+      Linker.LinkableDepType type,
+      boolean forceLinkWhole,
+      ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions) {
+    return NativeLinkableInput.builder().addArgs(StringArg.of(getBuildTarget().toString())).build();
   }
 
   @Override
@@ -90,8 +93,6 @@ class OmnibusNode implements NativeLinkable {
   @Override
   public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
     return ImmutableMap.of(
-        getBuildTarget().toString(),
-        new FakeSourcePath(getBuildTarget().toString()));
+        getBuildTarget().toString(), new FakeSourcePath(getBuildTarget().toString()));
   }
-
 }

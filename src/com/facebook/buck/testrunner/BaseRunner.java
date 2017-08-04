@@ -17,21 +17,16 @@
 package com.facebook.buck.testrunner;
 
 import com.facebook.buck.test.selectors.TestSelectorList;
-
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.PrintWriter;
+import java.io.PrintWriter; // NOPMD can't depend on Guava
 import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
@@ -41,10 +36,10 @@ import javax.xml.transform.TransformerException;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 
-/**
- * Base class for both the JUnit and TestNG runners.
- */
+/** Base class for both the JUnit and TestNG runners. */
 public abstract class BaseRunner {
   protected static final String ENCODING = "UTF-8";
   // This is to be extended when introducing new information into the result .xml file and allow
@@ -186,12 +181,13 @@ public abstract class BaseRunner {
 
   private String stackTraceToString(Throwable exc) {
     StringWriter writer = new StringWriter();
-    exc.printStackTrace(new PrintWriter(writer, /* autoFlush */true));
+    exc.printStackTrace(new PrintWriter(writer, /* autoFlush */ true)); // NOPMD no Guava
     return writer.toString();
   }
 
   /**
    * Expected arguments are:
+   *
    * <ul>
    *   <li>(string) output directory
    *   <li>(long) default timeout in milliseconds (0 for no timeout)
@@ -279,7 +275,7 @@ public abstract class BaseRunner {
       // is designed to execute all tests and produce a report of success or failure.  We've done
       // that successfully if we've gotten here.
       exitCode = 0;
-    } catch (Throwable e){
+    } catch (Throwable e) {
       e.printStackTrace();
       // We're using a failed exit code here because something in the test runner crashed. We can't
       // tell whether there were still tests left to be run, so it's safest if we fail.

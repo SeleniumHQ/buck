@@ -20,6 +20,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.relinker.Symbols;
+import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -31,53 +32,66 @@ import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Optional;
 import java.util.zip.ZipFile;
+import org.tukaani.xz.XZInputStream;
 
 public class AndroidNdkHelper {
 
   private AndroidNdkHelper() {}
 
+  public static final AndroidBuckConfig DEFAULT_CONFIG =
+      new AndroidBuckConfig(FakeBuckConfig.builder().build(), Platform.detect());
+
   public static NdkCxxPlatform getNdkCxxPlatform(
-      ProjectWorkspace workspace,
-      ProjectFilesystem filesystem) throws IOException, InterruptedException {
+      ProjectWorkspace workspace, ProjectFilesystem filesystem)
+      throws IOException, InterruptedException {
     // TODO(cjhopman): is this really the simplest way to get the objdump tool?
-    AndroidDirectoryResolver androidResolver = new DefaultAndroidDirectoryResolver(
-        workspace.asCell().getRoot().getFileSystem(),
-        ImmutableMap.copyOf(System.getenv()),
-        Optional.empty(),
-        Optional.empty());
+    AndroidDirectoryResolver androidResolver =
+        new DefaultAndroidDirectoryResolver(
+            workspace.asCell().getRoot().getFileSystem(),
+            ImmutableMap.copyOf(System.getenv()),
+            Optional.empty(),
+            Optional.empty());
 
     Optional<Path> ndkPath = androidResolver.getNdkOrAbsent();
     assertTrue(ndkPath.isPresent());
     Optional<String> ndkVersion =
-      DefaultAndroidDirectoryResolver.findNdkVersionFromDirectory(ndkPath.get());
+        DefaultAndroidDirectoryResolver.findNdkVersionFromDirectory(ndkPath.get());
     String gccVersion = NdkCxxPlatforms.getDefaultGccVersionForNdk(ndkVersion);
 
-    ImmutableCollection<NdkCxxPlatform> platforms = NdkCxxPlatforms.getPlatforms(
-        CxxPlatformUtils.DEFAULT_CONFIG,
-        filesystem,
-        ndkPath.get(),
-        NdkCxxPlatformCompiler.builder()
-            .setType(NdkCxxPlatforms.DEFAULT_COMPILER_TYPE)
-            .setVersion(gccVersion)
-            .setGccVersion(gccVersion)
-            .build(),
-        NdkCxxPlatforms.DEFAULT_CXX_RUNTIME,
-        NdkCxxPlatforms.DEFAULT_TARGET_APP_PLATFORM,
-        NdkCxxPlatforms.DEFAULT_CPU_ABIS,
-        Platform.detect()).values();
+    ImmutableCollection<NdkCxxPlatform> platforms =
+        NdkCxxPlatforms.getPlatforms(
+                CxxPlatformUtils.DEFAULT_CONFIG,
+                AndroidNdkHelper.DEFAULT_CONFIG,
+                filesystem,
+                ndkPath.get(),
+                NdkCxxPlatformCompiler.builder()
+                    .setType(NdkCxxPlatforms.DEFAULT_COMPILER_TYPE)
+                    .setVersion(gccVersion)
+                    .setGccVersion(gccVersion)
+                    .build(),
+                NdkCxxPlatforms.DEFAULT_CXX_RUNTIME,
+                NdkCxxPlatforms.DEFAULT_TARGET_APP_PLATFORM,
+                NdkCxxPlatforms.DEFAULT_CPU_ABIS,
+                Platform.detect())
+            .values();
     assertFalse(platforms.isEmpty());
     return platforms.iterator().next();
   }
 
   private static Path unzip(Path tmpDir, Path zipPath, String name) throws IOException {
-    Path outPath = tmpDir.resolve(zipPath.getFileName());
+    File nameFile = new File(name);
+    Path outPath = tmpDir.resolve(zipPath.getFileName() + "_" + nameFile.getName());
     try (ZipFile zipFile = new ZipFile(zipPath.toFile())) {
       Files.copy(
           zipFile.getInputStream(zipFile.getEntry(name)),
@@ -94,10 +108,7 @@ public class AndroidNdkHelper {
     private final SourcePathResolver resolver;
 
     public SymbolGetter(
-        ProcessExecutor executor,
-        Path tmpDir,
-        Tool objdump,
-        SourcePathResolver resolver) {
+        ProcessExecutor executor, Path tmpDir, Tool objdump, SourcePathResolver resolver) {
       this.executor = executor;
       this.tmpDir = tmpDir;
       this.objdump = objdump;
@@ -109,16 +120,64 @@ public class AndroidNdkHelper {
       return unzip(tmpDir, apkPath, libName);
     }
 
-    public Symbols getSymbols(Path apkPath, String libName)
-          throws IOException, InterruptedException {
+    private void advanceStream(InputStream stream, int bytes) throws IOException {
+      byte[] buf = new byte[bytes];
+      int read = stream.read(buf, 0, bytes);
+      if (read != bytes) {
+        throw new IOException("unable to read " + bytes + " bytes");
+      }
+    }
+
+    public Symbols getDynamicSymbols(Path apkPath, String libName)
+        throws IOException, InterruptedException {
       Path lib = unpack(apkPath, libName);
-      return Symbols.getSymbols(executor, objdump, resolver, lib);
+      return Symbols.getDynamicSymbols(executor, objdump, resolver, lib);
+    }
+
+    public Symbols getNormalSymbols(Path apkPath, String libName)
+        throws IOException, InterruptedException {
+      Path lib = unpack(apkPath, libName);
+      return Symbols.getNormalSymbols(executor, objdump, resolver, lib);
+    }
+
+    public Symbols getDynamicSymbolsFromFile(Path sharedObject)
+        throws IOException, InterruptedException {
+      return Symbols.getDynamicSymbols(executor, objdump, resolver, sharedObject);
+    }
+
+    public Symbols getNormalSymbolsFromFile(Path sharedObject)
+        throws IOException, InterruptedException {
+      return Symbols.getNormalSymbols(executor, objdump, resolver, sharedObject);
+    }
+
+    public Symbols getXzsSymbols(Path apkPath, String libName, String xzsName, String metadataName)
+        throws IOException, InterruptedException {
+      Path xzs = unpack(apkPath, xzsName);
+      Path metadata = unpack(apkPath, metadataName);
+      Path lib = tmpDir.resolve(libName);
+      try (BufferedReader metadataReader = new BufferedReader(new FileReader(metadata.toFile()))) {
+        try (XZInputStream xzInput =
+            new XZInputStream(new FileInputStream(xzs.toFile()), -1, false)) {
+          String line = metadataReader.readLine();
+          while (line != null) {
+            String[] tokens = line.split(" ");
+            File metadataFile = new File(tokens[0]);
+            if (metadataFile.getName().equals(libName)) {
+              break;
+            }
+            advanceStream(xzInput, Integer.parseInt(tokens[1]));
+            line = metadataReader.readLine();
+          }
+          Files.copy(xzInput, lib, StandardCopyOption.REPLACE_EXISTING);
+        }
+      }
+      return Symbols.getDynamicSymbols(executor, objdump, resolver, lib);
     }
 
     public SymbolsAndDtNeeded getSymbolsAndDtNeeded(Path apkPath, String libName)
         throws IOException, InterruptedException {
       Path lib = unpack(apkPath, libName);
-      Symbols symbols = Symbols.getSymbols(executor, objdump, resolver, lib);
+      Symbols symbols = Symbols.getDynamicSymbols(executor, objdump, resolver, lib);
       ImmutableSet<String> dtNeeded = Symbols.getDtNeeded(executor, objdump, resolver, lib);
       return new SymbolsAndDtNeeded(symbols, dtNeeded);
     }
@@ -133,5 +192,4 @@ public class AndroidNdkHelper {
       this.dtNeeded = dtNeeded;
     }
   }
-
 }

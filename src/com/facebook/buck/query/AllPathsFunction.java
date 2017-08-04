@@ -36,16 +36,14 @@ import com.facebook.buck.query.QueryEnvironment.QueryFunction;
 import com.facebook.buck.util.MoreSets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.ListeningExecutorService;
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Set;
 
 /**
- * A allpaths(from, to) expression, which computes all paths between the
- * build targets in the set 'from' and the build targets in the set 'to',
- * by following the dependencies between nodes in the target graph.
+ * A allpaths(from, to) expression, which computes all paths between the build targets in the set
+ * 'from' and the build targets in the set 'to', by following the dependencies between nodes in the
+ * target graph.
  *
  * <pre>expr ::= ALLPATHS '(' expr ',' expr ')'</pre>
  */
@@ -54,8 +52,7 @@ public class AllPathsFunction implements QueryFunction {
   private static final ImmutableList<ArgumentType> ARGUMENT_TYPES =
       ImmutableList.of(ArgumentType.EXPRESSION, ArgumentType.EXPRESSION);
 
-  public AllPathsFunction() {
-  }
+  public AllPathsFunction() {}
 
   @Override
   public String getName() {
@@ -74,14 +71,13 @@ public class AllPathsFunction implements QueryFunction {
 
   @Override
   public ImmutableSet<QueryTarget> eval(
-      QueryEnvironment env,
-      ImmutableList<Argument> args,
-      ListeningExecutorService executor) throws QueryException, InterruptedException {
+      QueryEvaluator evaluator, QueryEnvironment env, ImmutableList<Argument> args)
+      throws QueryException {
     QueryExpression from = args.get(0).getExpression();
     QueryExpression to = args.get(1).getExpression();
 
-    Set<QueryTarget> fromSet = from.eval(env, executor);
-    Set<QueryTarget> toSet = to.eval(env, executor);
+    Set<QueryTarget> fromSet = evaluator.eval(from, env);
+    Set<QueryTarget> toSet = evaluator.eval(to, env);
 
     // Algorithm:
     // 1) compute "reachableFromX", the forward transitive closure of the "from" set;
@@ -89,7 +85,7 @@ public class AllPathsFunction implements QueryFunction {
     //    the reverse dependencies. This will effectively compute the intersection between the nodes
     //    reachable from the "from" set and the reverse transitive closure of the "to" set.
 
-    env.buildTransitiveClosure(fromSet, Integer.MAX_VALUE, executor);
+    env.buildTransitiveClosure(fromSet, Integer.MAX_VALUE);
 
     Set<QueryTarget> reachableFromX = env.getTransitiveClosure(fromSet);
     Set<QueryTarget> result = MoreSets.intersection(reachableFromX, toSet);
@@ -105,5 +101,4 @@ public class AllPathsFunction implements QueryFunction {
     }
     return ImmutableSet.copyOf(result);
   }
-
 }

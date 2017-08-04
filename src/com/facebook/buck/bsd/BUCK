@@ -1,11 +1,10 @@
-standard_java_library(
+java_immutables_library(
     name = "bsd",
-    immutable_types = [
-        "UnixArchiveEntry",
-    ],
+    srcs = glob(["*.java"]),
     tests = [
         "//test/com/facebook/buck/bsd:bsd",
     ],
+    visibility = ["PUBLIC"],
     deps = [
         "//src/com/facebook/buck/charset:charset",
         "//src/com/facebook/buck/util:exceptions",

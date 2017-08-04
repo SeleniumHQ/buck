@@ -16,55 +16,58 @@
 
 package com.facebook.buck.android.aapt;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-
 import java.nio.file.Path;
 
-public class MergeAndroidResourceSources extends AbstractBuildRule {
+public class MergeAndroidResourceSources extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private final Path destinationDirectory;
   private final Path tempDirectory;
 
-  @AddToRuleKey
-  private final ImmutableCollection<SourcePath> originalDirectories;
+  @AddToRuleKey private final ImmutableCollection<SourcePath> originalDirectories;
 
   public MergeAndroidResourceSources(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       ImmutableCollection<SourcePath> directories) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.originalDirectories = directories;
-    this.destinationDirectory = BuildTargets.getGenPath(
-        getProjectFilesystem(),
-        buildRuleParams.getBuildTarget(),
-        "__merged_resources_%s__");
-    this.tempDirectory = BuildTargets.getScratchPath(
-        getProjectFilesystem(),
-        buildRuleParams.getBuildTarget(),
-        "__merged_resources_%s_tmp__");
+    this.destinationDirectory =
+        BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "__merged_resources_%s__");
+    this.tempDirectory =
+        BuildTargets.getScratchPath(
+            getProjectFilesystem(), buildTarget, "__merged_resources_%s_tmp__");
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), destinationDirectory));
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), destinationDirectory)));
     steps.add(
         MergeAndroidResourceSourcesStep.builder()
             .setResPaths(
-                originalDirectories.stream()
+                originalDirectories
+                    .stream()
                     .map(context.getSourcePathResolver()::getAbsolutePath)
                     .collect(MoreCollectors.toImmutableList()))
             .setOutFolderPath(getProjectFilesystem().resolve(destinationDirectory))

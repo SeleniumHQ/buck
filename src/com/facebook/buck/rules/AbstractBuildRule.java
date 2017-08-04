@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-present Facebook, Inc.
+ * Copyright 2017-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -21,8 +21,6 @@ import com.facebook.buck.model.BuildTarget;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Objects;
 
 /**
@@ -31,29 +29,13 @@ import java.util.Objects;
  * an {@link com.facebook.buck.artifact_cache.ArtifactCache} to avoid doing any computation.
  */
 public abstract class AbstractBuildRule implements BuildRule {
-
   private final BuildTarget buildTarget;
-  private final Supplier<ImmutableSortedSet<BuildRule>> declaredDeps;
-  private final Supplier<ImmutableSortedSet<BuildRule>> extraDeps;
-  private final Supplier<ImmutableSortedSet<BuildRule>> buildDeps;
-  private final ImmutableSortedSet<BuildRule> targetGraphOnlyDeps;
   private final ProjectFilesystem projectFilesystem;
+  private final Supplier<String> typeSupplier = Suppliers.memoize(this::getTypeForClass);
 
-  private final Supplier<String> typeSupplier = Suppliers.memoize(
-      this::getTypeForClass);
-
-  protected AbstractBuildRule(BuildRuleParams buildRuleParams) {
-    this.buildTarget = buildRuleParams.getBuildTarget();
-    this.declaredDeps = buildRuleParams.getDeclaredDeps();
-    this.extraDeps = buildRuleParams.getExtraDeps();
-    this.buildDeps = buildRuleParams.getTotalBuildDeps();
-    this.targetGraphOnlyDeps = buildRuleParams.getTargetGraphOnlyDeps();
-    this.projectFilesystem = buildRuleParams.getProjectFilesystem();
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return BuildableProperties.NONE;
+  protected AbstractBuildRule(BuildTarget buildTarget, ProjectFilesystem projectFilesystem) {
+    this.buildTarget = buildTarget;
+    this.projectFilesystem = projectFilesystem;
   }
 
   @Override
@@ -62,23 +44,8 @@ public abstract class AbstractBuildRule implements BuildRule {
   }
 
   @Override
-  public final ImmutableSortedSet<BuildRule> getBuildDeps() {
-    return buildDeps.get();
-  }
-
-  public final ImmutableSortedSet<BuildRule> getDeclaredDeps() {
-    return declaredDeps.get();
-  }
-
-  public final ImmutableSortedSet<BuildRule> deprecatedGetExtraDeps() {
-    return extraDeps.get();
-  }
-
-  /**
-   * See {@link TargetNode#getTargetGraphOnlyDeps}.
-   */
-  public final ImmutableSortedSet<BuildRule> getTargetGraphOnlyDeps() {
-    return targetGraphOnlyDeps;
+  public final ProjectFilesystem getProjectFilesystem() {
+    return projectFilesystem;
   }
 
   @Override
@@ -91,30 +58,12 @@ public abstract class AbstractBuildRule implements BuildRule {
     if (clazz.isAnonymousClass()) {
       clazz = clazz.getSuperclass();
     }
-    return CaseFormat
-        .UPPER_CAMEL
-        .to(CaseFormat.LOWER_UNDERSCORE, clazz.getSimpleName())
-        .intern();
+    return CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, clazz.getSimpleName()).intern();
   }
 
   @Override
-  public final ProjectFilesystem getProjectFilesystem() {
-    return projectFilesystem;
-  }
-
-  @Override
-  public final boolean equals(Object obj) {
-    if (!(obj instanceof AbstractBuildRule)) {
-      return false;
-    }
-    AbstractBuildRule that = (AbstractBuildRule) obj;
-    return Objects.equals(this.buildTarget, that.buildTarget) &&
-        Objects.equals(this.getType(), that.getType());
-  }
-
-  @Override
-  public final int hashCode() {
-    return this.buildTarget.hashCode();
+  public boolean isCacheable() {
+    return true;
   }
 
   @Override
@@ -123,8 +72,17 @@ public abstract class AbstractBuildRule implements BuildRule {
   }
 
   @Override
-  public boolean isCacheable() {
-    return true;
+  public final boolean equals(Object obj) {
+    if (!(obj instanceof AbstractBuildRule)) {
+      return false;
+    }
+    AbstractBuildRule that = (AbstractBuildRule) obj;
+    return Objects.equals(this.buildTarget, that.buildTarget)
+        && Objects.equals(this.getType(), that.getType());
   }
 
+  @Override
+  public final int hashCode() {
+    return this.buildTarget.hashCode();
+  }
 }

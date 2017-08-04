@@ -20,25 +20,35 @@ import static com.facebook.buck.jvm.java.JavaCompilationConstants.ANDROID_JAVAC_
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_CONFIG;
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_OPTIONS;
 
+import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
+import com.facebook.buck.jvm.kotlin.KotlinBuckConfig;
+import com.facebook.buck.jvm.scala.ScalaBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
-
 import java.util.Optional;
 
-public class RobolectricTestBuilder extends AbstractNodeBuilder<
-    RobolectricTestDescription.Arg,
-    RobolectricTestDescription,
-    RobolectricTest> {
+public class RobolectricTestBuilder
+    extends AbstractNodeBuilder<
+        RobolectricTestDescriptionArg.Builder, RobolectricTestDescriptionArg,
+        RobolectricTestDescription, RobolectricTest> {
 
-  private RobolectricTestBuilder(BuildTarget target) {
+  public static final AndroidLibraryCompilerFactory DEFAULT_ANDROID_COMPILER_FACTORY =
+      new DefaultAndroidLibraryCompilerFactory(
+          DEFAULT_JAVA_CONFIG,
+          new ScalaBuckConfig(FakeBuckConfig.builder().build()),
+          new KotlinBuckConfig(FakeBuckConfig.builder().build()));
+
+  private RobolectricTestBuilder(BuildTarget target, JavaBuckConfig javaBuckConfig) {
     super(
         new RobolectricTestDescription(
-            DEFAULT_JAVA_CONFIG,
+            javaBuckConfig,
             DEFAULT_JAVA_OPTIONS,
             ANDROID_JAVAC_OPTIONS,
             /* testRuleTimeoutMs */ Optional.empty(),
-            null),
+            null,
+            DEFAULT_ANDROID_COMPILER_FACTORY),
         target);
   }
 
@@ -49,29 +59,33 @@ public class RobolectricTestBuilder extends AbstractNodeBuilder<
             DEFAULT_JAVA_OPTIONS,
             ANDROID_JAVAC_OPTIONS,
             /* testRuleTimeoutMs */ Optional.empty(),
-            null),
+            null,
+            DEFAULT_ANDROID_COMPILER_FACTORY),
         target,
         filesystem);
   }
 
   public static RobolectricTestBuilder createBuilder(BuildTarget target) {
-    return new RobolectricTestBuilder(target);
+    return new RobolectricTestBuilder(target, DEFAULT_JAVA_CONFIG);
   }
 
   public static RobolectricTestBuilder createBuilder(
-      BuildTarget target,
-      ProjectFilesystem filesystem) {
+      BuildTarget target, JavaBuckConfig javaBuckConfig) {
+    return new RobolectricTestBuilder(target, javaBuckConfig);
+  }
+
+  public static RobolectricTestBuilder createBuilder(
+      BuildTarget target, ProjectFilesystem filesystem) {
     return new RobolectricTestBuilder(target, filesystem);
   }
 
   public RobolectricTestBuilder addDep(BuildTarget rule) {
-    arg.deps = amend(arg.deps, rule);
+    getArgForPopulating().addDeps(rule);
     return this;
   }
 
   public RobolectricTestBuilder addProvidedDep(BuildTarget rule) {
-    arg.providedDeps = amend(arg.providedDeps, rule);
+    getArgForPopulating().addProvidedDeps(rule);
     return this;
   }
-
 }

@@ -18,18 +18,21 @@ package com.facebook.buck.d;
 
 import com.facebook.buck.cxx.CxxBuckConfig;
 import com.facebook.buck.cxx.CxxLink;
-import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -37,19 +40,18 @@ import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionRoot;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import org.immutables.value.Value;
 
-
-public class DBinaryDescription implements
-    Description<DBinaryDescription.Arg>,
-    ImplicitDepsInferringDescription<DBinaryDescription.Arg>,
-    VersionRoot<DBinaryDescription.Arg> {
+public class DBinaryDescription
+    implements Description<DBinaryDescriptionArg>,
+        ImplicitDepsInferringDescription<DBinaryDescription.AbstractDBinaryDescriptionArg>,
+        VersionRoot<DBinaryDescriptionArg> {
 
   public static final Flavor BINARY_FLAVOR = InternalFlavor.of("binary");
 
@@ -58,70 +60,70 @@ public class DBinaryDescription implements
   private final CxxPlatform cxxPlatform;
 
   public DBinaryDescription(
-      DBuckConfig dBuckConfig,
-      CxxBuckConfig cxxBuckConfig,
-      CxxPlatform cxxPlatform) {
+      DBuckConfig dBuckConfig, CxxBuckConfig cxxBuckConfig, CxxPlatform cxxPlatform) {
     this.dBuckConfig = dBuckConfig;
     this.cxxBuckConfig = cxxBuckConfig;
     this.cxxPlatform = cxxPlatform;
   }
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<DBinaryDescriptionArg> getConstructorArgType() {
+    return DBinaryDescriptionArg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
       CellPathResolver cellRoots,
-      A args)
+      DBinaryDescriptionArg args)
       throws NoSuchBuildTargetException {
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     SymlinkTree sourceTree =
         buildRuleResolver.addToIndex(
             DDescriptionUtils.createSourceSymlinkTree(
-                DDescriptionUtils.getSymlinkTreeTarget(params.getBuildTarget()),
-                params,
-                ruleFinder,
+                DDescriptionUtils.getSymlinkTreeTarget(buildTarget),
+                buildTarget,
+                projectFilesystem,
                 pathResolver,
-                args.srcs));
+                args.getSrcs()));
 
     // Create a rule that actually builds the binary, and add that
     // rule to the index.
     CxxLink nativeLinkable =
         DDescriptionUtils.createNativeLinkable(
-            params.withAppendedFlavor(BINARY_FLAVOR),
+            buildTarget.withAppendedFlavors(BINARY_FLAVOR),
+            projectFilesystem,
+            params,
             buildRuleResolver,
             cxxPlatform,
             dBuckConfig,
             cxxBuckConfig,
             /* compilerFlags */ ImmutableList.of(),
-            args.srcs,
-            args.linkerFlags,
+            args.getSrcs(),
+            args.getLinkerFlags(),
             DIncludes.builder()
                 .setLinkTree(sourceTree.getSourcePathToOutput())
-                .addAllSources(args.srcs.getPaths())
+                .addAllSources(args.getSrcs().getPaths())
                 .build());
     buildRuleResolver.addToIndex(nativeLinkable);
 
     // Create a Tool for the executable.
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
-    executableBuilder.addArg(
-        SourcePathArg.of(
-            nativeLinkable.getSourcePathToOutput()));
+    executableBuilder.addArg(SourcePathArg.of(nativeLinkable.getSourcePathToOutput()));
 
     // Return a BinaryBuildRule implementation, so that this works
     // with buck run etc.
     return new DBinary(
-        params.copyReplacingExtraDeps(
-            Suppliers.ofInstance(ImmutableSortedSet.of(nativeLinkable))),
-        ruleFinder,
+        buildTarget,
+        projectFilesystem,
+        params.withExtraDeps(ImmutableSortedSet.of(nativeLinkable)),
         executableBuilder.build(),
         nativeLinkable.getSourcePathToOutput());
   }
@@ -130,7 +132,7 @@ public class DBinaryDescription implements
   public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg,
+      AbstractDBinaryDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     extraDepsBuilder.addAll(cxxPlatform.getLd().getParseTimeDeps());
@@ -141,11 +143,11 @@ public class DBinaryDescription implements
     return true;
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends AbstractDescriptionArg {
-    public SourceList srcs;
-    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
-    public ImmutableList<String> linkerFlags = ImmutableList.of();
-  }
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractDBinaryDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps {
+    SourceList getSrcs();
 
+    ImmutableList<String> getLinkerFlags();
+  }
 }

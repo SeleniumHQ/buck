@@ -16,34 +16,37 @@
 
 package com.facebook.buck.message_ipc;
 
-import com.facebook.buck.shell.WorkerJobResult;
-import com.facebook.buck.shell.WorkerProcess;
+import com.facebook.buck.worker.WorkerJobResult;
+import com.facebook.buck.worker.WorkerProcess;
 import com.google.common.base.Preconditions;
 
 public class MessageTransport implements AutoCloseable {
   private final WorkerProcess workerProcess;
   private final MessageSerializer serializer;
+  private final Runnable onClose;
   private boolean isClosed = false;
 
-  public MessageTransport(WorkerProcess workerProcess, MessageSerializer serializer) {
+  public MessageTransport(
+      WorkerProcess workerProcess, MessageSerializer serializer, Runnable onClose) {
     this.workerProcess = workerProcess;
     this.serializer = serializer;
+    this.onClose = onClose;
   }
 
-  public ReturnResultMessage sendMessageAndWaitForResponse(
-      InvocationMessage message)
+  public ReturnResultMessage sendMessageAndWaitForResponse(InvocationMessage message)
       throws Exception {
     checkNotClose();
     String serializedMessage = serializer.serializeInvocation(message);
+    workerProcess.ensureLaunchAndHandshake();
     WorkerJobResult result = workerProcess.submitAndWaitForJob(serializedMessage);
     ReturnResultMessage resultMessage = serializer.deserializeResult(result.getStdout().orElse(""));
     return resultMessage;
   }
 
   @Override
-  public void close() throws Exception {
+  public void close() {
     checkNotClose();
-    workerProcess.close();
+    onClose.run();
     isClosed = true;
   }
 
@@ -51,6 +54,7 @@ public class MessageTransport implements AutoCloseable {
     Preconditions.checkState(
         !isClosed,
         "%s <%d> is already closed",
-        this.getClass().getSimpleName(), System.identityHashCode(this));
+        this.getClass().getSimpleName(),
+        System.identityHashCode(this));
   }
 }

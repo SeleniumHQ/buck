@@ -21,7 +21,6 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.google.common.base.Function;
-
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -37,10 +36,7 @@ public class FindAndReplaceStep implements Step {
   private final Function<String, String> replacer;
 
   public FindAndReplaceStep(
-      ProjectFilesystem filesystem,
-      Path input,
-      Path output,
-      Function<String, String> replacer) {
+      ProjectFilesystem filesystem, Path input, Path output, Function<String, String> replacer) {
     this.filesystem = filesystem;
     this.input = input;
     this.output = output;
@@ -48,20 +44,18 @@ public class FindAndReplaceStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
-    try (BufferedReader reader = new BufferedReader(
-             new InputStreamReader(filesystem.newFileInputStream(input)));
-         BufferedWriter writer = new BufferedWriter(
-             new OutputStreamWriter(filesystem.newFileOutputStream(output)))) {
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
+    try (BufferedReader reader =
+            new BufferedReader(new InputStreamReader(filesystem.newFileInputStream(input)));
+        BufferedWriter writer =
+            new BufferedWriter(new OutputStreamWriter(filesystem.newFileOutputStream(output)))) {
       String line;
       while ((line = reader.readLine()) != null) {
         line = replacer.apply(line);
         writer.write(line, 0, line.length());
         writer.newLine();
       }
-    } catch (IOException e) {
-      context.logError(e, "error replacing %s -> %s", input, output);
-      return StepExecutionResult.ERROR;
     }
     return StepExecutionResult.SUCCESS;
   }
@@ -75,5 +69,4 @@ public class FindAndReplaceStep implements Step {
   public String getDescription(ExecutionContext context) {
     return String.format("sed %s %s", input, output);
   }
-
 }

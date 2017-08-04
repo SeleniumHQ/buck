@@ -21,13 +21,14 @@ import com.facebook.buck.artifact_cache.DirCacheEntry;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-
+import com.facebook.buck.util.MoreCollectors;
 import java.io.File;
 import java.io.FileFilter;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -36,10 +37,8 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveAction;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Cleans out any unwanted IntelliJ IDEA project files.
- */
-  public class IJProjectCleaner {
+/** Cleans out any unwanted IntelliJ IDEA project files. */
+public class IJProjectCleaner {
 
   private static final Logger LOG = Logger.get(IJProjectCleaner.class);
 
@@ -60,13 +59,22 @@ import java.util.concurrent.TimeUnit;
     this.projectFilesystem = projectFilesystem;
   }
 
-  /**
-   * @param path The path to not include in the cleaning operation.
-   */
+  /** @param path The path to not include in the cleaning operation. */
   public void doNotDelete(Path path) {
     filesToKeep.add(convertPathToFile(path));
   }
 
+  public void writeFilesToKeepToFile(String filename) throws IOException {
+    Files.write(
+        projectFilesystem.resolve(filename),
+        filesToKeep
+            .stream()
+            .map(File::getAbsolutePath)
+            .map(Paths::get)
+            .map(projectFilesystem::relativize)
+            .map(Path::toString)
+            .collect(MoreCollectors.toImmutableSortedSet()));
+  }
 
   private File convertPathToFile(Path path) {
     if (!path.isAbsolute()) {
@@ -81,9 +89,9 @@ import java.util.concurrent.TimeUnit;
   }
 
   /**
-   * We shouldn't use all the processors available because this can bog down the system,
-   * but using n/2 with an upper limit of 4 as the thread limit should give us enough
-   * threads to keep SSDs busy whilst not bogging down systems with slow rotating disks.
+   * We shouldn't use all the processors available because this can bog down the system, but using
+   * n/2 with an upper limit of 4 as the thread limit should give us enough threads to keep SSDs
+   * busy whilst not bogging down systems with slow rotating disks.
    */
   private int getParallelismLimit() {
     int limit = Math.max(Runtime.getRuntime().availableProcessors() / 2, 4);
@@ -112,28 +120,27 @@ import java.util.concurrent.TimeUnit;
 
     ForkJoinPool cleanExecutor = new ForkJoinPool(getParallelismLimit());
     try {
-      cleanExecutor.invoke(new RecursiveAction() {
-        @Override
-        protected void compute() {
-          List<RecursiveAction> topLevelTasks = new ArrayList<>(2);
-          if (runPostGenerationCleaner) {
-            topLevelTasks.add(new CandidateFinderWithExclusions(
-                convertPathToFile(projectFilesystem.resolve("")),
-                IML_FILENAME_FILTER,
-                buckDirectories));
-          }
-          topLevelTasks.add(new CandidateFinder(
-              convertPathToFile(librariesXmlBase),
-              XML_FILENAME_FILTER));
-          invokeAll(topLevelTasks);
-        }
-      });
+      cleanExecutor.invoke(
+          new RecursiveAction() {
+            @Override
+            protected void compute() {
+              List<RecursiveAction> topLevelTasks = new ArrayList<>(2);
+              if (runPostGenerationCleaner) {
+                topLevelTasks.add(
+                    new CandidateFinderWithExclusions(
+                        convertPathToFile(projectFilesystem.resolve("")),
+                        IML_FILENAME_FILTER,
+                        buckDirectories));
+              }
+              topLevelTasks.add(
+                  new CandidateFinder(convertPathToFile(librariesXmlBase), XML_FILENAME_FILTER));
+              invokeAll(topLevelTasks);
+            }
+          });
     } finally {
       cleanExecutor.shutdown();
       try {
-        cleanExecutor.awaitTermination(
-            EXECUTOR_SHUTDOWN_TIMEOUT,
-            EXECUTOR_SHUTDOWN_TIME_UNIT);
+        cleanExecutor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT, EXECUTOR_SHUTDOWN_TIME_UNIT);
       } catch (InterruptedException e) {
         Logger.get(IJProjectCleaner.class).warn("Timeout during executor shutdown.", e);
       }
@@ -214,9 +221,7 @@ import java.util.concurrent.TimeUnit;
     Set<File> exclusions;
 
     CandidateFinderWithExclusions(
-        File directory,
-        FilenameFilter filenameFilter,
-        Set<File> exclusions) {
+        File directory, FilenameFilter filenameFilter, Set<File> exclusions) {
       super(directory, filenameFilter);
       this.exclusions = exclusions;
     }

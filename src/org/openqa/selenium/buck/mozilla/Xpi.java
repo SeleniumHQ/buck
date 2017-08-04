@@ -18,8 +18,11 @@ package org.openqa.selenium.buck.mozilla;
 
 import static com.facebook.buck.zip.ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -36,12 +39,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
-
 import javax.annotation.Nullable;
 
-public class Xpi extends AbstractBuildRule {
+public class Xpi extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private final Path scratch;
   private final Path output;
@@ -59,6 +60,8 @@ public class Xpi extends AbstractBuildRule {
   private final ImmutableSortedSet<SourcePath> platforms;
 
   public Xpi(
+      BuildTarget target,
+      ProjectFilesystem filesystem,
       BuildRuleParams params,
       SourcePath chrome,
       ImmutableSortedSet<SourcePath> components,
@@ -66,7 +69,7 @@ public class Xpi extends AbstractBuildRule {
       SourcePath install,
       ImmutableSortedSet<SourcePath> resources,
       ImmutableSortedSet<SourcePath> platforms) {
-    super(params);
+    super(target, filesystem, params);
 
     this.chrome = Preconditions.checkNotNull(chrome);
     this.components = Preconditions.checkNotNull(components);
@@ -89,7 +92,11 @@ public class Xpi extends AbstractBuildRule {
       BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), scratch));
+    steps.addAll(MakeCleanDirectoryStep.of(
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(),
+            getProjectFilesystem(),
+            scratch)));
 
     steps.add(
         CopyStep.forFile(
@@ -105,22 +112,42 @@ public class Xpi extends AbstractBuildRule {
     SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
 
     Path contentDir = scratch.resolve("content");
-    steps.add(MkdirStep.of(getProjectFilesystem(), contentDir));
-    bundler.copy(getProjectFilesystem(), context.getSourcePathResolver(), steps, contentDir, content);
+    steps.add(MkdirStep.of(
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(),
+            getProjectFilesystem(),
+            contentDir)));
+    bundler.copy(getProjectFilesystem(), context, steps, contentDir, content);
 
     Path componentDir = scratch.resolve("components");
-    steps.add(MkdirStep.of(getProjectFilesystem(), componentDir));
-    bundler.copy(getProjectFilesystem(), context.getSourcePathResolver(), steps, componentDir, components);
+    steps.add(MkdirStep.of(
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(),
+            getProjectFilesystem(),
+            componentDir)));
+    bundler.copy(getProjectFilesystem(), context, steps, componentDir, components);
 
     Path platformDir = scratch.resolve("platform");
-    steps.add(MkdirStep.of(getProjectFilesystem(), platformDir));
-    bundler.copy(getProjectFilesystem(), context.getSourcePathResolver(), steps, platformDir, platforms);
+    steps.add(MkdirStep.of(
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(),
+            getProjectFilesystem(),
+            platformDir)));
+    bundler.copy(getProjectFilesystem(), context, steps, platformDir, platforms);
 
     Path resourceDir = scratch.resolve("resource");
-    steps.add(MkdirStep.of(getProjectFilesystem(), resourceDir));
-    bundler.copy(getProjectFilesystem(), context.getSourcePathResolver(), steps, resourceDir, resources);
+    steps.add(MkdirStep.of(
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(),
+            getProjectFilesystem(),
+            resourceDir)));
+    bundler.copy(getProjectFilesystem(), context, steps, resourceDir, resources);
 
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), output.getParent()));
+    steps.addAll(MakeCleanDirectoryStep.of(
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(),
+            getProjectFilesystem(),
+            output.getParent())));
     steps.add(
         new ZipStep(
             getProjectFilesystem(),

@@ -19,13 +19,13 @@ package com.facebook.buck.file;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -36,7 +36,8 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
-
+import java.net.URI;
+import java.nio.file.Path;
 import org.hamcrest.CoreMatchers;
 import org.hamcrest.Matchers;
 import org.junit.Before;
@@ -44,13 +45,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import java.nio.file.Path;
-import java.util.Optional;
-
 public class RemoteFileDescriptionTest {
 
-  @Rule
-  public ExpectedException exception = ExpectedException.none();
+  @Rule public ExpectedException exception = ExpectedException.none();
 
   private Downloader downloader;
   private RemoteFileDescription description;
@@ -62,51 +59,65 @@ public class RemoteFileDescriptionTest {
     downloader = new ExplodingDownloader();
     description = new RemoteFileDescription(downloader);
     filesystem = new FakeProjectFilesystem();
-    ruleResolver = new BuildRuleResolver(
-        TargetGraph.EMPTY,
-        new DefaultTargetNodeToBuildRuleTransformer());
+    ruleResolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
   }
 
   @Test
-  public void badSha1HasUseableException() throws NoSuchBuildTargetException {
+  public void badSha1HasUseableException() throws Exception {
     BuildTarget target = BuildTargetFactory.newInstance("//cheese:cake");
 
-    RemoteFileDescription.Arg arg = description.createUnpopulatedConstructorArg();
-    arg.sha1 = "";
+    RemoteFileDescriptionArg arg =
+        RemoteFileDescriptionArg.builder()
+            .setName(target.getShortName())
+            .setSha1("")
+            .setUrl(new URI("https://example.com/cheeeeeese-cake"))
+            .build();
 
     exception.expect(HumanReadableException.class);
     exception.expectMessage(Matchers.containsString(target.getFullyQualifiedName()));
 
     description.createBuildRule(
         TargetGraph.EMPTY,
+        target,
+        filesystem,
         RemoteFileBuilder.createBuilder(downloader, target)
-            .createBuildRuleParams(ruleResolver, filesystem),
+            .from(arg)
+            .createBuildRuleParams(ruleResolver),
         ruleResolver,
         TestCellBuilder.createCellRoots(filesystem),
         arg);
   }
 
   @Test
-  public void remoteFileBinaryRuleIsCreatedForExecutableType() throws NoSuchBuildTargetException {
+  public void remoteFileBinaryRuleIsCreatedForExecutableType() throws Exception {
     BuildTarget target = BuildTargetFactory.newInstance("//mmmm:kale");
 
-    RemoteFileDescription.Arg arg = description.createUnpopulatedConstructorArg();
-    arg.type = Optional.of(RemoteFile.Type.EXECUTABLE);
-    arg.sha1 = "cf23df2207d99a74fbe169e3eba035e633b65d94";
-    arg.out = Optional.of("kale");
+    RemoteFileDescriptionArg arg =
+        RemoteFileDescriptionArg.builder()
+            .setName(target.getShortName())
+            .setType(RemoteFile.Type.EXECUTABLE)
+            .setSha1("cf23df2207d99a74fbe169e3eba035e633b65d94")
+            .setOut("kale")
+            .setUrl(new URI("https://example.com/tasty-kale"))
+            .build();
 
-    BuildRule buildRule = description.createBuildRule(
-        TargetGraph.EMPTY,
-        RemoteFileBuilder.createBuilder(downloader, target)
-            .createBuildRuleParams(ruleResolver, filesystem),
-        ruleResolver,
-        TestCellBuilder.createCellRoots(filesystem),
-        arg);
+    BuildRule buildRule =
+        description.createBuildRule(
+            TargetGraph.EMPTY,
+            target,
+            filesystem,
+            RemoteFileBuilder.createBuilder(downloader, target)
+                .from(arg)
+                .createBuildRuleParams(ruleResolver),
+            ruleResolver,
+            TestCellBuilder.createCellRoots(filesystem),
+            arg);
     ruleResolver.addToIndex(buildRule);
 
     assertThat(buildRule, CoreMatchers.instanceOf(RemoteFileBinary.class));
     SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
     Tool executableCommand = ((RemoteFileBinary) buildRule).getExecutableCommand();
     assertThat(executableCommand.getInputs(), Matchers.hasSize(1));
     SourcePath input = Iterables.getOnlyElement(executableCommand.getInputs());

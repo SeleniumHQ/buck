@@ -1,12 +1,11 @@
-standard_java_library(
+java_immutables_library(
     name = "aapt",
-    immutable_types = [
-        "MergeAndroidResourceSourcesStep",
-    ],
+    srcs = glob(["*.java"]),
     tests = [
         "//test/com/facebook/buck/android:unit",
         "//test/com/facebook/buck/android/aapt:aapt",
     ],
+    visibility = ["PUBLIC"],
     deps = [
         "//src/com/facebook/buck/android:steps",
         "//src/com/facebook/buck/event:event",
@@ -16,10 +15,12 @@ standard_java_library(
         "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/model:model",
         "//src/com/facebook/buck/rules:build_rule",
+        "//src/com/facebook/buck/rules:source_path",
         "//src/com/facebook/buck/shell:steps",
         "//src/com/facebook/buck/step:step",
         "//src/com/facebook/buck/step/fs:fs",
         "//src/com/facebook/buck/util:util",
+        "//src/com/facebook/buck/util/xml:xml",
         "//third-party/java/android:tools-sdk-common",
         "//third-party/java/aosp:aosp",
     ],

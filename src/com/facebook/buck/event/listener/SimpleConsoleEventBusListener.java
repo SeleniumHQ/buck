@@ -40,7 +40,6 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.eventbus.Subscribe;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.HashSet;
@@ -80,20 +79,26 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
       TestResultSummaryVerbosity summaryVerbosity,
       Locale locale,
       Path testLogPath,
+      String buildId,
       ExecutionEnvironment executionEnvironment) {
     super(console, clock, locale, executionEnvironment);
     this.locale = locale;
     this.parseTime = new AtomicLong(0);
 
-    this.testFormatter = new TestResultFormatter(
-        console.getAnsi(),
-        console.getVerbosity(),
-        summaryVerbosity,
-        locale,
-        Optional.of(testLogPath));
+    this.testFormatter =
+        new TestResultFormatter(
+            console.getAnsi(),
+            console.getVerbosity(),
+            summaryVerbosity,
+            locale,
+            Optional.of(testLogPath));
 
     this.renderScheduler = Executors.newScheduledThreadPool(1,
         new ThreadFactoryBuilder().setNameFormat(getClass().getSimpleName() + "-%d").build());
+
+    ImmutableList.Builder<String> buildMetaDataLines = ImmutableList.builder();
+    buildMetaDataLines.add("Build ID: " + buildId);
+    printLines(buildMetaDataLines);
   }
 
   public void startRenderScheduler(long renderInterval, TimeUnit timeUnit) {
@@ -127,14 +132,15 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
       return;
     }
     ImmutableList.Builder<String> lines = ImmutableList.builder();
-    this.parseTime.set(logEventPair(
-        "PARSING BUCK FILES",
-        /* suffix */ Optional.empty(),
-        clock.currentTimeMillis(),
-        0L,
-        buckFilesProcessing.values(),
-        getEstimatedProgressOfProcessingBuckFiles(),
-        lines));
+    this.parseTime.set(
+        logEventPair(
+            "PARSING BUCK FILES",
+            /* suffix */ Optional.empty(),
+            clock.currentTimeMillis(),
+            0L,
+            buckFilesProcessing.values(),
+            getEstimatedProgressOfProcessingBuckFiles(),
+            lines));
     printLines(lines);
   }
 
@@ -147,19 +153,15 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     }
     long currentMillis = clock.currentTimeMillis();
     ImmutableList.Builder<String> lines = ImmutableList.builder();
-    long buildStartedTime = buildStarted != null
-        ? buildStarted.getTimestamp()
-        : Long.MAX_VALUE;
-    long buildFinishedTime = buildFinished != null
-        ? buildFinished.getTimestamp()
-        : currentMillis;
-    Collection<EventPair> processingEvents = getEventsBetween(buildStartedTime,
-        buildFinishedTime,
-        buckFilesProcessing.values());
+    long buildStartedTime = buildStarted != null ? buildStarted.getTimestamp() : Long.MAX_VALUE;
+    long buildFinishedTime = buildFinished != null ? buildFinished.getTimestamp() : currentMillis;
+    Collection<EventPair> processingEvents =
+        getEventsBetween(buildStartedTime, buildFinishedTime, buckFilesProcessing.values());
+
     long offsetMs = getTotalCompletedTimeFromEventPairs(processingEvents);
     logEventPair(
         "BUILDING",
-        /* suffix */ Optional.empty(),
+        getOptionalBuildLineSuffix(),
         currentMillis,
         offsetMs,
         buildStarted,
@@ -171,6 +173,8 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     if (httpArtifactUploadsScheduledCount.get() > 0) {
       lines.add("WAITING FOR HTTP CACHE UPLOADS " + httpStatus);
     }
+
+    lines.add(getNetworkStatsLine(finished));
 
     printLines(lines);
   }
@@ -197,9 +201,10 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
 
   @Subscribe
   public void logEvent(ConsoleEvent event) {
-    if (console.getVerbosity().isSilent() &&
-        !event.getLevel().equals(Level.WARNING) &&
-        !event.getLevel().equals(Level.SEVERE)) {
+    if (console.getVerbosity().isSilent()
+        && !event.getLevel().equals(Level.WARNING)
+        && !event.getLevel().equals(Level.SEVERE)) {
+
       return;
     }
     ImmutableList.Builder<String> lines = ImmutableList.builder();
@@ -309,31 +314,25 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     super.buildRuleFinished(finished);
     removeRunningTarget(finished);
 
-    if (finished.getStatus() != BuildRuleStatus.SUCCESS ||
-        console.getVerbosity().isSilent()) {
+    if (finished.getStatus() != BuildRuleStatus.SUCCESS || console.getVerbosity().isSilent()) {
       return;
     }
 
-    long timeToRender = finished.getDuration().getWallMillisDuration();
-
     String jobsInfo = "";
     if (ruleCount.isPresent()) {
-      jobsInfo = String.format(
-          locale,
-          "%d/%d JOBS",
-          numRulesCompleted.get(),
-          ruleCount.get());
+      jobsInfo = String.format(locale, "%d/%d JOBS", numRulesCompleted.get(), ruleCount.get());
     }
-    String line = String.format(
-        locale,
-        "%s %s %s %s",
-        finished.getResultString(),
-        jobsInfo,
-        formatElapsedTime(timeToRender),
-        finished.getBuildRule().getFullyQualifiedName());
+    String line =
+        String.format(
+            locale,
+            "%s %s %s %s",
+            finished.getResultString(),
+            jobsInfo,
+            formatElapsedTime(finished.getDuration().getWallMillisDuration()),
+            finished.getBuildRule().getFullyQualifiedName());
 
-    if (BUILT_LOCALLY.equals(finished.getSuccessType().orElse(null)) ||
-        console.getVerbosity().shouldPrintBinaryRunInformation()) {
+    if (BUILT_LOCALLY.equals(finished.getSuccessType().orElse(null))
+        || console.getVerbosity().shouldPrintBinaryRunInformation()) {
       console.getStdErr().println(line);
     }
   }

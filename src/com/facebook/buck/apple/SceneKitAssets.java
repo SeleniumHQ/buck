@@ -16,10 +16,13 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -35,38 +38,34 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
 
-public class SceneKitAssets extends AbstractBuildRule {
+public class SceneKitAssets extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   public static final Flavor FLAVOR = InternalFlavor.of("scenekit-assets");
 
-  @AddToRuleKey
-  private final Optional<Tool> copySceneKitAssets;
+  @AddToRuleKey private final Optional<Tool> copySceneKitAssets;
 
-  @AddToRuleKey
-  private final ImmutableSet<SourcePath> sceneKitAssetsPaths;
+  @AddToRuleKey private final ImmutableSet<SourcePath> sceneKitAssetsPaths;
 
-  @AddToRuleKey
-  private final String sdkName;
+  @AddToRuleKey private final String sdkName;
 
-  @AddToRuleKey
-  private final String minOSVersion;
+  @AddToRuleKey private final String minOSVersion;
 
   private final Path outputDir;
 
   SceneKitAssets(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       AppleCxxPlatform appleCxxPlatform,
       ImmutableSet<SourcePath> sceneKitAssetsPaths) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.sceneKitAssetsPaths = sceneKitAssetsPaths;
     String outputDirString =
-        BuildTargets.getGenPath(getProjectFilesystem(), params.getBuildTarget(), "%s")
-            .toString();
+        BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "%s").toString();
     this.outputDir = Paths.get(outputDirString);
     this.sdkName = appleCxxPlatform.getAppleSdk().getName();
     this.minOSVersion = appleCxxPlatform.getMinVersion();
@@ -77,7 +76,10 @@ public class SceneKitAssets extends AbstractBuildRule {
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> stepsBuilder = ImmutableList.builder();
-    stepsBuilder.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), outputDir));
+    stepsBuilder.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), outputDir)));
     for (SourcePath inputPath : sceneKitAssetsPaths) {
       final Path absoluteInputPath = context.getSourcePathResolver().getAbsolutePath(inputPath);
 
@@ -95,7 +97,8 @@ public class SceneKitAssets extends AbstractBuildRule {
                     "-o",
                     getProjectFilesystem()
                         .resolve(outputDir)
-                        .resolve(absoluteInputPath.getFileName()).toString(),
+                        .resolve(absoluteInputPath.getFileName())
+                        .toString(),
                     "--target-platform=" + sdkName,
                     "--target-version=" + minOSVersion);
 

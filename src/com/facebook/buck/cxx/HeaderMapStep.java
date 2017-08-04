@@ -24,7 +24,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
@@ -38,9 +37,7 @@ public class HeaderMapStep implements Step {
   private final ImmutableMap<Path, Path> entries;
 
   public HeaderMapStep(
-      ProjectFilesystem filesystem,
-      Path output,
-      ImmutableMap<Path, Path> entries) {
+      ProjectFilesystem filesystem, Path output, ImmutableMap<Path, Path> entries) {
     this.filesystem = filesystem;
     this.output = output;
     this.entries = entries;
@@ -57,7 +54,8 @@ public class HeaderMapStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) throws IOException {
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
     LOG.debug("Writing header map with %d entries to %s", entries.size(), output);
     HeaderMap.Builder builder = HeaderMap.builder();
     for (Map.Entry<Path, Path> entry : entries.entrySet()) {
@@ -81,5 +79,4 @@ public class HeaderMapStep implements Step {
   public int hashCode() {
     return Objects.hashCode(output, entries);
   }
-
 }

@@ -16,27 +16,22 @@
 
 package com.facebook.buck.d;
 
-import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
+import com.facebook.buck.cxx.platform.CxxPlatform;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
-
+import com.facebook.buck.rules.coercer.SourceList;
 import java.util.Optional;
 
 public class DTestBuilder
-    extends AbstractNodeBuilder<DTestDescription.Arg, DTestDescription, DTest> {
+    extends AbstractNodeBuilder<
+        DTestDescriptionArg.Builder, DTestDescriptionArg, DTestDescription, DTest> {
 
-  public DTestBuilder(
-      BuildTarget target,
-      DBuckConfig dBuckConfig,
-      CxxPlatform defaultCxxPlatform) {
+  public DTestBuilder(BuildTarget target, DBuckConfig dBuckConfig, CxxPlatform defaultCxxPlatform) {
     super(
         new DTestDescription(
-            dBuckConfig,
-            CxxPlatformUtils.DEFAULT_CONFIG,
-            defaultCxxPlatform,
-            Optional.empty()),
+            dBuckConfig, CxxPlatformUtils.DEFAULT_CONFIG, defaultCxxPlatform, Optional.empty()),
         target);
+    getArgForPopulating().setSrcs(SourceList.EMPTY);
   }
-
 }

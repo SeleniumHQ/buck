@@ -136,14 +136,6 @@
 {/template}
 
 /***/
-{template .cache_http_cache_names}
-{call .entry_link}
-  {param section: 'cache' /}
-  {param entry: 'http_cache_names' /}
-{/call}
-{/template}
-
-/***/
 {template .cache_mode}
 {call .entry_link}
   {param section: 'cache' /}
@@ -164,6 +156,30 @@
 {call .entry_link}
   {param section: 'cxx' /}
   {param entry: 'gtest_dep' /}
+{/call}
+{/template}
+
+/***/
+{template .kotlin_kotlinc}
+{call .entry_link}
+  {param section: 'kotlin' /}
+  {param entry: 'kotlinc' /}
+{/call}
+{/template}
+
+/***/
+{template .kotlin_external}
+{call .entry_link}
+  {param section: 'kotlin' /}
+  {param entry: 'external' /}
+{/call}
+{/template}
+
+/***/
+{template .kotlin_kotlin_home}
+{call .entry_link}
+  {param section: 'kotlin' /}
+  {param entry: 'kotlin_home' /}
 {/call}
 {/template}
 
@@ -259,6 +275,46 @@
 {call .entry_link}
     {param section: 'java' /}
     {param entry: 'src_roots' /}
+{/call}
+{/template}
+
+/***/
+{template .android_build_tools_version}
+{call .entry_link}
+    {param section: 'android' /}
+    {param entry: 'build_tools_version' /}
+{/call}
+{/template}
+
+/***/
+{template .android_target}
+{call .entry_link}
+    {param section: 'android' /}
+    {param entry: 'target' /}
+{/call}
+{/template}
+
+/***/
+{template .ndk_version}
+{call .entry_link}
+    {param section: 'ndk' /}
+    {param entry: 'ndk_version' /}
+{/call}
+{/template}
+
+/***/
+{template .default_android_manifest_path}
+{call .entry_link}
+    {param section: 'intellij' /}
+    {param entry: 'default_android_manifest_path' /}
+{/call}
+{/template}
+
+/***/
+{template .generate_android_manifest}
+{call .entry_link}
+    {param section: 'intellij' /}
+    {param entry: 'generate_android_manifest' /}
 {/call}
 {/template}
 

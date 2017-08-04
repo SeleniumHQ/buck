@@ -16,21 +16,22 @@
 
 package com.facebook.buck.python;
 
-import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorConvertible;
 import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.HasTests;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.python.PythonLibraryDescription.Arg;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.coercer.Hint;
+import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.HasTests;
 import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -38,20 +39,22 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionPropagator;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
+import org.immutables.value.Value;
 
 public class PythonLibraryDescription
-    implements Description<Arg>, VersionPropagator<Arg>, MetadataProvidingDescription<Arg> {
+    implements Description<PythonLibraryDescriptionArg>,
+        VersionPropagator<PythonLibraryDescriptionArg>,
+        MetadataProvidingDescription<PythonLibraryDescriptionArg> {
 
   private final FlavorDomain<PythonPlatform> pythonPlatforms;
   private final FlavorDomain<CxxPlatform> cxxPlatforms;
@@ -60,112 +63,119 @@ public class PythonLibraryDescription
       FlavorDomain.from("Python Metadata Type", MetadataType.class);
 
   public PythonLibraryDescription(
-      FlavorDomain<PythonPlatform> pythonPlatforms,
-      FlavorDomain<CxxPlatform> cxxPlatforms) {
+      FlavorDomain<PythonPlatform> pythonPlatforms, FlavorDomain<CxxPlatform> cxxPlatforms) {
     this.pythonPlatforms = pythonPlatforms;
     this.cxxPlatforms = cxxPlatforms;
   }
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<PythonLibraryDescriptionArg> getConstructorArgType() {
+    return PythonLibraryDescriptionArg.class;
   }
 
   @Override
-  public <A extends Arg> PythonLibrary createBuildRule(
+  public PythonLibrary createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) {
-    return new PythonLibrary(params, resolver);
+      PythonLibraryDescriptionArg args) {
+    return new PythonLibrary(buildTarget, projectFilesystem, params, resolver);
   }
 
   @Override
-  public <A extends Arg, U> Optional<U> createMetadata(
+  public <U> Optional<U> createMetadata(
       BuildTarget buildTarget,
       BuildRuleResolver resolver,
-      A args,
+      CellPathResolver cellRoots,
+      PythonLibraryDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       Class<U> metadataClass)
       throws NoSuchBuildTargetException {
 
-    Map.Entry<Flavor, MetadataType> type =
-        METADATA_TYPE.getFlavorAndValue(buildTarget).orElseThrow(IllegalArgumentException::new);
+    Optional<Map.Entry<Flavor, MetadataType>> optionalType =
+        METADATA_TYPE.getFlavorAndValue(buildTarget);
+    if (!optionalType.isPresent()) {
+      return Optional.empty();
+    }
+
+    Map.Entry<Flavor, MetadataType> type = optionalType.get();
+
     BuildTarget baseTarget = buildTarget.withoutFlavors(type.getKey());
     switch (type.getValue()) {
+      case PACKAGE_COMPONENTS:
+        {
+          Map.Entry<Flavor, PythonPlatform> pythonPlatform =
+              pythonPlatforms
+                  .getFlavorAndValue(baseTarget)
+                  .orElseThrow(IllegalArgumentException::new);
+          Map.Entry<Flavor, CxxPlatform> cxxPlatform =
+              cxxPlatforms.getFlavorAndValue(baseTarget).orElseThrow(IllegalArgumentException::new);
+          baseTarget = buildTarget.withoutFlavors(pythonPlatform.getKey(), cxxPlatform.getKey());
 
-      case PACKAGE_COMPONENTS: {
-        Map.Entry<Flavor, PythonPlatform> pythonPlatform =
-            pythonPlatforms.getFlavorAndValue(baseTarget)
-                .orElseThrow(IllegalArgumentException::new);
-        Map.Entry<Flavor, CxxPlatform> cxxPlatform =
-            cxxPlatforms.getFlavorAndValue(baseTarget)
-                .orElseThrow(IllegalArgumentException::new);
-        baseTarget = buildTarget.withoutFlavors(pythonPlatform.getKey(), cxxPlatform.getKey());
+          SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+          SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+          Path baseModule = PythonUtil.getBasePath(baseTarget, args.getBaseModule());
+          PythonPackageComponents components =
+              PythonPackageComponents.of(
+                  PythonUtil.getModules(
+                      baseTarget,
+                      resolver,
+                      ruleFinder,
+                      pathResolver,
+                      pythonPlatform.getValue(),
+                      cxxPlatform.getValue(),
+                      "srcs",
+                      baseModule,
+                      args.getSrcs(),
+                      args.getPlatformSrcs(),
+                      args.getVersionedSrcs(),
+                      selectedVersions),
+                  PythonUtil.getModules(
+                      baseTarget,
+                      resolver,
+                      ruleFinder,
+                      pathResolver,
+                      pythonPlatform.getValue(),
+                      cxxPlatform.getValue(),
+                      "resources",
+                      baseModule,
+                      args.getResources(),
+                      args.getPlatformResources(),
+                      args.getVersionedResources(),
+                      selectedVersions),
+                  ImmutableMap.of(),
+                  ImmutableSet.of(),
+                  args.getZipSafe());
 
-        SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-        SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
-        Path baseModule = PythonUtil.getBasePath(baseTarget, args.baseModule);
-        PythonPackageComponents components =
-            PythonPackageComponents.of(
-                PythonUtil.getModules(
-                    baseTarget,
-                    resolver,
-                    ruleFinder,
-                    pathResolver,
-                    pythonPlatform.getValue(),
-                    cxxPlatform.getValue(),
-                    "srcs",
-                    baseModule,
-                    args.srcs,
-                    args.platformSrcs,
-                    args.versionedSrcs,
-                    selectedVersions),
-                PythonUtil.getModules(
-                    baseTarget,
-                    resolver,
-                    ruleFinder,
-                    pathResolver,
-                    pythonPlatform.getValue(),
-                    cxxPlatform.getValue(),
-                    "resources",
-                    baseModule,
-                    args.resources,
-                    args.platformResources,
-                    args.versionedResources,
-                    selectedVersions),
-                ImmutableMap.of(),
-                ImmutableSet.of(),
-                args.zipSafe);
+          return Optional.of(components).map(metadataClass::cast);
+        }
 
-        return Optional.of(components).map(metadataClass::cast);
-      }
-
-      case PACKAGE_DEPS: {
-        Map.Entry<Flavor, PythonPlatform> pythonPlatform =
-            pythonPlatforms.getFlavorAndValue(baseTarget)
-                .orElseThrow(IllegalArgumentException::new);
-        Map.Entry<Flavor, CxxPlatform> cxxPlatform =
-            cxxPlatforms.getFlavorAndValue(baseTarget)
-                .orElseThrow(IllegalArgumentException::new);
-        baseTarget = buildTarget.withoutFlavors(pythonPlatform.getKey(), cxxPlatform.getKey());
-        ImmutableList<BuildTarget> depTargets =
-            PythonUtil.getDeps(
-                pythonPlatform.getValue(),
-                cxxPlatform.getValue(),
-                args.deps,
-                args.platformDeps);
-        return Optional.of(resolver.getAllRules(depTargets)).map(metadataClass::cast);
-      }
-
+      case PACKAGE_DEPS:
+        {
+          Map.Entry<Flavor, PythonPlatform> pythonPlatform =
+              pythonPlatforms
+                  .getFlavorAndValue(baseTarget)
+                  .orElseThrow(IllegalArgumentException::new);
+          Map.Entry<Flavor, CxxPlatform> cxxPlatform =
+              cxxPlatforms.getFlavorAndValue(baseTarget).orElseThrow(IllegalArgumentException::new);
+          baseTarget = buildTarget.withoutFlavors(pythonPlatform.getKey(), cxxPlatform.getKey());
+          ImmutableList<BuildTarget> depTargets =
+              PythonUtil.getDeps(
+                  pythonPlatform.getValue(),
+                  cxxPlatform.getValue(),
+                  args.getDeps(),
+                  args.getPlatformDeps());
+          return Optional.of(resolver.getAllRules(depTargets)).map(metadataClass::cast);
+        }
     }
 
     throw new IllegalStateException();
   }
 
   enum MetadataType implements FlavorConvertible {
-
     PACKAGE_COMPONENTS(InternalFlavor.of("package-components")),
     PACKAGE_DEPS(InternalFlavor.of("package-deps")),
     ;
@@ -176,33 +186,48 @@ public class PythonLibraryDescription
       this.flavor = flavor;
     }
 
-
     @Override
     public Flavor getFlavor() {
       return flavor;
     }
-
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends AbstractDescriptionArg implements HasTests {
-    public SourceList srcs = SourceList.EMPTY;
-    public Optional<VersionMatchedCollection<SourceList>> versionedSrcs = Optional.empty();
-    public PatternMatchedCollection<SourceList> platformSrcs = PatternMatchedCollection.of();
-    public SourceList resources = SourceList.EMPTY;
-    public Optional<VersionMatchedCollection<SourceList>> versionedResources;
-    public PatternMatchedCollection<SourceList> platformResources = PatternMatchedCollection.of();
-    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
-    public PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> platformDeps =
-        PatternMatchedCollection.of();
-    public Optional<String> baseModule = Optional.empty();
-    public Optional<Boolean> zipSafe = Optional.empty();
-    @Hint(isDep = false) public ImmutableSortedSet<BuildTarget> tests = ImmutableSortedSet.of();
-
-    @Override
-    public ImmutableSortedSet<BuildTarget> getTests() {
-      return tests;
+  interface CoreArg extends CommonDescriptionArg, HasDeclaredDeps, HasTests {
+    @Value.Default
+    default SourceList getSrcs() {
+      return SourceList.EMPTY;
     }
+
+    Optional<VersionMatchedCollection<SourceList>> getVersionedSrcs();
+
+    @Value.Default
+    default PatternMatchedCollection<SourceList> getPlatformSrcs() {
+      return PatternMatchedCollection.of();
+    }
+
+    @Value.Default
+    default SourceList getResources() {
+      return SourceList.EMPTY;
+    }
+
+    Optional<VersionMatchedCollection<SourceList>> getVersionedResources();
+
+    @Value.Default
+    default PatternMatchedCollection<SourceList> getPlatformResources() {
+      return PatternMatchedCollection.of();
+    }
+
+    @Value.Default
+    default PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> getPlatformDeps() {
+      return PatternMatchedCollection.of();
+    }
+
+    Optional<String> getBaseModule();
+
+    Optional<Boolean> getZipSafe();
   }
 
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractPythonLibraryDescriptionArg extends CoreArg {}
 }

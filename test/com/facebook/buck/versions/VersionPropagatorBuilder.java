@@ -16,36 +16,35 @@
 
 package com.facebook.buck.versions;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.HasTests;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.coercer.Hint;
+import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.HasTests;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.AbstractMap;
 import java.util.Map;
 import java.util.Optional;
+import org.immutables.value.Value;
 
 public class VersionPropagatorBuilder
-    extends
-    AbstractNodeBuilder<
-        VersionPropagatorBuilder.Arg,
-        VersionPropagatorBuilder.VersionPropagatorDescription,
-        BuildRule> {
+    extends AbstractNodeBuilder<
+        VersionPropagatorDescriptionArg.Builder, VersionPropagatorDescriptionArg,
+        VersionPropagatorBuilder.VersionPropagatorDescription, BuildRule> {
 
   public VersionPropagatorBuilder(BuildTarget target) {
-    super(
-        new VersionPropagatorDescription(),
-        target);
+    super(new VersionPropagatorDescription(), target);
   }
 
   public VersionPropagatorBuilder(String target) {
@@ -53,7 +52,7 @@ public class VersionPropagatorBuilder
   }
 
   public VersionPropagatorBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
-    arg.deps = deps;
+    getArgForPopulating().setDeps(deps);
     return this;
   }
 
@@ -67,7 +66,7 @@ public class VersionPropagatorBuilder
 
   public VersionPropagatorBuilder setVersionedDeps(
       ImmutableSortedMap<BuildTarget, Optional<Constraint>> deps) {
-    arg.versionedDeps = deps;
+    getArgForPopulating().setVersionedDeps(deps);
     return this;
   }
 
@@ -80,48 +79,41 @@ public class VersionPropagatorBuilder
   public VersionPropagatorBuilder setVersionedDeps(String target, Constraint constraint) {
     return setVersionedDeps(
         new AbstractMap.SimpleEntry<>(
-            BuildTargetFactory.newInstance(target),
-            Optional.of(constraint)));
+            BuildTargetFactory.newInstance(target), Optional.of(constraint)));
   }
 
   public VersionPropagatorBuilder setTests(ImmutableSortedSet<BuildTarget> tests) {
-    arg.tests = tests;
+    getArgForPopulating().setTests(tests);
     return this;
   }
 
-  public static class Arg implements HasTests {
-
-    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
-    public ImmutableSortedMap<BuildTarget, Optional<Constraint>> versionedDeps =
-        ImmutableSortedMap.of();
-
-    @Hint(isDep = false)
-    public ImmutableSortedSet<BuildTarget> tests = ImmutableSortedSet.of();
-
-    @Override
-    public ImmutableSortedSet<BuildTarget> getTests() {
-      return tests;
-    }
-
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractVersionPropagatorDescriptionArg
+      extends CommonDescriptionArg, HasDeclaredDeps, HasTests {
+    @Value.NaturalOrder
+    ImmutableSortedMap<BuildTarget, Optional<Constraint>> getVersionedDeps();
   }
 
-  public static class VersionPropagatorDescription implements VersionPropagator<Arg> {
+  public static class VersionPropagatorDescription
+      implements VersionPropagator<VersionPropagatorDescriptionArg> {
 
     @Override
-    public Arg createUnpopulatedConstructorArg() {
-      return new Arg();
+    public Class<VersionPropagatorDescriptionArg> getConstructorArgType() {
+      return VersionPropagatorDescriptionArg.class;
     }
 
     @Override
-    public <A extends Arg> BuildRule createBuildRule(
+    public BuildRule createBuildRule(
         TargetGraph targetGraph,
+        BuildTarget buildTarget,
+        ProjectFilesystem projectFilesystem,
         BuildRuleParams params,
         BuildRuleResolver resolver,
         CellPathResolver cellRoots,
-        A args) throws NoSuchBuildTargetException {
+        VersionPropagatorDescriptionArg args)
+        throws NoSuchBuildTargetException {
       throw new IllegalStateException();
     }
-
   }
-
 }

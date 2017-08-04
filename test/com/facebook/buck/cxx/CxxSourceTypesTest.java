@@ -20,12 +20,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.cxx.platform.CxxPlatform;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
-/**
- * Unit tests for {@link CxxSourceTypes}.
- */
+/** Unit tests for {@link CxxSourceTypes}. */
 public class CxxSourceTypesTest {
 
   @Test
@@ -119,5 +118,4 @@ public class CxxSourceTypesTest {
         CxxSourceTypes.getCompiler(cxxPlatform, CxxSource.Type.ASM),
         Matchers.is(cxxPlatform.getAsm().get()));
   }
-
 }

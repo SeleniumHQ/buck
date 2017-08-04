@@ -17,8 +17,8 @@
 package com.facebook.buck.python;
 
 import com.facebook.buck.cli.FakeBuckConfig;
-import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPlatformUtils;
+import com.facebook.buck.cxx.platform.CxxPlatform;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
@@ -27,13 +27,16 @@ import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
+import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 
 public class PythonTestBuilder
-    extends AbstractNodeBuilder<PythonTestDescription.Arg, PythonTestDescription, PythonTest> {
+    extends AbstractNodeBuilder<
+        PythonTestDescriptionArg.Builder, PythonTestDescriptionArg, PythonTestDescription,
+        PythonTest> {
 
   protected PythonTestBuilder(
       BuildTarget target,
@@ -59,8 +62,7 @@ public class PythonTestBuilder
   }
 
   public static PythonTestBuilder create(
-      BuildTarget target,
-      FlavorDomain<PythonPlatform> pythonPlatforms) {
+      BuildTarget target, FlavorDomain<PythonPlatform> pythonPlatforms) {
     PythonBuckConfig pythonBuckConfig =
         new PythonBuckConfig(FakeBuckConfig.builder().build(), new ExecutableFinder());
     return new PythonTestBuilder(
@@ -76,66 +78,72 @@ public class PythonTestBuilder
   }
 
   public PythonTestBuilder setSrcs(SourceList srcs) {
-    arg.srcs = srcs;
+    getArgForPopulating().setSrcs(srcs);
     return this;
   }
 
   public PythonTestBuilder setPlatformSrcs(PatternMatchedCollection<SourceList> platformSrcs) {
-    arg.platformSrcs = platformSrcs;
+    getArgForPopulating().setPlatformSrcs(platformSrcs);
     return this;
   }
 
   public PythonTestBuilder setPlatformResources(
       PatternMatchedCollection<SourceList> platformResources) {
-    arg.platformResources = platformResources;
+    getArgForPopulating().setPlatformResources(platformResources);
     return this;
   }
 
   public PythonTestBuilder setBaseModule(String baseModule) {
-    arg.baseModule = Optional.of(baseModule);
+    getArgForPopulating().setBaseModule(Optional.of(baseModule));
     return this;
   }
 
   public PythonTestBuilder setBuildArgs(ImmutableList<String> buildArgs) {
-    arg.buildArgs = buildArgs;
+    getArgForPopulating().setBuildArgs(buildArgs);
     return this;
   }
 
   public PythonTestBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
-    arg.deps = deps;
+    getArgForPopulating().setDeps(deps);
     return this;
   }
 
   public PythonTestBuilder setPlatformDeps(
       PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> deps) {
-    arg.platformDeps = deps;
+    getArgForPopulating().setPlatformDeps(deps);
     return this;
   }
 
   public PythonTestBuilder setPlatform(String platform) {
-    arg.platform = Optional.of(platform);
+    getArgForPopulating().setPlatform(Optional.of(platform));
     return this;
   }
 
   public PythonTestBuilder setCxxPlatform(Flavor platform) {
-    arg.cxxPlatform = Optional.of(platform);
+    getArgForPopulating().setCxxPlatform(Optional.of(platform));
     return this;
   }
 
   public PythonTestBuilder setPackageStyle(PythonBuckConfig.PackageStyle packageStyle) {
-    arg.packageStyle = Optional.of(packageStyle);
+    getArgForPopulating().setPackageStyle(Optional.of(packageStyle));
     return this;
   }
 
   public PythonTestBuilder setVersionedSrcs(VersionMatchedCollection<SourceList> versionedSrcs) {
-    arg.versionedSrcs = Optional.of(versionedSrcs);
+    getArgForPopulating().setVersionedSrcs(Optional.of(versionedSrcs));
     return this;
   }
 
   public PythonTestBuilder setVersionedResources(
       VersionMatchedCollection<SourceList> versionedResources) {
-    arg.versionedResources = Optional.of(versionedResources);
+    getArgForPopulating().setVersionedResources(Optional.of(versionedResources));
     return this;
   }
 
+  @Override
+  public PythonTestBuilder setSelectedVersions(
+      ImmutableMap<BuildTarget, Version> selectedVersions) {
+    super.setSelectedVersions(selectedVersions);
+    return this;
+  }
 }

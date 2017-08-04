@@ -19,11 +19,13 @@ package com.facebook.buck.cxx;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assume.assumeThat;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.cxx.platform.CxxPlatform;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -40,7 +42,10 @@ import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Files;
-
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Collection;
+import java.util.Optional;
 import org.hamcrest.Matchers;
 import org.junit.Assume;
 import org.junit.Before;
@@ -49,43 +54,44 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.junit.runners.Parameterized;
 
-import java.io.IOException;
-import java.nio.file.Path;
-import java.util.Collection;
-import java.util.Optional;
-
 public class CxxPreprocessAndCompileIntegrationTest {
 
   @Parameterized.Parameters(name = "sandbox_sources={0}")
   public static Collection<Object[]> data() {
-    return ImmutableList.of(
-        new Object[] {true},
-        new Object[] {false});
+    return ImmutableList.of(new Object[] {true}, new Object[] {false});
   }
 
   @Parameterized.Parameter(0)
   public boolean sandboxSource;
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths("cxx_pp_and_compile");
+  @Rule public TemporaryPaths tmp_long_pwd = new TemporaryPaths("cxx_pp_and_compiler_long_pwd");
 
   private ProjectWorkspace workspace;
 
-  @Before
-  public void setUp() throws IOException {
-    workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "step_test", tmp);
+  private ProjectWorkspace setupWorkspace(TemporaryPaths tmp) throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "step_test", tmp);
     workspace.setUp();
     workspace.writeContentsToPath(
-        "[cxx]\n" +
-        "  sandbox_sources = " + sandboxSource + "\n" +
-        "  asflags = -g\n" +
-        "  cppflags = -g\n" +
-        "  cflags = -g\n" +
-        "  cxxppflags = -g\n" +
-        "  cxxflags = -g\n" +
-        "[build]\n" +
-        "  depfiles = enabled\n",
+        "[cxx]\n"
+            + "  sandbox_sources = "
+            + sandboxSource
+            + "\n"
+            + "  asflags = -g\n"
+            + "  cppflags = -g\n"
+            + "  cflags = -g\n"
+            + "  cxxppflags = -g\n"
+            + "  cxxflags = -g\n"
+            + "[build]\n"
+            + "  depfiles = enabled\n",
         ".buckconfig");
+    return workspace;
+  }
+
+  @Before
+  public void setUp() throws IOException {
+    workspace = setupWorkspace(tmp);
   }
 
   @Test
@@ -94,11 +100,19 @@ public class CxxPreprocessAndCompileIntegrationTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     workspace.runBuckBuild(target.getFullyQualifiedName()).assertSuccess();
     Path lib = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s/libsimple.a"));
-    String contents =
-        Files.asByteSource(lib.toFile())
-            .asCharSource(Charsets.ISO_8859_1)
-            .read();
+    String contents = Files.asByteSource(lib.toFile()).asCharSource(Charsets.ISO_8859_1).read();
     assertFalse(lib.toString(), contents.contains(tmp.getRoot().toString()));
+
+    // ...
+    ProjectWorkspace longPwdWorkspace = setupWorkspace(tmp_long_pwd);
+    ProjectFilesystem longPwdFilesystem = new FakeProjectFilesystem();
+    longPwdWorkspace.runBuckBuild(target.getFullyQualifiedName()).assertSuccess();
+    Path longPwdLib =
+        longPwdWorkspace.getPath(
+            BuildTargets.getGenPath(longPwdFilesystem, target, "%s/libsimple.a"));
+    String longPwdContents =
+        Files.asByteSource(longPwdLib.toFile()).asCharSource(Charsets.ISO_8859_1).read();
+    assertEquals(contents, longPwdContents);
   }
 
   @Test
@@ -110,15 +124,12 @@ public class CxxPreprocessAndCompileIntegrationTest {
     processResult.assertSuccess();
     Path lib =
         workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s/libsimple_assembly.a"));
-    String contents =
-        Files.asByteSource(lib.toFile())
-            .asCharSource(Charsets.ISO_8859_1)
-            .read();
+    String contents = Files.asByteSource(lib.toFile()).asCharSource(Charsets.ISO_8859_1).read();
     assertFalse(lib.toString(), contents.contains(tmp.getRoot().toString()));
   }
 
   @Test
-  public void sanitizeSymlinkedWorkingDirectory() throws IOException {
+  public void sanitizeSymlinkedWorkingDirectory() throws InterruptedException, IOException {
     TemporaryFolder folder = new TemporaryFolder();
     folder.create();
     ProjectFilesystem filesystem = new ProjectFilesystem(folder.getRoot().toPath());
@@ -141,10 +152,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
 
     // Verify that we still sanitized this path correctly.
     Path lib = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s/libsimple.a"));
-    String contents =
-        Files.asByteSource(lib.toFile())
-            .asCharSource(Charsets.ISO_8859_1)
-            .read();
+    String contents = Files.asByteSource(lib.toFile()).asCharSource(Charsets.ISO_8859_1).read();
     assertFalse(lib.toString(), contents.contains(tmp.getRoot().toString()));
     assertFalse(lib.toString(), contents.contains(symlinkedRoot.toString()));
 
@@ -153,18 +161,15 @@ public class CxxPreprocessAndCompileIntegrationTest {
 
   @Test
   public void inputBasedRuleKeyAvoidsRerunningIfGeneratedSourceDoesNotChange() throws Exception {
-    CxxPlatform cxxPlatform = CxxPlatformUtils.build(
-        new CxxBuckConfig(FakeBuckConfig.builder().build()));
-    BuildTarget target = BuildTargetFactory.newInstance(
-        workspace.getDestPath(),
-        "//:binary_using_generated_source");
+    CxxPlatform cxxPlatform =
+        CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
+    BuildTarget target =
+        BuildTargetFactory.newInstance(workspace.getDestPath(), "//:binary_using_generated_source");
     String unusedGenruleInput = "unused.dat";
     BuildTarget genrule = BuildTargetFactory.newInstance("//:gensource");
     String sourceName = "bar.cpp";
-    CxxSourceRuleFactory cxxSourceRuleFactory = CxxSourceRuleFactoryHelper.of(
-        workspace.getDestPath(),
-        target,
-        cxxPlatform);
+    CxxSourceRuleFactory cxxSourceRuleFactory =
+        CxxSourceRuleFactoryHelper.of(workspace.getDestPath(), target, cxxPlatform);
     BuildTarget compileTarget = cxxSourceRuleFactory.createCompileBuildTarget(sourceName);
 
     // Run the build and verify that the C++ source was compiled.
@@ -174,9 +179,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
         equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     // Now modify the unused genrule input.
-    workspace.writeContentsToPath(
-        "SOMETHING ELSE",
-        unusedGenruleInput);
+    workspace.writeContentsToPath("SOMETHING ELSE", unusedGenruleInput);
 
     // Run the build again and verify that got a matching input-based rule key, and therefore
     // didn't recompile.
@@ -195,18 +198,15 @@ public class CxxPreprocessAndCompileIntegrationTest {
 
   @Test
   public void inputBasedRuleKeyAvoidsRerunningIfGeneratedHeaderDoesNotChange() throws Exception {
-    CxxPlatform cxxPlatform = CxxPlatformUtils.build(
-        new CxxBuckConfig(FakeBuckConfig.builder().build()));
+    CxxPlatform cxxPlatform =
+        CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
     BuildTarget target = BuildTargetFactory.newInstance("//:binary_using_generated_header");
     String unusedGenruleInput = "unused.dat";
     BuildTarget genrule = BuildTargetFactory.newInstance("//:genheader");
     String sourceName = "foo.cpp";
-    CxxSourceRuleFactory cxxSourceRuleFactory = CxxSourceRuleFactoryHelper.of(
-        workspace.getDestPath(),
-        target,
-        cxxPlatform);
-    BuildTarget compileTarget =
-        cxxSourceRuleFactory.createCompileBuildTarget(sourceName);
+    CxxSourceRuleFactory cxxSourceRuleFactory =
+        CxxSourceRuleFactoryHelper.of(workspace.getDestPath(), target, cxxPlatform);
+    BuildTarget compileTarget = cxxSourceRuleFactory.createCompileBuildTarget(sourceName);
 
     // Run the build and verify that the C++ source was compiled.
     workspace.runBuckBuild(target.toString()).assertSuccess();
@@ -215,9 +215,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
         equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     // Now modify the unused genrule input.
-    workspace.writeContentsToPath(
-        "SOMETHING ELSE",
-        unusedGenruleInput);
+    workspace.writeContentsToPath("SOMETHING ELSE", unusedGenruleInput);
 
     // Run the build again and verify that got a matching input-based rule key, and therefore
     // didn't recompile.
@@ -234,10 +232,10 @@ public class CxxPreprocessAndCompileIntegrationTest {
         equalTo(Optional.of(BuildRuleSuccessType.MATCHING_INPUT_BASED_RULE_KEY)));
   }
 
-  private void depfileBasedRuleKeyRebuildsAfterChangeToUsedHeader(
-      boolean disableHeaderSymlinks) throws Exception {
-    CxxPlatform cxxPlatform = CxxPlatformUtils.build(
-        new CxxBuckConfig(FakeBuckConfig.builder().build()));
+  private void depfileBasedRuleKeyRebuildsAfterChangeToUsedHeader(boolean disableHeaderSymlinks)
+      throws Exception {
+    CxxPlatform cxxPlatform =
+        CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
     String targetName =
         "//:binary_with_used_full_header" + (disableHeaderSymlinks ? "_nosymlinks" : "");
     BuildTarget target = BuildTargetFactory.newInstance(targetName);
@@ -250,13 +248,10 @@ public class CxxPreprocessAndCompileIntegrationTest {
     BuckBuildLog.BuildLogEntry firstRunEntry =
         workspace.getBuildLog().getLogEntry(preprocessTarget);
     assertThat(
-        firstRunEntry.getSuccessType(),
-        equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
+        firstRunEntry.getSuccessType(), equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     // Modify the used header.
-    workspace.writeContentsToPath(
-        "static inline int newFunction() { return 20; }",
-        usedHeaderName);
+    workspace.writeContentsToPath("static inline int newFunction() { return 20; }", usedHeaderName);
 
     // Run the build again and verify that we recompiled as the header caused the depfile rule key
     // to change.
@@ -264,13 +259,10 @@ public class CxxPreprocessAndCompileIntegrationTest {
     BuckBuildLog.BuildLogEntry secondRunEntry =
         workspace.getBuildLog().getLogEntry(preprocessTarget);
     assertThat(
-        secondRunEntry.getSuccessType(),
-        equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
+        secondRunEntry.getSuccessType(), equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     // Also, make sure all three rule keys are actually different.
-    assertThat(
-        secondRunEntry.getRuleKey(),
-        Matchers.not(equalTo(firstRunEntry.getRuleKey())));
+    assertThat(secondRunEntry.getRuleKey(), Matchers.not(equalTo(firstRunEntry.getRuleKey())));
   }
 
   @Test
@@ -285,8 +277,8 @@ public class CxxPreprocessAndCompileIntegrationTest {
 
   private void depfileBasedRuleKeyRebuildsAfterChangeToUsedHeaderUsingFileRelativeInclusion(
       boolean disableHeaderSymlinks) throws Exception {
-    CxxPlatform cxxPlatform = CxxPlatformUtils.build(
-        new CxxBuckConfig(FakeBuckConfig.builder().build()));
+    CxxPlatform cxxPlatform =
+        CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
     String targetName =
         "//:binary_with_used_relative_header" + (disableHeaderSymlinks ? "_nosymlinks" : "");
     BuildTarget target = BuildTargetFactory.newInstance(targetName);
@@ -299,13 +291,10 @@ public class CxxPreprocessAndCompileIntegrationTest {
     BuckBuildLog.BuildLogEntry firstRunEntry =
         workspace.getBuildLog().getLogEntry(preprocessTarget);
     assertThat(
-        firstRunEntry.getSuccessType(),
-        equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
+        firstRunEntry.getSuccessType(), equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     // Modify the used header.
-    workspace.writeContentsToPath(
-        "static inline int newFunction() { return 20; }",
-        usedHeaderName);
+    workspace.writeContentsToPath("static inline int newFunction() { return 20; }", usedHeaderName);
 
     // Run the build again and verify that we recompiled as the header caused the depfile rule key
     // to change.
@@ -313,13 +302,10 @@ public class CxxPreprocessAndCompileIntegrationTest {
     BuckBuildLog.BuildLogEntry secondRunEntry =
         workspace.getBuildLog().getLogEntry(preprocessTarget);
     assertThat(
-        secondRunEntry.getSuccessType(),
-        equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
+        secondRunEntry.getSuccessType(), equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     // Also, make sure all three rule keys are actually different.
-    assertThat(
-        secondRunEntry.getRuleKey(),
-        Matchers.not(equalTo(firstRunEntry.getRuleKey())));
+    assertThat(secondRunEntry.getRuleKey(), Matchers.not(equalTo(firstRunEntry.getRuleKey())));
   }
 
   @Test
@@ -331,37 +317,30 @@ public class CxxPreprocessAndCompileIntegrationTest {
   @Test
   public void
       depfileBasedRuleKeyRebuildsAfterChangeToUsedHeaderUsingFileRelativeInclusionNosymlinks()
-      throws Exception {
+          throws Exception {
     depfileBasedRuleKeyRebuildsAfterChangeToUsedHeaderUsingFileRelativeInclusion(true);
   }
 
   private void depfileBasedRuleKeyRebuildsAfterChangeToUsedParentHeaderUsingFileRelativeInclusion(
       boolean disableHeaderSymlinks) throws Exception {
-    CxxPlatform cxxPlatform = CxxPlatformUtils.build(
-        new CxxBuckConfig(FakeBuckConfig.builder().build()));
+    CxxPlatform cxxPlatform =
+        CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
     String targetName =
         "//:binary_with_used_relative_parent_header" + (disableHeaderSymlinks ? "_nosymlinks" : "");
     BuildTarget target = BuildTargetFactory.newInstance(targetName);
     String usedHeaderName = "source_relative_parent_header.h";
     String sourceName = "source_relative_parent_header/source.cpp";
-    BuildTarget preprocessTarget =
-        getPreprocessTarget(
-            cxxPlatform,
-            target,
-            sourceName);
+    BuildTarget preprocessTarget = getPreprocessTarget(cxxPlatform, target, sourceName);
 
     // Run the build and verify that the C++ source was preprocessed.
     workspace.runBuckBuild("--config", "build.depfiles=enabled", target.toString()).assertSuccess();
     BuckBuildLog.BuildLogEntry firstRunEntry =
         workspace.getBuildLog().getLogEntry(preprocessTarget);
     assertThat(
-        firstRunEntry.getSuccessType(),
-        equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
+        firstRunEntry.getSuccessType(), equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     // Modify the used header.
-    workspace.writeContentsToPath(
-        "static inline int newFunction() { return 20; }",
-        usedHeaderName);
+    workspace.writeContentsToPath("static inline int newFunction() { return 20; }", usedHeaderName);
 
     // Run the build again and verify that we recompiled as the header caused the depfile rule key
     // to change.
@@ -369,13 +348,10 @@ public class CxxPreprocessAndCompileIntegrationTest {
     BuckBuildLog.BuildLogEntry secondRunEntry =
         workspace.getBuildLog().getLogEntry(preprocessTarget);
     assertThat(
-        secondRunEntry.getSuccessType(),
-        equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
+        secondRunEntry.getSuccessType(), equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     // Also, make sure all three rule keys are actually different.
-    assertThat(
-        secondRunEntry.getRuleKey(),
-        Matchers.not(equalTo(firstRunEntry.getRuleKey())));
+    assertThat(secondRunEntry.getRuleKey(), Matchers.not(equalTo(firstRunEntry.getRuleKey())));
   }
 
   @Test
@@ -387,14 +363,14 @@ public class CxxPreprocessAndCompileIntegrationTest {
   @Test
   public void
       depfileBasedRuleKeyRebuildsAfterChangeToUsedParentHeaderUsingFileRelativeInclusionNoSymlinks()
-      throws Exception {
+          throws Exception {
     depfileBasedRuleKeyRebuildsAfterChangeToUsedParentHeaderUsingFileRelativeInclusion(true);
   }
 
   private void depfileBasedRuleKeyAvoidsRecompilingAfterChangeToUnusedHeader(
       boolean disableHeaderSymlinks) throws Exception {
-    CxxPlatform cxxPlatform = CxxPlatformUtils.build(
-        new CxxBuckConfig(FakeBuckConfig.builder().build()));
+    CxxPlatform cxxPlatform =
+        CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
     String targetName =
         "//:binary_with_unused_header" + (disableHeaderSymlinks ? "_nosymlinks" : "");
     BuildTarget target = BuildTargetFactory.newInstance(targetName);
@@ -407,13 +383,11 @@ public class CxxPreprocessAndCompileIntegrationTest {
     BuckBuildLog.BuildLogEntry firstRunEntry =
         workspace.getBuildLog().getLogEntry(preprocessTarget);
     assertThat(
-        firstRunEntry.getSuccessType(),
-        equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
+        firstRunEntry.getSuccessType(), equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     // Now modify the unused header.
     workspace.writeContentsToPath(
-        "static inline int newFunction() { return 20; }",
-        unusedHeaderName);
+        "static inline int newFunction() { return 20; }", unusedHeaderName);
 
     // Run the build again and verify that got a matching depfile rule key, and therefore
     // didn't recompile.
@@ -424,11 +398,8 @@ public class CxxPreprocessAndCompileIntegrationTest {
         secondRunEntry.getSuccessType(),
         equalTo(Optional.of(BuildRuleSuccessType.MATCHING_DEP_FILE_RULE_KEY)));
 
-
     // Also, make sure the original rule keys are actually different.
-    assertThat(
-        secondRunEntry.getRuleKey(),
-        Matchers.not(equalTo(firstRunEntry.getRuleKey())));
+    assertThat(secondRunEntry.getRuleKey(), Matchers.not(equalTo(firstRunEntry.getRuleKey())));
   }
 
   @Test
@@ -444,8 +415,8 @@ public class CxxPreprocessAndCompileIntegrationTest {
 
   @Test
   public void manifestCachingRebuildsAfterChangeToUsedHeader() throws Exception {
-    CxxPlatform cxxPlatform = CxxPlatformUtils.build(
-        new CxxBuckConfig(FakeBuckConfig.builder().build()));
+    CxxPlatform cxxPlatform =
+        CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
     BuildTarget target = BuildTargetFactory.newInstance("//:binary_with_used_full_header");
     String usedHeaderName = "source_full_header.h";
     String sourceName = "source_full_header.cpp";
@@ -459,13 +430,10 @@ public class CxxPreprocessAndCompileIntegrationTest {
     BuckBuildLog.BuildLogEntry firstRunEntry =
         workspace.getBuildLog().getLogEntry(preprocessTarget);
     assertThat(
-        firstRunEntry.getSuccessType(),
-        equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
+        firstRunEntry.getSuccessType(), equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     // Modify the used header.
-    workspace.writeContentsToPath(
-        "static inline int newFunction() { return 20; }",
-        usedHeaderName);
+    workspace.writeContentsToPath("static inline int newFunction() { return 20; }", usedHeaderName);
 
     // Clean the build directory, so that we need to go to cache.
     workspace.runBuckCommand("clean");
@@ -476,20 +444,17 @@ public class CxxPreprocessAndCompileIntegrationTest {
     BuckBuildLog.BuildLogEntry secondRunEntry =
         workspace.getBuildLog().getLogEntry(preprocessTarget);
     assertThat(
-        secondRunEntry.getSuccessType(),
-        equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
+        secondRunEntry.getSuccessType(), equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     // Also, make sure all three rule keys are actually different.
-    assertThat(
-        secondRunEntry.getRuleKey(),
-        Matchers.not(equalTo(firstRunEntry.getRuleKey())));
+    assertThat(secondRunEntry.getRuleKey(), Matchers.not(equalTo(firstRunEntry.getRuleKey())));
   }
 
   @Test
   public void manifestCachingRebuildsAfterChangeToUsedHeaderUsingFileRelativeInclusion()
       throws Exception {
-    CxxPlatform cxxPlatform = CxxPlatformUtils.build(
-        new CxxBuckConfig(FakeBuckConfig.builder().build()));
+    CxxPlatform cxxPlatform =
+        CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
     BuildTarget target = BuildTargetFactory.newInstance("//:binary_with_used_relative_header");
     String usedHeaderName = "source_relative_header.h";
     String sourceName = "source_relative_header.cpp";
@@ -503,13 +468,10 @@ public class CxxPreprocessAndCompileIntegrationTest {
     BuckBuildLog.BuildLogEntry firstRunEntry =
         workspace.getBuildLog().getLogEntry(preprocessTarget);
     assertThat(
-        firstRunEntry.getSuccessType(),
-        equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
+        firstRunEntry.getSuccessType(), equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     // Modify the used header.
-    workspace.writeContentsToPath(
-        "static inline int newFunction() { return 20; }",
-        usedHeaderName);
+    workspace.writeContentsToPath("static inline int newFunction() { return 20; }", usedHeaderName);
 
     // Clean the build directory, so that we need to go to cache.
     workspace.runBuckCommand("clean");
@@ -520,19 +482,16 @@ public class CxxPreprocessAndCompileIntegrationTest {
     BuckBuildLog.BuildLogEntry secondRunEntry =
         workspace.getBuildLog().getLogEntry(preprocessTarget);
     assertThat(
-        secondRunEntry.getSuccessType(),
-        equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
+        secondRunEntry.getSuccessType(), equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     // Also, make sure all three rule keys are actually different.
-    assertThat(
-        secondRunEntry.getRuleKey(),
-        Matchers.not(equalTo(firstRunEntry.getRuleKey())));
+    assertThat(secondRunEntry.getRuleKey(), Matchers.not(equalTo(firstRunEntry.getRuleKey())));
   }
 
   @Test
   public void manifestCachingGetsHitAfterChangeToUnusedHeader() throws Exception {
-    CxxPlatform cxxPlatform = CxxPlatformUtils.build(
-        new CxxBuckConfig(FakeBuckConfig.builder().build()));
+    CxxPlatform cxxPlatform =
+        CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
     BuildTarget target = BuildTargetFactory.newInstance("//:binary_with_unused_header");
     String unusedHeaderName = "unused_header.h";
     String sourceName = "source.cpp";
@@ -546,16 +505,14 @@ public class CxxPreprocessAndCompileIntegrationTest {
     BuckBuildLog.BuildLogEntry firstRunEntry =
         workspace.getBuildLog().getLogEntry(preprocessTarget);
     assertThat(
-        firstRunEntry.getSuccessType(),
-        equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
+        firstRunEntry.getSuccessType(), equalTo(Optional.of(BuildRuleSuccessType.BUILT_LOCALLY)));
 
     // Clean the build directory, so that we need to go to cache.
     workspace.runBuckCommand("clean");
 
     // Now modify the unused header.
     workspace.writeContentsToPath(
-        "static inline int newFunction() { return 20; }",
-        unusedHeaderName);
+        "static inline int newFunction() { return 20; }", unusedHeaderName);
 
     // Run the build again and verify that got a matching depfile rule key, and therefore
     // didn't recompile.
@@ -567,18 +524,18 @@ public class CxxPreprocessAndCompileIntegrationTest {
         equalTo(Optional.of(BuildRuleSuccessType.FETCHED_FROM_CACHE_MANIFEST_BASED)));
 
     // Also, make sure the original rule keys are actually different.
-    assertThat(
-        secondRunEntry.getRuleKey(),
-        Matchers.not(equalTo(firstRunEntry.getRuleKey())));
+    assertThat(secondRunEntry.getRuleKey(), Matchers.not(equalTo(firstRunEntry.getRuleKey())));
   }
 
   @Test
   public void parentDirectoryReferenceInSource() throws IOException {
     Assume.assumeFalse("parent directories do not work in sandbox mode", sandboxSource);
     workspace.writeContentsToPath(
-        "[cxx]\n" +
-         "  sandbox_sources = " + sandboxSource + "\n" +
-        "[project]\n  check_package_boundary = false\n",
+        "[cxx]\n"
+            + "  sandbox_sources = "
+            + sandboxSource
+            + "\n"
+            + "[project]\n  check_package_boundary = false\n",
         ".buckconfig");
     workspace.runBuckBuild("//parent_dir_ref:simple#default,static").assertSuccess();
   }
@@ -590,25 +547,32 @@ public class CxxPreprocessAndCompileIntegrationTest {
 
   @Test
   public void binaryBuildRuleTools() throws IOException {
-    workspace.runBuckBuild(
-        "-c", "cxx.cc=//:cc",
-        "-c", "cxx.cc_type=gcc",
-        "-c", "cxx.cpp=//:cc",
-        "-c", "cxx.cpp_type=gcc",
-        "-c", "cxx.cxx=//:cxx",
-        "-c", "cxx.cxx_type=gcc",
-        "-c", "cxx.cxxpp=//:cxx",
-        "-c", "cxx.cxxpp_type=gcc",
-        "//:simple#default,static")
+    workspace
+        .runBuckBuild(
+            "-c",
+            "cxx.cc=//:cc",
+            "-c",
+            "cxx.cc_type=gcc",
+            "-c",
+            "cxx.cpp=//:cc",
+            "-c",
+            "cxx.cpp_type=gcc",
+            "-c",
+            "cxx.cxx=//:cxx",
+            "-c",
+            "cxx.cxx_type=gcc",
+            "-c",
+            "cxx.cxxpp=//:cxx",
+            "-c",
+            "cxx.cxxpp_type=gcc",
+            "//:simple#default,static")
         .assertSuccess();
   }
 
   @Test
   public void ignoreVerifyHeaders() throws IOException {
-    ProjectWorkspace.ProcessResult result = workspace.runBuckBuild(
-        "-c",
-        "cxx.untracked_headers=ignore",
-        "//:untracked_header");
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckBuild("-c", "cxx.untracked_headers=ignore", "//:untracked_header");
     if (sandboxSource) {
       result.assertFailure();
     } else {
@@ -623,8 +587,10 @@ public class CxxPreprocessAndCompileIntegrationTest {
     try {
       result =
           workspace.runBuckBuild(
-              "-c", "cxx.untracked_headers=error",
-              "-c", "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
+              "-c",
+              "cxx.untracked_headers=error",
+              "-c",
+              "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
               "//:untracked_header");
       result.assertFailure();
     } catch (HumanReadableException e) {
@@ -650,9 +616,11 @@ public class CxxPreprocessAndCompileIntegrationTest {
   public void whitelistVerifyHeaders() throws IOException {
     ProjectWorkspace.ProcessResult result =
         workspace.runBuckBuild(
-            "-c", "cxx.untracked_headers=error",
-            "-c", "cxx.untracked_headers_whitelist=" +
-                "/usr/include/stdc-predef\\.h, /usr/local/.*, untracked_.*.h",
+            "-c",
+            "cxx.untracked_headers=error",
+            "-c",
+            "cxx.untracked_headers_whitelist="
+                + "/usr/include/stdc-predef\\.h, /usr/local/.*, untracked_.*.h",
             "//:untracked_header");
     if (sandboxSource) {
       result.assertFailure();
@@ -662,14 +630,9 @@ public class CxxPreprocessAndCompileIntegrationTest {
   }
 
   private BuildTarget getPreprocessTarget(
-      CxxPlatform cxxPlatform,
-      BuildTarget target,
-      String source) {
+      CxxPlatform cxxPlatform, BuildTarget target, String source) {
     CxxSourceRuleFactory cxxSourceRuleFactory =
-        CxxSourceRuleFactoryHelper.of(
-            workspace.getDestPath(),
-            target,
-            cxxPlatform);
+        CxxSourceRuleFactoryHelper.of(workspace.getDestPath(), target, cxxPlatform);
     return cxxSourceRuleFactory.createCompileBuildTarget(source);
   }
 
@@ -677,9 +640,11 @@ public class CxxPreprocessAndCompileIntegrationTest {
   public void errorVerifyHeadersWithPrefixHeader() throws Exception {
     ProjectWorkspace.ProcessResult result =
         workspace.runBuckBuild(
-            "-c", "cxx.untracked_headers=error",
-            "-c", "cxx.untracked_headers_whitelist=" +
-                "/usr/include/stdc-predef\\.h, untracked_header\\.h",
+            "-c",
+            "cxx.untracked_headers=error",
+            "-c",
+            "cxx.untracked_headers_whitelist="
+                + "/usr/include/stdc-predef\\.h, untracked_header\\.h",
             "//:untracked_header_with_prefix_header");
     result.assertSuccess();
   }
@@ -690,8 +655,10 @@ public class CxxPreprocessAndCompileIntegrationTest {
 
     ProjectWorkspace.ProcessResult result =
         workspace.runBuckBuild(
-            "-c", "cxx.untracked_headers=error",
-            "-c", "cxx.default_platform=iphonesimulator-x86_64",
+            "-c",
+            "cxx.untracked_headers=error",
+            "-c",
+            "cxx.default_platform=iphonesimulator-x86_64",
             "//:with_xctest");
     if (sandboxSource) {
       result.assertFailure();
@@ -702,16 +669,17 @@ public class CxxPreprocessAndCompileIntegrationTest {
 
   @Test
   public void canCompileSourcesFromOtherCells() throws IOException {
-    workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "cxx_preprocess_and_compile_can_compile_sources_from_other_cells",
-        tmp);
+    workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "cxx_preprocess_and_compile_can_compile_sources_from_other_cells", tmp);
     workspace.setUp();
-    workspace.runBuckBuild(
-        "//:binary",
-        "-c", "cxx.untracked_headers=error",
-        "-c", "cxx.untracked_headers_whitelist=" +
-            "/usr/.*")
+    workspace
+        .runBuckBuild(
+            "//:binary",
+            "-c",
+            "cxx.untracked_headers=error",
+            "-c",
+            "cxx.untracked_headers_whitelist=" + "/usr/.*")
         .assertSuccess();
   }
 }

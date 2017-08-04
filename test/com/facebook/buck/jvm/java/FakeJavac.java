@@ -23,19 +23,15 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.ProcessExecutorParams;
-
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
 
-/**
- * Fake implementation of {@link Javac} for tests.
- */
+/** Fake implementation of {@link Javac} for tests. */
 public class FakeJavac implements Javac {
   @Override
   public void appendToRuleKey(RuleKeyObjectSink sink) {
@@ -68,21 +64,38 @@ public class FakeJavac implements Javac {
   }
 
   @Override
-  public int buildWithClasspath(
+  public Invocation newBuildInvocation(
       JavacExecutionContext context,
       BuildTarget invokingRule,
       ImmutableList<String> options,
-      ImmutableList<ResolvedJavacPluginProperties> annotationProcessors,
+      ImmutableList<JavacPluginJsr199Fields> pluginFields,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       Optional<Path> workingDirectory,
-      CompilationMode compilationMode) throws InterruptedException {
-    try {
-      return context.getProcessExecutor().launchAndExecute(
-          ProcessExecutorParams.ofCommand("javac")).getExitCode();
-    } catch (IOException e) {
-      return 1;
-    }
+      JavacCompilationMode compilationMode) {
+    return new Invocation() {
+      @Override
+      public int buildSourceAbiJar(Path sourceAbiJar) throws InterruptedException {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public int buildClasses() throws InterruptedException {
+        try {
+          return context
+              .getProcessExecutor()
+              .launchAndExecute(ProcessExecutorParams.ofCommand("javac"))
+              .getExitCode();
+        } catch (IOException e) {
+          return 1;
+        }
+      }
+
+      @Override
+      public void close() {
+        // Nothing to do
+      }
+    };
   }
 
   @Override
@@ -97,5 +110,4 @@ public class FakeJavac implements Javac {
   public String getShortName() {
     throw new UnsupportedOperationException();
   }
-
 }

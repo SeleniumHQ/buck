@@ -1,11 +1,14 @@
+from __future__ import print_function
 import errno
 import contextlib
 import os
 import json
+import logging
 import shutil
 import stat
 import sys
 import tempfile
+import textwrap
 
 import pkg_resources
 import file_locks
@@ -15,6 +18,10 @@ from buck_tool import BuckTool, Resource
 
 SERVER = Resource("buck_server")
 BOOTSTRAPPER = Resource("bootstrapper_jar")
+
+PEX_ONLY_EXPORTED_RESOURCES = [
+    Resource("external_executor_jar"),
+]
 
 
 @contextlib.contextmanager
@@ -48,7 +55,12 @@ class BuckPackage(BuckTool):
         self._lock_file = None
 
     def _get_buck_version_uid(self):
+        if self._fake_buck_version:
+            return self._fake_buck_version
         return self._package_info['version']
+
+    def _get_buck_version_timestamp(self):
+        return self._package_info['timestamp']
 
     def _get_resource_dir(self):
         if self._use_buckd:
@@ -59,8 +71,13 @@ class BuckPackage(BuckTool):
 
     def _get_resource_subdir(self):
         def try_subdir(lock_file_dir):
-            if not os.path.exists(lock_file_dir):
+            try:
                 os.makedirs(lock_file_dir)
+            except OSError as ex:
+                # Multiple threads may try to create this at the same time, so just swallow the
+                # error if is about the directory already existing.
+                if ex.errno != errno.EEXIST:
+                    raise
             lock_file_path = os.path.join(lock_file_dir, file_locks.BUCK_LOCK_FILE_NAME)
             lock_file = open(lock_file_path, 'a+')
             if file_locks.acquire_shared_lock(lock_file):
@@ -128,10 +145,13 @@ class BuckPackage(BuckTool):
 
     def _get_extra_java_args(self):
         return [
-            "-Dbuck.git_commit={0}".format(self._package_info['version']),
+            "-Dbuck.git_commit={0}".format(self._get_buck_version_uid()),
             "-Dbuck.git_commit_timestamp={0}".format(self._package_info['timestamp']),
             "-Dbuck.git_dirty=0",
         ]
+
+    def _get_exported_resources(self):
+        return super(BuckPackage, self)._get_exported_resources() + PEX_ONLY_EXPORTED_RESOURCES
 
     def _get_bootstrap_classpath(self):
         return self._get_resource(BOOTSTRAPPER)

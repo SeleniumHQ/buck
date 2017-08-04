@@ -22,13 +22,13 @@ import com.facebook.buck.cxx.CxxHeadersDir;
 import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
-import com.facebook.buck.cxx.HeaderVisibility;
-import com.facebook.buck.cxx.Linker;
-import com.facebook.buck.cxx.NativeLinkableInput;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.platform.NativeLinkableInput;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
@@ -42,7 +42,6 @@ import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -64,12 +63,9 @@ public class HaskellPrebuiltLibraryDescriptionTest {
     PrebuiltHaskellLibrary library = builder.build(resolver, filesystem, targetGraph);
     NativeLinkableInput input =
         library.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            Linker.LinkableDepType.STATIC);
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC);
     assertThat(
-        RichStream.from(input.getArgs())
-            .flatMap(a -> a.getInputs().stream())
-            .toImmutableSet(),
+        RichStream.from(input.getArgs()).flatMap(a -> a.getInputs().stream()).toImmutableSet(),
         Matchers.contains(lib));
   }
 
@@ -89,12 +85,9 @@ public class HaskellPrebuiltLibraryDescriptionTest {
     PrebuiltHaskellLibrary library = builder.build(resolver, filesystem, targetGraph);
     NativeLinkableInput input =
         library.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            Linker.LinkableDepType.SHARED);
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED);
     assertThat(
-        RichStream.from(input.getArgs())
-            .flatMap(a -> a.getInputs().stream())
-            .toImmutableSet(),
+        RichStream.from(input.getArgs()).flatMap(a -> a.getInputs().stream()).toImmutableSet(),
         Matchers.contains(lib));
   }
 
@@ -114,11 +107,8 @@ public class HaskellPrebuiltLibraryDescriptionTest {
     PrebuiltHaskellLibrary library = builder.build(resolver, filesystem, targetGraph);
     HaskellCompileInput input =
         library.getCompileInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            Linker.LinkableDepType.STATIC);
-    assertThat(
-        input.getPackages().get(0).getInterfaces(),
-        Matchers.contains(interfaces));
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, false);
+    assertThat(input.getPackages().get(0).getInterfaces(), Matchers.contains(interfaces));
   }
 
   @Test
@@ -126,9 +116,7 @@ public class HaskellPrebuiltLibraryDescriptionTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     PathSourcePath db = new FakeSourcePath("package.conf.d");
     PrebuiltHaskellLibraryBuilder builder =
-        new PrebuiltHaskellLibraryBuilder(target)
-            .setVersion("1.0.0")
-            .setDb(db);
+        new PrebuiltHaskellLibraryBuilder(target).setVersion("1.0.0").setDb(db);
     TargetGraph targetGraph = TargetGraphFactory.newInstance(builder.build());
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildRuleResolver resolver =
@@ -136,11 +124,8 @@ public class HaskellPrebuiltLibraryDescriptionTest {
     PrebuiltHaskellLibrary library = builder.build(resolver, filesystem, targetGraph);
     HaskellCompileInput input =
         library.getCompileInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            Linker.LinkableDepType.STATIC);
-    assertThat(
-        input.getPackages().get(0).getPackageDb(),
-        Matchers.equalTo(db));
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, false);
+    assertThat(input.getPackages().get(0).getPackageDb(), Matchers.equalTo(db));
   }
 
   @Test
@@ -158,12 +143,10 @@ public class HaskellPrebuiltLibraryDescriptionTest {
     PrebuiltHaskellLibrary library = builder.build(resolver, filesystem, targetGraph);
     HaskellCompileInput input =
         library.getCompileInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            Linker.LinkableDepType.STATIC);
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, false);
     assertThat(
         input.getPackages().get(0).getInfo(),
-        Matchers.equalTo(
-            HaskellPackageInfo.of("rule", "1.0.0", "id")));
+        Matchers.equalTo(HaskellPackageInfo.of("rule", "1.0.0", "id")));
   }
 
   @Test
@@ -179,23 +162,17 @@ public class HaskellPrebuiltLibraryDescriptionTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     PrebuiltHaskellLibrary library = builder.build(resolver, filesystem, targetGraph);
     NativeLinkableInput staticInput =
         library.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            Linker.LinkableDepType.STATIC);
-    assertThat(
-        Arg.stringify(staticInput.getArgs(),
-            pathResolver),
-        Matchers.contains(flag));
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC);
+    assertThat(Arg.stringify(staticInput.getArgs(), pathResolver), Matchers.contains(flag));
     NativeLinkableInput sharedInput =
         library.getNativeLinkableInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            Linker.LinkableDepType.SHARED);
-    assertThat(
-        Arg.stringify(sharedInput.getArgs(), pathResolver),
-        Matchers.contains(flag));
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.SHARED);
+    assertThat(Arg.stringify(sharedInput.getArgs(), pathResolver), Matchers.contains(flag));
   }
 
   @Test
@@ -214,18 +191,12 @@ public class HaskellPrebuiltLibraryDescriptionTest {
     PrebuiltHaskellLibrary library = builder.build(resolver, filesystem, targetGraph);
     HaskellCompileInput staticInput =
         library.getCompileInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            Linker.LinkableDepType.STATIC);
-    assertThat(
-        staticInput.getFlags(),
-        Matchers.contains(flag));
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, false);
+    assertThat(staticInput.getFlags(), Matchers.contains(flag));
     HaskellCompileInput sharedInput =
         library.getCompileInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            Linker.LinkableDepType.STATIC_PIC);
-    assertThat(
-        sharedInput.getFlags(),
-        Matchers.contains(flag));
+            CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC_PIC, false);
+    assertThat(sharedInput.getFlags(), Matchers.contains(flag));
   }
 
   @Test
@@ -245,16 +216,10 @@ public class HaskellPrebuiltLibraryDescriptionTest {
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     PrebuiltHaskellLibrary library = builder.build(resolver, filesystem, targetGraph);
     assertThat(
-        library.getCxxPreprocessorInput(
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            HeaderVisibility.PUBLIC),
+        library.getCxxPreprocessorInput(CxxPlatformUtils.DEFAULT_PLATFORM),
         Matchers.equalTo(
             CxxPreprocessorInput.builder()
-                .addIncludes(
-                    CxxHeadersDir.of(
-                        CxxPreprocessables.IncludeType.SYSTEM,
-                        path))
+                .addIncludes(CxxHeadersDir.of(CxxPreprocessables.IncludeType.SYSTEM, path))
                 .build()));
   }
-
 }

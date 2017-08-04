@@ -23,21 +23,20 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.FakeCellPathResolver;
+import com.facebook.buck.rules.TestCellPathResolver;
+import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.versions.FixedTargetNodeTranslator;
 import com.facebook.buck.versions.TargetNodeTranslator;
 import com.google.common.collect.ImmutableMap;
-
+import java.util.Optional;
 import org.hamcrest.Matchers;
 import org.junit.Test;
-
-import java.util.Optional;
 
 public class LocationMacroTest {
 
   private static final CellPathResolver CELL_PATH_RESOLVER =
-      new FakeCellPathResolver(new FakeProjectFilesystem());
+      TestCellPathResolver.get(new FakeProjectFilesystem());
   private static final BuildTargetPatternParser<BuildTargetPattern> PATTERN =
       BuildTargetPatternParser.fullyQualified();
 
@@ -47,7 +46,8 @@ public class LocationMacroTest {
     BuildTarget otherTarget = BuildTargetFactory.newInstance("//:other");
     BuildTarget newTarget = BuildTargetFactory.newInstance("//something:else");
     TargetNodeTranslator translator =
-        new FixedTargetNodeTranslator(ImmutableMap.of(target, newTarget));
+        new FixedTargetNodeTranslator(
+            new DefaultTypeCoercerFactory(), ImmutableMap.of(target, newTarget));
     assertThat(
         translator.translate(CELL_PATH_RESOLVER, PATTERN, LocationMacro.of(otherTarget)),
         Matchers.equalTo(Optional.empty()));
@@ -55,5 +55,4 @@ public class LocationMacroTest {
         translator.translate(CELL_PATH_RESOLVER, PATTERN, LocationMacro.of(target)),
         Matchers.equalTo(Optional.of(LocationMacro.of(newTarget))));
   }
-
 }

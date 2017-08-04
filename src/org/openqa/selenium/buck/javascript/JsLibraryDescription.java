@@ -16,40 +16,46 @@
 
 package org.openqa.selenium.buck.javascript;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.HasSrcs;
 import com.facebook.buck.rules.TargetGraph;
-import com.google.common.collect.ImmutableSortedSet;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import org.immutables.value.Value;
 
-public class JsLibraryDescription implements Description<JsLibraryDescription.Arg> {
+public class JsLibraryDescription implements Description<JsLibraryArg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<JsLibraryArg> getConstructorArgType() {
+    return JsLibraryArg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      JsLibraryArg args) throws NoSuchBuildTargetException {
     return new JsLibrary(
+        buildTarget,
+        projectFilesystem,
         params,
-        params.getDeclaredDeps().get(),
-        args.srcs);
+        args.getSrcs());
   }
 
-  public static class Arg extends AbstractDescriptionArg {
-    public ImmutableSortedSet<SourcePath> srcs;
-    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractJsLibraryArg extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs {
   }
 }

@@ -16,74 +16,48 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildInfo;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.InitializableFromDisk;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
-import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.util.MoreCollectors;
-import com.google.common.base.Joiner;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
-
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
-public class DefaultWorkerTool extends NoopBuildRule implements
-    HasRuntimeDeps, WorkerTool, InitializableFromDisk<DefaultWorkerTool.Data> {
+public class DefaultWorkerTool extends NoopBuildRuleWithDeclaredAndExtraDeps
+    implements HasRuntimeDeps, WorkerTool, InitializableFromDisk<DefaultWorkerTool.Data> {
 
-  @AddToRuleKey
-  private final ImmutableList<Arg> args;
-  @AddToRuleKey
-  @SuppressWarnings("PMD.UnusedPrivateField")
-  private final ImmutableMap<String, String> env;
+  @AddToRuleKey private final Tool tool;
 
-  private final BinaryBuildRule exe;
   private final int maxWorkers;
   private final boolean isPersistent;
   private final BuildOutputInitializer<Data> buildOutputInitializer;
-  private final Tool tool;
 
   protected DefaultWorkerTool(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams ruleParams,
-      BinaryBuildRule exe,
-      ImmutableList<Arg> args,
-      ImmutableMap<String, String> env,
+      Tool tool,
       int maxWorkers,
       boolean isPersistent) {
-    super(ruleParams);
-    this.exe = exe;
-    this.args = args;
-    this.env = env;
+    super(buildTarget, projectFilesystem, ruleParams);
+    this.tool = tool;
     this.maxWorkers = maxWorkers;
     this.isPersistent = isPersistent;
     this.buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
-    Tool baseTool = this.exe.getExecutableCommand();
-    CommandTool.Builder builder = new CommandTool.Builder(baseTool)
-        .addInputs(
-            this.getBuildDeps().stream()
-                .map(BuildRule::getSourcePathToOutput)
-                .collect(MoreCollectors.toImmutableList()));
-    for (Map.Entry<String, String> e : env.entrySet()) {
-      builder.addEnv(e.getKey(), e.getValue());
-    }
-    tool = builder.build();
   }
 
   @Override
@@ -92,18 +66,8 @@ public class DefaultWorkerTool extends NoopBuildRule implements
   }
 
   @Override
-  public String getArgs(SourcePathResolver pathResolver) {
-    ImmutableList.Builder<String> command = ImmutableList.builder();
-    for (Arg arg : args) {
-      arg.appendToCommandLine(command, pathResolver);
-    }
-    return Joiner.on(' ').join(command.build());
-  }
-
-  @Override
   public Path getTempDir() {
-    return BuildTargets.getScratchPath(
-        getProjectFilesystem(), getBuildTarget(), "%s__worker");
+    return BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s__worker");
   }
 
   @Override
@@ -117,7 +81,7 @@ public class DefaultWorkerTool extends NoopBuildRule implements
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return getBuildDeps().stream().map(BuildRule::getBuildTarget);
   }
 
@@ -128,12 +92,12 @@ public class DefaultWorkerTool extends NoopBuildRule implements
 
   @Override
   public Data initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) throws IOException {
-    Optional<RuleKey> ruleKey =
-        onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.RULE_KEY);
+    Optional<RuleKey> ruleKey = onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.RULE_KEY);
     if (!ruleKey.isPresent()) {
-      throw new IllegalStateException(String.format(
-          "Should not be initializing %s from disk if the rule key is not written.",
-          getBuildTarget()));
+      throw new IllegalStateException(
+          String.format(
+              "Should not be initializing %s from disk if the rule key is not written.",
+              getBuildTarget()));
     }
 
     return new Data(ruleKey.get());

@@ -18,11 +18,12 @@ package com.facebook.buck.log.memory;
 
 import com.facebook.buck.log.LogFormatter;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.slb.NoHealthyServersException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.logging.Formatter;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -32,8 +33,8 @@ import java.util.logging.LogRecord;
 /**
  * <code>MemoryHandler</code> maintains a circular buffer of LogRecords. The underlying circular
  * buffer implementation is implemented directly from java.util.logging.MemoryHandler, but this
- * handler extends the default JUL handler by allowing LogRecords to be handled in batch.
- * Logs are only written to file if a LogRecord at or above the push level is recorded.
+ * handler extends the default JUL handler by allowing LogRecords to be handled in batch. Logs are
+ * only written to file if a LogRecord at or above the push level is recorded.
  */
 public class MemoryHandler extends Handler {
   private static final Logger LOG = Logger.get(MemoryHandler.class);
@@ -51,22 +52,18 @@ public class MemoryHandler extends Handler {
 
   /**
    * Constructs a <code>MemoryHandler</code> specified by:.
+   *
    * <ul>
-   * <li>   com.facebook.buck.cli.bootstrapper.MemoryHandler.level
-   *        specifies the level for the <tt>Handler</tt>.
-   * <li>   com.facebook.buck.cli.bootstrapper.MemoryHandler.size
-   *        defines the buffer size.
-   * <li>   com.facebook.buck.cli.bootstrapper.MemoryHandler.push
-   *        defines the <tt>pushLevel</tt>.
-   * <li>   com.facebook.buck.cli.bootstrapper.MemoryHandler.formatter
-   *        defines the <tt>formatter</tt> for log records.
+   *   <li>com.facebook.buck.cli.bootstrapper.MemoryHandler.level specifies the level for the
+   *       <tt>Handler</tt>.
+   *   <li>com.facebook.buck.cli.bootstrapper.MemoryHandler.size defines the buffer size.
+   *   <li>com.facebook.buck.cli.bootstrapper.MemoryHandler.push defines the <tt>pushLevel</tt>.
+   *   <li>com.facebook.buck.cli.bootstrapper.MemoryHandler.formatter defines the <tt>formatter</tt>
+   *       for log records.
    * </ul>
    */
   public MemoryHandler() {
-    this(
-        getLogLevelProperty(),
-        getBufferSizeProperty(),
-        getPushLevelProperty());
+    this(getLogLevelProperty(), getBufferSizeProperty(), getPushLevelProperty());
   }
 
   @VisibleForTesting
@@ -100,8 +97,10 @@ public class MemoryHandler extends Handler {
           return intSize;
         }
       } catch (NumberFormatException e) {
-        LOG.warn("Invalid buffer size specified in logging.properties (must be > 0), using " +
-            "default buffer size of %s", DEFAULT_BUFFER_SIZE);
+        LOG.warn(
+            "Invalid buffer size specified in logging.properties (must be > 0), using "
+                + "default buffer size of %s",
+            DEFAULT_BUFFER_SIZE);
       }
     }
     LOG.info("No buffer size specified so default size %s will be used", DEFAULT_BUFFER_SIZE);
@@ -153,4 +152,19 @@ public class MemoryHandler extends Handler {
 
   @Override
   public void close() throws SecurityException {}
+
+  @Override
+  public boolean isLoggable(LogRecord record) {
+    if (record.getThrown() instanceof NoHealthyServersException) {
+      // We don't need to log NoHealthyServersException since it's an expected behavior when the
+      // network connection is bad.
+      return false;
+    } else if (record.getThrown() instanceof CancellationException) {
+      // Don't log cancellation here since it's not actionable.  If the cancellation is due to an
+      // error elsewhere, that error will get logged anyways.
+      return false;
+    } else {
+      return super.isLoggable(record);
+    }
+  }
 }

@@ -24,23 +24,21 @@ import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.FakeCellPathResolver;
+import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.versions.FixedTargetNodeTranslator;
 import com.facebook.buck.versions.TargetNodeTranslator;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-
+import java.util.Optional;
 import org.hamcrest.Matchers;
 import org.junit.Test;
-
-import java.util.Optional;
 
 public class SourceListTest {
 
   private static final CellPathResolver CELL_PATH_RESOLVER =
-      new FakeCellPathResolver(new FakeProjectFilesystem());
+      TestCellPathResolver.get(new FakeProjectFilesystem());
   private static final BuildTargetPatternParser<BuildTargetPattern> PATTERN =
       BuildTargetPatternParser.fullyQualified();
 
@@ -49,7 +47,8 @@ public class SourceListTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     BuildTarget newTarget = BuildTargetFactory.newInstance("//something:else");
     TargetNodeTranslator translator =
-        new FixedTargetNodeTranslator(ImmutableMap.of(target, newTarget));
+        new FixedTargetNodeTranslator(
+            new DefaultTypeCoercerFactory(), ImmutableMap.of(target, newTarget));
     assertThat(
         translator.translate(
             CELL_PATH_RESOLVER,
@@ -65,7 +64,8 @@ public class SourceListTest {
   @Test
   public void untranslatedNamedSourcesTargets() {
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-    TargetNodeTranslator translator = new FixedTargetNodeTranslator(ImmutableMap.of());
+    TargetNodeTranslator translator =
+        new FixedTargetNodeTranslator(new DefaultTypeCoercerFactory(), ImmutableMap.of());
     SourceList list =
         SourceList.ofNamedSources(
             ImmutableSortedMap.of("name", new DefaultBuildTargetSourcePath(target)));
@@ -79,7 +79,8 @@ public class SourceListTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     BuildTarget newTarget = BuildTargetFactory.newInstance("//something:else");
     TargetNodeTranslator translator =
-        new FixedTargetNodeTranslator(ImmutableMap.of(target, newTarget));
+        new FixedTargetNodeTranslator(
+            new DefaultTypeCoercerFactory(), ImmutableMap.of(target, newTarget));
     assertThat(
         translator.translate(
             CELL_PATH_RESOLVER,
@@ -95,12 +96,13 @@ public class SourceListTest {
   @Test
   public void untranslatedUnnamedSourcesTargets() {
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-    TargetNodeTranslator translator = new FixedTargetNodeTranslator(ImmutableMap.of());
-    SourceList list = SourceList.ofUnnamedSources(
-        ImmutableSortedSet.of(new DefaultBuildTargetSourcePath(target)));
+    TargetNodeTranslator translator =
+        new FixedTargetNodeTranslator(new DefaultTypeCoercerFactory(), ImmutableMap.of());
+    SourceList list =
+        SourceList.ofUnnamedSources(
+            ImmutableSortedSet.of(new DefaultBuildTargetSourcePath(target)));
     assertThat(
         translator.translate(CELL_PATH_RESOLVER, PATTERN, list),
         Matchers.equalTo(Optional.empty()));
   }
-
 }

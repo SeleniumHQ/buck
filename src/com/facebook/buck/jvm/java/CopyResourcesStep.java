@@ -15,16 +15,17 @@
  */
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.HasOutputName;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -34,7 +35,6 @@ import com.facebook.buck.step.fs.SymlinkFileStep;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collection;
@@ -43,7 +43,7 @@ import java.util.Optional;
 public class CopyResourcesStep implements Step {
 
   private final ProjectFilesystem filesystem;
-  private final SourcePathResolver resolver;
+  private final BuildContext buildContext;
   private final SourcePathRuleFinder ruleFinder;
   private final BuildTarget target;
   private final Collection<? extends SourcePath> resources;
@@ -52,14 +52,14 @@ public class CopyResourcesStep implements Step {
 
   public CopyResourcesStep(
       ProjectFilesystem filesystem,
-      SourcePathResolver resolver,
+      BuildContext buildContext,
       SourcePathRuleFinder ruleFinder,
       BuildTarget target,
       Collection<? extends SourcePath> resources,
       Path outputDirectory,
       JavaPackageFinder javaPackageFinder) {
     this.filesystem = filesystem;
-    this.resolver = resolver;
+    this.buildContext = buildContext;
     this.ruleFinder = ruleFinder;
     this.target = target;
     this.resources = resources;
@@ -105,35 +105,36 @@ public class CopyResourcesStep implements Step {
       //
       // Therefore, some path-wrangling is required to produce the correct string.
 
-
       Optional<BuildRule> underlyingRule = ruleFinder.getRule(rawResource);
-      Path relativePathToResource = resolver.getRelativePath(rawResource);
+      Path relativePathToResource =
+          buildContext.getSourcePathResolver().getRelativePath(rawResource);
 
       String resource;
 
       if (underlyingRule.isPresent()) {
         BuildTarget underlyingTarget = underlyingRule.get().getBuildTarget();
         if (underlyingRule.get() instanceof HasOutputName) {
-          resource = MorePaths.pathWithUnixSeparators(
-              underlyingTarget.getBasePath().resolve(
-                  ((HasOutputName) underlyingRule.get()).getOutputName()));
+          resource =
+              MorePaths.pathWithUnixSeparators(
+                  underlyingTarget
+                      .getBasePath()
+                      .resolve(((HasOutputName) underlyingRule.get()).getOutputName()));
         } else {
           Path genOutputParent =
               BuildTargets.getGenPath(filesystem, underlyingTarget, "%s").getParent();
           Path scratchOutputParent =
               BuildTargets.getScratchPath(filesystem, underlyingTarget, "%s").getParent();
           Optional<Path> outputPath =
-              MorePaths.stripPrefix(
-                  relativePathToResource,
-                  genOutputParent).map(Optional::of).orElse(MorePaths.stripPrefix(
-                  relativePathToResource,
-                  scratchOutputParent));
+              MorePaths.stripPrefix(relativePathToResource, genOutputParent)
+                  .map(Optional::of)
+                  .orElse(MorePaths.stripPrefix(relativePathToResource, scratchOutputParent));
           Preconditions.checkState(
               outputPath.isPresent(),
               "%s is used as a resource but does not output to a default output directory",
               underlyingTarget.getFullyQualifiedName());
-          resource = MorePaths.pathWithUnixSeparators(
-              underlyingTarget.getBasePath().resolve(outputPath.get()));
+          resource =
+              MorePaths.pathWithUnixSeparators(
+                  underlyingTarget.getBasePath().resolve(outputPath.get()));
         }
       } else {
         resource = MorePaths.pathWithUnixSeparators(relativePathToResource);
@@ -149,8 +150,9 @@ public class CopyResourcesStep implements Step {
         // works fine.
         relativeSymlinkPath = relativePathToResource.getFileName();
       } else {
-        int lastIndex = resource.lastIndexOf(
-            MorePaths.pathWithUnixSeparatorsAndTrailingSlash(javaPackageAsPath));
+        int lastIndex =
+            resource.lastIndexOf(
+                MorePaths.pathWithUnixSeparatorsAndTrailingSlash(javaPackageAsPath));
         if (lastIndex < 0) {
           Preconditions.checkState(
               rawResource instanceof BuildTargetSourcePath,
@@ -160,23 +162,31 @@ public class CopyResourcesStep implements Step {
           // Handle the case where we depend on the output of another BuildRule. In that case, just
           // grab the output and put in the same package as this target would be in.
           relativeSymlinkPath =
-              outputDirectory.getFileSystem().getPath(
-                  String.format(
-                      "%s%s%s",
-                      targetPackageDir,
-                      targetPackageDir.isEmpty() ? "" : "/",
-                      resolver.getRelativePath(rawResource).getFileName()));
+              outputDirectory
+                  .getFileSystem()
+                  .getPath(
+                      String.format(
+                          "%s%s%s",
+                          targetPackageDir,
+                          targetPackageDir.isEmpty() ? "" : "/",
+                          buildContext
+                              .getSourcePathResolver()
+                              .getRelativePath(rawResource)
+                              .getFileName()));
         } else {
           relativeSymlinkPath =
               outputDirectory.getFileSystem().getPath(resource.substring(lastIndex));
         }
       }
       Path target = outputDirectory.resolve(relativeSymlinkPath);
-      allSteps.add(MkdirStep.of(filesystem, target.getParent()));
+      allSteps.add(
+          MkdirStep.of(
+              BuildCellRelativePath.fromCellRelativePath(
+                  buildContext.getBuildCellRootPath(), filesystem, target.getParent())));
       allSteps.add(
           SymlinkFileStep.builder()
               .setFilesystem(filesystem)
-              .setExistingFile(resolver.getAbsolutePath(rawResource))
+              .setExistingFile(buildContext.getSourcePathResolver().getAbsolutePath(rawResource))
               .setDesiredLink(target)
               .build());
     }

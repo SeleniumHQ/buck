@@ -25,21 +25,18 @@ import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
-
-import org.immutables.value.Value;
-
 import java.util.Arrays;
+import org.immutables.value.Value;
 
 @Value.Immutable
 @BuckStyleTuple
-abstract class AbstractStringArg extends Arg {
+abstract class AbstractStringArg implements Arg {
 
   abstract String getArg();
 
   @Override
   public void appendToCommandLine(
-      ImmutableCollection.Builder<String> builder,
-      SourcePathResolver pathResolver) {
+      ImmutableCollection.Builder<String> builder, SourcePathResolver pathResolver) {
     builder.add(getArg());
   }
 
@@ -65,5 +62,4 @@ abstract class AbstractStringArg extends Arg {
   public static Iterable<Arg> from(String... args) {
     return from(Arrays.asList(args));
   }
-
 }

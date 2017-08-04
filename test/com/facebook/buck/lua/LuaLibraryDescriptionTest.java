@@ -18,18 +18,23 @@ package com.facebook.buck.lua;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-
+import java.util.regex.Pattern;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -49,8 +54,7 @@ public class LuaLibraryDescriptionTest {
         library.getLuaPackageComponents().getModules(),
         Matchers.equalTo(
             ImmutableSortedMap.<String, SourcePath>of(
-                "some/foo.lua",
-                new FakeSourcePath("some/foo.lua"))));
+                "some/foo.lua", new FakeSourcePath("some/foo.lua"))));
   }
 
   @Test
@@ -67,8 +71,7 @@ public class LuaLibraryDescriptionTest {
         library.getLuaPackageComponents().getModules(),
         Matchers.equalTo(
             ImmutableSortedMap.<String, SourcePath>of(
-                "some/bar.lua",
-                new FakeSourcePath("foo.lua"))));
+                "some/bar.lua", new FakeSourcePath("foo.lua"))));
   }
 
   @Test
@@ -86,8 +89,40 @@ public class LuaLibraryDescriptionTest {
         library.getLuaPackageComponents().getModules(),
         Matchers.equalTo(
             ImmutableSortedMap.<String, SourcePath>of(
-                "blah/foo.lua",
-                new FakeSourcePath("some/foo.lua"))));
+                "blah/foo.lua", new FakeSourcePath("some/foo.lua"))));
   }
 
+  @Test
+  public void platformDeps() throws Exception {
+    LuaLibraryBuilder libraryABuilder =
+        new LuaLibraryBuilder(BuildTargetFactory.newInstance("//:libA"));
+    LuaLibraryBuilder libraryBBuilder =
+        new LuaLibraryBuilder(BuildTargetFactory.newInstance("//:libB"));
+    LuaLibraryBuilder ruleBuilder =
+        new LuaLibraryBuilder(BuildTargetFactory.newInstance("//:rule"))
+            .setPlatformDeps(
+                PatternMatchedCollection.<ImmutableSortedSet<BuildTarget>>builder()
+                    .add(
+                        Pattern.compile(
+                            CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor().toString(),
+                            Pattern.LITERAL),
+                        ImmutableSortedSet.of(libraryABuilder.getTarget()))
+                    .add(
+                        Pattern.compile("matches nothing", Pattern.LITERAL),
+                        ImmutableSortedSet.of(libraryBBuilder.getTarget()))
+                    .build());
+    TargetGraph targetGraph =
+        TargetGraphFactory.newInstance(
+            libraryABuilder.build(), libraryBBuilder.build(), ruleBuilder.build());
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    LuaLibrary rule = (LuaLibrary) resolver.requireRule(ruleBuilder.getTarget());
+    assertThat(
+        RichStream.from(rule.getLuaPackageDeps(CxxPlatformUtils.DEFAULT_PLATFORM))
+            .map(BuildRule::getBuildTarget)
+            .toImmutableSet(),
+        Matchers.allOf(
+            Matchers.hasItem(libraryABuilder.getTarget()),
+            Matchers.not(Matchers.hasItem(libraryBBuilder.getTarget()))));
+  }
 }

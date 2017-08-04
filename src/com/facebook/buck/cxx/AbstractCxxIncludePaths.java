@@ -16,7 +16,9 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.Preprocessor;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
@@ -26,13 +28,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Ordering;
-
-import org.immutables.value.Value;
-
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Optional;
+import org.immutables.value.Value;
 
 @Value.Immutable
 @BuckStyleTuple
@@ -47,7 +47,7 @@ abstract class AbstractCxxIncludePaths {
   /**
    * Merge all the given {@link CxxIncludePaths}.
    *
-   * Combinines their path lists, deduping them (keeping the earlier of the repeated instance).
+   * <p>Combinines their path lists, deduping them (keeping the earlier of the repeated instance).
    */
   public static CxxIncludePaths concat(Iterator<CxxIncludePaths> itemIter) {
     ImmutableSet.Builder<CxxHeaders> ipathBuilder = ImmutableSet.<CxxHeaders>builder();
@@ -69,7 +69,8 @@ abstract class AbstractCxxIncludePaths {
   /**
    * Build a list of compiler flag strings representing the contained paths.
    *
-   * This method's parameters allow the caller to do some massaging and cleaning-up of paths.
+   * <p>This method's parameters allow the caller to do some massaging and cleaning-up of paths.
+   *
    * @param pathResolver
    * @param pathShortener used to shorten the {@code -I} and {@code -isystem} paths
    * @param frameworkPathTransformer used to shorten/convert/transmogrify framework {@code -F} paths
@@ -82,11 +83,7 @@ abstract class AbstractCxxIncludePaths {
     ImmutableList.Builder<String> builder = ImmutableList.builder();
 
     builder.addAll(
-        CxxHeaders.getArgs(
-            getIPaths(),
-            pathResolver,
-            Optional.of(pathShortener),
-            preprocessor));
+        CxxHeaders.getArgs(getIPaths(), pathResolver, Optional.of(pathShortener), preprocessor));
 
     builder.addAll(
         MoreIterables.zipAndConcat(
@@ -105,30 +102,28 @@ abstract class AbstractCxxIncludePaths {
       Function<FrameworkPath, Path> frameworkPathTransformer,
       Preprocessor preprocessor) {
     return CxxToolFlags.explicitBuilder()
-        .addAllRuleFlags(getFlags(resolver, pathShortener, frameworkPathTransformer, preprocessor))
+        .addAllRuleFlags(
+            StringArg.from(
+                getFlags(resolver, pathShortener, frameworkPathTransformer, preprocessor)))
         .build();
   }
 
   /**
    * Build a list of compiler flag strings representing the contained paths.
    *
-   * Paths are inserted into the compiler flag list as-is, without transformation or shortening.
+   * <p>Paths are inserted into the compiler flag list as-is, without transformation or shortening.
    */
   public ImmutableList<String> getFlags(
-      SourcePathResolver pathResolver,
-      Preprocessor preprocessor) {
+      SourcePathResolver pathResolver, Preprocessor preprocessor) {
     ImmutableList.Builder<String> builder = ImmutableList.builder();
     builder.addAll(CxxHeaders.getArgs(getIPaths(), pathResolver, Optional.empty(), preprocessor));
     // TODO(steveo) gotta handle framework paths!
     return builder.build();
   }
 
-  public CxxToolFlags toToolFlags(
-      SourcePathResolver resolver,
-      Preprocessor preprocessor) {
+  public CxxToolFlags toToolFlags(SourcePathResolver resolver, Preprocessor preprocessor) {
     return CxxToolFlags.explicitBuilder()
-        .addAllRuleFlags(getFlags(resolver, preprocessor))
+        .addAllRuleFlags(StringArg.from(getFlags(resolver, preprocessor)))
         .build();
   }
-
 }

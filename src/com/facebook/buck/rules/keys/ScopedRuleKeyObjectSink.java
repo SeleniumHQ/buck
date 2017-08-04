@@ -16,16 +16,15 @@
 
 package com.facebook.buck.rules.keys;
 
-import com.facebook.buck.rules.RuleKeyFieldCategory;
 import com.facebook.buck.rules.RuleKeyObjectSink;
-
+import com.facebook.buck.util.Scope;
 import java.io.IOException;
 import java.nio.file.Path;
-
 import javax.annotation.Nullable;
 
 /**
- * A wrapper around {@link RuleKeyObjectSink} that respects {@link RuleKeyScopedHasher} scopes.
+ * A wrapper around {@link RuleKeyObjectSink} that respects {@link DefaultRuleKeyScopedHasher}
+ * scopes.
  */
 public class ScopedRuleKeyObjectSink implements RuleKeyObjectSink {
 
@@ -33,37 +32,23 @@ public class ScopedRuleKeyObjectSink implements RuleKeyObjectSink {
   private final RuleKeyObjectSink delegate;
 
   public ScopedRuleKeyObjectSink(
-      RuleKeyScopedHasher.ContainerScope scope,
-      RuleKeyObjectSink delegate) {
+      RuleKeyScopedHasher.ContainerScope scope, RuleKeyObjectSink delegate) {
     this.scope = scope;
     this.delegate = delegate;
   }
 
   @Override
   public RuleKeyObjectSink setReflectively(String key, @Nullable Object val) {
-    try (RuleKeyScopedHasher.Scope elementScope = scope.elementScope()) {
+    try (Scope elementScope = scope.elementScope()) {
       delegate.setReflectively(key, val);
       return this;
     }
   }
 
   @Override
-  public RuleKeyObjectSink setReflectively(
-      String key,
-      @Nullable Object val,
-      RuleKeyFieldCategory cat) {
-    try (RuleKeyScopedHasher.Scope elementScope = scope.elementScope()) {
-      delegate.setReflectively(key, val, cat);
-      return this;
-    }
-  }
-
-  @Override
   @SuppressWarnings("deprecation")
-  public RuleKeyObjectSink setPath(
-      Path absolutePath,
-      Path ideallyRelative) throws IOException {
-    try (RuleKeyScopedHasher.Scope elementScope = scope.elementScope()) {
+  public RuleKeyObjectSink setPath(Path absolutePath, Path ideallyRelative) throws IOException {
+    try (Scope elementScope = scope.elementScope()) {
       delegate.setPath(absolutePath, ideallyRelative);
       return this;
     }

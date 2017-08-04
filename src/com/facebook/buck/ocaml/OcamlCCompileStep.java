@@ -22,19 +22,18 @@ import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.util.MoreIterables;
+import com.facebook.buck.util.Escaper;
+import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
-
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.stream.Stream;
 
-/**
- * Compilation step for C interoperability files.
- */
+/** Compilation step for C interoperability files. */
 public class OcamlCCompileStep extends ShellStep {
 
   private final SourcePathResolver resolver;
@@ -53,28 +52,29 @@ public class OcamlCCompileStep extends ShellStep {
 
   @Override
   protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
-    ImmutableList.Builder<String> cmd = ImmutableList.<String>builder()
-        .addAll(args.ocamlCompiler.getCommandPrefix(resolver))
-        .addAll(OcamlCompilables.DEFAULT_OCAML_FLAGS);
+    ImmutableList.Builder<String> cmd =
+        ImmutableList.<String>builder()
+            .addAll(args.ocamlCompiler.getCommandPrefix(resolver))
+            .addAll(OcamlCompilables.DEFAULT_OCAML_FLAGS);
 
     if (args.stdlib.isPresent()) {
       cmd.add("-nostdlib", OcamlCompilables.OCAML_INCLUDE_FLAG, args.stdlib.get());
     }
 
-    return cmd
-        .add("-cc", args.cCompiler.get(0))
-        .addAll(
-            MoreIterables.zipAndConcat(
-                Iterables.cycle("-ccopt"),
-                args.cCompiler.subList(1, args.cCompiler.size())))
-        .add("-c")
+    return cmd.add("-c")
         .add("-annot")
         .add("-bin-annot")
-        .add("-o", args.output.toString())
-        .add("-ccopt", "-Wall")
-        .add("-ccopt", "-Wextra")
-        .add("-ccopt", String.format("-o %s", args.output.toString()))
-        .addAll(args.flags)
+        .add("-cc", args.cCompiler.get(0))
+        .addAll(
+            RichStream.<String>empty()
+                .concat(Stream.of("-Wall", "-Wextra", "-o", args.output.toString()))
+                .concat(args.cCompiler.subList(1, args.cCompiler.size()).stream())
+                .concat(Arg.stringify(args.cFlags, resolver).stream())
+                // The ocaml compiler invokes the C compiler, along with these flags, using the
+                // shell, so we have to pre-shell-escape them.
+                .map(Escaper.BASH_ESCAPER::apply)
+                .flatMap(f -> Stream.of("-ccopt", f))
+                .toImmutableList())
         .add(resolver.getAbsolutePath(args.input).toString())
         .build();
   }
@@ -88,7 +88,7 @@ public class OcamlCCompileStep extends ShellStep {
     public final ImmutableMap<String, String> environment;
     public final Tool ocamlCompiler;
     public final ImmutableList<String> cCompiler;
-    public final ImmutableList<String> flags;
+    public final ImmutableList<Arg> cFlags;
     public final Optional<String> stdlib;
     public final Path output;
     public final SourcePath input;
@@ -101,7 +101,7 @@ public class OcamlCCompileStep extends ShellStep {
         Optional<String> stdlib,
         Path output,
         SourcePath input,
-        ImmutableList<String> flags,
+        ImmutableList<Arg> cFlags,
         ImmutableList<CxxHeaders> includes) {
       this.environment = environment;
       this.cCompiler = cCompiler;
@@ -109,7 +109,7 @@ public class OcamlCCompileStep extends ShellStep {
       this.stdlib = stdlib;
       this.output = output;
       this.input = input;
-      this.flags = flags;
+      this.cFlags = cFlags;
       this.includes = includes;
     }
 
@@ -120,9 +120,8 @@ public class OcamlCCompileStep extends ShellStep {
       sink.setReflectively("stdlib", stdlib);
       sink.setReflectively("output", output.toString());
       sink.setReflectively("input", input);
-      sink.setReflectively("flags", flags);
+      sink.setReflectively("cFlags", cFlags);
       sink.setReflectively("includes", includes);
     }
   }
-
 }

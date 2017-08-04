@@ -16,35 +16,37 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.ListeningExecutorService;
-
 import java.util.EnumSet;
 import java.util.Optional;
-
+import java.util.stream.Stream;
 
 /**
  * Apk that functions as a test package in Android.
- * <p>
- * Android's
- * <a href="http://developer.android.com/tools/testing/testing_android.html">
- *   Testing Fundamentals</a>
- * documentation includes a diagram that shows the relationship between an "application package" and
- * a "test package" when running a test. This corresponds to a test package. Note that a test
- * package has an interesting quirk where it is <em>compiled against</em> an application package,
- * but <em>must not include</em> the resources or Java classes of the application package.
- * Therefore, this class takes responsibility for making sure the appropriate bits are excluded.
- * Failing to do so will generate mysterious runtime errors when running the test.
+ *
+ * <p>Android's <a href="http://developer.android.com/tools/testing/testing_android.html">Testing
+ * Fundamentals</a> documentation includes a diagram that shows the relationship between an
+ * "application package" and a "test package" when running a test. This corresponds to a test
+ * package. Note that a test package has an interesting quirk where it is <em>compiled against</em>
+ * an application package, but <em>must not include</em> the resources or Java classes of the
+ * application package. Therefore, this class takes responsibility for making sure the appropriate
+ * bits are excluded. Failing to do so will generate mysterious runtime errors when running the
+ * test.
  */
 public class AndroidInstrumentationApk extends AndroidBinary {
 
   private AndroidBinary apkUnderTest;
 
   AndroidInstrumentationApk(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
       Optional<SourcePath> proGuardJarOverride,
@@ -55,6 +57,8 @@ public class AndroidInstrumentationApk extends AndroidBinary {
       AndroidGraphEnhancementResult enhancementResult,
       ListeningExecutorService dxExecutorService) {
     super(
+        buildTarget,
+        projectFilesystem,
         buildRuleParams,
         ruleFinder,
         proGuardJarOverride,
@@ -75,7 +79,6 @@ public class AndroidInstrumentationApk extends AndroidBinary {
         apkUnderTest.getCpuFilters(),
         apkUnderTest.getResourceFilter(),
         EnumSet.noneOf(ExopackageMode.class),
-        apkUnderTest.getMacroExpander(),
         // preprocessJavaClassBash is not supported in instrumentation
         Optional.empty(),
         rulesToExcludeFromDex,
@@ -90,8 +93,14 @@ public class AndroidInstrumentationApk extends AndroidBinary {
         false,
         apkUnderTest.getManifestEntries(),
         apkUnderTest.getJavaRuntimeLauncher(),
-        Optional.empty());
+        Optional.empty(),
+        true);
     this.apkUnderTest = apkUnderTest;
+  }
+
+  @Override
+  public Stream<BuildTarget> getInstallHelpers() {
+    return Stream.of();
   }
 
   public AndroidBinary getApkUnderTest() {

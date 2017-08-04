@@ -17,12 +17,12 @@
 package com.facebook.buck.js;
 
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.shell.WorkerJobParams;
 import com.facebook.buck.shell.WorkerShellStep;
-import com.facebook.buck.shell.WorkerProcessPoolFactory;
+import com.facebook.buck.worker.WorkerJobParams;
+import com.facebook.buck.worker.WorkerProcessParams;
+import com.facebook.buck.worker.WorkerProcessPoolFactory;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
 import java.nio.file.Path;
 import java.util.Optional;
 
@@ -32,7 +32,8 @@ public class ReactNativeBundleWorkerStep extends WorkerShellStep {
       ProjectFilesystem filesystem,
       Path tmpDir,
       ImmutableList<String> jsPackagerCommand,
-      Optional<String> additionalPackagerFlags,
+      ImmutableMap<String, String> startupEnv,
+      ImmutableList<String> additionalPackagerFlags,
       ReactNativePlatform platform,
       boolean isUnbundle,
       boolean isIndexedUnbundle,
@@ -44,16 +45,9 @@ public class ReactNativeBundleWorkerStep extends WorkerShellStep {
     super(
         Optional.of(
             WorkerJobParams.of(
-                filesystem.resolve(tmpDir),
-                jsPackagerCommand,
                 String.format(
-                    "--platform %s%s",
-                    platform.toString(),
-                    additionalPackagerFlags.isPresent() ? " " + additionalPackagerFlags.get() : ""),
-                ImmutableMap.of(),
-                String.format(
-                    "--command %s %s --entry-file %s --platform %s --dev %s --bundle-output %s " +
-                        "--assets-dest %s --sourcemap-output %s",
+                    "--command %s %s --entry-file %s --platform %s --dev %s --bundle-output %s "
+                        + "--assets-dest %s --sourcemap-output %s",
                     isUnbundle ? "unbundle" : "bundle",
                     isIndexedUnbundle ? "--indexed-unbundle" : "",
                     entryFile.toString(),
@@ -62,9 +56,16 @@ public class ReactNativeBundleWorkerStep extends WorkerShellStep {
                     outputFile.toString(),
                     resourcePath.toString(),
                     sourceMapFile.toString()),
-                1,
-                Optional.empty(),
-                Optional.empty())),
+                WorkerProcessParams.of(
+                    filesystem.resolve(tmpDir),
+                    ImmutableList.<String>builder()
+                        .addAll(jsPackagerCommand)
+                        .add("--platform", platform.toString())
+                        .addAll(additionalPackagerFlags)
+                        .build(),
+                    startupEnv,
+                    1,
+                    Optional.empty()))),
         Optional.empty(),
         Optional.empty(),
         new WorkerProcessPoolFactory(filesystem));

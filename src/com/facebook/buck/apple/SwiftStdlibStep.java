@@ -27,7 +27,6 @@ import com.facebook.buck.util.SimpleProcessListener;
 import com.google.common.base.Joiner;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
-
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -77,8 +76,7 @@ class SwiftStdlibStep implements Step {
     builder.addCommand("--destination", temp.toString());
     if (codeSignIdentitySupplier.isPresent()) {
       builder.addCommand(
-          "--sign",
-          CodeSignStep.getIdentityArg(codeSignIdentitySupplier.get().get()));
+          "--sign", CodeSignStep.getIdentityArg(codeSignIdentitySupplier.get().get()));
     }
 
     Map<String, String> environment = new HashMap<>();
@@ -89,23 +87,19 @@ class SwiftStdlibStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
     ListeningProcessExecutor executor = new ListeningProcessExecutor();
     ProcessExecutorParams params = makeProcessExecutorParams(context);
     SimpleProcessListener listener = new SimpleProcessListener();
 
     // TODO(markwang): parse output as needed
-    try {
-      LOG.debug("%s", command);
-      ListeningProcessExecutor.LaunchedProcess process = executor.launchProcess(params, listener);
-      int result = executor.waitForProcess(process);
-      if (result != 0) {
-        LOG.error("Error running %s: %s", getDescription(context), listener.getStderr());
-        return StepExecutionResult.of(result);
-      }
-    } catch (IOException e) {
-      LOG.error(e, "Could not execute command %s", command);
-      return StepExecutionResult.ERROR;
+    LOG.debug("%s", command);
+    ListeningProcessExecutor.LaunchedProcess process = executor.launchProcess(params, listener);
+    int result = executor.waitForProcess(process);
+    if (result != 0) {
+      LOG.error("Error running %s: %s", getDescription(context), listener.getStderr());
+      return StepExecutionResult.of(result);
     }
 
     // Copy from temp to destinationDirectory if we wrote files.
@@ -117,9 +111,6 @@ class SwiftStdlibStep implements Step {
         Files.createDirectories(destinationDirectory);
         MoreFiles.copyRecursively(temp, destinationDirectory);
       }
-    } catch (IOException e) {
-      LOG.error(e, "Could not copy to %s", destinationDirectory);
-      return StepExecutionResult.ERROR;
     }
     return StepExecutionResult.SUCCESS;
   }

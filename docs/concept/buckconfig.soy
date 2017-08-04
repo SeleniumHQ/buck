@@ -20,7 +20,7 @@
     {param content}
 <p>
 
-The root of your project may contain a configuration file
+The root of your project must contain a configuration file
 named <code>.buckconfig</code>. If present, Buck will read this file
 before executing its business logic so that any customizations specified
 in <code>.buckconfig</code> will take effect. This file uses the
@@ -128,6 +128,7 @@ The following sections are recognized by Buck:
     'halide',
     'intellij',
     'java',
+    'kotlin',
     'httpserver',
     'log',
     'lua',
@@ -587,13 +588,13 @@ $ buck targets --resolve-alias app#src_jar
   {param name: 'type' /}
   {param example_value: 'RELEASE_PEX' /}
   {param description}
-    Sets the type of the build that buck has been built with. This allows buck to distinguish 
+    Sets the type of the build that buck has been built with. This allows buck to distinguish
     different kinds of builds. When you run <code>ant</code> locally, this will be automatically
     set to <code>LOCAL_ANT</code>. When you build buck using buck locally, e.g. <code>buck build buck</code>,
     this will be automatically set to <code>LOCAL_PEX</code>. If you are deploying buck through
     central deployment system, you may want to set build type to <code>RELEASE_PEX</code>:{sp}
     <pre>buck build buck --config build.type=RELEASE_PEX</pre>
-    <p><b>Note:</b> this setting does not affect how buck builds other rules. It only affects 
+    <p><b>Note:</b> this setting does not affect how buck builds other rules. It only affects
     the way how <i>buck will build buck</i>.</p>
   {/param}
 {/call}
@@ -711,7 +712,7 @@ $ buck targets --resolve-alias app#src_jar
 {call buckconfig.entry}
   {param section: 'cache' /}
   {param name: 'mode' /}
-  {param example_value: 'dir, http' /}
+  {param example_value: 'dir, http, sqlite' /}
   {param description}
     A comma-separated set of caching policies to use.  The valid values are:
     <ul>
@@ -720,6 +721,10 @@ $ buck targets --resolve-alias app#src_jar
       </li>
       <li>
         <code>http</code>: Use an http-based cache.
+      </li>
+      <li>
+        <code>sqlite</code>: Use a SQLite-based cache that inlines small artifacts in the database
+        and stores large artifacts on the local filesystem.
       </li>
     </ul>
   {/param}
@@ -836,7 +841,42 @@ $ buck targets --resolve-alias app#src_jar
   {param example_value: '3' /}
   {param description}
     Dictates the timeout per connection when using http-based caching{sp}
-    ({call buckconfig.cache_mode /} must contain <code>http</code>).  The default is <code>3</code>.
+    ({call buckconfig.cache_mode /} must contain <code>http</code>).
+    It will be the default value for http_connect_timeout_seconds, http_read_timeout_seconds,
+    http_write_timeout_seconds if they're not set.  The default is <code>3</code>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cache' /}
+  {param name: 'http_connect_timeout_seconds' /}
+  {param example_value: '3' /}
+  {param description}
+    Dictates the timeout on http connect when using http-based caching{sp}
+    If the value is not set, it will try to use the value set for http_timeout_seconds
+    then use the default value 3</code>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cache' /}
+  {param name: 'http_read_timeout_seconds' /}
+  {param example_value: '3' /}
+  {param description}
+    Dictates the timeout on http writes when using http-based caching{sp}
+    If the value is not set, it will try to use the value set for http_timeout_seconds
+    then use the default value 3</code>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cache' /}
+  {param name: 'http_write_timeout_seconds' /}
+  {param example_value: '3' /}
+  {param description}
+    Dictates the timeout on http reads when using http-based caching{sp}
+    If the value is not set, it will try to use the value set for http_timeout_seconds
+    then use the default value 3</code>.
   {/param}
 {/call}
 
@@ -872,9 +912,8 @@ $ buck targets --resolve-alias app#src_jar
   {/param}
   {param description}
     This setting allows for the customization of how http cache errors appear to the user.  If the
-    text <code>{lb}cache_name{rb}</code> is present, it will be replaced with the name of the cache
-    when using {call buckconfig.cache_http_cache_names /}, or just <code>http</code>.  If the text
-    {sp}<code>{lb}error_message{rb}</code>, it will be replaced with the error message.
+    text <code>{lb}cache_name{rb}</code> is present, it will be replaced with the name of the cache.
+    If the text {sp}<code>{lb}error_message{rb}</code>, it will be replaced with the error message.
   {/param}
 {/call}
 
@@ -910,33 +949,56 @@ $ buck targets --resolve-alias app#src_jar
 
 {call buckconfig.entry}
   {param section: 'cache' /}
-  {param name: 'http_cache_names' /}
+  {param name: 'sqlite_inlined_size' /}
+  {param example_value: '10kB' /}
   {param description}
-    A comma-separated list of names used to configure multiple caches.  The caches will be used{sp}
+    The maximum size for artifacts to be inlined ({call buckconfig.cache_mode /} must contain
+    {sp}<code>sqlite</code>).  The default size is 1kB.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cache' /}
+  {param name: 'sqlite_max_size' /}
+  {param example_value: '10GB' /}
+  {param description}
+    The maximum cache size for SQLite-based caching ({call buckconfig.cache_mode /} must contain
+    {sp}<code>sqlite</code>).  The default size is unlimited.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cache' /}
+  {param name: 'sqlite_mode' /}
+  {param example_value: 'readwrite' /}
+  {param description}
+    Dictates if the cache is <code>readonly</code>, <code>passthrough</code> or
+    {sp}<code>readwrite</code> (default) when using SQLite-based caching
+    {sp}({call buckconfig.cache_mode /} must contain <code>sqlite</code>).
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cache' /}
+  {param name: 'sqlite_cache_names' /}
+  {param description}
+    A comma-separated list of names used to configure multiple SQLite caches.  The caches will be used{sp}
     <b>serially</b> in the order in which their names are specified here.  If an artifact is found
     further along in the list, an attempt to store it in the caches earlier in the list will be
-    made.  In the following example, if the artifact is found in the <code>global</code> cache, it
-    will be stored in the <code>local</code> cache, but not <code>regional-ro</code> cache (as that
-    one is <code>readonly</code>.
+    made.  In the following example, if the artifact is found in the <code>warm</code> cache, it
+    will not be stored in the <code>local</code> cache.
   {/param}
   {param raw_example}
 {literal}<pre class="prettyprint lang-ini">
 [cache]
-    mode = http
-    http_cache_names = local, regional-ro, global
+    mode = sqlite
+    sqlite_cache_names = warm, local
 
-[cache#regional-ro]
-    http_url = http://region.com/
-    http_timeout_seconds = 5
-    http_mode = readonly
+[cache#warm]
+    sqlite_mode = readonly
 
 [cache#local]
-    http_url = http://local.co.uk/
-    http_timeout_seconds = 1
-
-[cache#global]
-    http_url = http://global.com/
-    http_timeout_seconds = 42
+    sqlite_mode = readwrite
 </pre>{/literal}
   {/param}
 {/call}
@@ -1621,6 +1683,15 @@ cxx_library(
 
 {call buckconfig.entry}
   {param section: 'doctor' /}
+  {param name: 'protocol' /}
+  {param example_value: 'json' /}
+  {param description}
+    The protocol of communication, it can be either simple or json.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'doctor' /}
   {param name: 'endpoint_url' /}
   {param example_value: 'http://localhost:4545' /}
   {param description}
@@ -1631,11 +1702,66 @@ cxx_library(
 
 {call buckconfig.entry}
   {param section: 'doctor' /}
-  {param name: 'extra_request_args' /}
+  {param name: 'endpoint_timeout_ms' /}
+  {param example_value: '15' /}
+  {param description}
+    The timeout in milliseconds before giving up contacting the analysis endpoint.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'doctor' /}
+  {param name: 'endpoint_extra_request_args' /}
   {param example_value: 'ref=>1245,token=>42' /}
   {param description}
     This sections of keys and values is added as parameters to the POST request send to the doctor
     remote endpoint.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'doctor' /}
+  {param name: 'report_upload_path' /}
+  {param example_value: 'http://localhost:4546' /}
+  {param description}
+    The address of the remote endpoint the report will be uploaded.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'doctor' /}
+  {param name: 'report_max_size' /}
+  {param example_value: '512MB' /}
+  {param description}
+    The maximum size that the report endpoint can handle before giving up and storing it only
+    locally.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'doctor' /}
+  {param name: 'report_timeout_ms' /}
+  {param example_value: '15' /}
+  {param description}
+    The timeout in milliseconds before giving up contacting the report endpoint.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'doctor' /}
+  {param name: 'report_max_upload_retries' /}
+  {param example_value: '2' /}
+  {param description}
+    Times to try to upload to the report endpoint.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'doctor' /}
+  {param name: 'report_extra_info_command' /}
+  {param example_value: '/custom/script/to/run.sh' /}
+  {param description}
+    An extra command that the report should and attach the information to the uploaded report.
   {/param}
 {/call}
 
@@ -1787,6 +1913,16 @@ cxx_library(
 
 {call buckconfig.entry}
   {param section: 'intellij' /}
+  {param name: 'default_android_manifest_path' /}
+  {param example_value: 'shared/AndroidManifest.xml' /}
+  {param description}
+    The default manifest file that should be used in Android IntelliJ modules when buck cannot
+    detect the correct manifest to use.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'intellij' /}
   {param name: 'java_library_sdk_names' /}
   {param example_value: '1.6 => Java SDK 1.6, 1.8 => Java SDK 1.8' /}
   {param description}
@@ -1850,14 +1986,47 @@ cxx_library(
 {/call}
 
 {call buckconfig.entry}
+  {param section: 'project' /}
+  {param name: 'generate_android_manifest' /}
+  {param example_value: 'true' /}
+  {param description}
+    Forces Buck to generate "AndroidManifest.xml" files for Android IntelliJ modules. The generated
+    manifests contain package name only to allow Android IntelliJ plugin resolve references to
+    resources correctly.
+    <p>Manifests are generated for modules that have information about package name and have either
+    none or more than one targets with Android manifests. When a module has exactly one target with
+    Android manifest this manifest is used as a manifest in the module.</p>
+  {/param}
+{/call}
+
+{call buckconfig.entry}
   {param section: 'intellij' /}
-  {param name: 'generated_srcs_map' /}
-  {param example_value: '//path/to/target1 => __%name%_target1__, \n                       //path/to/target2 => __%name%_target2__' /}
+  {param name: 'generated_sources_label_map' /}
+  {param example_value: 'generated_code_1 => __%name%_target1__, \n                       generated_code2 => __%name%_target2__' /}
   {param description}
     Allows adding folders with generated source code to IntelliJ project. These folders are added
-    only if a module depends on a key target. In the example below, if
-    module <code>//app/target</code> depends on <code>//path/to/target1</code>
-    folder <code>buck-out/gen/app/lib/__lib_target1__</code> will be added to IntelliJ project.
+    when a target has a label specified in this option. In the example below, if
+    target <code>//app/target</code> has
+    label <code>generated_code1</code> folder <code>buck-out/gen/app/lib/__lib_target1__</code> will
+    be added to IntelliJ project.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'intellij' /}
+  {param name: 'include_transitive_dependencies' /}
+  {param example_value: 'false' /}
+  {param description}
+    Add transitive dependencies as RUNTIME library.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'intellij' /}
+  {param name: 'module_group_name' /}
+  {param example_value: 'modules' /}
+  {param description}
+    Specify module group name when grouping modules.  If it is set to '', modules are not grouped.
   {/param}
 {/call}
 
@@ -1867,6 +2036,39 @@ cxx_library(
   {param example_value: 'true' /}
   {param description}
     Removes unused libraries from .idea/libraries.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'intellij' /}
+  {param name: 'aggregate_android_resource_modules' /}
+  {param example_value: 'true' /}
+  {param description}
+    Forces <code>buck project</code> to aggregate modules with Android resources. This aggregation
+    is performed only if aggregation mode is not <code>none</code>.
+    <p/>
+    <b>Note:</b> using this type of aggregation disables Android layout editor provided by Android
+    plugin. The layout files can still be edited using the XML editor.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'intellij' /}
+  {param name: 'android_resource_module_aggregation_limit' /}
+  {param example_value: '1000' /}
+  {param description}
+    The maximum number of targets that can be aggregated into one module with Android resources. This
+    limit is a workaround to avoid a problem when Android plugin cannot operate on modules with a big number
+    of resource folders.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'intellij' /}
+  {param name: 'project_compiler_output_url' /}
+  {param example_value: 'build-ij/classes' /}
+  {param description}
+    The output directory for IntelliJ's builds.
   {/param}
 {/call}
 
@@ -1951,6 +2153,91 @@ cxx_library(
   {/param}
 {/call}
 
+{call buckconfig.section}
+  {param name: 'kotlin' /}
+  {param description}
+    This section configures various aspects of the <a href="https://kotlinlang.org">Kotlin</a>{sp}
+    toolchain.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'kotlin' /}
+  {param name: 'kotlinc' /}
+  {param example_value: '/usr/local/bin/kotlinc' /}
+  {param description}
+    The path to the <code>kotlinc</code> compiler executable to use when external compilation is
+    forced.  This setting has no effect by itself and must be paired with the
+    {sp}{call buckconfig.kotlin_external /} setting.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'kotlin' /}
+  {param name: 'external' /}
+  {param example_value: 'true' /}
+  {param description}
+    Forces external compilation via <code>kotlinc</code>.  When external compilation is forced the
+    following heuristics are used to locate the <code>kotlinc</code> executable:
+    <ul>
+      <li>If the <code>{call buckconfig.kotlin_kotlinc /}</code> setting is specified, the executable specified by that path
+          will be used.
+      </li>
+      <li>If the {call buckconfig.kotlin_kotlin_home /} path setting is specified, Buck will look
+          for a <code>bin</code> directory under that path for an executable named
+          {sp}<code>kotlinc</code>.
+      </li>
+      <li>If a <code>KOTLIN_HOME</code> environment variable is present, Buck will look for a
+          {sp}<code>bin</code> directory under that path for an executable named
+          {sp}<code>kotlinc</code>.
+      </li>
+      <li>Lastly, if none of the above are specified, Buck will look for the <code>kotlinc</code>
+          {sp}executable in the paths listed in the <code>PATH</code> environment variable.
+      </li>
+    </ul>
+    Defaults to <code>false</code>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'kotlin' /}
+  {param name: 'kotlin_home' /}
+  {param example_value: '/usr/local/Cellar/kotlin/1.1.1' /}
+  {param description}
+    The path to the Kotlin root folder, typically the installation folder, where various Kotlin
+    assets (executables and JAR files) can be found.  This path is used in the following ways:
+    <ul>
+      <li>
+        When in-memory compilation is used, the <code>kotlin-compiler.jar</code> and other related
+        Kotlin JARs required for compilation are located via this path using the following
+        heuristics:
+        <ul>
+          <li>
+            The root of the directory specified by this path is searched.
+          </li>
+          <li>
+            If there is a <code>lib</code> directory under this path, it is searched.
+          </li>
+          <li>
+            If there is a <code>libexec</code> directory under this path, it is searched.
+          </li>
+        </ul>
+      </li>
+      <li>
+        If external compilation is called for (see {call buckconfig.kotlin_external /}), a
+        {sp}<code>bin</code> directory under this directory will be searched to locate the
+        {sp}<code>kotlinc</code> executable.
+      </li>
+    </ul>
+    If this setting is not specified, the location of the Kotlin home directory can be specified
+    via the <code>KOTLIN_HOME</code> environment variable.  If neither the
+    {sp}{call buckconfig.kotlin_kotlin_home /} setting nor the <code>KOTLIN_HOME</code>{sp}
+    environment variable is specified, Buck will attempt to locate the home directory by
+    searching for the <code>kotlinc</code> executable in the paths specified by the
+    {sp}<code>PATH</code> environment variable.  If the <code>kotlinc</code> executable is found,
+    Buck assumes that the <i>parent directory</i> of that executable is the Kotlin home.
+  {/param}
+{/call}
 
 {call buckconfig.section}
   {param name: 'dx' /}
@@ -2184,6 +2471,16 @@ your <code>.buckjavaargs</code> file</a>:
     The version of the NDK that Buck should use to build native code.  This is searched for in the
     subfolders defined by the folder found in the <code>ANDROID_NDK_REPOSITORY</code> environment
     variable.
+    <p>NDKs with version prior r11 store their version in <code>RELEASE.TXT</code> file. For example,
+    in version r10c this file contains "r10c (64-bit)". You need to put "r10c"
+    in <code>ndk_version</code>.</p>
+    <p>The NDKs after r11 store their version number in <code>source.properties</code> file
+    in <code>Pkg.Revision</code> option. For example, this is the content of that file for version
+    r13b:<p/>
+    {literal}<pre class="prettyprint lang-js">
+    Pkg.Desc = Android NDK
+    Pkg.Revision = 13.1.3345770</pre>{/literal}
+    <p>You need to put "13.1.3345770" in <code>ndk_version</code>.</p>
   {/param}
 {/call}
 
@@ -2314,20 +2611,6 @@ your <code>.buckjavaargs</code> file</a>:
 
 {call buckconfig.entry}
   {param section: 'project' /}
-  {param name: 'default_android_manifest' /}
-  {param example_value: '//shared/AndroidManifest.xml' /}
-  {param description}
-    The default manifest file that should be used when the <code>src_target</code> of a{sp}
-    {call buck.project_config /} rule is an Android rule (like {call buck.android_library /}), but
-    there is no <code>AndroidManifest.xml</code> file in the same directory as the{sp}
-    {call buck.build_file /} the {call buck.project_config /} is defined in.  IDEs for Android
-    projects need a manifest file, and this setting provides a convenient fallback without having
-    boilerplate manifest files all over your project.
-  {/param}
-{/call}
-
-{call buckconfig.entry}
-  {param section: 'project' /}
   {param name: 'glob_handler' /}
   {param example_value: 'python' /}
   {param description}
@@ -2425,13 +2708,14 @@ your <code>.buckjavaargs</code> file</a>:
   {param name: 'pre_process' /}
   {param example_value: 'scripts/pre_process_buck_project.py' /}
   {param description}
-    A script that should be executed before the project files are generated. This should only be
-    used to do some project-specific actions that are reasonably fast. The general advice is keep
-    it free from any logic that modifies generated iml files.
+     A script that should be executed before the project files are generated. This should only be
+    used to do some project-specific actions that are reasonably fast.
     <p/>
     The environment of this script contains the following variables:
     <ul>
-      <code>BUCK_PROJECT_TARGETS</code> - whitespace-separated list of input targets.
+      <li><code>BUCK_PROJECT_TARGETS</code> - whitespace-separated list of input targets.</li>
+      <li><code>BUCK_PROJECT_TYPE</code> - the type of a project, can be "xcode", "intellij" or
+      "intellij-view".</li>
     </ul>
   {/param}
 {/call}
@@ -2758,6 +3042,17 @@ your <code>.buckjavaargs</code> file</a>:
   {param description}
     Default command-line flags passed to invocations of the rust compiler in{sp}
     <code>rust_library</code> rules, in addition to options set in <code>rustc_flags</code>.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'rust' /}
+  {param name: 'unflavored_binaries' /}
+  {param example_value: 'true' /}
+  {param description}
+    Controls whether the output from <code>rust_binary</code> or <code>rust_test</code> rules
+    include a flavor from the platform in the path or not. Even unflavored, the path includes{sp}
+    <code>#binary</code>.
   {/param}
 {/call}
 

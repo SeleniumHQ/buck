@@ -20,21 +20,22 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.jvm.java.testutil.CompilerTreeApiParameterized;
+import com.facebook.buck.jvm.java.testutil.compiler.CompilerTreeApiParameterized;
 import com.google.common.base.Joiner;
-
+import java.io.IOException;
+import java.util.Map;
+import javax.lang.model.element.AnnotationMirror;
+import javax.lang.model.element.AnnotationValue;
+import javax.lang.model.element.ExecutableElement;
+import javax.lang.model.element.TypeElement;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import java.io.IOException;
 
 @RunWith(CompilerTreeApiParameterized.class)
 public class TreeBackedElementsTest extends CompilerTreeApiParameterizedTest {
   @Test
   public void testGetBinaryNameTopLevelClass() throws IOException {
-    compile(Joiner.on('\n').join(
-        "package com.facebook.foo;",
-        "class Foo { }"));
+    compile(Joiner.on('\n').join("package com.facebook.foo;", "class Foo { }"));
 
     assertEquals(
         "com.facebook.foo.Foo",
@@ -43,11 +44,8 @@ public class TreeBackedElementsTest extends CompilerTreeApiParameterizedTest {
 
   @Test
   public void testGetBinaryNameInnerClass() throws IOException {
-    compile(Joiner.on('\n').join(
-        "package com.facebook.foo;",
-        "class Foo {",
-        "  class Inner {}",
-        "}"));
+    compile(
+        Joiner.on('\n').join("package com.facebook.foo;", "class Foo {", "  class Inner {}", "}"));
 
     assertEquals(
         "com.facebook.foo.Foo$Inner",
@@ -56,10 +54,9 @@ public class TreeBackedElementsTest extends CompilerTreeApiParameterizedTest {
 
   @Test
   public void testGetDocComment() throws IOException {
-    compile(Joiner.on('\n').join(
-        "package com.facebook.foo;",
-        "/** I am a doc comment. */",
-        "class Foo { }"));
+    compile(
+        Joiner.on('\n')
+            .join("package com.facebook.foo;", "/** I am a doc comment. */", "class Foo { }"));
 
     assertEquals(
         "I am a doc comment. ",
@@ -68,24 +65,45 @@ public class TreeBackedElementsTest extends CompilerTreeApiParameterizedTest {
 
   @Test
   public void testIsDeprecated() throws IOException {
-    compile(Joiner.on('\n').join(
-        "package com.facebook.foo;",
-        "@Deprecated",
-        "class Foo { }"));
+    compile(Joiner.on('\n').join("package com.facebook.foo;", "@Deprecated", "class Foo { }"));
 
-    assertTrue(
-        elements.isDeprecated(elements.getTypeElement("com.facebook.foo.Foo")));
+    assertTrue(elements.isDeprecated(elements.getTypeElement("com.facebook.foo.Foo")));
   }
 
   @Test
   public void testGetPackageOf() throws IOException {
-    compile(Joiner.on('\n').join(
-        "package com.facebook.foo;",
-        "@Deprecated",
-        "class Foo { }"));
+    compile(Joiner.on('\n').join("package com.facebook.foo;", "@Deprecated", "class Foo { }"));
 
     assertSame(
         elements.getPackageElement("com.facebook.foo"),
         elements.getPackageOf(elements.getTypeElement("com.facebook.foo.Foo")));
+  }
+
+  @Test
+  public void testGetElementValuesWithDefaults() throws IOException {
+    compile(
+        Joiner.on('\n')
+            .join(
+                "package com.facebook.foo;",
+                "@Anno(a=4)",
+                "class Foo { }",
+                "@interface Anno {",
+                "  int a() default 1;",
+                "  int b() default 2;",
+                "}"));
+
+    TypeElement fooType = elements.getTypeElement("com.facebook.foo.Foo");
+    TypeElement annotationType = elements.getTypeElement("com.facebook.foo.Anno");
+
+    ExecutableElement aParam = findMethod("a", annotationType);
+    ExecutableElement bParam = findMethod("b", annotationType);
+
+    AnnotationMirror annotation = fooType.getAnnotationMirrors().get(0);
+    Map<? extends ExecutableElement, ? extends AnnotationValue> elementValuesWithDefaults =
+        elements.getElementValuesWithDefaults(annotation);
+
+    assertEquals(4, elementValuesWithDefaults.get(aParam).getValue());
+    assertEquals(2, elementValuesWithDefaults.get(bParam).getValue());
+    assertEquals(2, elementValuesWithDefaults.size());
   }
 }

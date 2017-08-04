@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.CxxPlatform;
 import com.facebook.buck.model.MacroException;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
@@ -32,9 +33,7 @@ public class CxxLocationMacroExpander extends LocationMacroExpander {
   }
 
   @Override
-  protected BuildRule resolve(
-      BuildRuleResolver resolver,
-      LocationMacro input)
+  protected BuildRule resolve(BuildRuleResolver resolver, LocationMacro input)
       throws MacroException {
     BuildRule rule = super.resolve(resolver, input);
     if (rule instanceof CxxGenrule) {
@@ -47,5 +46,4 @@ public class CxxLocationMacroExpander extends LocationMacroExpander {
     }
     return rule;
   }
-
 }

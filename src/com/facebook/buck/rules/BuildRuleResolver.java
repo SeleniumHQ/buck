@@ -31,11 +31,10 @@ import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Ordering;
-
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
-
+import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /**
@@ -44,22 +43,22 @@ import javax.annotation.Nullable;
  */
 public class BuildRuleResolver {
 
+  @FunctionalInterface
+  public interface BuildRuleFunction {
+    BuildRule apply(BuildTarget target) throws NoSuchBuildTargetException;
+  }
+
   private final TargetGraph targetGraph;
   private final TargetNodeToBuildRuleTransformer buildRuleGenerator;
 
-  /**
-   * Event bus for reporting performance information.
-   * Will likely be null in unit tests.
-   */
-  @Nullable
-  private final BuckEventBus eventBus;
+  /** Event bus for reporting performance information. Will likely be null in unit tests. */
+  @Nullable private final BuckEventBus eventBus;
 
   private final ConcurrentHashMap<BuildTarget, BuildRule> buildRuleIndex;
   private final LoadingCache<Pair<BuildTarget, Class<?>>, Optional<?>> metadataCache;
 
   public BuildRuleResolver(
-      TargetGraph targetGraph,
-      TargetNodeToBuildRuleTransformer buildRuleGenerator) {
+      TargetGraph targetGraph, TargetNodeToBuildRuleTransformer buildRuleGenerator) {
     this(targetGraph, buildRuleGenerator, null);
   }
 
@@ -75,44 +74,43 @@ public class BuildRuleResolver {
     final int initialCapacity = (int) (targetGraph.getNodes().size() * 5 * 1.1);
 
     this.buildRuleIndex = new ConcurrentHashMap<>(initialCapacity);
-    this.metadataCache = CacheBuilder.newBuilder()
-        .initialCapacity(initialCapacity)
-        .build(
-            new CacheLoader<Pair<BuildTarget, Class<?>>, Optional<?>>() {
-              @Override
-              public Optional<?> load(Pair<BuildTarget, Class<?>> key) throws Exception {
-                TargetNode<?, ?> node = BuildRuleResolver.this.targetGraph.get(key.getFirst());
-                return load(node, key.getSecond());
-              }
+    this.metadataCache =
+        CacheBuilder.newBuilder()
+            .initialCapacity(initialCapacity)
+            .build(
+                new CacheLoader<Pair<BuildTarget, Class<?>>, Optional<?>>() {
+                  @Override
+                  public Optional<?> load(Pair<BuildTarget, Class<?>> key) throws Exception {
+                    TargetNode<?, ?> node = BuildRuleResolver.this.targetGraph.get(key.getFirst());
+                    return load(node, key.getSecond());
+                  }
 
-              @SuppressWarnings("unchecked")
-              private <T, U> Optional<U> load(
-                  TargetNode<T, ?> node,
-                  Class<U> metadataClass) throws NoSuchBuildTargetException {
-                T arg = node.getConstructorArg();
-                if (metadataClass.isAssignableFrom(arg.getClass())) {
-                  return Optional.of(metadataClass.cast(arg));
-                }
+                  @SuppressWarnings("unchecked")
+                  private <T, U> Optional<U> load(TargetNode<T, ?> node, Class<U> metadataClass)
+                      throws NoSuchBuildTargetException {
+                    T arg = node.getConstructorArg();
+                    if (metadataClass.isAssignableFrom(arg.getClass())) {
+                      return Optional.of(metadataClass.cast(arg));
+                    }
 
-                Description<?> description = node.getDescription();
-                if (!(description instanceof MetadataProvidingDescription)) {
-                  return Optional.empty();
-                }
-                MetadataProvidingDescription<T> metadataProvidingDescription =
-                    (MetadataProvidingDescription<T>) description;
-                return metadataProvidingDescription.createMetadata(
-                    node.getBuildTarget(),
-                    BuildRuleResolver.this,
-                    arg,
-                    node.getSelectedVersions(),
-                    metadataClass);
-              }
-            });
+                    Description<?> description = node.getDescription();
+                    if (!(description instanceof MetadataProvidingDescription)) {
+                      return Optional.empty();
+                    }
+                    MetadataProvidingDescription<T> metadataProvidingDescription =
+                        (MetadataProvidingDescription<T>) description;
+                    return metadataProvidingDescription.createMetadata(
+                        node.getBuildTarget(),
+                        BuildRuleResolver.this,
+                        node.getCellNames(),
+                        arg,
+                        node.getSelectedVersions(),
+                        metadataClass);
+                  }
+                });
   }
 
-  /**
-   * @return an unmodifiable view of the rules in the index
-   */
+  /** @return an unmodifiable view of the rules in the index */
   public Iterable<BuildRule> getBuildRules() {
     return Iterables.unmodifiableIterable(buildRuleIndex.values());
   }
@@ -124,9 +122,7 @@ public class BuildRuleResolver {
     return rule;
   }
 
-  /**
-   * Returns the {@link BuildRule} with the {@code buildTarget}.
-   */
+  /** Returns the {@link BuildRule} with the {@code buildTarget}. */
   public BuildRule getRule(BuildTarget buildTarget) {
     return fromNullable(buildTarget, buildRuleIndex.get(buildTarget));
   }
@@ -135,17 +131,26 @@ public class BuildRuleResolver {
     return Optional.ofNullable(buildRuleIndex.get(buildTarget));
   }
 
-  public BuildRule requireRule(BuildTarget target) throws NoSuchBuildTargetException {
+  /**
+   * Retrieve the {@code BuildRule} for the given {@code BuildTarget}. If no rules are associated
+   * with the target, compute the rule using the given supplier and update the mapping.
+   *
+   * @param target target with which the BuildRule is associated.
+   * @param mappingFunction function to compute the rule.
+   * @return the current value associated with the rule
+   * @throws NoSuchBuildTargetException if the supplier does so.
+   */
+  public BuildRule computeIfAbsentThrowing(BuildTarget target, BuildRuleFunction mappingFunction)
+      throws NoSuchBuildTargetException {
     BuildRule rule = buildRuleIndex.get(target);
     if (rule != null) {
       return rule;
     }
-    TargetNode<?, ?> node = targetGraph.get(target);
-    rule = buildRuleGenerator.transform(targetGraph, this, node);
+    rule = mappingFunction.apply(target);
     Preconditions.checkState(
         // TODO(jakubzika): This should hold for flavored build targets as well.
         rule.getBuildTarget().getUnflavoredBuildTarget().equals(target.getUnflavoredBuildTarget()),
-        "Description returned rule for '%s' instead of '%s'.",
+        "Computed rule for '%s' instead of '%s'.",
         rule.getBuildTarget(),
         target);
     BuildRule oldRule = buildRuleIndex.put(target, rule);
@@ -154,12 +159,44 @@ public class BuildRuleResolver {
         // For now we need it to handle cases where a description adds a rule to the index before
         // returning it.
         oldRule == null || oldRule == rule,
-        "Multiple rules created for target '%s':\n" +
-            "new rule '%s' does not match existing rule '%s'.",
+        "Multiple rules created for target '%s':\n"
+            + "new rule '%s' does not match existing rule '%s'.",
         target,
         rule,
         oldRule);
     return rule;
+  }
+
+  public BuildRule computeIfAbsent(
+      BuildTarget target, Function<BuildTarget, BuildRule> mappingFunction) {
+    try {
+      return computeIfAbsentThrowing(target, mappingFunction::apply);
+    } catch (NoSuchBuildTargetException e) {
+      throw new IllegalStateException("Supplier should not throw NoSuchBuildTargetException.", e);
+    }
+  }
+
+  /**
+   * Retrieve the {@code BuildRule} for the given {@code BuildTarget}. If no rules are associated
+   * with the target, compute it by transforming the {@code TargetNode} associated with this build
+   * target using the {@link TargetNodeToBuildRuleTransformer} associated with this instance.
+   */
+  public BuildRule requireRule(BuildTarget target) throws NoSuchBuildTargetException {
+    return computeIfAbsentThrowing(
+        target,
+        (ignored) -> {
+          TargetNode<?, ?> node = targetGraph.get(target);
+          BuildRule rule = buildRuleGenerator.transform(targetGraph, this, node);
+          Preconditions.checkState(
+              // TODO(jakubzika): This should hold for flavored build targets as well.
+              rule.getBuildTarget()
+                  .getUnflavoredBuildTarget()
+                  .equals(target.getUnflavoredBuildTarget()),
+              "Description returned rule for '%s' instead of '%s'.",
+              rule.getBuildTarget(),
+              target);
+          return rule;
+        });
   }
 
   public ImmutableSortedSet<BuildRule> requireAllRules(Iterable<BuildTarget> buildTargets)
@@ -175,8 +212,8 @@ public class BuildRuleResolver {
   public <T> Optional<T> requireMetadata(BuildTarget target, Class<T> metadataClass)
       throws NoSuchBuildTargetException {
     try {
-      return (Optional<T>) metadataCache.get(
-          new Pair<BuildTarget, Class<?>>(target, metadataClass));
+      return (Optional<T>)
+          metadataCache.get(new Pair<BuildTarget, Class<?>>(target, metadataClass));
     } catch (ExecutionException e) {
       Throwables.throwIfInstanceOf(e.getCause(), NoSuchBuildTargetException.class);
       throw new RuntimeException(e);
@@ -184,9 +221,7 @@ public class BuildRuleResolver {
   }
 
   @SuppressWarnings("unchecked")
-  public <T> Optional<T> getRuleOptionalWithType(
-      BuildTarget buildTarget,
-      Class<T> cls) {
+  public <T> Optional<T> getRuleOptionalWithType(BuildTarget buildTarget, Class<T> cls) {
     BuildRule rule = buildRuleIndex.get(buildTarget);
     if (rule != null) {
       if (cls.isInstance(rule)) {
@@ -194,9 +229,7 @@ public class BuildRuleResolver {
       } else {
         throw new HumanReadableException(
             "Rule for target '%s' is present but not of expected type %s (got %s)",
-            buildTarget,
-            cls,
-            rule.getClass());
+            buildTarget, cls, rule.getClass());
       }
     }
     return Optional.empty();
@@ -215,8 +248,8 @@ public class BuildRuleResolver {
   }
 
   /**
-   * Adds to the index a mapping from {@code buildRule}'s target to itself and returns
-   * {@code buildRule}.
+   * Adds to the index a mapping from {@code buildRule}'s target to itself and returns {@code
+   * buildRule}.
    */
   @VisibleForTesting
   public <T extends BuildRule> T addToIndex(T buildRule) {
@@ -224,15 +257,13 @@ public class BuildRuleResolver {
     // Yuck! This is here to make it possible for a rule to depend on a flavor of itself but it
     // would be much much better if we just got rid of the BuildRuleResolver entirely.
     if (oldValue != null && oldValue != buildRule) {
-      throw new IllegalStateException("A build rule for this target has already been created: " +
-          oldValue.getBuildTarget());
+      throw new IllegalStateException(
+          "A build rule for this target has already been created: " + oldValue.getBuildTarget());
     }
     return buildRule;
   }
 
-  /**
-   * Adds an iterable of build rules to the index.
-   */
+  /** Adds an iterable of build rules to the index. */
   public <T extends BuildRule, C extends Iterable<T>> C addAllToIndex(C buildRules) {
     for (T buildRule : buildRules) {
       addToIndex(buildRule);

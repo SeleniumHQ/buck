@@ -16,63 +16,71 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
-
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Optional;
+import org.immutables.value.Value;
 
 public class PrebuiltNativeLibraryDescription
-    implements Description<PrebuiltNativeLibraryDescription.Arg> {
+    implements Description<PrebuiltNativeLibraryDescriptionArg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<PrebuiltNativeLibraryDescriptionArg> getConstructorArgType() {
+    return PrebuiltNativeLibraryDescriptionArg.class;
   }
 
   @Override
-  public <A extends Arg> PrebuiltNativeLibrary createBuildRule(
+  public PrebuiltNativeLibrary createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) {
+      PrebuiltNativeLibraryDescriptionArg args) {
     ImmutableSortedSet<? extends SourcePath> librarySources;
     try {
       librarySources =
-          FluentIterable.from(params.getProjectFilesystem().getFilesUnderPath(args.nativeLibs))
-          .transform(p -> new PathSourcePath(params.getProjectFilesystem(), p))
-          .toSortedSet(Ordering.natural());
+          FluentIterable.from(projectFilesystem.getFilesUnderPath(args.getNativeLibs()))
+              .transform(p -> new PathSourcePath(projectFilesystem, p))
+              .toSortedSet(Ordering.natural());
     } catch (IOException e) {
-      throw new HumanReadableException(e, "Error traversing directory %s.", args.nativeLibs);
+      throw new HumanReadableException(e, "Error traversing directory %s.", args.getNativeLibs());
     }
 
     return new PrebuiltNativeLibrary(
+        buildTarget,
+        projectFilesystem,
         params,
-        args.nativeLibs,
-        args.isAsset.orElse(false),
-        librarySources
-    );
+        args.getNativeLibs(),
+        args.getIsAsset(),
+        librarySources);
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends AbstractDescriptionArg {
-    public Optional<Boolean> isAsset;
-    public Path nativeLibs;
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractPrebuiltNativeLibraryDescriptionArg
+      extends CommonDescriptionArg, HasDeclaredDeps {
+    @Value.Default
+    default boolean getIsAsset() {
+      return false;
+    }
 
-    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    Path getNativeLibs();
   }
 }

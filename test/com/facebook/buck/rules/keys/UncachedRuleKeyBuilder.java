@@ -16,17 +16,16 @@
 
 package com.facebook.buck.rules.keys;
 
+import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
-
 import java.io.IOException;
 import java.util.function.Supplier;
 
@@ -63,11 +62,7 @@ public class UncachedRuleKeyBuilder extends RuleKeyBuilder<HashCode> {
       final SourcePathResolver resolver,
       final FileHashCache hashCache,
       final RuleKeyFactory<RuleKey> ruleKeyFactory) {
-    return () -> new UncachedRuleKeyBuilder(
-        ruleFinder,
-        resolver,
-        hashCache,
-        ruleKeyFactory);
+    return () -> new UncachedRuleKeyBuilder(ruleFinder, resolver, hashCache, ruleKeyFactory);
   }
 
   @Override
@@ -77,11 +72,11 @@ public class UncachedRuleKeyBuilder extends RuleKeyBuilder<HashCode> {
   }
 
   @Override
-  protected UncachedRuleKeyBuilder setAppendableRuleKey(RuleKeyAppendable appendable) {
+  protected UncachedRuleKeyBuilder setAddsToRuleKey(AddsToRuleKey appendable) {
     RuleKeyBuilder<HashCode> subKeyBuilder = subKeySupplier.get();
-    appendable.appendToRuleKey(subKeyBuilder);
+    AlterRuleKeys.amendKey(subKeyBuilder, appendable);
     RuleKey subKey = subKeyBuilder.build(RuleKey::new);
-    setAppendableRuleKey(subKey);
+    setAddsToRuleKey(subKey);
     return this;
   }
 
@@ -98,5 +93,4 @@ public class UncachedRuleKeyBuilder extends RuleKeyBuilder<HashCode> {
   protected RuleKeyBuilder<HashCode> setNonHashingSourcePath(SourcePath sourcePath) {
     return setNonHashingSourcePathDirectly(sourcePath);
   }
-
 }

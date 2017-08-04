@@ -18,16 +18,13 @@ package com.facebook.buck.zip;
 
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
-
 import java.io.IOException;
 import java.nio.file.Path;
 
 public class UnzipStep implements Step {
-  private static final Logger LOG = Logger.get(UnzipStep.class);
 
   private final ProjectFilesystem filesystem;
   private final Path zipFile;
@@ -40,18 +37,15 @@ public class UnzipStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
-    Path zip = zipFile.isAbsolute() ?
-        zipFile :
-        filesystem.getPathForRelativeExistingPath(zipFile).toAbsolutePath();
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
+    Path zip =
+        zipFile.isAbsolute()
+            ? zipFile
+            : filesystem.getPathForRelativeExistingPath(zipFile).toAbsolutePath();
     Path out = filesystem.getPathForRelativeExistingPath(destinationDirectory).toAbsolutePath();
 
-    try {
-      Unzip.extractZipFile(zip, out, Unzip.ExistingFileMode.OVERWRITE);
-    } catch (IOException e) {
-      LOG.warn(e, "Unable to unpack zip: %s", zipFile);
-      return StepExecutionResult.ERROR;
-    }
+    Unzip.extractZipFile(zip, out, Unzip.ExistingFileMode.OVERWRITE);
     return StepExecutionResult.SUCCESS;
   }
 

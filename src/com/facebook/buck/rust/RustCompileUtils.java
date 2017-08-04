@@ -18,13 +18,14 @@ package com.facebook.buck.rust;
 
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxGenruleDescription;
-import com.facebook.buck.cxx.CxxPlatform;
-import com.facebook.buck.cxx.Linker;
-import com.facebook.buck.cxx.Linkers;
-import com.facebook.buck.cxx.NativeLinkable;
-import com.facebook.buck.cxx.NativeLinkables;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.platform.Linkers;
+import com.facebook.buck.cxx.platform.NativeLinkable;
+import com.facebook.buck.cxx.platform.NativeLinkables;
 import com.facebook.buck.graph.AbstractBreadthFirstThrowingTraversal;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Pair;
@@ -34,6 +35,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -49,27 +51,21 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.SortedSet;
 import java.util.stream.Stream;
 
-/**
- * Utilities to generate various kinds of Rust compilation.
- */
+/** Utilities to generate various kinds of Rust compilation. */
 public class RustCompileUtils {
-  private RustCompileUtils() {
-  }
+  private RustCompileUtils() {}
 
   protected static BuildTarget getCompileBuildTarget(
-      BuildTarget target,
-      CxxPlatform cxxPlatform,
-      CrateType crateType) {
-    return target.withFlavors(
-        cxxPlatform.getFlavor(),
-        crateType.getFlavor());
+      BuildTarget target, CxxPlatform cxxPlatform, CrateType crateType) {
+    return target.withFlavors(cxxPlatform.getFlavor(), crateType.getFlavor());
   }
 
   // Construct a RustCompileRule with:
@@ -83,9 +79,10 @@ public class RustCompileUtils {
   // - `-C relocation-model=pic/static/default/dynamic-no-pic` according to flavor
   // - `--emit metadata` if flavor is "check"
   // - `--crate-type lib/rlib/dylib/cdylib/staticlib` according to flavor
-  protected static RustCompileRule createBuild(
+  private static RustCompileRule createBuild(
       BuildTarget target,
       String crateName,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       SourcePathRuleFinder ruleFinder,
@@ -98,20 +95,19 @@ public class RustCompileUtils {
       Linker.LinkableDepType depType,
       boolean rpath,
       ImmutableSortedSet<SourcePath> sources,
-      SourcePath rootModule
-  ) throws NoSuchBuildTargetException {
-    ImmutableSortedSet<BuildRule> ruledeps = params.getBuildDeps();
+      SourcePath rootModule)
+      throws NoSuchBuildTargetException {
+    SortedSet<BuildRule> ruledeps = params.getBuildDeps();
     ImmutableList.Builder<Arg> linkerArgs = ImmutableList.builder();
 
-    Stream.concat(
-        rustConfig.getLinkerArgs(cxxPlatform).stream(),
-        extraLinkerFlags.stream())
+    Stream.concat(rustConfig.getLinkerArgs(cxxPlatform).stream(), extraLinkerFlags.stream())
         .map(StringArg::of)
         .forEach(linkerArgs::add);
 
     linkerArgs.addAll(linkerInputs);
 
     ImmutableList.Builder<Arg> args = ImmutableList.builder();
+    ImmutableList.Builder<Arg> depArgs = ImmutableList.builder();
 
     String relocModel;
     if (crateType.isPic()) {
@@ -129,12 +125,12 @@ public class RustCompileUtils {
     }
 
     Stream.of(
-        Stream.of(
-            String.format("--crate-name=%s", crateName),
-            String.format("--crate-type=%s", crateType),
-            String.format("-Crelocation-model=%s", relocModel)),
-        extraFlags.stream(),
-        checkArgs)
+            Stream.of(
+                String.format("--crate-name=%s", crateName),
+                String.format("--crate-type=%s", crateType),
+                String.format("-Crelocation-model=%s", relocModel)),
+            extraFlags.stream(),
+            checkArgs)
         .flatMap(x -> x)
         .map(StringArg::of)
         .forEach(args::add);
@@ -146,31 +142,30 @@ public class RustCompileUtils {
     // but Arg isn't comparable, so we can't put it in a Set.
 
     // First pass - direct deps
-    ruledeps.stream()
+    ruledeps
+        .stream()
         .filter(RustLinkable.class::isInstance)
-        .map(rule -> ((RustLinkable) rule).getLinkerArg(
-                true, crateType.isCheck(), cxxPlatform, depType))
-        .forEach(args::add);
+        .map(
+            rule ->
+                ((RustLinkable) rule).getLinkerArg(true, crateType.isCheck(), cxxPlatform, depType))
+        .forEach(depArgs::add);
 
     // Second pass - indirect deps
     new AbstractBreadthFirstTraversal<BuildRule>(
-        ruledeps.stream()
+        ruledeps
+            .stream()
             .flatMap(r -> r.getBuildDeps().stream())
             .collect(MoreCollectors.toImmutableList())) {
-      private final ImmutableSet<BuildRule> empty = ImmutableSet.of();
-
       @Override
       public Iterable<BuildRule> visit(BuildRule rule) {
-        ImmutableSet<BuildRule> deps = empty;
+        SortedSet<BuildRule> deps = ImmutableSortedSet.of();
         if (rule instanceof RustLinkable) {
           deps = rule.getBuildDeps();
 
-          Arg arg = ((RustLinkable) rule).getLinkerArg(
-              false,
-              crateType.isCheck(),
-              cxxPlatform, depType);
+          Arg arg =
+              ((RustLinkable) rule).getLinkerArg(false, crateType.isCheck(), cxxPlatform, depType);
 
-          args.add(arg);
+          depArgs.add(arg);
         }
         return deps;
       }
@@ -180,13 +175,14 @@ public class RustCompileUtils {
     // it's either an executable, or a native library that C/C++ can link with. Rust DYLIBs
     // also need all dependencies available.
     if (crateType.needAllDeps()) {
-      ImmutableList<Arg> nativeArgs = NativeLinkables.getTransitiveNativeLinkableInput(
-          cxxPlatform,
-          ruledeps,
-          depType,
-          RustLinkable.class::isInstance,
-          RustLinkable.class::isInstance)
-          .getArgs();
+      ImmutableList<Arg> nativeArgs =
+          NativeLinkables.getTransitiveNativeLinkableInput(
+                  cxxPlatform,
+                  ruledeps,
+                  depType,
+                  RustLinkable.class::isInstance,
+                  RustLinkable.class::isInstance)
+              .getArgs();
 
       // Add necessary rpaths if we're dynamically linking with things
       if (rpath && depType == Linker.LinkableDepType.SHARED) {
@@ -198,8 +194,7 @@ public class RustCompileUtils {
 
     // If we want shared deps or are building a dynamic rlib, make sure we prefer
     // dynamic dependencies (esp to get dynamic dependency on standard libs)
-    if (depType == Linker.LinkableDepType.SHARED ||
-        crateType == CrateType.DYLIB) {
+    if (depType == Linker.LinkableDepType.SHARED || crateType == CrateType.DYLIB) {
       args.add(StringArg.of("-Cprefer-dynamic"));
     }
 
@@ -208,12 +203,16 @@ public class RustCompileUtils {
     return resolver.addToIndex(
         RustCompileRule.from(
             ruleFinder,
-            params.withBuildTarget(target),
+            target,
+            projectFilesystem,
+            params,
             filename,
             rustConfig.getRustCompiler().resolve(resolver),
-            rustConfig.getLinkerProvider(cxxPlatform, cxxPlatform.getLd().getType())
+            rustConfig
+                .getLinkerProvider(cxxPlatform, cxxPlatform.getLd().getType())
                 .resolve(resolver),
             args.build(),
+            depArgs.build(),
             linkerArgs.build(),
             CxxGenruleDescription.fixupSourcePaths(resolver, ruleFinder, cxxPlatform, sources),
             CxxGenruleDescription.fixupSourcePath(resolver, ruleFinder, cxxPlatform, rootModule),
@@ -221,6 +220,8 @@ public class RustCompileUtils {
   }
 
   public static RustCompileRule requireBuild(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       SourcePathRuleFinder ruleFinder,
@@ -233,9 +234,9 @@ public class RustCompileUtils {
       CrateType crateType,
       Linker.LinkableDepType depType,
       ImmutableSortedSet<SourcePath> sources,
-      SourcePath rootModule
-  ) throws NoSuchBuildTargetException {
-    BuildTarget target = getCompileBuildTarget(params.getBuildTarget(), cxxPlatform, crateType);
+      SourcePath rootModule)
+      throws NoSuchBuildTargetException {
+    BuildTarget target = getCompileBuildTarget(buildTarget, cxxPlatform, crateType);
 
     // If this rule has already been generated, return it.
     Optional<RustCompileRule> existing =
@@ -247,6 +248,7 @@ public class RustCompileUtils {
     return createBuild(
         target,
         crateName,
+        projectFilesystem,
         params,
         resolver,
         ruleFinder,
@@ -259,13 +261,11 @@ public class RustCompileUtils {
         depType,
         true,
         sources,
-        rootModule
-    );
+        rootModule);
   }
 
   public static Linker.LinkableDepType getLinkStyle(
-      BuildTarget target,
-      Optional<Linker.LinkableDepType> linkStyle) {
+      BuildTarget target, Optional<Linker.LinkableDepType> linkStyle) {
     Optional<RustBinaryDescription.Type> type = RustBinaryDescription.BINARY_TYPE.getValue(target);
     Linker.LinkableDepType ret;
 
@@ -289,6 +289,8 @@ public class RustCompileUtils {
   }
 
   public static BinaryWrapperRule createBinaryBuildRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       RustBuckConfig rustBuckConfig,
@@ -303,10 +305,10 @@ public class RustCompileUtils {
       ImmutableSortedSet<SourcePath> srcs,
       Optional<SourcePath> crateRoot,
       ImmutableSet<String> defaultRoots,
-      boolean isCheck) throws NoSuchBuildTargetException {
-    final BuildTarget buildTarget = params.getBuildTarget();
+      boolean isCheck)
+      throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     ImmutableList.Builder<String> rustcArgs = ImmutableList.builder();
 
@@ -319,12 +321,11 @@ public class RustCompileUtils {
 
     String crate = crateName.orElse(ruleToCrateName(buildTarget.getShortName()));
 
-    CxxPlatform cxxPlatform = cxxPlatforms.getValue(params.getBuildTarget())
-        .orElse(defaultCxxPlatform);
+    CxxPlatform cxxPlatform = cxxPlatforms.getValue(buildTarget).orElse(defaultCxxPlatform);
 
     Pair<SourcePath, ImmutableSortedSet<SourcePath>> rootModuleAndSources =
         getRootModuleAndSources(
-            params.getBuildTarget(),
+            buildTarget,
             resolver,
             pathResolver,
             ruleFinder,
@@ -336,9 +337,12 @@ public class RustCompileUtils {
 
     // The target to use for the link rule.
     BuildTarget binaryTarget =
-        params.getBuildTarget().withAppendedFlavors(
-            cxxPlatform.getFlavor(),
+        buildTarget.withAppendedFlavors(
             isCheck ? RustDescriptionEnhancer.RFCHECK : RustDescriptionEnhancer.RFBIN);
+
+    if (isCheck || !rustBuckConfig.getUnflavoredBinaries()) {
+      binaryTarget = binaryTarget.withAppendedFlavors(cxxPlatform.getFlavor());
+    }
 
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
 
@@ -350,9 +354,8 @@ public class RustCompileUtils {
       SymlinkTree sharedLibraries =
           resolver.addToIndex(
               CxxDescriptionEnhancer.createSharedLibrarySymlinkTree(
-                  ruleFinder,
-                  params.getBuildTarget(),
-                  params.getProjectFilesystem(),
+                  buildTarget,
+                  projectFilesystem,
                   cxxPlatform,
                   params.getBuildDeps(),
                   RustLinkable.class::isInstance,
@@ -360,8 +363,10 @@ public class RustCompileUtils {
 
       // Embed a origin-relative library path into the binary so it can find the shared libraries.
       // The shared libraries root is absolute. Also need an absolute path to the linkOutput
-      Path absBinaryDir = params.getBuildTarget().getCellPath()
-          .resolve(RustCompileRule.getOutputDir(binaryTarget, params.getProjectFilesystem()));
+      Path absBinaryDir =
+          buildTarget
+              .getCellPath()
+              .resolve(RustCompileRule.getOutputDir(binaryTarget, projectFilesystem));
 
       linkerArgs.addAll(
           Linkers.iXlinker(
@@ -383,29 +388,32 @@ public class RustCompileUtils {
       executableBuilder.addInputs(rustSharedLibraries.values());
     }
 
-    final RustCompileRule buildRule = RustCompileUtils.createBuild(
-        binaryTarget,
-        crate,
-        params,
-        resolver,
-        ruleFinder,
-        cxxPlatform,
-        rustBuckConfig,
-        rustcArgs.build(),
-        linkerArgs.build(),
-        /* linkerInputs */ ImmutableList.of(),
-        isCheck ? CrateType.CHECKBIN : CrateType.BIN,
-        linkStyle,
-        rpath,
-        rootModuleAndSources.getSecond(),
-        rootModuleAndSources.getFirst());
+    final RustCompileRule buildRule =
+        createBuild(
+            binaryTarget,
+            crate,
+            projectFilesystem,
+            params,
+            resolver,
+            ruleFinder,
+            cxxPlatform,
+            rustBuckConfig,
+            rustcArgs.build(),
+            linkerArgs.build(),
+            /* linkerInputs */ ImmutableList.of(),
+            isCheck ? CrateType.CHECKBIN : CrateType.BIN,
+            linkStyle,
+            rpath,
+            rootModuleAndSources.getSecond(),
+            rootModuleAndSources.getFirst());
 
     // Add the binary as the first argument.
     executableBuilder.addArg(SourcePathArg.of(buildRule.getSourcePathToOutput()));
 
     final CommandTool executable = executableBuilder.build();
 
-    return new BinaryWrapperRule(params.copyAppendingExtraDeps(buildRule), ruleFinder) {
+    return new BinaryWrapperRule(
+        buildTarget, projectFilesystem, params.copyAppendingExtraDeps(buildRule)) {
 
       @Override
       public Tool getExecutableCommand() {
@@ -415,8 +423,7 @@ public class RustCompileUtils {
       @Override
       public SourcePath getSourcePathToOutput() {
         return new ForwardingBuildTargetSourcePath(
-            getBuildTarget(),
-            buildRule.getSourcePathToOutput());
+            getBuildTarget(), buildRule.getSourcePathToOutput());
       }
     };
   }
@@ -426,28 +433,25 @@ public class RustCompileUtils {
    * parameters.
    *
    * @param resolver Source path resolver for rule
-   * @param crate    Name of crate
+   * @param crate Name of crate
    * @param defaults Default names for this rule (library, binary, etc)
-   * @param sources  List of sources
+   * @param sources List of sources
    * @return The matching source
    */
   public static Optional<SourcePath> getCrateRoot(
       SourcePathResolver resolver,
       String crate,
-      Optional<SourcePath> crateRoot,
       ImmutableSet<String> defaults,
       Stream<SourcePath> sources) {
     String crateName = String.format("%s.rs", crate);
-    ImmutableList<SourcePath> res = sources
-        .filter(
-            src -> {
-              String name = resolver.getRelativePath(src).getFileName().toString();
-              return
-                  crateRoot.map(src::equals).orElse(false) ||
-                      defaults.contains(name) ||
-                      name.equals(crateName);
-            })
-        .collect(MoreCollectors.toImmutableList());
+    ImmutableList<SourcePath> res =
+        sources
+            .filter(
+                src -> {
+                  String name = resolver.getRelativePath(src).getFileName().toString();
+                  return defaults.contains(name) || name.equals(crateName);
+                })
+            .collect(MoreCollectors.toImmutableList());
 
     if (res.size() == 1) {
       return Optional.of(res.get(0));
@@ -457,15 +461,11 @@ public class RustCompileUtils {
   }
 
   public static void addFeatures(
-      BuildTarget buildTarget,
-      Iterable<String> features,
-      ImmutableList.Builder<String> args) {
+      BuildTarget buildTarget, Iterable<String> features, ImmutableList.Builder<String> args) {
     for (String feature : features) {
       if (feature.contains("\"")) {
         throw new HumanReadableException(
-            "%s contains an invalid feature name %s",
-            buildTarget.getFullyQualifiedName(),
-            feature);
+            "%s contains an invalid feature name %s", buildTarget.getFullyQualifiedName(), feature);
       }
 
       args.add("--cfg", String.format("feature=\"%s\"", feature));
@@ -484,16 +484,14 @@ public class RustCompileUtils {
    * @return a mapping of library name to the library {@link SourcePath}.
    */
   public static Map<String, SourcePath> getTransitiveRustSharedLibraries(
-      CxxPlatform cxxPlatform,
-      Iterable<? extends BuildRule> inputs) throws NoSuchBuildTargetException {
+      CxxPlatform cxxPlatform, Iterable<? extends BuildRule> inputs)
+      throws NoSuchBuildTargetException {
     ImmutableSortedMap.Builder<String, SourcePath> libs = ImmutableSortedMap.naturalOrder();
 
     new AbstractBreadthFirstThrowingTraversal<BuildRule, NoSuchBuildTargetException>(inputs) {
-      private final ImmutableSet<BuildRule> empty = ImmutableSet.of();
-
       @Override
       public Iterable<BuildRule> visit(BuildRule rule) throws NoSuchBuildTargetException {
-        ImmutableSet<BuildRule> deps = empty;
+        Set<BuildRule> deps = ImmutableSet.of();
         if (rule instanceof RustLinkable) {
           deps = rule.getBuildDeps();
 
@@ -523,26 +521,19 @@ public class RustCompileUtils {
       throws NoSuchBuildTargetException {
 
     ImmutableSortedSet<SourcePath> fixedSrcs =
-        CxxGenruleDescription.fixupSourcePaths(
-            resolver,
-            ruleFinder,
-            cxxPlatform,
-            srcs);
+        CxxGenruleDescription.fixupSourcePaths(resolver, ruleFinder, cxxPlatform, srcs);
 
     Optional<SourcePath> rootModule =
-        getCrateRoot(
-            pathResolver,
-            crate,
-            crateRoot,
-            defaultRoots,
-            fixedSrcs.stream());
+        crateRoot
+            .map(Optional::of)
+            .orElse(getCrateRoot(pathResolver, crate, defaultRoots, fixedSrcs.stream()));
 
     return new Pair<>(
         rootModule.orElseThrow(
             () ->
                 new HumanReadableException(
-                    "Can't find suitable top-level source file for %s",
-                    target.getShortName())),
+                    "Can't find suitable top-level source file for %s: %s",
+                    target.getFullyQualifiedName(), fixedSrcs)),
         fixedSrcs);
   }
 }

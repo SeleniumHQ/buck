@@ -23,18 +23,14 @@ import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.timing.FakeClock;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.eventbus.Subscribe;
-
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
 
 public class HttpArtifactCacheUploadListenerTest {
   private static final int NUMBER_OF_THREADS = 42;
@@ -43,7 +39,6 @@ public class HttpArtifactCacheUploadListenerTest {
   private FakeClock clock;
   private BuckEventBus eventBus;
   private List<CountersSnapshotEvent> events;
-  private HttpArtifactCacheEvent.Started lastStartedEvent;
 
   @Before
   public void setUp() {
@@ -52,7 +47,6 @@ public class HttpArtifactCacheUploadListenerTest {
     events = new ArrayList<>();
     eventBus = new DefaultBuckEventBus(clock, /* async */ false, buildId, 1000);
     eventBus.register(this);
-    lastStartedEvent = null;
   }
 
   @After
@@ -62,10 +56,12 @@ public class HttpArtifactCacheUploadListenerTest {
 
   @Test
   public void testEventGetsSentWhenBuildIsFinishedWithoutOutstandingUploads() throws IOException {
-    HttpArtifactCacheUploadListener listener = new HttpArtifactCacheUploadListener(
-        eventBus, NUMBER_OF_THREADS);
-    listener.onArtifactUploadStart(createUploadStartedEvent(0));
-    listener.onArtifactUploadFinish(createUploadFinishedEvent(1));
+    HttpArtifactCacheUploadListener listener =
+        new HttpArtifactCacheUploadListener(eventBus, NUMBER_OF_THREADS);
+    HttpArtifactCacheEvent.Started started =
+        ArtifactCacheTestUtils.newUploadStartedEvent(new BuildId("rabbit"));
+    listener.onArtifactUploadStart(started);
+    listener.onArtifactUploadFinish(ArtifactCacheTestUtils.newFinishedEvent(started, true));
     listener.onBuildFinished(createBuildFinishedEvent(2));
 
     Assert.assertEquals(1, events.size());
@@ -74,11 +70,13 @@ public class HttpArtifactCacheUploadListenerTest {
 
   @Test
   public void testEventGetsSentOnLastUploadAfterBuildFinished() throws IOException {
-    HttpArtifactCacheUploadListener listener = new HttpArtifactCacheUploadListener(
-        eventBus, NUMBER_OF_THREADS);
+    HttpArtifactCacheUploadListener listener =
+        new HttpArtifactCacheUploadListener(eventBus, NUMBER_OF_THREADS);
     listener.onBuildFinished(createBuildFinishedEvent(0));
-    listener.onArtifactUploadStart(createUploadStartedEvent(1));
-    listener.onArtifactUploadFinish(createUploadFinishedEvent(2));
+    HttpArtifactCacheEvent.Started started =
+        ArtifactCacheTestUtils.newUploadStartedEvent(new BuildId("rabbit"));
+    listener.onArtifactUploadStart(started);
+    listener.onArtifactUploadFinish(ArtifactCacheTestUtils.newFinishedEvent(started, true));
 
     Assert.assertEquals(1, events.size());
     Assert.assertEquals(1, events.get(0).getSnapshots().size());
@@ -86,8 +84,8 @@ public class HttpArtifactCacheUploadListenerTest {
 
   @Test
   public void testNothingGetsSentWhenThereAreNoUploads() throws IOException {
-    HttpArtifactCacheUploadListener listener = new HttpArtifactCacheUploadListener(
-        eventBus, NUMBER_OF_THREADS);
+    HttpArtifactCacheUploadListener listener =
+        new HttpArtifactCacheUploadListener(eventBus, NUMBER_OF_THREADS);
     listener.onBuildFinished(createBuildFinishedEvent(2));
 
     Assert.assertEquals(0, events.size());
@@ -99,23 +97,6 @@ public class HttpArtifactCacheUploadListenerTest {
     BuildEvent.Finished finishedEvent = BuildEvent.finished(startedEvent, 0);
     finishedEvent.configure(timeMillis, 0, 0, 0, buildId);
     return finishedEvent;
-  }
-
-  private HttpArtifactCacheEvent.Finished createUploadFinishedEvent(
-      int timeMillis) {
-    HttpArtifactCacheEvent.Finished event =
-        HttpArtifactCacheEvent.newFinishedEventBuilder(lastStartedEvent).build();
-    event.configure(timeMillis, 0, 0, 0, buildId);
-    return event;
-  }
-
-  private HttpArtifactCacheEvent.Started createUploadStartedEvent(int timeMillis) {
-    final HttpArtifactCacheEvent.Scheduled scheduled =
-        HttpArtifactCacheEvent.newStoreScheduledEvent(
-            Optional.empty(), ImmutableSet.of());
-    lastStartedEvent = HttpArtifactCacheEvent.newStoreStartedEvent(scheduled);
-    lastStartedEvent.configure(timeMillis, 0, 0, 0, buildId);
-    return lastStartedEvent;
   }
 
   @Subscribe

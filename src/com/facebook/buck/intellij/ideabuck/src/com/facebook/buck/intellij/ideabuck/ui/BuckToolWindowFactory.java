@@ -48,14 +48,10 @@ import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentManager;
-import com.intellij.ui.tabs.JBTabs;
-import com.intellij.ui.tabs.TabInfo;
-import com.intellij.ui.tabs.impl.JBTabsImpl;
 import com.intellij.ui.treeStructure.Tree;
-
+import java.awt.Rectangle;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
-
 import javax.swing.JComponent;
 import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
@@ -64,7 +60,7 @@ public class BuckToolWindowFactory implements ToolWindowFactory, DumbAware {
 
   private static final String OUTPUT_WINDOW_CONTENT_ID = "BuckOutputWindowContent";
   public static final String TOOL_WINDOW_ID = "Buck";
-  private static final String TABS_CONTENT_ID = "BuckWindowTabsContent";
+  public static final String RUN_TOOL_WINDOW_ID = "Run";
   private static final String BUILD_OUTPUT_PANEL = "BuckBuildOutputPanel";
 
   public static void updateBuckToolWindowTitle(Project project) {
@@ -76,27 +72,40 @@ public class BuckToolWindowFactory implements ToolWindowFactory, DumbAware {
   }
 
   public static void showMainToolbar(final Project project) {
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        UISettings uiSettings = UISettings.getInstance();
-        uiSettings.SHOW_MAIN_TOOLBAR = true;
-        uiSettings.fireUISettingsChanged();
-      }
-    });
+    ApplicationManager.getApplication()
+        .invokeLater(
+            new Runnable() {
+              @Override
+              public void run() {
+                UISettings uiSettings = UISettings.getInstance();
+                uiSettings.SHOW_MAIN_TOOLBAR = true;
+                uiSettings.fireUISettingsChanged();
+              }
+            });
   }
 
   public static void showToolWindow(final Project project) {
-    ApplicationManager.getApplication().getInvokator().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        ToolWindow toolWindow = ToolWindowManager.getInstance(project)
-            .getToolWindow(TOOL_WINDOW_ID);
-        if (toolWindow != null) {
-          toolWindow.activate(null, false);
-        }
-      }
-    });
+    showToolWindow(project, TOOL_WINDOW_ID);
+  }
+
+  public static void showRunToolWindow(final Project project) {
+    showToolWindow(project, RUN_TOOL_WINDOW_ID);
+  }
+
+  public static void showToolWindow(final Project project, String tooWindowId) {
+    ApplicationManager.getApplication()
+        .getInvokator()
+        .invokeLater(
+            new Runnable() {
+              @Override
+              public void run() {
+                ToolWindow toolWindow =
+                    ToolWindowManager.getInstance(project).getToolWindow(tooWindowId);
+                if (toolWindow != null) {
+                  toolWindow.activate(null, false);
+                }
+              }
+            });
   }
 
   public static boolean isToolWindowInstantiated(Project project) {
@@ -104,7 +113,15 @@ public class BuckToolWindowFactory implements ToolWindowFactory, DumbAware {
   }
 
   public static boolean isToolWindowVisible(Project project) {
-    ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow(TOOL_WINDOW_ID);
+    return isToolWindowVisible(project, TOOL_WINDOW_ID);
+  }
+
+  public static boolean isRunToolWindowVisible(Project project) {
+    return isToolWindowVisible(project, RUN_TOOL_WINDOW_ID);
+  }
+
+  public static boolean isToolWindowVisible(Project project, String toolWindowId) {
+    ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow(toolWindowId);
 
     return toolWindow == null || toolWindow.isVisible();
   }
@@ -125,17 +142,18 @@ public class BuckToolWindowFactory implements ToolWindowFactory, DumbAware {
 
   public static synchronized void updateActionsNow(final Project project) {
 
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        BuckUIManager.getInstance(project).getLayoutUi(project).updateActionsNow();
-      }
-    });
+    ApplicationManager.getApplication()
+        .invokeLater(
+            new Runnable() {
+              @Override
+              public void run() {
+                BuckUIManager.getInstance(project).getLayoutUi(project).updateActionsNow();
+              }
+            });
   }
 
   @Override
-  public void createToolWindowContent(
-      final Project project, ToolWindow toolWindow) {
+  public void createToolWindowContent(final Project project, ToolWindow toolWindow) {
     toolWindow.setAvailable(true, null);
     toolWindow.setToHideOnEmptyContent(true);
     toolWindow.setIcon(BuckIcons.BUCK_TOOL_WINDOW_ICON);
@@ -144,33 +162,30 @@ public class BuckToolWindowFactory implements ToolWindowFactory, DumbAware {
 
     BuckSettingsProvider.State state = BuckSettingsProvider.getInstance().getState();
 
-    JBTabs myTabs = new JBTabsImpl(project);
     // Debug Console
     if (state.showDebug) {
       Content consoleContent = createConsoleContent(runnerLayoutUi, project);
-      myTabs.addTab(new TabInfo(consoleContent.getComponent())).setText("Debug");
+      consoleContent.setCloseable(false);
+      consoleContent.setPinnable(false);
+      runnerLayoutUi.addContent(consoleContent, 0, PlaceInGrid.center, false);
     }
     // Build Tree Events
-    Content treeViewContent = runnerLayoutUi.createContent(BUILD_OUTPUT_PANEL,
-            createBuildInfoPanel(project), "Build Output", null, null);
-    myTabs.addTab(new TabInfo(treeViewContent.getComponent()).setText("Build"));
+    Content treeViewContent =
+        runnerLayoutUi.createContent(
+            BUILD_OUTPUT_PANEL, createBuildInfoPanel(project), "Build", null, null);
+    treeViewContent.setCloseable(false);
+    treeViewContent.setPinnable(false);
+    runnerLayoutUi.addContent(treeViewContent, 0, PlaceInGrid.center, false);
 
-    Content tabsContent = runnerLayoutUi.createContent(
-            TABS_CONTENT_ID,
-            myTabs.getComponent(),
-            "Buck Tool Tabs",
-            null,
-            null);
-
-    runnerLayoutUi.addContent(tabsContent, 0, PlaceInGrid.center, false);
-    runnerLayoutUi.getOptions().setLeftToolbar(
-        getLeftToolbarActions(project), ActionPlaces.UNKNOWN);
+    runnerLayoutUi
+        .getOptions()
+        .setLeftToolbar(getLeftToolbarActions(project), ActionPlaces.UNKNOWN);
 
     runnerLayoutUi.updateActionsNow();
 
     final ContentManager contentManager = toolWindow.getContentManager();
-    Content content = contentManager.getFactory().createContent(
-        runnerLayoutUi.getComponent(), "", true);
+    Content content =
+        contentManager.getFactory().createContent(runnerLayoutUi.getComponent(), "", true);
     contentManager.addContent(content);
 
     updateBuckToolWindowTitle(project);
@@ -178,8 +193,9 @@ public class BuckToolWindowFactory implements ToolWindowFactory, DumbAware {
 
   private Content createConsoleContent(RunnerLayoutUi layoutUi, Project project) {
     ConsoleView consoleView = BuckUIManager.getInstance(project).getConsoleWindow(project);
-    Content consoleWindowContent = layoutUi.createContent(
-        OUTPUT_WINDOW_CONTENT_ID, consoleView.getComponent(), "Output Logs", null, null);
+    Content consoleWindowContent =
+        layoutUi.createContent(
+            OUTPUT_WINDOW_CONTENT_ID, consoleView.getComponent(), "Debug", null, null);
     consoleWindowContent.setCloseable(false);
     return consoleWindowContent;
   }
@@ -205,44 +221,44 @@ public class BuckToolWindowFactory implements ToolWindowFactory, DumbAware {
   }
 
   private JComponent createBuildInfoPanel(Project project) {
-    Tree result = new Tree(BuckUIManager.getInstance(project).getTreeModel());
-    result.addMouseListener(new MouseListener() {
-      @Override
-      public void mouseClicked(MouseEvent e) {
-        Tree tree = (Tree) e.getComponent();
-        int selRow = tree.getRowForLocation(e.getX(), e.getY());
-        TreePath selPath = tree.getPathForLocation(e.getX(), e.getY());
-        if (selRow != -1 && e.getClickCount() == 2) {
-          TreeNode node = (TreeNode) selPath.getLastPathComponent();
-          if (node.isLeaf()) {
-            BuckTreeNodeDetail buckNode = (BuckTreeNodeDetail) node;
-            if (buckNode instanceof BuckTreeNodeDetailError) {
-              BuckToolWindowFactory.this.handleClickOnError((BuckTreeNodeDetailError) buckNode);
+    Tree result =
+        new Tree(BuckUIManager.getInstance(project).getTreeModel()) {
+          @Override
+          public int getScrollableUnitIncrement(
+              Rectangle visibleRect, int orientation, int direction) {
+            return 5;
+          }
+        };
+    result.addMouseListener(
+        new MouseListener() {
+          @Override
+          public void mouseClicked(MouseEvent e) {
+            Tree tree = (Tree) e.getComponent();
+            int selRow = tree.getRowForLocation(e.getX(), e.getY());
+            TreePath selPath = tree.getPathForLocation(e.getX(), e.getY());
+            if (selRow != -1 && e.getClickCount() == 2) {
+              TreeNode node = (TreeNode) selPath.getLastPathComponent();
+              if (node.isLeaf()) {
+                BuckTreeNodeDetail buckNode = (BuckTreeNodeDetail) node;
+                if (buckNode instanceof BuckTreeNodeDetailError) {
+                  BuckToolWindowFactory.this.handleClickOnError((BuckTreeNodeDetailError) buckNode);
+                }
+              }
             }
           }
-        }
-      }
 
-      @Override
-      public void mousePressed(MouseEvent e) {
+          @Override
+          public void mousePressed(MouseEvent e) {}
 
-      }
+          @Override
+          public void mouseReleased(MouseEvent e) {}
 
-      @Override
-      public void mouseReleased(MouseEvent e) {
+          @Override
+          public void mouseEntered(MouseEvent e) {}
 
-      }
-
-      @Override
-      public void mouseEntered(MouseEvent e) {
-
-      }
-
-      @Override
-      public void mouseExited(MouseEvent e) {
-
-      }
-    });
+          @Override
+          public void mouseExited(MouseEvent e) {}
+        });
     result.setCellRenderer(new BuckTreeCellRenderer());
     result.setShowsRootHandles(false);
     result.setRowHeight(0);
@@ -261,13 +277,9 @@ public class BuckToolWindowFactory implements ToolWindowFactory, DumbAware {
       String relativePath = buckParentNode.getFilePath().replace(project.getBasePath(), "");
 
       VirtualFile virtualFile = project.getBaseDir().findFileByRelativePath(relativePath);
-      OpenFileDescriptor openFileDescriptor = new OpenFileDescriptor(
-              project,
-              virtualFile,
-              node.getLine() - 1,
-              node.getColumn() - 1);
+      OpenFileDescriptor openFileDescriptor =
+          new OpenFileDescriptor(project, virtualFile, node.getLine() - 1, node.getColumn() - 1);
       openFileDescriptor.navigate(true);
     }
   }
-
 }

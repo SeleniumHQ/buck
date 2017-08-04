@@ -1,7 +1,12 @@
-standard_java_library(
+java_library(
     name = "collect",
+    srcs = glob(["*.java"]),
     tests = [
         "//test/com/facebook/buck/util/collect:collect",
     ],
-    deps = ["//third-party/java/guava:guava"],
+    visibility = ["PUBLIC"],
+    deps = [
+        "//third-party/java/guava:guava",
+        "//third-party/java/jsr:jsr305",
+    ],
 )

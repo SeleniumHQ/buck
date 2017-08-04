@@ -23,16 +23,17 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.HasMavenCoordinates;
 import com.facebook.buck.jvm.java.MavenPublishable;
+import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithResolver;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -46,16 +47,6 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-
-import org.apache.maven.model.Dependency;
-import org.apache.maven.model.Developer;
-import org.apache.maven.model.Model;
-import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
-import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
-import org.junit.Rule;
-import org.junit.Test;
-import org.xml.sax.SAXException;
-
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.Reader;
@@ -65,9 +56,17 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-
+import java.util.SortedSet;
 import javax.annotation.Nullable;
 import javax.xml.transform.TransformerException;
+import org.apache.maven.model.Dependency;
+import org.apache.maven.model.Developer;
+import org.apache.maven.model.Model;
+import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
+import org.apache.maven.model.io.xpp3.MavenXpp3Writer;
+import org.junit.Rule;
+import org.junit.Test;
+import org.xml.sax.SAXException;
 
 public class PomIntegrationTest {
 
@@ -75,29 +74,21 @@ public class PomIntegrationTest {
   private static final MavenXpp3Reader MAVEN_XPP_3_READER = new MavenXpp3Reader();
   private static final String URL = "http://example.com";
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
-  private final BuildRuleResolver ruleResolver = new BuildRuleResolver(
-      TargetGraph.EMPTY,
-      new DefaultTargetNodeToBuildRuleTransformer());
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
+  private final BuildRuleResolver ruleResolver =
+      new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
   private final SourcePathResolver pathResolver =
-      new SourcePathResolver(new SourcePathRuleFinder(ruleResolver));
+      DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
   private final ProjectFilesystem filesystem = FakeProjectFilesystem.createRealTempFilesystem();
 
   @Test
-  public void testMultipleInvocation() throws Exception{
+  public void testMultipleInvocation() throws Exception {
     // Setup: deps: com.example:with-deps:jar:1.0 -> com.othercorp:no-deps:jar:1.0
-    BuildRule dep = createMavenPublishable(
-        "//example:dep",
-        "com.othercorp:no-deps:1.0",
-        null);
+    BuildRule dep = createMavenPublishable("//example:dep", "com.othercorp:no-deps:1.0", null);
 
-    MavenPublishable item = createMavenPublishable(
-        "//example:has-deps",
-        "com.example:with-deps:1.0",
-        null,
-        dep);
+    MavenPublishable item =
+        createMavenPublishable("//example:has-deps", "com.example:with-deps:1.0", null, dep);
 
     Path pomPath = tmp.getRoot().resolve("pom.xml");
     assertFalse(Files.exists(pomPath));
@@ -134,18 +125,18 @@ public class PomIntegrationTest {
 
   @Test
   public void shouldUseTemplateIfProvided() throws Exception {
-    MavenPublishable withoutTemplate = createMavenPublishable(
-        "//example:no-template",
-        "example.com:project:1.0.0",
-        null);
+    MavenPublishable withoutTemplate =
+        createMavenPublishable("//example:no-template", "example.com:project:1.0.0", null);
     Model noTemplate = parse(Pom.generatePomFile(pathResolver, withoutTemplate));
 
-    MavenPublishable withTemplate = createMavenPublishable(
-        "//example:template",
-        "example.com:project:1.0.0",
-        new FakeSourcePath(
-            TestDataHelper.getTestDataDirectory(getClass())
-                .resolve("poms/template-pom.xml").toString()));
+    MavenPublishable withTemplate =
+        createMavenPublishable(
+            "//example:template",
+            "example.com:project:1.0.0",
+            new FakeSourcePath(
+                TestDataHelper.getTestDataDirectory(getClass())
+                    .resolve("poms/template-pom.xml")
+                    .toString()));
     Model templated = parse(Pom.generatePomFile(pathResolver, withTemplate));
 
     // Template sets developers and an example dep. Check that these aren't in the non-templated
@@ -166,18 +157,9 @@ public class PomIntegrationTest {
   }
 
   private MavenPublishable createMavenPublishable(
-      String target,
-      String mavenCoords,
-      @Nullable SourcePath pomTemplate,
-      BuildRule... deps) {
+      String target, String mavenCoords, @Nullable SourcePath pomTemplate, BuildRule... deps) {
     return ruleResolver.addToIndex(
-        new PublishedViaMaven(
-            target,
-            filesystem,
-            ruleResolver,
-            mavenCoords,
-            pomTemplate,
-            deps));
+        new PublishedViaMaven(target, filesystem, mavenCoords, pomTemplate, deps));
   }
 
   private static void serializePom(Model pomModel, Path destination) throws IOException {
@@ -200,29 +182,21 @@ public class PomIntegrationTest {
     }
   }
 
-  private static class PublishedViaMaven extends AbstractBuildRuleWithResolver
-      implements MavenPublishable {
-    @Nullable
-    @AddToRuleKey
-    private final SourcePath pomTemplate;
-    @AddToRuleKey
-    private final String coords;
+  private static class PublishedViaMaven extends AbstractBuildRule implements MavenPublishable {
+    @Nullable @AddToRuleKey private final SourcePath pomTemplate;
+    @AddToRuleKey private final String coords;
+    private final ImmutableSortedSet<BuildRule> deps;
 
     public PublishedViaMaven(
         String target,
         ProjectFilesystem filesystem,
-        BuildRuleResolver ruleResolver,
         String coords,
         @Nullable SourcePath pomTemplate,
         BuildRule... deps) {
-      super(
-          new FakeBuildRuleParamsBuilder(target)
-              .setDeclaredDeps(ImmutableSortedSet.copyOf(deps))
-              .setProjectFilesystem(filesystem)
-              .build(),
-          new SourcePathResolver(new SourcePathRuleFinder(ruleResolver)));
+      super(BuildTargetFactory.newInstance(target), filesystem);
       this.coords = coords;
       this.pomTemplate = pomTemplate;
+      this.deps = ImmutableSortedSet.copyOf(deps);
     }
 
     @Override
@@ -232,7 +206,7 @@ public class PomIntegrationTest {
 
     @Override
     public Iterable<BuildRule> getPackagedDependencies() {
-      return getDeclaredDeps();
+      return deps;
     }
 
     @Override
@@ -243,6 +217,11 @@ public class PomIntegrationTest {
     @Override
     public Optional<String> getMavenCoords() {
       return Optional.of(coords);
+    }
+
+    @Override
+    public SortedSet<BuildRule> getBuildDeps() {
+      return deps;
     }
 
     @Override

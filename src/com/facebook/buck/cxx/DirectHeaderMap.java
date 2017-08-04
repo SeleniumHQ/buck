@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
@@ -25,14 +26,13 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 
 public class DirectHeaderMap extends HeaderSymlinkTree {
@@ -46,13 +46,9 @@ public class DirectHeaderMap extends HeaderSymlinkTree {
       BuildTarget target,
       ProjectFilesystem filesystem,
       Path root,
-      ImmutableMap<Path, SourcePath> links,
-      SourcePathRuleFinder ruleFinder) {
-    super(target, filesystem, root, links, ruleFinder);
-    this.headerMapPath = BuildTargets.getGenPath(
-        filesystem,
-        target,
-        "%s.hmap");
+      ImmutableMap<Path, SourcePath> links) {
+    super(target, filesystem, root, links);
+    this.headerMapPath = BuildTargets.getGenPath(filesystem, target, "%s.hmap");
   }
 
   @Override
@@ -62,23 +58,26 @@ public class DirectHeaderMap extends HeaderSymlinkTree {
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
-    LOG.debug("Generating post-build steps to write header map to %s", headerMapPath);
-    ImmutableMap.Builder<Path, Path> headerMapEntries = ImmutableMap.builder();
-    Path buckOut =
-        getProjectFilesystem().resolve(getProjectFilesystem().getBuckPaths().getBuckOut());
-    for (Path key : getLinks().keySet()) {
-      Path path = buckOut.relativize(
-          context.getSourcePathResolver().getAbsolutePath(getLinks().get(key)));
-      LOG.debug("header map %s -> %s", key, path);
-      headerMapEntries.put(key, path);
+      BuildContext context, BuildableContext buildableContext) {
+    LOG.debug("Generating build steps to write header map to %s", headerMapPath);
+    ImmutableMap.Builder<Path, Path> entriesBuilder = ImmutableMap.builder();
+    for (Map.Entry<Path, SourcePath> entry : getLinks().entrySet()) {
+      entriesBuilder.put(
+          entry.getKey(), context.getSourcePathResolver().getAbsolutePath(entry.getValue()));
     }
     return ImmutableList.<Step>builder()
         .add(getVerifyStep())
-        .add(MkdirStep.of(getProjectFilesystem(), headerMapPath.getParent()))
-        .add(RmStep.of(getProjectFilesystem(), headerMapPath))
-        .add(new HeaderMapStep(getProjectFilesystem(), headerMapPath, headerMapEntries.build()))
+        .add(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(),
+                    getProjectFilesystem(),
+                    headerMapPath.getParent())))
+        .add(
+            RmStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), headerMapPath)))
+        .add(new HeaderMapStep(getProjectFilesystem(), headerMapPath, entriesBuilder.build()))
         .build();
   }
 

@@ -18,13 +18,11 @@ package com.facebook.buck.rules;
 
 import static org.easymock.EasyMock.createMock;
 
-import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
-import com.google.common.collect.ImmutableList;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 
-/**
- * Facilitates creating a fake {@link BuildContext} for unit tests.
- */
+/** Facilitates creating a fake {@link BuildContext} for unit tests. */
 public class FakeBuildContext {
 
   /** Utility class: do not instantiate. */
@@ -36,10 +34,10 @@ public class FakeBuildContext {
 
   public static BuildContext withSourcePathResolver(SourcePathResolver pathResolver) {
     return BuildContext.builder()
-        .setActionGraph(new ActionGraph(ImmutableList.of()))
         .setSourcePathResolver(pathResolver)
         .setJavaPackageFinder(new FakeJavaPackageFinder())
-        .setEventBus(BuckEventBusFactory.newInstance())
+        .setEventBus(BuckEventBusForTests.newInstance())
+        .setBuildCellRootPath(new FakeProjectFilesystem().getRootPath())
         .build();
   }
 }

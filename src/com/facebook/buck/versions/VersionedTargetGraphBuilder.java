@@ -23,6 +23,7 @@ import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -40,7 +41,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -67,40 +67,33 @@ public class VersionedTargetGraphBuilder {
   private final ForkJoinPool pool;
   private final VersionSelector versionSelector;
   private final TargetGraphAndBuildTargets unversionedTargetGraphAndBuildTargets;
+  private final TypeCoercerFactory typeCoercerFactory;
 
-  /**
-   * The resolved version graph being built.
-   */
+  /** The resolved version graph being built. */
   private final VersionedTargetGraph.Builder targetGraphBuilder = VersionedTargetGraph.builder();
 
-  /**
-   * Map of the build targets to nodes in the resolved graph.
-   */
+  /** Map of the build targets to nodes in the resolved graph. */
   private final ConcurrentHashMap<BuildTarget, TargetNode<?, ?>> index;
 
-  /**
-   * Fork-join actions for each root node.
-   */
+  /** Fork-join actions for each root node. */
   private final ConcurrentHashMap<BuildTarget, RootAction> rootActions;
 
-  /**
-   * Intermediate version info for each node.
-   */
+  /** Intermediate version info for each node. */
   private final ConcurrentHashMap<BuildTarget, VersionInfo> versionInfo;
 
-  /**
-   * Count of root nodes.
-   */
+  /** Count of root nodes. */
   private final AtomicInteger roots = new AtomicInteger();
 
   VersionedTargetGraphBuilder(
       ForkJoinPool pool,
       VersionSelector versionSelector,
-      TargetGraphAndBuildTargets unversionedTargetGraphAndBuildTargets) {
+      TargetGraphAndBuildTargets unversionedTargetGraphAndBuildTargets,
+      TypeCoercerFactory typeCoercerFactory) {
 
     this.pool = pool;
     this.versionSelector = versionSelector;
     this.unversionedTargetGraphAndBuildTargets = unversionedTargetGraphAndBuildTargets;
+    this.typeCoercerFactory = typeCoercerFactory;
 
     this.index =
         new ConcurrentHashMap<>(
@@ -131,9 +124,7 @@ public class VersionedTargetGraphBuilder {
     return index.putIfAbsent(node.getBuildTarget(), node);
   }
 
-  /**
-   * Get/cache the transitive version info for this node.
-   */
+  /** Get/cache the transitive version info for this node. */
   private VersionInfo getVersionInfo(TargetNode<?, ?> node) {
     VersionInfo info = this.versionInfo.get(node.getBuildTarget());
     if (info != null) {
@@ -142,11 +133,11 @@ public class VersionedTargetGraphBuilder {
 
     Map<BuildTarget, ImmutableSet<Version>> versionDomain = new HashMap<>();
 
-    Optional<TargetNode<VersionedAliasDescription.Arg, ?>> versionedNode =
+    Optional<TargetNode<VersionedAliasDescriptionArg, ?>> versionedNode =
         TargetGraphVersionTransformations.getVersionedNode(node);
     if (versionedNode.isPresent()) {
       ImmutableMap<Version, BuildTarget> versions =
-          versionedNode.get().getConstructorArg().versions;
+          versionedNode.get().getConstructorArg().getVersions();
 
       // Merge in the versioned deps and the version domain.
       versionDomain.put(node.getBuildTarget(), versions.keySet());
@@ -169,10 +160,11 @@ public class VersionedTargetGraphBuilder {
     } else {
 
       // Merge in the constraints and version domain/deps from transitive deps.
-      for (BuildTarget depTarget : TargetGraphVersionTransformations.getDeps(node)) {
+      for (BuildTarget depTarget :
+          TargetGraphVersionTransformations.getDeps(typeCoercerFactory, node)) {
         TargetNode<?, ?> dep = getNode(depTarget);
-        if (TargetGraphVersionTransformations.isVersionPropagator(dep) ||
-            TargetGraphVersionTransformations.getVersionedNode(dep).isPresent()) {
+        if (TargetGraphVersionTransformations.isVersionPropagator(dep)
+            || TargetGraphVersionTransformations.getVersionedNode(dep).isPresent()) {
           VersionInfo depInfo = getVersionInfo(dep);
           versionDomain.putAll(depInfo.getVersionDomain());
         }
@@ -185,9 +177,7 @@ public class VersionedTargetGraphBuilder {
     return info;
   }
 
-  /**
-   * @return a flavor to which summarizes the given version selections.
-   */
+  /** @return a flavor to which summarizes the given version selections. */
   static Flavor getVersionedFlavor(SortedMap<BuildTarget, Version> versions) {
     Preconditions.checkArgument(!versions.isEmpty());
     Hasher hasher = Hashing.md5().newHasher();
@@ -199,27 +189,28 @@ public class VersionedTargetGraphBuilder {
   }
 
   private TargetNode<?, ?> resolveVersions(
-      TargetNode<?, ?> node,
-      ImmutableMap<BuildTarget, Version> selectedVersions) {
-    Optional<TargetNode<VersionedAliasDescription.Arg, ?>> versionedNode =
-        node.castArg(VersionedAliasDescription.Arg.class);
+      TargetNode<?, ?> node, ImmutableMap<BuildTarget, Version> selectedVersions) {
+    Optional<TargetNode<VersionedAliasDescriptionArg, ?>> versionedNode =
+        node.castArg(VersionedAliasDescriptionArg.class);
     if (versionedNode.isPresent()) {
       node =
           getNode(
               Preconditions.checkNotNull(
-                  versionedNode.get().getConstructorArg().versions.get(
-                      selectedVersions.get(node.getBuildTarget()))));
+                  versionedNode
+                      .get()
+                      .getConstructorArg()
+                      .getVersions()
+                      .get(selectedVersions.get(node.getBuildTarget()))));
     }
     return node;
   }
 
   /**
-   * @return the {@link BuildTarget} to use in the resolved target graph, formed by adding a
-   *         flavor generated from the given version selections.
+   * @return the {@link BuildTarget} to use in the resolved target graph, formed by adding a flavor
+   *     generated from the given version selections.
    */
   private Optional<BuildTarget> getTranslateBuildTarget(
-      TargetNode<?, ?> node,
-      ImmutableMap<BuildTarget, Version> selectedVersions) {
+      TargetNode<?, ?> node, ImmutableMap<BuildTarget, Version> selectedVersions) {
 
     BuildTarget originalTarget = node.getBuildTarget();
     node = resolveVersions(node, selectedVersions);
@@ -238,9 +229,7 @@ public class VersionedTargetGraphBuilder {
       }
     }
 
-    return newTarget.equals(originalTarget) ?
-        Optional.empty() :
-        Optional.of(newTarget);
+    return newTarget.equals(originalTarget) ? Optional.empty() : Optional.of(newTarget);
   }
 
   public TargetGraph build() throws VersionException, InterruptedException {
@@ -251,7 +240,9 @@ public class VersionedTargetGraphBuilder {
 
     // Walk through explicit built targets, separating them into root and non-root nodes.
     ImmutableList<RootAction> actions =
-        unversionedTargetGraphAndBuildTargets.getBuildTargets().stream()
+        unversionedTargetGraphAndBuildTargets
+            .getBuildTargets()
+            .stream()
             .map(this::getNode)
             .map(RootAction::new)
             .collect(MoreCollectors.toImmutableList());
@@ -270,9 +261,7 @@ public class VersionedTargetGraphBuilder {
     long end = System.currentTimeMillis();
     LOG.debug(
         "Finished version target graph transformation in %.2f (nodes %d, roots: %d)",
-        (end - start) / 1000.0,
-        index.size(),
-        roots.get());
+        (end - start) / 1000.0, index.size(), roots.get());
 
     return targetGraphBuilder.build();
   }
@@ -280,19 +269,16 @@ public class VersionedTargetGraphBuilder {
   public static TargetGraphAndBuildTargets transform(
       VersionSelector versionSelector,
       TargetGraphAndBuildTargets unversionedTargetGraphAndBuildTargets,
-      ForkJoinPool pool)
+      ForkJoinPool pool,
+      TypeCoercerFactory typeCoercerFactory)
       throws VersionException, InterruptedException {
     return unversionedTargetGraphAndBuildTargets.withTargetGraph(
         new VersionedTargetGraphBuilder(
-            pool,
-            versionSelector,
-            unversionedTargetGraphAndBuildTargets)
+                pool, versionSelector, unversionedTargetGraphAndBuildTargets, typeCoercerFactory)
             .build());
   }
 
-  /**
-   * Transform a version sub-graph at the given root node.
-   */
+  /** Transform a version sub-graph at the given root node. */
   private class RootAction extends RecursiveAction {
 
     private final TargetNode<?, ?> node;
@@ -307,9 +293,7 @@ public class VersionedTargetGraphBuilder {
     private final Predicate<BuildTarget> isVersioned =
         target -> TargetGraphVersionTransformations.getVersionedNode(getNode(target)).isPresent();
 
-    /**
-     * Process a non-root node in the graph.
-     */
+    /** Process a non-root node in the graph. */
     private TargetNode<?, ?> processNode(TargetNode<?, ?> node) throws VersionException {
 
       // If we've already processed this node, exit now.
@@ -332,9 +316,7 @@ public class VersionedTargetGraphBuilder {
       return node;
     }
 
-    /**
-     * Dispatch new jobs to transform the given nodes in parallel and wait for their results.
-     */
+    /** Dispatch new jobs to transform the given nodes in parallel and wait for their results. */
     private Iterable<TargetNode<?, ?>> process(Iterable<BuildTarget> targets)
         throws VersionException {
       int size = Iterables.size(targets);
@@ -392,8 +374,7 @@ public class VersionedTargetGraphBuilder {
         Throwables.throwIfInstanceOf(rootCause, VersionException.class);
         Throwables.throwIfInstanceOf(rootCause, RuntimeException.class);
         throw new IllegalStateException(
-            String.format("Unexpected exception: %s: %s", e.getClass(), e.getMessage()),
-            e);
+            String.format("Unexpected exception: %s: %s", e.getClass(), e.getMessage()), e);
       }
     }
 
@@ -431,14 +412,14 @@ public class VersionedTargetGraphBuilder {
         // Insert the node into the graph, indexing it by a base target containing only the version
         // flavor, if one exists.
         targetGraphBuilder.addNode(
-            node.getBuildTarget().withFlavors(
-                Sets.difference(
-                    newNode.getBuildTarget().getFlavors(),
-                    node.getBuildTarget().getFlavors())),
+            node.getBuildTarget()
+                .withFlavors(
+                    Sets.difference(
+                        newNode.getBuildTarget().getFlavors(), node.getBuildTarget().getFlavors())),
             newNode);
         for (BuildTarget depTarget :
-             FluentIterable.from(node.getParseDeps())
-                 .filter(Predicates.or(isVersionPropagator, isVersioned))) {
+            FluentIterable.from(node.getParseDeps())
+                .filter(Predicates.or(isVersionPropagator, isVersioned))) {
           targetGraphBuilder.addEdge(
               newNode,
               processVersionSubGraphNode(
@@ -447,9 +428,9 @@ public class VersionedTargetGraphBuilder {
                   targetTranslator));
         }
         for (TargetNode<?, ?> dep :
-             process(
-                 FluentIterable.from(node.getParseDeps())
-                     .filter(Predicates.not(Predicates.or(isVersionPropagator, isVersioned))))) {
+            process(
+                FluentIterable.from(node.getParseDeps())
+                    .filter(Predicates.not(Predicates.or(isVersionPropagator, isVersioned))))) {
           targetGraphBuilder.addEdge(newNode, dep);
         }
       }
@@ -473,16 +454,13 @@ public class VersionedTargetGraphBuilder {
 
       // Select the versions to use for this sub-graph.
       final ImmutableMap<BuildTarget, Version> selectedVersions =
-          versionSelector.resolve(
-              root.getBuildTarget(),
-              versionInfo.getVersionDomain());
+          versionSelector.resolve(root.getBuildTarget(), versionInfo.getVersionDomain());
 
       // Build a target translator object to translate build targets.
       ImmutableList<TargetTranslator<?>> translators =
-          ImmutableList.of(
-              new QueryTargetTranslator());
+          ImmutableList.of(new QueryTargetTranslator());
       TargetNodeTranslator targetTranslator =
-          new TargetNodeTranslator(translators) {
+          new TargetNodeTranslator(typeCoercerFactory, translators) {
 
             private final LoadingCache<BuildTarget, Optional<BuildTarget>> cache =
                 CacheBuilder.newBuilder()
@@ -520,7 +498,6 @@ public class VersionedTargetGraphBuilder {
               }
               return Optional.of(builder.build());
             }
-
           };
 
       return processVersionSubGraphNode(root, selectedVersions, targetTranslator);
@@ -538,7 +515,5 @@ public class VersionedTargetGraphBuilder {
     public TargetNode<?, ?> getRoot() {
       return node;
     }
-
   }
-
 }

@@ -16,16 +16,23 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.DebugPathSanitizer;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
@@ -34,16 +41,15 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.UncheckedExecutionException;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Iterator;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Predicate;
@@ -51,47 +57,41 @@ import java.util.function.Predicate;
 /**
  * Rule to generate a precompiled header from an existing header.
  *
- * Precompiled headers are only useful for compilation style where preprocessing and compiling are
- * both done in the same process. If a preprocessed output needs to be serialized and later read
- * back in, the entire rationale of using a precompiled header, to avoid parsing excess headers,
- * is obviated.
+ * <p>Precompiled headers are only useful for compilation style where preprocessing and compiling
+ * are both done in the same process. If a preprocessed output needs to be serialized and later read
+ * back in, the entire rationale of using a precompiled header, to avoid parsing excess headers, is
+ * obviated.
  *
- * PCH files are not very portable, and so they are not cached.
+ * <p>PCH files are not very portable, and so they are not cached.
+ *
  * <ul>
- *   <li>The compiler verifies that header mtime identical to that recorded in the PCH file.</li>
- *   <li>
- *     PCH file records absolute paths, limited support for "relocatable" pch exists in Clang, but
- *     it is not very flexible.
- *   </li>
+ *   <li>The compiler verifies that header mtime identical to that recorded in the PCH file.
+ *   <li>PCH file records absolute paths, limited support for "relocatable" pch exists in Clang, but
+ *       it is not very flexible.
  * </ul>
- * While the problems are not impossible to overcome, PCH generation is fast enough that it isn't a
- * significant problem. The PCH file is only generated when a source file needs to be compiled,
+ *
+ * <p>While the problems are not impossible to overcome, PCH generation is fast enough that it isn't
+ * a significant problem. The PCH file is only generated when a source file needs to be compiled,
  * anyway.
  *
- * Additionally, since PCH files contain information like timestamps, absolute paths, and
+ * <p>Additionally, since PCH files contain information like timestamps, absolute paths, and
  * (effectively) random unique IDs, they are not amenable to the InputBasedRuleKey optimization when
  * used to compile another file.
  */
-public class CxxPrecompiledHeader
-    extends AbstractBuildRule
+public class CxxPrecompiledHeader extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements SupportsDependencyFileRuleKey, SupportsInputBasedRuleKey {
 
   // Fields that are added to rule key as is.
-  @AddToRuleKey
-  private final PreprocessorDelegate preprocessorDelegate;
-  @AddToRuleKey
-  private final CompilerDelegate compilerDelegate;
-  @AddToRuleKey
-  private final SourcePath input;
-  @AddToRuleKey
-  private final CxxSource.Type inputType;
+  @AddToRuleKey private final PreprocessorDelegate preprocessorDelegate;
+  @AddToRuleKey private final CompilerDelegate compilerDelegate;
+  @AddToRuleKey private final SourcePath input;
+  @AddToRuleKey private final CxxSource.Type inputType;
 
   // Fields that added to the rule key with some processing.
-  private final CxxToolFlags compilerFlags;
+  @AddToRuleKey private final CxxToolFlags compilerFlags;
 
   // Fields that are not added to the rule key.
   private final DebugPathSanitizer compilerSanitizer;
-  private final DebugPathSanitizer assemblerSanitizer;
   private final Path output;
 
   /**
@@ -102,6 +102,8 @@ public class CxxPrecompiledHeader
       CacheBuilder.newBuilder().weakKeys().weakValues().build();
 
   public CxxPrecompiledHeader(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       Path output,
       PreprocessorDelegate preprocessorDelegate,
@@ -109,9 +111,10 @@ public class CxxPrecompiledHeader
       CxxToolFlags compilerFlags,
       SourcePath input,
       CxxSource.Type inputType,
-      DebugPathSanitizer compilerSanitizer,
-      DebugPathSanitizer assemblerSanitizer) {
-    super(buildRuleParams);
+      DebugPathSanitizer compilerSanitizer) {
+    super(buildTarget, projectFilesystem, buildRuleParams);
+    Preconditions.checkArgument(
+        !inputType.isAssembly(), "Asm files do not use precompiled headers.");
     this.preprocessorDelegate = preprocessorDelegate;
     this.compilerDelegate = compilerDelegate;
     this.compilerFlags = compilerFlags;
@@ -119,35 +122,43 @@ public class CxxPrecompiledHeader
     this.input = input;
     this.inputType = inputType;
     this.compilerSanitizer = compilerSanitizer;
-    this.assemblerSanitizer = assemblerSanitizer;
   }
 
   @Override
   public void appendToRuleKey(RuleKeyObjectSink sink) {
     sink.setReflectively("compilationDirectory", compilerSanitizer.getCompilationDirectory());
-    sink.setReflectively(
-        "compilerFlagsPlatform",
-        compilerSanitizer.sanitizeFlags(compilerFlags.getPlatformFlags()));
-    sink.setReflectively(
-        "compilerFlagsRule",
-        compilerSanitizer.sanitizeFlags(compilerFlags.getRuleFlags()));
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     Path scratchDir =
         BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s_tmp");
+
     return new ImmutableList.Builder<Step>()
-        .add(MkdirStep.of(getProjectFilesystem(), output.getParent()))
-        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), scratchDir))
+        .add(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), scratchDir)))
         .add(makeMainStep(context.getSourcePathResolver(), scratchDir))
         .build();
   }
 
   public SourcePath getInput() {
     return input;
+  }
+
+  public Path getRelativeInputPath(SourcePathResolver resolver) {
+    // TODO(mzlee): We should make a generic solution to address this
+    return getProjectFilesystem().relativize(resolver.getAbsolutePath(input));
+  }
+
+  public Path getOutputPath() {
+    return output;
   }
 
   @Override
@@ -175,21 +186,21 @@ public class CxxPrecompiledHeader
   }
 
   @Override
-  public Predicate<SourcePath> getCoveredByDepFilePredicate() {
+  public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathResolver pathResolver) {
     return preprocessorDelegate.getCoveredByDepFilePredicate();
   }
 
   @Override
-  public Predicate<SourcePath> getExistenceOfInterestPredicate() {
+  public Predicate<SourcePath> getExistenceOfInterestPredicate(SourcePathResolver pathResolver) {
     return (SourcePath path) -> false;
   }
 
   @Override
-  public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context)
-      throws IOException {
+  public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+      BuildContext context, CellPathResolver cellPathResolver) throws IOException {
     try {
       return ImmutableList.<SourcePath>builder()
-          .addAll(preprocessorDelegate.getInputsAfterBuildingLocally(readDepFileLines(context)))
+          .addAll(preprocessorDelegate.getInputsAfterBuildingLocally(getDependencies(context)))
           .add(input)
           .build();
     } catch (Depfiles.HeaderVerificationException e) {
@@ -206,19 +217,22 @@ public class CxxPrecompiledHeader
     return getSuffixedOutput(pathResolver, ".dep");
   }
 
-  public ImmutableList<Path> readDepFileLines(BuildContext context)
+  private ImmutableList<Path> getDependencies(BuildContext context)
       throws IOException, Depfiles.HeaderVerificationException {
     try {
-      return depFileCache.get(context, () ->
-          Depfiles.parseAndOutputBuckCompatibleDepfile(
-              context.getEventBus(),
-              getProjectFilesystem(),
-              preprocessorDelegate.getHeaderPathNormalizer(),
-              preprocessorDelegate.getHeaderVerification(),
-              getDepFilePath(context.getSourcePathResolver()),
-              // TODO(10194465): This uses relative path so as to get relative paths in the dep file
-              context.getSourcePathResolver().getRelativePath(input),
-              output));
+      return depFileCache.get(
+          context,
+          () ->
+              Depfiles.parseAndVerifyDependencies(
+                  context.getEventBus(),
+                  getProjectFilesystem(),
+                  preprocessorDelegate.getHeaderPathNormalizer(),
+                  preprocessorDelegate.getHeaderVerification(),
+                  getDepFilePath(context.getSourcePathResolver()),
+                  // TODO(10194465): This uses relative path so as to get relative paths in the dep file
+                  getRelativeInputPath(context.getSourcePathResolver()),
+                  output,
+                  compilerDelegate.getDependencyTrackingMode()));
     } catch (ExecutionException e) {
       // Unwrap and re-throw the loader's Exception.
       Throwables.throwIfInstanceOf(e.getCause(), IOException.class);
@@ -236,73 +250,31 @@ public class CxxPrecompiledHeader
         getProjectFilesystem(),
         CxxPreprocessAndCompileStep.Operation.GENERATE_PCH,
         resolver.getRelativePath(getSourcePathToOutput()),
-        getDepFilePath(resolver),
+        Optional.of(getDepFilePath(resolver)),
         // TODO(10194465): This uses relative path so as to get relative paths in the dep file
-        resolver.getRelativePath(input),
+        getRelativeInputPath(resolver),
         inputType,
-        Optional.of(
-            new CxxPreprocessAndCompileStep.ToolCommand(
-                preprocessorDelegate.getCommandPrefix(),
+        new CxxPreprocessAndCompileStep.ToolCommand(
+            preprocessorDelegate.getCommandPrefix(),
+            Arg.stringify(
                 ImmutableList.copyOf(
                     CxxToolFlags.explicitBuilder()
-                        .addAllRuleFlags(getCxxIncludePaths().getFlags(
-                            resolver,
-                            preprocessorDelegate.getPreprocessor()))
-                        .addAllRuleFlags(preprocessorDelegate.getArguments(
-                            compilerFlags,
-                            /* no pch */ Optional.empty()))
+                        .addAllRuleFlags(
+                            StringArg.from(
+                                getCxxIncludePaths()
+                                    .getFlags(resolver, preprocessorDelegate.getPreprocessor())))
+                        .addAllRuleFlags(
+                            preprocessorDelegate.getArguments(
+                                compilerFlags, /* no pch */ Optional.empty()))
                         .build()
                         .getAllFlags()),
-                preprocessorDelegate.getEnvironment(),
-                preprocessorDelegate.getFlagsForColorDiagnostics())),
-        Optional.empty(),
+                resolver),
+            preprocessorDelegate.getEnvironment()),
         preprocessorDelegate.getHeaderPathNormalizer(),
         compilerSanitizer,
-        assemblerSanitizer,
         scratchDir,
         /* useArgFile*/ true,
-        compilerDelegate.getCompiler());
-  }
-
-  /**
-   * Helper method for dealing with compiler flags in a precompiled header build.
-   *
-   * Triage the given list of compiler flags, and divert {@code -I} flags' arguments to
-   * {@code iDirsBuilder}, do similar for {@code -isystem} flags and {@code iSystemDirsBuilder},
-   * and finally output other non-include-path related stuff to {@code nonIncludeFlagsBuilder}.
-   *
-   * Note that while Buck doesn't tend to produce {@code -I} and {@code -isystem} flags without
-   * a space between the flag and its argument, though historically compilers have accepted that.
-   * We'll accept that here as well, inserting a break between the flag and its parameter.
-   *
-   * @param iDirsBuilder a builder which will receive a list of directories provided with the
-   *        {@code -I} option (the flag itself will not be added to this builder)
-   * @param iSystemDirsBuilder a builder which will receive a list of directories provided with the
-   *        {@code -isystem} option (the flag itself will not be added to this builder)
-   * @param nonIncludeFlagsBuilder builder that receives all the stuff not outputted to the above.
-   */
-  public static void separateIncludePathArgs(
-      ImmutableList<String> flags,
-      ImmutableList.Builder<String> iDirsBuilder,
-      ImmutableList.Builder<String> iSystemDirsBuilder,
-      ImmutableList.Builder<String> nonIncludeFlagsBuilder) {
-
-    // TODO(steveo): unused?
-
-    Iterator<String> it = flags.iterator();
-    while (it.hasNext()) {
-      String flag = it.next();
-      if (flag.equals("-I") && it.hasNext()) {
-        iDirsBuilder.add(it.next());
-      } else if (flag.startsWith("-I")) {
-        iDirsBuilder.add(flag.substring("-I".length()));
-      } else if (flag.equals("-isystem") && it.hasNext()) {
-        iSystemDirsBuilder.add(it.next());
-      } else if (flag.startsWith("-isystem")) {
-        iSystemDirsBuilder.add(flag.substring("-isystem".length()));
-      } else {
-        nonIncludeFlagsBuilder.add(flag);
-      }
-    }
+        compilerDelegate.getCompiler(),
+        Optional.empty());
   }
 }

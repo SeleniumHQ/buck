@@ -16,6 +16,9 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.Compiler;
+import com.facebook.buck.cxx.platform.DebugPathSanitizer;
+import com.facebook.buck.cxx.platform.DependencyTrackingMode;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
@@ -25,30 +28,27 @@ import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.Escaper;
-import com.facebook.buck.util.LineProcessorRunnable;
-import com.facebook.buck.util.MoreThrowables;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
-import com.google.common.io.Files;
-
-import java.io.ByteArrayOutputStream;
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.logging.Level;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-/**
- * A step that preprocesses and/or compiles C/C++ sources in a single step.
- */
+/** A step that preprocesses and/or compiles C/C++ sources in a single step. */
 public class CxxPreprocessAndCompileStep implements Step {
 
   private static final Logger LOG = Logger.get(CxxPreprocessAndCompileStep.class);
@@ -56,70 +56,57 @@ public class CxxPreprocessAndCompileStep implements Step {
   private final ProjectFilesystem filesystem;
   private final Operation operation;
   private final Path output;
-  private final Path depFile;
+  private final Optional<Path> depFile;
   private final Path input;
   private final CxxSource.Type inputType;
-  private final Optional<ToolCommand> preprocessorCommand;
-  private final Optional<ToolCommand> compilerCommand;
+  private final ToolCommand command;
   private final HeaderPathNormalizer headerPathNormalizer;
-  private final DebugPathSanitizer compilerSanitizer;
-  private final DebugPathSanitizer assemblerSanitizer;
+  private final DebugPathSanitizer sanitizer;
   private final Compiler compiler;
+  private final Optional<CxxLogInfo> cxxLogInfo;
 
-  /**
-   * Directory to use to store intermediate/temp files used for compilation.
-   */
+  /** Directory to use to store intermediate/temp files used for compilation. */
   private final Path scratchDir;
+
   private final boolean useArgfile;
 
   private static final FileLastModifiedDateContentsScrubber FILE_LAST_MODIFIED_DATE_SCRUBBER =
       new FileLastModifiedDateContentsScrubber();
 
+  private static final String DEPENDENCY_OUTPUT_PREFIX = "Note: including file:";
+
   public CxxPreprocessAndCompileStep(
       ProjectFilesystem filesystem,
       Operation operation,
       Path output,
-      Path depFile,
+      Optional<Path> depFile,
       Path input,
       CxxSource.Type inputType,
-      Optional<ToolCommand> preprocessorCommand,
-      Optional<ToolCommand> compilerCommand,
+      ToolCommand command,
       HeaderPathNormalizer headerPathNormalizer,
-      DebugPathSanitizer compilerSanitizer,
-      DebugPathSanitizer assemblerSanitizer,
+      DebugPathSanitizer sanitizer,
       Path scratchDir,
       boolean useArgfile,
-      Compiler compiler) {
-    Preconditions.checkState(operation.isPreprocess() == preprocessorCommand.isPresent());
-    Preconditions.checkState(operation.isCompile() == compilerCommand.isPresent());
-
+      Compiler compiler,
+      Optional<CxxLogInfo> cxxLogInfo) {
     this.filesystem = filesystem;
     this.operation = operation;
     this.output = output;
     this.depFile = depFile;
     this.input = input;
     this.inputType = inputType;
-    this.preprocessorCommand = preprocessorCommand;
-    this.compilerCommand = compilerCommand;
+    this.command = command;
     this.headerPathNormalizer = headerPathNormalizer;
-    this.compilerSanitizer = compilerSanitizer.withProjectFilesystem(filesystem);
-    this.assemblerSanitizer = assemblerSanitizer;
+    this.sanitizer = sanitizer;
     this.scratchDir = scratchDir;
     this.useArgfile = useArgfile;
     this.compiler = compiler;
+    this.cxxLogInfo = cxxLogInfo;
   }
 
   @Override
   public String getShortName() {
-    Optional<CxxSource.Type> type = CxxSource.Type.fromExtension(
-        Files.getFileExtension(input.getFileName().toString()));
-    String fileType;
-    if (type.isPresent()) {
-      fileType = type.get().getLanguage();
-    } else {
-      fileType = "unknown";
-    }
-    return fileType + " " + operation.toString().toLowerCase();
+    return inputType.getLanguage() + " " + operation.toString().toLowerCase();
   }
 
   /**
@@ -127,21 +114,26 @@ public class CxxPreprocessAndCompileStep implements Step {
    *
    * @return Half-configured ProcessExecutorParams.Builder
    */
-  private ProcessExecutorParams.Builder makeSubprocessBuilder(
-      ExecutionContext context,
-      Map<String, String> additionalEnvironment) {
+  private ProcessExecutorParams.Builder makeSubprocessBuilder(ExecutionContext context) {
     Map<String, String> env = new HashMap<>(context.getEnvironment());
 
     env.putAll(
-        getSanitizer().getCompilationEnvironment(
-            filesystem.getRootPath().toAbsolutePath(),
-            shouldSanitizeOutputBinary()));
+        sanitizer.getCompilationEnvironment(
+            filesystem.getRootPath().toAbsolutePath(), shouldSanitizeOutputBinary()));
 
     // Set `TMPDIR` to `scratchDir` so the compiler/preprocessor uses this dir for it's temp and
     // intermediate files.
     env.put("TMPDIR", filesystem.resolve(scratchDir).toString());
-    // Add additional environment variables.
-    env.putAll(additionalEnvironment);
+
+    if (cxxLogInfo.isPresent()) {
+      // Add some diagnostic strings into the subprocess's env as well.
+      // Note: the current process's env already contains `BUCK_BUILD_ID`, which will be inherited.
+      CxxLogInfo info = cxxLogInfo.get();
+
+      info.getTarget().ifPresent(target -> env.put("BUCK_BUILD_TARGET", target.toString()));
+      info.getSourcePath().ifPresent(path -> env.put("BUCK_BUILD_RULE_SOURCE", path.toString()));
+      info.getOutputPath().ifPresent(path -> env.put("BUCK_BUILD_RULE_OUTPUT", path.toString()));
+    }
 
     return ProcessExecutorParams.builder()
         .setDirectory(filesystem.getRootPath().toAbsolutePath())
@@ -149,122 +141,139 @@ public class CxxPreprocessAndCompileStep implements Step {
         .setEnvironment(ImmutableMap.copyOf(env));
   }
 
-  private ImmutableList<String> getDepFileArgs(Path depFile) {
-    return compiler.outputDependenciesArgs(depFile.toString());
-  }
-
-  private ImmutableList<String> getLanguageArgs(String inputLanguage) {
-    return compiler.languageArgs(inputLanguage);
-  }
-
   private Path getArgfile() {
     return filesystem.resolve(scratchDir).resolve("ppandcompile.argsfile");
   }
 
   @VisibleForTesting
-  ImmutableList<String> makeCompileArguments(
-      String inputFileName,
-      String inputLanguage,
-      boolean preprocessable,
-      boolean allowColorsInDiagnostics) {
+  ImmutableList<String> getArguments(boolean allowColorsInDiagnostics) {
+    String inputLanguage =
+        operation == Operation.GENERATE_PCH
+            ? inputType.getPrecompiledHeaderLanguage().get()
+            : inputType.getLanguage();
     return ImmutableList.<String>builder()
-        .addAll(compilerCommand.get().getArguments(allowColorsInDiagnostics))
-        .addAll(getLanguageArgs(inputLanguage))
-        .addAll(getSanitizer().getCompilationFlags())
+        .addAll(command.getArguments())
+        .addAll(
+            (allowColorsInDiagnostics
+                    ? compiler.getFlagsForColorDiagnostics()
+                    : Optional.<ImmutableList<String>>empty())
+                .orElseGet(ImmutableList::of))
+        .addAll(compiler.languageArgs(inputLanguage))
+        .addAll(
+            sanitizer.getCompilationFlags(
+                compiler, filesystem.getRootPath(), headerPathNormalizer.getPrefixMap()))
         .add("-c")
-        .addAll(preprocessable ? getDepFileArgs(depFile) : ImmutableList.of())
-        .add(inputFileName)
+        .addAll(
+            depFile
+                .map(depFile -> compiler.outputDependenciesArgs(depFile.toString()))
+                .orElseGet(ImmutableList::of))
+        .add(input.toString())
         .addAll(compiler.outputArgs(output.toString()))
         .build();
   }
 
-  private ImmutableList<String> makeGeneratePchArguments(boolean allowColorInDiagnostics) {
-    return ImmutableList.<String>builder()
-        .addAll(preprocessorCommand.get().getArguments(allowColorInDiagnostics))
-        // Using x-header language type directs the compiler to generate a PCH file.
-        .addAll(getLanguageArgs(inputType.getPrecompiledHeaderLanguage().get()))
-        // PCH file generation can also output dep files.
-        .addAll(getDepFileArgs(depFile))
-        .add(input.toString())
-        .add("-o", output.toString())
-        .build();
-  }
-
-  private int executeCompilation(ExecutionContext context) throws Exception {
-    ProcessExecutorParams.Builder builder =
-        makeSubprocessBuilder(context, ImmutableMap.of());
+  private int executeCompilation(ExecutionContext context)
+      throws IOException, InterruptedException {
+    ProcessExecutorParams.Builder builder = makeSubprocessBuilder(context);
 
     if (useArgfile) {
       filesystem.writeLinesToPath(
           Iterables.transform(
-              getArguments(context.getAnsi().isAnsiTerminal()),
-              Escaper.ARGFILE_ESCAPER),
+              getArguments(context.getAnsi().isAnsiTerminal()), Escaper.ARGFILE_ESCAPER),
           getArgfile());
       builder.setCommand(
           ImmutableList.<String>builder()
-              .addAll(getCommandPrefix())
+              .addAll(command.getCommandPrefix())
               .add("@" + getArgfile())
               .build());
     } else {
       builder.setCommand(
           ImmutableList.<String>builder()
-              .addAll(getCommandPrefix())
+              .addAll(command.getCommandPrefix())
               .addAll(getArguments(context.getAnsi().isAnsiTerminal()))
               .build());
     }
 
     ProcessExecutorParams params = builder.build();
 
-    LOG.debug(
-        "Running command (pwd=%s): %s",
-        params.getDirectory(),
-        getDescription(context));
+    LOG.debug("Running command (pwd=%s): %s", params.getDirectory(), getDescription(context));
 
     // Start the process.
     ProcessExecutor executor = new DefaultProcessExecutor(Console.createNullConsole());
     ProcessExecutor.LaunchedProcess process = executor.launchProcess(params);
 
     // We buffer error messages in memory, as these are typically small.
-    ByteArrayOutputStream error = new ByteArrayOutputStream();
-
-    // Fire up managed threads to process the stdout and stderr lines.
+    String err;
     int exitCode;
-    try {
-      try (LineProcessorRunnable errorProcessor =
-               createErrorTransformerFactory(context)
-                   .createTransformerThread(context, compiler.getErrorStream(process), error)) {
-        errorProcessor.start();
-        errorProcessor.waitFor();
-      } catch (Throwable thrown) {
-        executor.destroyLaunchedProcess(process);
-        throw thrown;
+
+    List<String> includeLines = Collections.emptyList();
+    try (BufferedReader reader =
+        new BufferedReader(new InputStreamReader(compiler.getErrorStream(process)))) {
+      CxxErrorTransformer cxxErrorTransformer =
+          new CxxErrorTransformer(
+              filesystem, context.shouldReportAbsolutePaths(), headerPathNormalizer);
+
+      if (compiler.getDependencyTrackingMode() == DependencyTrackingMode.SHOW_INCLUDES) {
+        Map<Boolean, List<String>> includesAndErrors =
+            reader
+                .lines()
+                .collect(Collectors.partitioningBy(CxxPreprocessAndCompileStep::isShowIncludeLine));
+        includeLines =
+            includesAndErrors
+                .getOrDefault(true, Collections.emptyList())
+                .stream()
+                .map(CxxPreprocessAndCompileStep::parseShowIncludeLine)
+                .collect(Collectors.toList());
+        List<String> errorLines = includesAndErrors.getOrDefault(false, Collections.emptyList());
+        err =
+            errorLines
+                .stream()
+                .map(cxxErrorTransformer::transformLine)
+                .collect(Collectors.joining("\n"));
+      } else {
+        err =
+            reader
+                .lines()
+                .map(cxxErrorTransformer::transformLine)
+                .collect(Collectors.joining("\n"));
       }
       exitCode = executor.waitForLaunchedProcess(process).getExitCode();
+    } catch (UncheckedIOException e) {
+      throw e.getCause();
     } finally {
       executor.destroyLaunchedProcess(process);
       executor.waitForLaunchedProcess(process);
     }
 
+    if (compiler.getDependencyTrackingMode() == DependencyTrackingMode.SHOW_INCLUDES) {
+      filesystem.writeLinesToPath(includeLines, depFile.get());
+    }
+
     // If we generated any error output, print that to the console.
-    String err = new String(error.toByteArray());
     if (!err.isEmpty()) {
-      context.getBuckEventBus().post(
-          createConsoleEvent(
-              context,
-              preprocessorCommand.map(Optional::of).orElse(compilerCommand).get()
-                  .supportsColorsInDiagnostics(),
-              exitCode == 0 ? Level.WARNING : Level.SEVERE,
-              err));
+      context
+          .getBuckEventBus()
+          .post(
+              createConsoleEvent(
+                  context,
+                  compiler.getFlagsForColorDiagnostics().isPresent(),
+                  exitCode == 0 ? Level.WARNING : Level.SEVERE,
+                  err));
     }
 
     return exitCode;
   }
 
+  private static boolean isShowIncludeLine(String line) {
+    return line.startsWith(DEPENDENCY_OUTPUT_PREFIX);
+  }
+
+  private static String parseShowIncludeLine(String line) {
+    return line.substring(DEPENDENCY_OUTPUT_PREFIX.length()).trim();
+  }
+
   private ConsoleEvent createConsoleEvent(
-      ExecutionContext context,
-      boolean commandOutputsColor,
-      Level level,
-      String message) {
+      ExecutionContext context, boolean commandOutputsColor, Level level, String message) {
     if (context.getAnsi().isAnsiTerminal() && commandOutputsColor) {
       return ConsoleEvent.createForMessageWithAnsiEscapeCodes(level, message);
     } else {
@@ -272,195 +281,89 @@ public class CxxPreprocessAndCompileStep implements Step {
     }
   }
 
-  private CxxErrorTransformerFactory createErrorTransformerFactory(ExecutionContext context) {
-    return new CxxErrorTransformerFactory(
-        filesystem,
-        context.shouldReportAbsolutePaths(),
-        headerPathNormalizer);
-  }
-
   @Override
-  public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
-    try {
-      LOG.debug("%s %s -> %s", operation.toString().toLowerCase(), input, output);
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
+    LOG.debug("%s %s -> %s", operation.toString().toLowerCase(), input, output);
 
-      int exitCode = executeCompilation(context);
+    int exitCode = executeCompilation(context);
 
-      // If the compilation completed successfully and we didn't effect debug-info normalization
-      // through #line directive modification, perform the in-place update of the compilation per
-      // above.  This locates the relevant debug section and swaps out the expanded actual
-      // compilation directory with the one we really want.
-      if (exitCode == 0 && shouldSanitizeOutputBinary()) {
-        try {
-          Path path = filesystem.getRootPath().toAbsolutePath().resolve(output);
-          getSanitizer().restoreCompilationDirectory(
-              path,
-              filesystem.getRootPath().toAbsolutePath());
-          FILE_LAST_MODIFIED_DATE_SCRUBBER.scrubFileWithPath(path);
-        } catch (IOException e) {
-          context.logError(e, "error updating compilation directory");
-          return StepExecutionResult.ERROR;
-        }
-      }
-
-      if (exitCode != 0) {
-        LOG.warn("error %d %s %s", exitCode, operation.toString().toLowerCase(), input);
-      }
-
-      return StepExecutionResult.of(exitCode);
-
-    } catch (Exception e) {
-      MoreThrowables.propagateIfInterrupt(e);
-      context.logError(e, "Build error caused by exception");
-      return StepExecutionResult.ERROR;
+    // If the compilation completed successfully and we didn't effect debug-info normalization
+    // through #line directive modification, perform the in-place update of the compilation per
+    // above.  This locates the relevant debug section and swaps out the expanded actual
+    // compilation directory with the one we really want.
+    if (exitCode == 0 && shouldSanitizeOutputBinary()) {
+      Path path = filesystem.getRootPath().toAbsolutePath().resolve(output);
+      sanitizer.restoreCompilationDirectory(path, filesystem.getRootPath().toAbsolutePath());
+      FILE_LAST_MODIFIED_DATE_SCRUBBER.scrubFileWithPath(path);
     }
+
+    if (exitCode != 0) {
+      LOG.warn("error %d %s %s", exitCode, operation.toString().toLowerCase(), input);
+    }
+
+    return StepExecutionResult.of(exitCode);
   }
 
-  public ImmutableList<String> getCommand() {
+  ImmutableList<String> getCommand() {
     // We set allowColorsInDiagnostics to false here because this function is only used by the
     // compilation database (its contents should not depend on how Buck was invoked) and in the
     // step's description. It is not used to determine what command this step runs, which needs
     // to decide whether to use colors or not based on whether the terminal supports them.
     return ImmutableList.<String>builder()
-        .addAll(getCommandPrefix())
+        .addAll(command.getCommandPrefix())
         .addAll(getArguments(false))
         .build();
-  }
-
-  public ImmutableList<String> getCommandPrefix() {
-    switch (operation) {
-      case COMPILE:
-      case PREPROCESS_AND_COMPILE:
-        return compilerCommand.get().getCommandPrefix();
-      case GENERATE_PCH:
-        return preprocessorCommand.get().getCommandPrefix();
-      // $CASES-OMITTED$
-      default:
-        throw new RuntimeException("invalid operation type");
-    }
-  }
-
-  public ImmutableList<String> getArguments(boolean allowColorsInDiagnostics) {
-    switch (operation) {
-      case COMPILE:
-      case PREPROCESS_AND_COMPILE:
-        return makeCompileArguments(
-            input.toString(),
-            inputType.getLanguage(),
-            inputType.isPreprocessable(),
-            allowColorsInDiagnostics);
-      case GENERATE_PCH:
-        return makeGeneratePchArguments(allowColorsInDiagnostics);
-      // $CASES-OMITTED$
-      default:
-        throw new RuntimeException("invalid operation type");
-    }
-  }
-
-  public String getDescriptionNoContext() {
-    return Joiner.on(' ').join(
-        FluentIterable.from(getCommandPrefix())
-            .append(getArguments(false))
-            .transform(Escaper.SHELL_ESCAPER));
   }
 
   @Override
   public String getDescription(ExecutionContext context) {
     if (context.getVerbosity().shouldPrintCommand()) {
-      return getDescriptionNoContext();
+      return Stream.concat(command.getCommandPrefix().stream(), getArguments(false).stream())
+          .map(Escaper.SHELL_ESCAPER::apply)
+          .collect(Collectors.joining(" "));
     }
     return "(verbosity level disables command output)";
   }
 
-  private DebugPathSanitizer getSanitizer() {
-    return inputType.isAssembly() ? assemblerSanitizer : compilerSanitizer;
-  }
-
   private boolean shouldSanitizeOutputBinary() {
-    return inputType.isAssembly() ||
-        (operation == Operation.PREPROCESS_AND_COMPILE && compiler.shouldSanitizeOutputBinary());
+    return inputType.isAssembly()
+        || (operation == Operation.PREPROCESS_AND_COMPILE && compiler.shouldSanitizeOutputBinary());
   }
 
   public enum Operation {
-    /**
-     * Run only the compiler on source files.
-     */
+    /** Run only the compiler on source files. */
     COMPILE,
-    /**
-     * Run the preprocessor and compiler on source files.
-     */
+    /** Run the preprocessor and compiler on source files. */
     PREPROCESS_AND_COMPILE,
     GENERATE_PCH,
     ;
-
-    /**
-     * Returns whether the step has a preprocessor component.
-     */
-    public boolean isPreprocess() {
-      switch (this) {
-        case PREPROCESS_AND_COMPILE:
-        case GENERATE_PCH:
-          return true;
-        case COMPILE:
-          return false;
-      }
-      throw new RuntimeException("unhandled case");
-    }
-
-    /**
-     * Returns whether the step has a compilation component.
-     */
-    public boolean isCompile() {
-      switch (this) {
-        case COMPILE:
-        case PREPROCESS_AND_COMPILE:
-          return true;
-        case GENERATE_PCH:
-          return false;
-      }
-      throw new RuntimeException("unhandled case");
-    }
   }
 
   public static class ToolCommand {
     private final ImmutableList<String> commandPrefix;
     private final ImmutableList<String> arguments;
     private final ImmutableMap<String, String> environment;
-    private final Optional<ImmutableList<String>> flagsForColorDiagnostics;
 
     public ToolCommand(
         ImmutableList<String> commandPrefix,
         ImmutableList<String> arguments,
-        ImmutableMap<String, String> environment,
-        Optional<ImmutableList<String>> flagsForColorDiagnostics) {
+        ImmutableMap<String, String> environment) {
       this.commandPrefix = commandPrefix;
       this.arguments = arguments;
       this.environment = environment;
-      this.flagsForColorDiagnostics = flagsForColorDiagnostics;
     }
 
     public ImmutableList<String> getCommandPrefix() {
       return commandPrefix;
     }
 
-    public ImmutableList<String> getArguments(boolean allowColorsInDiagnostics) {
-      if (allowColorsInDiagnostics && flagsForColorDiagnostics.isPresent()) {
-        return ImmutableList.<String>builder()
-            .addAll(arguments)
-            .addAll(flagsForColorDiagnostics.get())
-            .build();
-      } else {
-        return arguments;
-      }
+    public ImmutableList<String> getArguments() {
+      return arguments;
     }
 
     public ImmutableMap<String, String> getEnvironment() {
       return environment;
     }
-
-    public boolean supportsColorsInDiagnostics() {
-      return flagsForColorDiagnostics.isPresent();
-    }
   }
-
 }

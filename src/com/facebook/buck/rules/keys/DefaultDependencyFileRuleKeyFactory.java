@@ -18,30 +18,26 @@ package com.facebook.buck.rules.keys;
 
 import com.facebook.buck.hashing.FileHashLoader;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKeyAppendable;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.Scope;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.common.hash.HashCode;
-
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.function.Function;
 import java.util.function.Predicate;
-
 import javax.annotation.Nullable;
 
-/**
- * A factory for generating dependency-file {@link RuleKey}s.
- */
+/** A factory for generating dependency-file {@link RuleKey}s. */
 public final class DefaultDependencyFileRuleKeyFactory implements DependencyFileRuleKeyFactory {
 
   private final RuleKeyFieldLoader ruleKeyFieldLoader;
@@ -49,7 +45,6 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
   private final SourcePathResolver pathResolver;
   private final SourcePathRuleFinder ruleFinder;
   private final long inputSizeLimit;
-
 
   public DefaultDependencyFileRuleKeyFactory(
       RuleKeyFieldLoader ruleKeyFieldLoader,
@@ -74,16 +69,14 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
 
   @Override
   public RuleKeyAndInputs build(
-      SupportsDependencyFileRuleKey rule,
-      ImmutableList<DependencyFileEntry> depFileEntries) throws IOException {
+      SupportsDependencyFileRuleKey rule, ImmutableList<DependencyFileEntry> depFileEntries)
+      throws IOException {
     // Note, we do not cache this as it didn't show performance improvements.
     return buildKey(rule, KeyType.DEP_FILE, depFileEntries);
   }
 
   @Override
-  public RuleKeyAndInputs buildManifestKey(
-      SupportsDependencyFileRuleKey rule)
-      throws IOException {
+  public RuleKeyAndInputs buildManifestKey(SupportsDependencyFileRuleKey rule) throws IOException {
     // Note, we do not cache this as it didn't show performance improvements.
     return buildKey(rule, KeyType.MANIFEST, ImmutableList.of());
   }
@@ -91,16 +84,17 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
   private RuleKeyAndInputs buildKey(
       SupportsDependencyFileRuleKey rule,
       KeyType keyType,
-      ImmutableList<DependencyFileEntry> depFileEntries) throws IOException {
-    Builder<HashCode> builder = new Builder<>(
-        rule,
-        keyType,
-        depFileEntries,
-        rule.getCoveredByDepFilePredicate(),
-        rule.getExistenceOfInterestPredicate(),
-        RuleKeyBuilder.createDefaultHasher());
-    ruleKeyFieldLoader.setFields(rule, builder);
-    builder.setReflectively("buck.key_type", keyType);
+      ImmutableList<DependencyFileEntry> depFileEntries)
+      throws IOException {
+    Builder<HashCode> builder =
+        new Builder<>(
+            rule,
+            keyType,
+            depFileEntries,
+            rule.getCoveredByDepFilePredicate(pathResolver),
+            rule.getExistenceOfInterestPredicate(pathResolver),
+            RuleKeyBuilder.createDefaultHasher());
+    ruleKeyFieldLoader.setFields(builder, rule, keyType.toRuleKeyType());
     Result<RuleKey> result = builder.buildResult(RuleKey::new);
     return RuleKeyAndInputs.of(result.getRuleKey(), result.getSourcePaths());
   }
@@ -135,7 +129,7 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
     }
 
     @Override
-    protected Builder<RULE_KEY> setAppendableRuleKey(RuleKeyAppendable appendable) {
+    protected Builder<RULE_KEY> setAddsToRuleKey(AddsToRuleKey appendable) {
       // Note, we do not compute a separate `RuleKey` for `RuleKeyAppendables`. Instead we just hash
       // the content directly under the appendable scope. Collision-wise there is no difference. The
       // former allowed us to do caching, but it turns out that didn't make much of a difference
@@ -149,11 +143,11 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
       // `@AddToRuleKey Optional<ImmutableList<SourcePath>> myPaths` would have to be accompanied by
       // its structure information: `myPaths;Optional;List`. This adds additional overhead of
       // bookkeeping that information and counters any benefits caching would provide here.
-      try (RuleKeyScopedHasher.Scope appendableScope =
-               getScopedHasher().wrapperScope(RuleKeyHasher.Wrapper.APPENDABLE)) {
+      try (Scope appendableScope =
+          getScopedHasher().wrapperScope(RuleKeyHasher.Wrapper.APPENDABLE)) {
         try (RuleKeyScopedHasher.ContainerScope tupleScope =
-                 getScopedHasher().containerScope(RuleKeyHasher.Container.TUPLE)) {
-          appendable.appendToRuleKey(new ScopedRuleKeyObjectSink(tupleScope, this));
+            getScopedHasher().containerScope(RuleKeyHasher.Container.TUPLE)) {
+          AlterRuleKeys.amendKey(new ScopedRuleKeyObjectSink(tupleScope, this), appendable);
         }
       }
       return this;
@@ -162,8 +156,8 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
     @Override
     protected Builder<RULE_KEY> setReflectively(@Nullable Object val) {
       if (val instanceof ArchiveDependencySupplier) {
-        Object members = ((ArchiveDependencySupplier) val).getArchiveMembers(pathResolver)
-            .collect(MoreCollectors.toImmutableSortedSet());
+        Iterable<SourcePath> members =
+            ((ArchiveDependencySupplier) val).getArchiveMembers(pathResolver)::iterator;
         super.setReflectively(members);
       } else {
         super.setReflectively(val);
@@ -247,8 +241,8 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
     protected Builder<RULE_KEY> setBuildRule(BuildRule rule) {
       throw new IllegalStateException(
           String.format(
-              "Dependency-file rule key builders cannot process build rules. " +
-                  "Was given %s to add to rule key.",
+              "Dependency-file rule key builders cannot process build rules. "
+                  + "Was given %s to add to rule key.",
               rule));
     }
 
@@ -265,13 +259,11 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
           throw new NoSuchFileException(
               String.format(
                   "%s: could not find any inputs matching the relative paths [%s]",
-                  rule.getBuildTarget(),
-                  Joiner.on(',').join(unaccountedEntries)));
+                  rule.getBuildTarget(), Joiner.on(',').join(unaccountedEntries)));
         }
       }
       return new Result<>(this.build(mapper), sourcePaths.build());
     }
-
   }
 
   private static class Result<RULE_KEY> {
@@ -279,9 +271,7 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
     private final RULE_KEY ruleKey;
     private final ImmutableSet<SourcePath> sourcePaths;
 
-    public Result(
-        RULE_KEY ruleKey,
-        ImmutableSet<SourcePath> sourcePaths) {
+    public Result(RULE_KEY ruleKey, ImmutableSet<SourcePath> sourcePaths) {
       this.ruleKey = ruleKey;
       this.sourcePaths = sourcePaths;
     }
@@ -296,7 +286,18 @@ public final class DefaultDependencyFileRuleKeyFactory implements DependencyFile
   }
 
   private enum KeyType {
-    DEP_FILE, MANIFEST
-  }
+    DEP_FILE(RuleKeyType.DEP_FILE),
+    MANIFEST(RuleKeyType.MANIFEST),
+    ;
 
+    private final RuleKeyType ruleKeyType;
+
+    KeyType(RuleKeyType ruleKeyType) {
+      this.ruleKeyType = ruleKeyType;
+    }
+
+    public RuleKeyType toRuleKeyType() {
+      return ruleKeyType;
+    }
+  }
 }

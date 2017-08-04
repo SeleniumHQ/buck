@@ -18,14 +18,11 @@ package com.facebook.buck.ide.intellij;
 
 import com.facebook.infer.annotation.PropagatesNullable;
 
-final class JavaLanguageLevelHelper {
+public final class JavaLanguageLevelHelper {
 
-  private JavaLanguageLevelHelper() {
-  }
+  private JavaLanguageLevelHelper() {}
 
-  /**
-   * Ensures that source level has format "majorVersion.minorVersion".
-   */
+  /** Ensures that source level has format "majorVersion.minorVersion". */
   public static String normalizeSourceLevel(String jdkVersion) {
     if (jdkVersion.length() == 1) {
       return "1." + jdkVersion;

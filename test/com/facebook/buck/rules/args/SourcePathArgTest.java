@@ -20,6 +20,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -28,7 +29,6 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
-
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -37,9 +37,11 @@ public class SourcePathArgTest {
   @Test
   public void stringify() {
     SourcePath path = new FakeSourcePath("something");
-    SourcePathResolver resolver = new SourcePathResolver(new SourcePathRuleFinder(
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-     ));
+    SourcePathResolver resolver =
+        DefaultSourcePathResolver.from(
+            new SourcePathRuleFinder(
+                new BuildRuleResolver(
+                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     SourcePathArg arg = SourcePathArg.of(path);
     assertThat(
         Arg.stringifyList(arg, resolver),
@@ -58,5 +60,4 @@ public class SourcePathArgTest {
     SourcePathArg arg = SourcePathArg.of(rule.getSourcePathToOutput());
     assertThat(arg.getDeps(ruleFinder), Matchers.contains(rule));
   }
-
 }

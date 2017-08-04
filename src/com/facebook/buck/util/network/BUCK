@@ -1,5 +1,6 @@
-standard_java_library(
+java_library(
     name = "network",
+    srcs = glob(["*.java"]),
     tests = [
         "//test/com/facebook/buck/util:util",
         "//test/com/facebook/buck/util/network:network",
@@ -14,6 +15,7 @@ standard_java_library(
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/environment:environment",
         "//src/com/facebook/buck/util/network/...",
+        "//src/com/facebook/buck/util/trace/uploader:lib",
         "//test/com/facebook/buck/event/listener:listener",
         "//test/com/facebook/buck/util:util",
         "//test/com/facebook/buck/util/network/...",
@@ -23,8 +25,10 @@ standard_java_library(
         "//src/com/facebook/buck/cli:config",
         "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/slb:slb",
+        "//src/com/facebook/buck/util:process_executor",
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/concurrent:concurrent",
+        "//src/com/facebook/buck/util/environment:platform",
         "//third-party/java/guava:guava",
         "//third-party/java/okhttp:okhttp",
     ],

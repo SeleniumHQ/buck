@@ -16,46 +16,41 @@
 
 package com.facebook.buck.python;
 
-import static com.facebook.buck.rules.BuildableProperties.Kind.LIBRARY;
-
-import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableProperties;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-
 import java.util.Optional;
 
+public class PrebuiltPythonLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
+    implements PythonPackagable {
 
-public class PrebuiltPythonLibrary extends NoopBuildRule implements PythonPackagable {
-
-  private static final BuildableProperties OUTPUT_TYPE = new BuildableProperties(LIBRARY);
-
-  @AddToRuleKey
-  private final SourcePath binarySrc;
+  @AddToRuleKey private final SourcePath binarySrc;
 
   public PrebuiltPythonLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePath binarySrc) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.binarySrc = binarySrc;
   }
 
   @Override
   public Iterable<BuildRule> getPythonPackageDeps(
-      PythonPlatform pythonPlatform,
-      CxxPlatform cxxPlatform) {
+      PythonPlatform pythonPlatform, CxxPlatform cxxPlatform) {
     return getBuildDeps();
   }
 
   @Override
   public PythonPackageComponents getPythonPackageComponents(
-      PythonPlatform pythonPlatform,
-      CxxPlatform cxxPlatform) {
+      PythonPlatform pythonPlatform, CxxPlatform cxxPlatform) {
     // TODO(mikekap): Allow varying sources by cxx platform (in cases of prebuilt
     // extension modules).
     return PythonPackageComponents.of(
@@ -65,10 +60,4 @@ public class PrebuiltPythonLibrary extends NoopBuildRule implements PythonPackag
         ImmutableSet.of(binarySrc),
         Optional.empty());
   }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return OUTPUT_TYPE;
-  }
-
 }

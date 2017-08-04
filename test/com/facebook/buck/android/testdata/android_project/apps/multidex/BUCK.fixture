@@ -14,6 +14,26 @@ android_binary(
 )
 
 android_binary(
+  name = 'app_modular_debug',
+  package_type = 'debug',
+  manifest = 'AndroidManifest.xml',
+  application_module_configs = {
+    'small_with_no_resource_deps' : ['//java/com/sample/small:small_with_no_resource_deps'],
+  },
+  keystore = '//keystores:debug',
+  use_split_dex = True,
+  primary_dex_patterns = [
+    '/MyApplication^',
+  ],
+  deps = [
+    '//java/com/sample/app:app',
+    '//java/com/sample/lib:lib',
+    '//java/com/sample/small:small_with_no_resource_deps',
+    '//res/com/sample/base:base',
+  ],
+)
+
+android_binary(
   name = 'app_modular_proguard_dontobfuscate',
   proguard_config = 'dontobfuscate.pro',
   package_type = 'release',
@@ -68,8 +88,7 @@ android_binary(
   deps = [
     '//java/com/sample/app:app',
     '//java/com/sample/lib:lib',
-    '//native/fakenative/jni:fakenative',
-    '//native/mybinary/jni:mybinary',
+    '//native/cxx:lib',
   ],
 )
 
@@ -93,8 +112,7 @@ android_binary(
   deps = [
     '//java/com/sample/app:app',
     '//java/com/sample/lib:lib',
-    '//native/fakenative/jni:fakenative',
-    '//native/mybinary/jni:mybinary',
+    '//native/cxx:lib',
   ],
 )
 
@@ -114,14 +132,14 @@ android_binary(
   keystore = '//keystores:debug',
   use_split_dex = True,
   exopackage_modes = ['secondary_dex'],
+  package_asset_libraries = True,
   primary_dex_patterns = [
     '/MyApplication^',
   ],
   deps = [
     '//java/com/sample/app:app',
     '//java/com/sample/lib:lib',
-    '//native/fakenative/jni:fakenative',
-    '//native/mybinary/jni:mybinary',
+    '//native/cxx:lib',
     '//third-party:kiwi',
   ],
 )
@@ -131,6 +149,9 @@ android_binary(
   manifest = 'AndroidManifest.xml',
   keystore = '//keystores:debug',
   use_split_dex = True,
+  cpu_filters = [
+    'arm',
+  ],
   exopackage_modes = ['native_library'],
   primary_dex_patterns = [
     '/MyApplication^',
@@ -138,8 +159,7 @@ android_binary(
   deps = [
     '//java/com/sample/app:app',
     '//java/com/sample/lib:lib',
-    '//native/fakenative/jni:fakenative',
-    '//native/mybinary/jni:mybinary',
+    '//native/cxx:lib',
     '//third-party:kiwi',
   ],
 )
@@ -149,6 +169,9 @@ android_binary(
   manifest = 'AndroidManifest.xml',
   keystore = '//keystores:debug',
   use_split_dex = True,
+  cpu_filters = [
+    'arm',
+  ],
   exopackage_modes = [
     'native_library',
     'secondary_dex',
@@ -159,8 +182,31 @@ android_binary(
   deps = [
     '//java/com/sample/app:app',
     '//java/com/sample/lib:lib',
-    '//native/fakenative/jni:fakenative',
-    '//native/mybinary/jni:mybinary',
+    '//native/cxx:lib',
+    '//third-party:kiwi',
+  ],
+)
+
+android_binary(
+  name = 'app-full-exo',
+  manifest = 'AndroidManifest.xml',
+  keystore = '//keystores:debug',
+  use_split_dex = True,
+  cpu_filters = [
+    'arm',
+  ],
+  exopackage_modes = [
+    'native_library',
+    'secondary_dex',
+    'resources',
+  ],
+  primary_dex_patterns = [
+    '/MyApplication^',
+  ],
+  deps = [
+    '//java/com/sample/app:app',
+    '//java/com/sample/lib:lib',
+    '//native/cxx:lib',
     '//third-party:kiwi',
   ],
 )
@@ -183,8 +229,35 @@ android_binary(
   deps = [
     '//java/com/sample/app:app',
     '//java/com/sample/lib:lib',
-    '//native/fakenative/jni:fakenative',
-    '//native/mybinary/jni:mybinary',
     '//third-party:kiwi',
   ],
+)
+
+android_app_modularity(
+  name = 'modularity-metadata',
+  application_module_configs = {
+    'small_with_no_resource_deps' : ['//java/com/sample/small:small_with_no_resource_deps'],
+  },
+  deps = [
+    '//java/com/sample/app:app',
+    '//java/com/sample/lib:lib',
+    '//java/com/sample/small:small_with_no_resource_deps',
+    '//res/com/sample/base:base',
+  ],
+  no_dx = [],
+)
+
+android_app_modularity(
+  name = 'modularity-metadata-inner-class',
+  application_module_configs = {
+    'small_inner_class_with_no_resource_deps' :
+      ['//java/com/sample/small_inner_class:small_inner_class_with_no_resource_deps'],
+  },
+  deps = [
+    '//java/com/sample/app:app',
+    '//java/com/sample/lib:lib',
+    '//java/com/sample/small_inner_class:small_inner_class_with_no_resource_deps',
+    '//res/com/sample/base:base',
+  ],
+  no_dx = [],
 )

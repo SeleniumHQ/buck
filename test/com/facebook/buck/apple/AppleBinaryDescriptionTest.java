@@ -26,6 +26,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -37,7 +38,6 @@ import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
-
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -46,13 +46,16 @@ public class AppleBinaryDescriptionTest {
   @Test
   public void linkerFlagsLocationMacro() throws Exception {
     assumeThat(Platform.detect(), is(Platform.MACOS));
-    BuildTarget sandboxTarget = BuildTargetFactory.newInstance(
-        "//:rule#sandbox," + FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_I386_PLATFORM.getFlavor());
+    BuildTarget sandboxTarget =
+        BuildTargetFactory.newInstance(
+            "//:rule#sandbox,"
+                + FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_I386_PLATFORM.getFlavor());
     BuildRuleResolver resolver =
         new BuildRuleResolver(
             TargetGraphFactory.newInstance(new AppleBinaryBuilder(sandboxTarget).build()),
             new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver pathResolver = new SourcePathResolver(new SourcePathRuleFinder(resolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     Genrule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
@@ -62,20 +65,14 @@ public class AppleBinaryDescriptionTest {
             .setLinkerFlags(
                 ImmutableList.of(
                     StringWithMacrosUtils.format(
-                        "--linker-script=%s",
-                        LocationMacro.of(dep.getBuildTarget()))));
-    assertThat(
-        builder.build().getExtraDeps(),
-        Matchers.hasItem(dep.getBuildTarget()));
+                        "--linker-script=%s", LocationMacro.of(dep.getBuildTarget()))));
+    assertThat(builder.build().getExtraDeps(), Matchers.hasItem(dep.getBuildTarget()));
     BuildRule binary = ((CxxBinary) builder.build(resolver)).getLinkRule();
     assertThat(binary, Matchers.instanceOf(CxxLink.class));
     assertThat(
         Arg.stringify(((CxxLink) binary).getArgs(), pathResolver),
         Matchers.hasItem(
             String.format("--linker-script=%s", dep.getAbsoluteOutputFilePath(pathResolver))));
-    assertThat(
-        binary.getBuildDeps(),
-        Matchers.hasItem(dep));
+    assertThat(binary.getBuildDeps(), Matchers.hasItem(dep));
   }
-
 }

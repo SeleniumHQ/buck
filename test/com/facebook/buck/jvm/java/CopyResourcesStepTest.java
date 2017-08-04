@@ -17,12 +17,16 @@ package com.facebook.buck.jvm.java;
 
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
+import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -34,19 +38,19 @@ import com.facebook.buck.step.fs.SymlinkFileStep;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-
-import org.junit.Test;
-
 import java.nio.file.Path;
 import java.util.List;
+import org.junit.Test;
 
 public class CopyResourcesStepTest {
   @Test
-  public void testAddResourceCommandsWithBuildFileParentOfSrcDirectory() {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
-    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
+  public void testAddResourceCommandsWithBuildFileParentOfSrcDirectory()
+      throws InterruptedException {
+    SourcePathRuleFinder ruleFinder =
+        new SourcePathRuleFinder(
+            new BuildRuleResolver(
+                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
     // Files:
     // android/java/BUCK
     // android/java/src/com/facebook/base/data.json
@@ -56,40 +60,62 @@ public class CopyResourcesStepTest {
         BuildTargetFactory.newInstance(filesystem.getRootPath(), "//android/java:resources");
     JavaPackageFinder javaPackageFinder = createJavaPackageFinder();
 
-    CopyResourcesStep step = new CopyResourcesStep(
-        filesystem,
-        resolver,
-        ruleFinder,
-        buildTarget,
-        ImmutableSet.of(
-            new FakeSourcePath(filesystem, "android/java/src/com/facebook/base/data.json"),
-            new FakeSourcePath(filesystem, "android/java/src/com/facebook/common/util/data.json")),
-        filesystem.getBuckPaths().getScratchDir().resolve("android/java/lib__resources__classes"),
-        javaPackageFinder);
+    BuildContext buildContext =
+        FakeBuildContext.withSourcePathResolver(resolver)
+            .withJavaPackageFinder(javaPackageFinder)
+            .withBuildCellRootPath(filesystem.getRootPath());
 
-    Path target = filesystem.getBuckPaths().getScratchDir().resolve(
-        "android/java/lib__resources__classes/com/facebook/common/util/data.json");
-    Path target1 = filesystem.getBuckPaths().getScratchDir().resolve(
-        "android/java/lib__resources__classes/com/facebook/base/data.json");
-    List<? extends Step> expected = ImmutableList.of(
-        MkdirStep.of(filesystem, target1.getParent()),
-        SymlinkFileStep.builder()
-            .setFilesystem(filesystem)
-            .setExistingFile(filesystem.resolve("android/java/src/com/facebook/base/data.json"))
-            .setDesiredLink(target1)
-            .build(),
-        MkdirStep.of(filesystem, target.getParent()),
-        SymlinkFileStep.builder()
-            .setFilesystem(filesystem)
-            .setExistingFile(filesystem.resolve(
-                "android/java/src/com/facebook/common/util/data.json"))
-            .setDesiredLink(target)
-            .build());
+    CopyResourcesStep step =
+        new CopyResourcesStep(
+            filesystem,
+            buildContext,
+            ruleFinder,
+            buildTarget,
+            ImmutableSet.of(
+                new FakeSourcePath(filesystem, "android/java/src/com/facebook/base/data.json"),
+                new FakeSourcePath(
+                    filesystem, "android/java/src/com/facebook/common/util/data.json")),
+            filesystem
+                .getBuckPaths()
+                .getScratchDir()
+                .resolve("android/java/lib__resources__classes"),
+            javaPackageFinder);
+
+    Path target =
+        filesystem
+            .getBuckPaths()
+            .getScratchDir()
+            .resolve("android/java/lib__resources__classes/com/facebook/common/util/data.json");
+    Path target1 =
+        filesystem
+            .getBuckPaths()
+            .getScratchDir()
+            .resolve("android/java/lib__resources__classes/com/facebook/base/data.json");
+    List<? extends Step> expected =
+        ImmutableList.of(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(), filesystem, target1.getParent())),
+            SymlinkFileStep.builder()
+                .setFilesystem(filesystem)
+                .setExistingFile(filesystem.resolve("android/java/src/com/facebook/base/data.json"))
+                .setDesiredLink(target1)
+                .build(),
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(), filesystem, target.getParent())),
+            SymlinkFileStep.builder()
+                .setFilesystem(filesystem)
+                .setExistingFile(
+                    filesystem.resolve("android/java/src/com/facebook/common/util/data.json"))
+                .setDesiredLink(target)
+                .build());
     assertEquals(expected, step.buildSteps());
   }
 
   @Test
-  public void testAddResourceCommandsWithBuildFileParentOfJavaPackage() {
+  public void testAddResourceCommandsWithBuildFileParentOfJavaPackage()
+      throws InterruptedException {
     // Files:
     // android/java/src/BUCK
     // android/java/src/com/facebook/base/data.json
@@ -98,46 +124,64 @@ public class CopyResourcesStepTest {
     JavaPackageFinder javaPackageFinder = createJavaPackageFinder();
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
-        new BuildRuleResolver(
-            TargetGraph.EMPTY,
-            new DefaultTargetNodeToBuildRuleTransformer())
-    );
-    CopyResourcesStep step = new CopyResourcesStep(
-        filesystem,
-        new SourcePathResolver(ruleFinder),
-        ruleFinder,
-        buildTarget,
-        ImmutableSet.<SourcePath>of(
-            new FakeSourcePath(filesystem, "android/java/src/com/facebook/base/data.json"),
-            new FakeSourcePath(filesystem, "android/java/src/com/facebook/common/util/data.json")),
-        filesystem.getBuckPaths().getScratchDir()
-            .resolve("android/java/src/lib__resources__classes"),
-        javaPackageFinder);
+    SourcePathRuleFinder ruleFinder =
+        new SourcePathRuleFinder(
+            new BuildRuleResolver(
+                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    BuildContext buildContext =
+        FakeBuildContext.withSourcePathResolver(DefaultSourcePathResolver.from(ruleFinder))
+            .withJavaPackageFinder(javaPackageFinder)
+            .withBuildCellRootPath(filesystem.getRootPath());
+    CopyResourcesStep step =
+        new CopyResourcesStep(
+            filesystem,
+            buildContext,
+            ruleFinder,
+            buildTarget,
+            ImmutableSet.<SourcePath>of(
+                new FakeSourcePath(filesystem, "android/java/src/com/facebook/base/data.json"),
+                new FakeSourcePath(
+                    filesystem, "android/java/src/com/facebook/common/util/data.json")),
+            filesystem
+                .getBuckPaths()
+                .getScratchDir()
+                .resolve("android/java/src/lib__resources__classes"),
+            javaPackageFinder);
 
-    Path target = filesystem.getBuckPaths().getScratchDir().resolve(
-        "android/java/src/lib__resources__classes/com/facebook/common/util/data.json");
-    Path target1 = filesystem.getBuckPaths().getScratchDir().resolve(
-        "android/java/src/lib__resources__classes/com/facebook/base/data.json");
-    List<? extends Step> expected = ImmutableList.of(
-        MkdirStep.of(filesystem, target1.getParent()),
-        SymlinkFileStep.builder()
-            .setFilesystem(filesystem)
-            .setExistingFile(filesystem.resolve("android/java/src/com/facebook/base/data.json"))
-            .setDesiredLink(target1)
-            .build(),
-        MkdirStep.of(filesystem, target.getParent()),
-        SymlinkFileStep.builder()
-            .setFilesystem(filesystem)
-            .setExistingFile(filesystem.resolve(
-                "android/java/src/com/facebook/common/util/data.json"))
-            .setDesiredLink(target)
-            .build());
+    Path target =
+        filesystem
+            .getBuckPaths()
+            .getScratchDir()
+            .resolve("android/java/src/lib__resources__classes/com/facebook/common/util/data.json");
+    Path target1 =
+        filesystem
+            .getBuckPaths()
+            .getScratchDir()
+            .resolve("android/java/src/lib__resources__classes/com/facebook/base/data.json");
+    List<? extends Step> expected =
+        ImmutableList.of(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(), filesystem, target1.getParent())),
+            SymlinkFileStep.builder()
+                .setFilesystem(filesystem)
+                .setExistingFile(filesystem.resolve("android/java/src/com/facebook/base/data.json"))
+                .setDesiredLink(target1)
+                .build(),
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(), filesystem, target.getParent())),
+            SymlinkFileStep.builder()
+                .setFilesystem(filesystem)
+                .setExistingFile(
+                    filesystem.resolve("android/java/src/com/facebook/common/util/data.json"))
+                .setDesiredLink(target)
+                .build());
     assertEquals(expected, step.buildSteps());
   }
 
   @Test
-  public void testAddResourceCommandsWithBuildFileInJavaPackage() {
+  public void testAddResourceCommandsWithBuildFileInJavaPackage() throws InterruptedException {
     // Files:
     // android/java/src/com/facebook/BUCK
     // android/java/src/com/facebook/base/data.json
@@ -147,43 +191,64 @@ public class CopyResourcesStepTest {
     JavaPackageFinder javaPackageFinder = createJavaPackageFinder();
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
-        new BuildRuleResolver(
-            TargetGraph.EMPTY,
-            new DefaultTargetNodeToBuildRuleTransformer())
-    );
-    CopyResourcesStep step = new CopyResourcesStep(
-        filesystem,
-        new SourcePathResolver(ruleFinder),
-        ruleFinder,
-        buildTarget,
-        ImmutableSet.of(
-            new FakeSourcePath(filesystem, "android/java/src/com/facebook/base/data.json"),
-            new FakeSourcePath(filesystem, "android/java/src/com/facebook/common/util/data.json")),
-        filesystem.getBuckPaths().getScratchDir().resolve(
-            "android/java/src/com/facebook/lib__resources__classes"),
-        javaPackageFinder);
+    SourcePathRuleFinder ruleFinder =
+        new SourcePathRuleFinder(
+            new BuildRuleResolver(
+                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    BuildContext buildContext =
+        FakeBuildContext.withSourcePathResolver(DefaultSourcePathResolver.from(ruleFinder))
+            .withJavaPackageFinder(javaPackageFinder)
+            .withBuildCellRootPath(filesystem.getRootPath());
 
-    Path target = filesystem.getBuckPaths().getScratchDir().resolve(
-        "android/java/src/com/facebook/lib__resources__classes/" +
-            "com/facebook/common/util/data.json");
-    Path target1 = filesystem.getBuckPaths().getScratchDir().resolve(
-        "android/java/src/com/facebook/lib__resources__classes/" +
-            "com/facebook/base/data.json");
-    List<? extends Step> expected = ImmutableList.of(
-        MkdirStep.of(filesystem, target1.getParent()),
-        SymlinkFileStep.builder()
-            .setFilesystem(filesystem)
-            .setExistingFile(filesystem.resolve("android/java/src/com/facebook/base/data.json"))
-            .setDesiredLink(target1)
-            .build(),
-        MkdirStep.of(filesystem, target.getParent()),
-        SymlinkFileStep.builder()
-            .setFilesystem(filesystem)
-            .setExistingFile(filesystem.resolve(
-                "android/java/src/com/facebook/common/util/data.json"))
-            .setDesiredLink(target)
-            .build());
+    CopyResourcesStep step =
+        new CopyResourcesStep(
+            filesystem,
+            buildContext,
+            ruleFinder,
+            buildTarget,
+            ImmutableSet.of(
+                new FakeSourcePath(filesystem, "android/java/src/com/facebook/base/data.json"),
+                new FakeSourcePath(
+                    filesystem, "android/java/src/com/facebook/common/util/data.json")),
+            filesystem
+                .getBuckPaths()
+                .getScratchDir()
+                .resolve("android/java/src/com/facebook/lib__resources__classes"),
+            javaPackageFinder);
+
+    Path target =
+        filesystem
+            .getBuckPaths()
+            .getScratchDir()
+            .resolve(
+                "android/java/src/com/facebook/lib__resources__classes/"
+                    + "com/facebook/common/util/data.json");
+    Path target1 =
+        filesystem
+            .getBuckPaths()
+            .getScratchDir()
+            .resolve(
+                "android/java/src/com/facebook/lib__resources__classes/"
+                    + "com/facebook/base/data.json");
+    List<? extends Step> expected =
+        ImmutableList.of(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(), filesystem, target1.getParent())),
+            SymlinkFileStep.builder()
+                .setFilesystem(filesystem)
+                .setExistingFile(filesystem.resolve("android/java/src/com/facebook/base/data.json"))
+                .setDesiredLink(target1)
+                .build(),
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(), filesystem, target.getParent())),
+            SymlinkFileStep.builder()
+                .setFilesystem(filesystem)
+                .setExistingFile(
+                    filesystem.resolve("android/java/src/com/facebook/common/util/data.json"))
+                .setDesiredLink(target)
+                .build());
     assertEquals(expected, step.buildSteps());
   }
 

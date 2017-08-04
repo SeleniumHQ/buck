@@ -20,7 +20,6 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.util.ZipFileTraversal;
 import com.google.common.collect.ImmutableSet;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileVisitOption;
@@ -33,14 +32,12 @@ import java.util.Collection;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-import javax.annotation.Nullable;
-
 /**
- * Traversal strategy for traversing a set of paths that themselves are traversed.  The provided
+ * Traversal strategy for traversing a set of paths that themselves are traversed. The provided
  * paths can point to zip/jar files, directories of resource/class files, or individual files
  * themselves.
- * <p>
- * For example, given the input paths of { foo.zip, foo/, and foo.txt }, traverse would first
+ *
+ * <p>For example, given the input paths of { foo.zip, foo/, and foo.txt }, traverse would first
  * expand foo.zip and traverse its contents, then list the files recursively in foo/, and finally
  * visit the single file foo.txt.
  */
@@ -54,16 +51,6 @@ public abstract class ClasspathTraversal {
   }
 
   public abstract void visit(FileLike fileLike) throws IOException;
-
-  /**
-   * Subclasses can override this method to return a value of any type. This often represents some
-   * sort of cumulative value that is computed as a result of the traversal.
-   */
-  // TODO(mbolin): Change this from Object to a generic <T>.
-  @Nullable
-  public Object getResult() {
-    return null;
-  }
 
   public final void traverse() throws IOException {
     for (Path path : paths) {
@@ -96,12 +83,13 @@ public abstract class ClasspathTraversal {
 
     @Override
     public void traverse(final ClasspathTraversal traversal) throws IOException {
-      ZipFileTraversal impl = new ZipFileTraversal(file) {
-        @Override
-        public void visit(ZipFile zipFile, ZipEntry zipEntry) throws IOException {
-          traversal.visit(new FileLikeInZip(file, zipFile, zipEntry));
-        }
-      };
+      ZipFileTraversal impl =
+          new ZipFileTraversal(file) {
+            @Override
+            public void visit(ZipFile zipFile, ZipEntry zipEntry) throws IOException {
+              traversal.visit(new FileLikeInZip(file, zipFile, zipEntry));
+            }
+          };
       impl.traverse();
     }
 
@@ -210,4 +198,3 @@ public abstract class ClasspathTraversal {
     }
   }
 }
-

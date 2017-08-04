@@ -16,11 +16,13 @@
 
 package com.facebook.buck.gwt;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.CopyResourcesStep;
 import com.facebook.buck.jvm.java.JarDirectoryStep;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -32,7 +34,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 
 /**
@@ -40,36 +41,39 @@ import java.nio.file.Path;
  * and resources suitable for a GWT module. (It differs slightly from a source JAR because it
  * contains resources.)
  */
-public class GwtModule extends AbstractBuildRule {
+public class GwtModule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private final Path outputFile;
-  @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> filesForGwtModule;
+  @AddToRuleKey private final ImmutableSortedSet<SourcePath> filesForGwtModule;
   private final SourcePathRuleFinder ruleFinder;
 
   GwtModule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       ImmutableSortedSet<SourcePath> filesForGwtModule) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.ruleFinder = ruleFinder;
-    BuildTarget target = params.getBuildTarget();
-    this.outputFile = BuildTargets.getGenPath(
-        getProjectFilesystem(),
-        target,
-        "__gwt_module_%s__/" + target.getShortNameAndFlavorPostfix() + ".jar");
+    this.outputFile =
+        BuildTargets.getGenPath(
+            getProjectFilesystem(),
+            buildTarget,
+            "__gwt_module_%s__/" + buildTarget.getShortNameAndFlavorPostfix() + ".jar");
     this.filesForGwtModule = filesForGwtModule;
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     Path workingDirectory = outputFile.getParent();
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), workingDirectory));
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), workingDirectory)));
 
     // A CopyResourcesStep is needed so that a file that is at java/com/example/resource.txt in the
     // repository will be added as com/example/resource.txt in the resulting JAR (assuming that
@@ -78,7 +82,7 @@ public class GwtModule extends AbstractBuildRule {
     steps.add(
         new CopyResourcesStep(
             getProjectFilesystem(),
-            context.getSourcePathResolver(),
+            context,
             ruleFinder,
             getBuildTarget(),
             filesForGwtModule,

@@ -8,15 +8,17 @@ import __future__
 
 import contextlib
 from pathlib import Path, PurePath
-from pywatchman import bser, WatchmanError
+from pywatchman import WatchmanError
+from .json_encoder import BuckJSONEncoder
 from .glob_internal import glob_internal
 from .glob_mercurial import glob_mercurial_manifest, load_mercurial_repo_info
 from .glob_watchman import SyncCookieState, glob_watchman
 from .util import Diagnostic, cygwin_adjusted_path, get_caller_frame, is_special, is_in_dir
 from .module_whitelist import ImportWhitelistManager
+from .profiler import Profiler
+
 import StringIO
 import abc
-import cProfile
 import functools
 import hashlib
 import imp
@@ -28,7 +30,10 @@ import os.path
 import pstats
 import pywatchman
 import re
+import select
 import sys
+import tempfile
+import time
 import traceback
 import types
 from typing import Any, Dict, List, Tuple, Optional
@@ -51,6 +56,8 @@ except ImportError:
 # "dirname" - The directory containing the build file.
 #
 # "base_path" - The base path of the build file.
+#
+# "cell_name" - The cell name the build file is in.
 
 BUILD_FUNCTIONS = []
 
@@ -108,8 +115,8 @@ class AbstractContext(object):
 class BuildFileContext(AbstractContext):
     """The build context used when processing a build file."""
 
-    def __init__(self, project_root, base_path, dirname, autodeps, allow_empty_globs, ignore_paths,
-                 watchman_client, watchman_watch_root, watchman_project_prefix,
+    def __init__(self, project_root, base_path, dirname, cell_name, allow_empty_globs,
+                 ignore_paths, watchman_client, watchman_watch_root, watchman_project_prefix,
                  sync_cookie_state, watchman_glob_stat_results,
                  watchman_use_glob_generator, use_mercurial_glob):
         self.globals = {}
@@ -121,8 +128,8 @@ class BuildFileContext(AbstractContext):
 
         self.project_root = project_root
         self.base_path = base_path
+        self.cell_name = cell_name
         self.dirname = dirname
-        self.autodeps = autodeps
         self.allow_empty_globs = allow_empty_globs
         self.ignore_paths = ignore_paths
         self.watchman_client = watchman_client
@@ -280,51 +287,6 @@ def add_rule(rule, build_env):
                          (rule, build_env.rules[rule_name]))
     rule['buck.base_path'] = build_env.base_path
 
-    # It is possible that the user changed the rule from autodeps=True to autodeps=False
-    # without re-running `buck autodeps` (this is common when resolving merge conflicts).
-    # When this happens, the deps in BUCK.autodeps should be ignored because autodeps is
-    # set to False.
-    if rule_name in build_env.autodeps:
-        if rule.get('autodeps', False):
-            # TODO(mbolin): One major edge case that exists right now when using a set to de-dupe
-            # elements is that the same target may be referenced in two different ways:
-            # 1. As a fully-qualified target: //src/com/facebook/buck/android:packageable
-            # 2. As a local target:           :packageable
-            # Because of this, we may end up with two entries for the same target even though we
-            # are trying to use a set to remove duplicates.
-
-            # Combine all of the deps into a set to eliminate duplicates. Although we would prefer
-            # it if each dep were exclusively in BUCK or BUCK.autodeps, that is not always
-            # possible. For example, if a user-defined macro creates a library that hardcodes a dep
-            # and the tooling to produce BUCK.autodeps also infers the need for that dep and adds
-            # it to BUCK.autodeps, then it will appear in both places.
-            auto_deps = build_env.autodeps[rule_name].get('deps', None)
-            if auto_deps:
-                # The default value for the map entries is None which means we cannot use
-                # rule.get('deps', []) as it would return None.
-                explicit_deps = rule.get('deps')
-                if explicit_deps is None:
-                    explicit_deps = []
-                deps = set(explicit_deps)
-                deps.update(auto_deps)
-                rule['deps'] = list(deps)
-
-            auto_exported_deps = build_env.autodeps[rule_name].get('exported_deps', None)
-            if auto_exported_deps:
-                # The default value for the map entries is None which means we cannot use
-                # rule.get('exportedDeps', []) as it would return None.
-                explicit_exported_deps = rule.get('exportedDeps')
-                if explicit_exported_deps is None:
-                    explicit_exported_deps = []
-                exported_deps = set(explicit_exported_deps)
-                exported_deps.update(auto_exported_deps)
-                rule['exportedDeps'] = list(exported_deps)
-        else:
-            # If there is an entry in the .autodeps file for the rule, but the rule has autodeps
-            # set to False, then the .autodeps file is likely out of date. Ideally, we would warn
-            # the user to re-run `buck autodeps` in this scenario. Unfortunately, we do not have
-            # a mechanism to relay warnings from buck.py at the time of this writing.
-            pass
     build_env.rules[rule_name] = rule
 
 
@@ -468,6 +430,25 @@ def get_base_path(build_env=None):
     return build_env.base_path
 
 
+@provide_for_build
+def get_cell_name(build_env=None):
+    """Get the cell name of the build file that was initially evaluated.
+
+    This function is intended to be used from within a build defs file that
+    likely contains macros that could be called from any build file.
+    Such macros may need to know the base path of the file in which they
+    are defining new build rules.
+
+    :return: a string, such as "cell". The return value will be "" if
+             the build file does not have a cell
+             :rtype: str
+
+    """
+    assert isinstance(build_env, BuildFileContext), (
+        "Cannot use `get_cell_name()` at the top-level of an included file.")
+    return build_env.cell_name
+
+
 def flatten_list_of_dicts(list_of_dicts):
     """Flatten the given list of dictionaries by merging l[1:] onto
     l[0], one at a time. Key/Value pairs which appear in later list entries
@@ -511,8 +492,7 @@ class BuildFileProcessor(object):
         'pipes': ['quote'],
     }
 
-    def __init__(self, project_root, cell_roots, build_file_name,
-                 allow_empty_globs, ignore_buck_autodeps_files, no_autodeps_signatures,
+    def __init__(self, project_root, cell_roots, cell_name, build_file_name, allow_empty_globs,
                  watchman_client, watchman_glob_stat_results,
                  watchman_use_glob_generator, use_mercurial_glob,
                  project_import_whitelist=None, implicit_includes=None,
@@ -536,11 +516,10 @@ class BuildFileProcessor(object):
 
         self._project_root = project_root
         self._cell_roots = cell_roots
+        self._cell_name = cell_name
         self._build_file_name = build_file_name
         self._implicit_includes = implicit_includes
         self._allow_empty_globs = allow_empty_globs
-        self._ignore_buck_autodeps_files = ignore_buck_autodeps_files
-        self._no_autodeps_signatures = no_autodeps_signatures
         self._watchman_client = watchman_client
         self._watchman_glob_stat_results = watchman_glob_stat_results
         self._watchman_use_glob_generator = watchman_use_glob_generator
@@ -973,22 +952,11 @@ class BuildFileProcessor(object):
         base_path = relative_path_to_build_file[:len_suffix]
         dirname = os.path.dirname(path)
 
-        # If there is a signature failure, then record the error, but do not blow up.
-        autodeps = None
-        autodeps_file = None
-        invalid_signature_error_message = None
-        try:
-            results = self._try_parse_autodeps(dirname)
-            if results:
-                (autodeps, autodeps_file) = results
-        except InvalidSignatureError as e:
-            invalid_signature_error_message = e.message
-
         build_env = BuildFileContext(
             self._project_root,
             base_path,
             dirname,
-            autodeps or {},
+            self._cell_name,
             self._allow_empty_globs,
             self._ignore_paths,
             self._watchman_client,
@@ -999,79 +967,7 @@ class BuildFileProcessor(object):
             self._watchman_use_glob_generator,
             self._use_mercurial_glob)
 
-        # If the .autodeps file has been successfully parsed, then treat it as if it were
-        # a file loaded via include_defs() in that a change to the .autodeps file should
-        # force all of the build rules in the build file to be invalidated.
-        if autodeps_file:
-            build_env.includes.add(autodeps_file)
-
-        if invalid_signature_error_message:
-            build_env.diagnostics.append(
-                Diagnostic(
-                    message=invalid_signature_error_message,
-                    level='fatal',
-                    source='autodeps',
-                    exception=None))
-
         return self._process(build_env, path, is_implicit_include=False)
-
-    def _try_parse_autodeps(self, dirname):
-        """
-        Returns a tuple of (autodeps dict, autodeps_file string), or None.
-        """
-        # When we are running as part of `buck autodeps`, we ignore existing BUCK.autodeps files.
-        if self._ignore_buck_autodeps_files:
-            return None
-
-        autodeps_file = dirname + '/' + self._build_file_name + '.autodeps'
-        if not os.path.isfile(autodeps_file):
-            return None
-
-        autodeps = self._parse_autodeps(autodeps_file)
-        return (autodeps, autodeps_file)
-
-    def _parse_autodeps(self, autodeps_file):
-        """
-        A BUCK file may have a BUCK.autodeps file that lives alongside it. (If a custom build file
-        name is used, then <file-name>.autodeps must be the name of the .autodeps file.)
-
-        The .autodeps file is a JSON file with a special header that is used to sign the file,
-        containing a SHA-1 of the contents following the header. If the header does not match the
-        contents, an error will be thrown.
-
-        The JSON contains a mapping of build targets (by short name) to lists of build targets that
-        represent dependencies. For each mapping, the list of dependencies will be merged with that
-        of the original rule declared in the build file. This affords end users the ability to
-        partially generate build files.
-
-        :param autodeps_file: Absolute path to the expected .autodeps file.
-        :raises InvalidSignatureError:
-        """
-        if self._no_autodeps_signatures:
-            with self._wrap_file_access(wrap=False):
-                with open(autodeps_file, 'r') as stream:
-                    return json.load(stream)
-        else:
-            with self._wrap_file_access(wrap=False):
-                with open(autodeps_file, 'r') as stream:
-                    signature_line = stream.readline()
-                    contents = stream.read()
-
-            match = GENDEPS_SIGNATURE.match(signature_line)
-            if match:
-                signature = match.group(1)
-                hash = hashlib.new('sha1')
-                hash.update(contents)
-                sha1 = hash.hexdigest()
-
-                if sha1 == signature:
-                    return json.loads(contents)
-                else:
-                    raise InvalidSignatureError(
-                        'Signature did not match contents in {0}'.format(autodeps_file))
-            else:
-                raise InvalidSignatureError('{0} did not contain an autodeps signature'.
-                                            format(autodeps_file))
 
     def process(self, watch_root, project_prefix, path, diagnostics):
         # type: (str, Optional[str], str, List[Diagnostic]) -> List[Dict[str, Any]]
@@ -1133,7 +1029,10 @@ def format_exception_info(exception_info):
 
 
 def encode_result(values, diagnostics, profile):
-    result = {'values': values}
+    result = {'values': [
+        dict((k, v) for k, v in value.iteritems() if v is not None)
+        for value in values]}
+    json_encoder = BuckJSONEncoder()
     if diagnostics:
         encoded_diagnostics = []
         for d in diagnostics:
@@ -1149,7 +1048,7 @@ def encode_result(values, diagnostics, profile):
     if profile is not None:
         result['profile'] = profile
     try:
-        return bser.dumps(result)
+        return json_encoder.encode(result)
     except Exception as e:
         # Try again without the values
         result['values'] = []
@@ -1161,11 +1060,12 @@ def encode_result(values, diagnostics, profile):
             'source': 'parse',
             'exception': format_exception_info(sys.exc_info()),
         })
-        return bser.dumps(result)
+        return json_encoder.encode(result)
 
 
 def process_with_diagnostics(build_file_query, build_file_processor, to_parent,
                              should_profile=False):
+    start_time = time.time()
     build_file = build_file_query.get('buildFile')
     watch_root = build_file_query.get('watchRoot')
     project_prefix = build_file_query.get('projectPrefix')
@@ -1177,11 +1077,6 @@ def process_with_diagnostics(build_file_query, build_file_processor, to_parent,
 
     diagnostics = []
     values = []
-    if should_profile:
-        profile = cProfile.Profile()
-        profile.enable()
-    else:
-        profile = None
     try:
         values = build_file_processor.process(
             watch_root,
@@ -1189,30 +1084,34 @@ def process_with_diagnostics(build_file_query, build_file_processor, to_parent,
             build_file,
             diagnostics=diagnostics)
     except Exception as e:
+        trace = traceback.format_exc()
         # Control-C and sys.exit() don't emit diagnostics.
         if not (e is KeyboardInterrupt or e is SystemExit):
-            if e is WatchmanError:
+            if isinstance(e, WatchmanError):
                 source = 'watchman'
+                message = e.msg
             else:
                 source = 'parse'
+                message = str(e)
             diagnostics.append(
                 Diagnostic(
-                    message=str(e),
+                    message=message,
                     level='fatal',
                     source=source,
                     exception=sys.exc_info()))
         raise
     finally:
-        if profile is not None:
-            profile.disable()
-            s = StringIO.StringIO()
-            pstats.Stats(profile, stream=s).sort_stats('cumulative').print_stats()
-            profile_result = s.getvalue()
-        else:
-            profile_result = None
+        java_process_send_result(to_parent, values, diagnostics, None)
 
-        to_parent.write(encode_result(values, diagnostics, profile_result))
-        to_parent.flush()
+    end_time = time.time()
+    return end_time - start_time
+
+
+def java_process_send_result(to_parent, values, diagnostics, profile_result):
+    """Sends result to the Java process"""
+    data = encode_result(values, diagnostics, profile_result)
+    to_parent.write(data)
+    to_parent.flush()
 
 
 def silent_excepthook(exctype, value, tb):
@@ -1257,12 +1156,12 @@ def _optparse_store_kv(option, opt_str, value, parser):
 # directories of generated files produced by Buck.
 #
 # All of the build rules that are parsed from the BUCK files will be printed
-# to stdout encoded in BSER. That means that printing out other information
-# for debugging purposes will break the BSER encoding, so be careful!
+# to stdout encoded in JSON. That means that printing out other information
+# for debugging purposes will break the JSON encoding, so be careful!
 
 
 def main():
-    # Our parent expects to read BSER from our stdout, so if anyone
+    # Our parent expects to read JSON from our stdout, so if anyone
     # uses print, buck will complain with a helpful "but I wanted an
     # array!" message and quit.  Redirect stdout to stderr so that
     # doesn't happen.  Actually dup2 the file handle so that writing
@@ -1287,6 +1186,11 @@ def main():
         callback=_optparse_store_kv,
         default={},
     )
+    parser.add_option(
+        '--cell_name',
+        action='store',
+        type='string',
+        dest="cell_name")
     parser.add_option(
         '--build_file_name',
         action='store',
@@ -1345,15 +1249,6 @@ def main():
         dest='quiet',
         help='Stifles exception backtraces printed to stderr during parsing.')
     parser.add_option(
-        '--ignore_buck_autodeps_files',
-        action='store_true',
-        help='do not consider .autodeps files when parsing rules')
-    parser.add_option(
-        '--no_autodeps_signatures',
-        action='store_true',
-        dest='no_autodeps_signatures',
-        help='.autodeps files are not expected to contain signatures')
-    parser.add_option(
         '--profile',
         action='store_true',
         help='Profile every buck file execution')
@@ -1378,7 +1273,7 @@ def main():
     watchman_client = None
     use_mercurial_glob = False
     if options.use_watchman_glob:
-        client_args = {}
+        client_args = {'sendEncoding': 'json', 'recvEncoding': 'json'}
         if options.watchman_query_timeout_ms is not None:
             # pywatchman expects a timeout as a nonnegative floating-point
             # value in seconds.
@@ -1401,29 +1296,27 @@ def main():
                 source='mercurial',
                 exception=None,
             )
-            to_parent.write(encode_result([], [d], None))
-            to_parent.flush()
+            java_process_send_result(to_parent, [], [d], None)
             raise
 
     configs = {}
     if options.config is not None:
         with open(options.config, 'rb') as f:
-            for section, contents in bser.loads(f.read()).iteritems():
+            for section, contents in json.load(f).iteritems():
                 for field, value in contents.iteritems():
                     configs[(section, field)] = value
 
     ignore_paths = []
     if options.ignore_paths is not None:
         with open(options.ignore_paths, 'rb') as f:
-            ignore_paths = [make_glob(i) for i in bser.loads(f.read())]
+            ignore_paths = [make_glob(i) for i in json.load(f)]
 
     buildFileProcessor = BuildFileProcessor(
         project_root,
         cell_roots,
+        options.cell_name,
         options.build_file_name,
         options.allow_empty_globs,
-        options.ignore_buck_autodeps_files,
-        options.no_autodeps_signatures,
         watchman_client,
         options.watchman_glob_stat_results,
         options.watchman_use_glob_generator,
@@ -1446,22 +1339,46 @@ def main():
     # installed.
     with buildFileProcessor.with_env_interceptors():
         with buildFileProcessor.with_builtins(__builtin__.__dict__):
+            processed_build_file = []
+
+            profiler = None
+            if options.profile:
+                profiler = Profiler(True)
+                profiler.start()
+
             for build_file in args:
                 query = {
                     'buildFile': build_file,
                     'watchRoot': project_root,
                     'projectPrefix': project_root,
                 }
-                process_with_diagnostics(query, buildFileProcessor, to_parent,
-                                         should_profile=options.profile)
-
-            for build_file_query in iter(lambda: bser.load(sys.stdin), None):
-                process_with_diagnostics(
-                    build_file_query,
+                duration = process_with_diagnostics(
+                    query,
                     buildFileProcessor,
                     to_parent,
-                    should_profile=options.profile
-                )
+                    should_profile=options.profile)
+                processed_build_file.append({'buildFile': build_file, 'duration': duration})
+
+            # From https://docs.python.org/2/using/cmdline.html :
+            #
+            # Note that there is internal buffering in file.readlines()
+            # and File Objects (for line in sys.stdin) which is not
+            # influenced by this option. To work around this, you will
+            # want to use file.readline() inside a while 1: loop.
+            for line in wait_and_read_build_file_query():
+                if line == '':
+                    break
+                build_file_query = json.loads(line)
+                if build_file_query.get('command') == 'report_profile':
+                    report_profile(options, to_parent, processed_build_file, profiler)
+                else:
+                    duration = process_with_diagnostics(
+                        build_file_query,
+                        buildFileProcessor,
+                        to_parent,
+                        should_profile=options.profile)
+                    processed_build_file.append(
+                        {'buildFile': build_file_query['buildFile'], 'duration': duration})
 
     if options.quiet:
         sys.excepthook = orig_excepthook
@@ -1473,6 +1390,57 @@ def main():
         to_parent.close()
     except IOError:
         pass
+
+
+def wait_build_file_query():
+    select.select([sys.stdin], [], [])
+
+
+def wait_and_read_build_file_query():
+    def default_wait():
+        return
+    wait = default_wait
+    if sys.platform != 'win32':
+        # wait_build_file_query() is useful to attribute time waiting for queries.
+        # Since select.select() is not supported on Windows, we currently don't have
+        # a reliable way to measure it on this platform. Then, we skip it.
+        wait = wait_build_file_query
+    while True:
+        wait()
+        line = sys.stdin.readline()
+        if not line:
+            return
+        yield line
+
+
+def report_profile(options, to_parent, processed_build_file, profiler):
+    if options.profile:
+        try:
+            profiler.stop()
+            profile_result = profiler.generate_report()
+            extra_result = "Total: {:.2f} sec\n\n\n".format(profiler.total_time)
+            extra_result += '# Parsed {} files'.format(len(processed_build_file))
+            processed_build_file.sort(
+                key=lambda current_child: current_child['duration'], reverse=True)
+            # Only show the top ten buck files
+            if len(processed_build_file) > 10:
+                processed_build_file = processed_build_file[:10]
+                extra_result += ', {} slower BUCK files:\n'.format(len(processed_build_file))
+            else:
+                extra_result += '\n'
+            for info in processed_build_file:
+                extra_result += 'Parsed {}: {:.2f} sec \n'.format(
+                    info['buildFile'], info['duration'])
+            extra_result += '\n\n'
+            profile_result = extra_result + profile_result
+            java_process_send_result(to_parent, [], [], profile_result)
+        except Exception as e:
+            trace = traceback.format_exc()
+            print(str(trace))
+            raise
+    else:
+        to_parent.write(encode_result([], [], None))
+        to_parent.flush()
 
 
 def make_glob(pat):

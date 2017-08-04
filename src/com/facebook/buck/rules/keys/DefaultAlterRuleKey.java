@@ -16,21 +16,17 @@
 
 package com.facebook.buck.rules.keys;
 
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.RuleKeyFieldCategory;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 
 class DefaultAlterRuleKey implements AlterRuleKey {
   private final ValueExtractor valueExtractor;
-  private final RuleKeyFieldCategory category;
 
-  public DefaultAlterRuleKey(ValueExtractor valueExtractor, RuleKeyFieldCategory category) {
+  public DefaultAlterRuleKey(ValueExtractor valueExtractor) {
     this.valueExtractor = valueExtractor;
-    this.category = category;
   }
 
   @Override
-  public void amendKey(RuleKeyObjectSink builder, BuildRule rule) {
-    builder.setReflectively(valueExtractor.getName(), valueExtractor.getValue(rule), category);
+  public void amendKey(RuleKeyObjectSink builder, Object addsToRuleKey) {
+    builder.setReflectively(valueExtractor.getName(), valueExtractor.getValue(addsToRuleKey));
   }
 }

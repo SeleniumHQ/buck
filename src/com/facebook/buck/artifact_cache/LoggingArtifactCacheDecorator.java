@@ -20,12 +20,12 @@ import com.facebook.buck.io.BorrowablePath;
 import com.facebook.buck.io.LazyPath;
 import com.facebook.buck.rules.RuleKey;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 
 /**
  * Decorator for wrapping a {@link ArtifactCache} to log a {@link ArtifactCacheEvent} for the start
- * and finish of each event.
- * The underlying cache must only provide synchronous operations.
+ * and finish of each event. The underlying cache must only provide synchronous operations.
  */
 public class LoggingArtifactCacheDecorator implements ArtifactCache, CacheDecorator {
   private final BuckEventBus eventBus;
@@ -33,32 +33,26 @@ public class LoggingArtifactCacheDecorator implements ArtifactCache, CacheDecora
   private final ArtifactCacheEventFactory eventFactory;
 
   public LoggingArtifactCacheDecorator(
-      BuckEventBus eventBus,
-      ArtifactCache delegate,
-      ArtifactCacheEventFactory eventFactory) {
+      BuckEventBus eventBus, ArtifactCache delegate, ArtifactCacheEventFactory eventFactory) {
     this.eventBus = eventBus;
     this.delegate = delegate;
     this.eventFactory = eventFactory;
   }
 
   @Override
-  public CacheResult fetch(RuleKey ruleKey, LazyPath output) {
+  public ListenableFuture<CacheResult> fetchAsync(RuleKey ruleKey, LazyPath output) {
     ArtifactCacheEvent.Started started =
         eventFactory.newFetchStartedEvent(ImmutableSet.of(ruleKey));
     eventBus.post(started);
-    CacheResult fetchResult = delegate.fetch(ruleKey, output);
-    eventBus.post(eventFactory.newFetchFinishedEvent(
-            started,
-            fetchResult));
-    return fetchResult;
+    CacheResult fetchResult = Futures.getUnchecked(delegate.fetchAsync(ruleKey, output));
+    eventBus.post(eventFactory.newFetchFinishedEvent(started, fetchResult));
+    return Futures.immediateFuture(fetchResult);
   }
 
   @Override
-  public ListenableFuture<Void> store(
-      ArtifactInfo info,
-      BorrowablePath output) {
-    ArtifactCacheEvent.Started started = eventFactory.newStoreStartedEvent(
-        info.getRuleKeys(), info.getMetadata());
+  public ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output) {
+    ArtifactCacheEvent.Started started =
+        eventFactory.newStoreStartedEvent(info.getRuleKeys(), info.getMetadata());
     eventBus.post(started);
     ListenableFuture<Void> storeFuture = delegate.store(info, output);
     eventBus.post(eventFactory.newStoreFinishedEvent(started));

@@ -30,7 +30,6 @@ import com.android.ddmlib.SyncService;
 import com.android.ddmlib.TimeoutException;
 import com.android.ddmlib.log.LogReceiver;
 import com.android.sdklib.AndroidVersion;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
@@ -40,9 +39,7 @@ import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Basic implementation of IDevice for mocking purposes.
- */
+/** Basic implementation of IDevice for mocking purposes. */
 public class TestDevice implements IDevice {
 
   private boolean isEmulator;
@@ -56,7 +53,7 @@ public class TestDevice implements IDevice {
     device.setIsEmulator(true);
     device.setSerialNumber(serial);
     device.setName("emulator-" + serial);
-    device.setState(DeviceState.ONLINE);
+    device.setState(IDevice.DeviceState.ONLINE);
     return device;
   }
 
@@ -65,7 +62,7 @@ public class TestDevice implements IDevice {
     device.setIsEmulator(false);
     device.setSerialNumber(serial);
     device.setName("device-" + serial);
-    device.setState(DeviceState.ONLINE);
+    device.setState(IDevice.DeviceState.ONLINE);
     return device;
   }
 
@@ -109,28 +106,28 @@ public class TestDevice implements IDevice {
     return isEmulator;
   }
 
-  public void setState(DeviceState state) {
+  public void setState(IDevice.DeviceState state) {
     this.state = state;
   }
 
   @Override
-  public DeviceState getState() {
+  public IDevice.DeviceState getState() {
     return state;
   }
 
   @Override
   public boolean isOnline() {
-    return state == DeviceState.ONLINE;
+    return state == IDevice.DeviceState.ONLINE;
   }
 
   @Override
   public boolean isOffline() {
-    return state == DeviceState.OFFLINE;
+    return state == IDevice.DeviceState.OFFLINE;
   }
 
   @Override
   public boolean isBootLoader() {
-    return state == DeviceState.BOOTLOADER;
+    return state == IDevice.DeviceState.BOOTLOADER;
   }
 
   @Override
@@ -154,24 +151,26 @@ public class TestDevice implements IDevice {
   }
 
   @Override
-  public String getPropertySync(String s) throws TimeoutException,
-      AdbCommandRejectedException, ShellCommandUnresponsiveException, IOException {
+  public String getPropertySync(String s)
+      throws TimeoutException, AdbCommandRejectedException, ShellCommandUnresponsiveException,
+          IOException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public String getPropertyCacheOrSync(String s) throws TimeoutException,
-      AdbCommandRejectedException, ShellCommandUnresponsiveException, IOException {
+  public String getPropertyCacheOrSync(String s)
+      throws TimeoutException, AdbCommandRejectedException, ShellCommandUnresponsiveException,
+          IOException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public boolean supportsFeature(Feature feature) {
+  public boolean supportsFeature(IDevice.Feature feature) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public boolean supportsFeature(HardwareFeature feature) {
+  public boolean supportsFeature(IDevice.HardwareFeature feature) {
     return false;
   }
 
@@ -201,8 +200,8 @@ public class TestDevice implements IDevice {
   }
 
   @Override
-  public SyncService getSyncService() throws TimeoutException,
-      AdbCommandRejectedException, IOException {
+  public SyncService getSyncService()
+      throws TimeoutException, AdbCommandRejectedException, IOException {
     throw new UnsupportedOperationException();
   }
 
@@ -212,35 +211,29 @@ public class TestDevice implements IDevice {
   }
 
   @Override
-  public RawImage getScreenshot() throws TimeoutException,
-      AdbCommandRejectedException, IOException {
+  public RawImage getScreenshot()
+      throws TimeoutException, AdbCommandRejectedException, IOException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public RawImage getScreenshot(
-      long timeout,
-      TimeUnit unit) throws TimeoutException, AdbCommandRejectedException, IOException {
+  public RawImage getScreenshot(long timeout, TimeUnit unit)
+      throws TimeoutException, AdbCommandRejectedException, IOException {
     return null;
   }
 
   @Override
   public void startScreenRecorder(
-      String remoteFilePath,
-      ScreenRecorderOptions options,
-      IShellOutputReceiver receiver)
-      throws
-      TimeoutException,
-      AdbCommandRejectedException,
-      IOException,
-      ShellCommandUnresponsiveException {
+      String remoteFilePath, ScreenRecorderOptions options, IShellOutputReceiver receiver)
+      throws TimeoutException, AdbCommandRejectedException, IOException,
+          ShellCommandUnresponsiveException {
     throw new UnsupportedOperationException();
   }
 
   @Override
   public void executeShellCommand(String s, IShellOutputReceiver iShellOutputReceiver)
       throws TimeoutException, AdbCommandRejectedException, ShellCommandUnresponsiveException,
-      IOException {
+          IOException {
     throw new UnsupportedOperationException();
   }
 
@@ -248,7 +241,7 @@ public class TestDevice implements IDevice {
   @Override
   public void executeShellCommand(String s, IShellOutputReceiver iShellOutputReceiver, int i)
       throws TimeoutException, AdbCommandRejectedException, ShellCommandUnresponsiveException,
-      IOException {
+          IOException {
     throw new UnsupportedOperationException();
   }
 
@@ -258,11 +251,8 @@ public class TestDevice implements IDevice {
       IShellOutputReceiver receiver,
       long maxTimeToOutputResponse,
       TimeUnit maxTimeUnits)
-      throws
-      TimeoutException,
-      AdbCommandRejectedException,
-      ShellCommandUnresponsiveException,
-      IOException {
+      throws TimeoutException, AdbCommandRejectedException, ShellCommandUnresponsiveException,
+          IOException {
     throw new UnsupportedOperationException();
   }
 
@@ -272,51 +262,52 @@ public class TestDevice implements IDevice {
   }
 
   @Override
-  public void runEventLogService(LogReceiver logReceiver) throws TimeoutException,
-      AdbCommandRejectedException, IOException {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void runLogService(String s, LogReceiver logReceiver) throws TimeoutException,
-      AdbCommandRejectedException, IOException {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void createForward(int i, int i1) throws TimeoutException,
-      AdbCommandRejectedException, IOException {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void createForward(int i, String s, DeviceUnixSocketNamespace deviceUnixSocketNamespace)
+  public void runEventLogService(LogReceiver logReceiver)
       throws TimeoutException, AdbCommandRejectedException, IOException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void removeForward(int i, int i1) throws TimeoutException, AdbCommandRejectedException,
-      IOException {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void removeForward(int i, String s, DeviceUnixSocketNamespace deviceUnixSocketNamespace)
+  public void runLogService(String s, LogReceiver logReceiver)
       throws TimeoutException, AdbCommandRejectedException, IOException {
     throw new UnsupportedOperationException();
   }
 
-
   @Override
-  public void pushFile(String s, String s1) throws IOException,
-      AdbCommandRejectedException, TimeoutException, SyncException {
+  public void createForward(int i, int i1)
+      throws TimeoutException, AdbCommandRejectedException, IOException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void pullFile(String s, String s1) throws IOException,
-      AdbCommandRejectedException, TimeoutException, SyncException {
+  public void createForward(
+      int i, String s, IDevice.DeviceUnixSocketNamespace deviceUnixSocketNamespace)
+      throws TimeoutException, AdbCommandRejectedException, IOException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void removeForward(int i, int i1)
+      throws TimeoutException, AdbCommandRejectedException, IOException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void removeForward(
+      int i, String s, IDevice.DeviceUnixSocketNamespace deviceUnixSocketNamespace)
+      throws TimeoutException, AdbCommandRejectedException, IOException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void pushFile(String s, String s1)
+      throws IOException, AdbCommandRejectedException, TimeoutException, SyncException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void pullFile(String s, String s1)
+      throws IOException, AdbCommandRejectedException, TimeoutException, SyncException {
     throw new UnsupportedOperationException();
   }
 
@@ -331,19 +322,17 @@ public class TestDevice implements IDevice {
       boolean reinstall,
       List<String> installOptions,
       long timeout,
-      TimeUnit timeoutUnit) throws InstallException {
-
-  }
+      TimeUnit timeoutUnit)
+      throws InstallException {}
 
   @Override
-  public String syncPackageToDevice(String s) throws TimeoutException, AdbCommandRejectedException,
-      IOException, SyncException {
+  public String syncPackageToDevice(String s)
+      throws TimeoutException, AdbCommandRejectedException, IOException, SyncException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void installRemotePackage(String s, boolean b, String... strings)
-      throws InstallException {
+  public void installRemotePackage(String s, boolean b, String... strings) throws InstallException {
     throw new UnsupportedOperationException();
   }
 
@@ -363,26 +352,30 @@ public class TestDevice implements IDevice {
   }
 
   @Override
-  public boolean root() throws TimeoutException, AdbCommandRejectedException, IOException,
-         ShellCommandUnresponsiveException {
+  public boolean root()
+      throws TimeoutException, AdbCommandRejectedException, IOException,
+          ShellCommandUnresponsiveException {
     return false;
   }
 
   @Override
-  public boolean isRoot() throws TimeoutException, AdbCommandRejectedException, IOException,
-         ShellCommandUnresponsiveException {
+  public boolean isRoot()
+      throws TimeoutException, AdbCommandRejectedException, IOException,
+          ShellCommandUnresponsiveException {
     return false;
   }
 
   @Override
-  public Integer getBatteryLevel() throws TimeoutException, AdbCommandRejectedException,
-      IOException, ShellCommandUnresponsiveException {
+  public Integer getBatteryLevel()
+      throws TimeoutException, AdbCommandRejectedException, IOException,
+          ShellCommandUnresponsiveException {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Integer getBatteryLevel(long l) throws TimeoutException, AdbCommandRejectedException,
-      IOException, ShellCommandUnresponsiveException {
+  public Integer getBatteryLevel(long l)
+      throws TimeoutException, AdbCommandRejectedException, IOException,
+          ShellCommandUnresponsiveException {
     throw new UnsupportedOperationException();
   }
 

@@ -18,6 +18,11 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.android.AndroidPackageable;
 import com.facebook.buck.android.AndroidPackageableCollector;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.platform.NativeLinkable;
+import com.facebook.buck.cxx.platform.NativeLinkableInput;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.MacroException;
 import com.facebook.buck.model.MacroFinder;
@@ -28,8 +33,10 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -39,34 +46,32 @@ import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.facebook.buck.versions.VersionPropagator;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
-import org.immutables.value.Value;
-
+import com.google.common.collect.Multimaps;
 import java.util.Optional;
 import java.util.regex.Pattern;
+import org.immutables.value.Value;
 
 @Value.Immutable
 @BuckStyleTuple
-abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
-    Description<AbstractPrebuiltCxxLibraryGroupDescription.Args>,
-    VersionPropagator<AbstractPrebuiltCxxLibraryGroupDescription.Args> {
+abstract class AbstractPrebuiltCxxLibraryGroupDescription
+    implements Description<PrebuiltCxxLibraryGroupDescriptionArg>,
+        VersionPropagator<PrebuiltCxxLibraryGroupDescriptionArg> {
 
   private static final MacroFinder FINDER = new MacroFinder();
   private static final String LIB_MACRO = "lib";
   private static final String REL_LIB_MACRO = "rel-lib";
 
-  /**
-   * If the arg contains a library reference, parse it and return it's name and argument.
-   */
+  /** If the arg contains a library reference, parse it and return it's name and argument. */
   private Optional<Pair<String, String>> getLibRef(ImmutableSet<String> macros, String arg) {
     Optional<MacroMatchResult> result;
     try {
@@ -88,18 +93,16 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
   }
 
   @Override
-  public Args createUnpopulatedConstructorArg() {
-    return new Args();
+  public Class<PrebuiltCxxLibraryGroupDescriptionArg> getConstructorArgType() {
+    return PrebuiltCxxLibraryGroupDescriptionArg.class;
   }
 
   /**
    * @return the link args formed from the user-provided static link line after resolving library
-   *         macro references.
+   *     macro references.
    */
   private Iterable<Arg> getStaticLinkArgs(
-      BuildTarget target,
-      ImmutableList<SourcePath> libs,
-      ImmutableList<String> args) {
+      BuildTarget target, ImmutableList<SourcePath> libs, ImmutableList<String> args) {
     ImmutableList.Builder<Arg> builder = ImmutableList.builder();
     for (String arg : args) {
       Optional<Pair<String, String>> libRef = getLibRef(ImmutableSet.of(LIB_MACRO), arg);
@@ -123,12 +126,10 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
 
   /**
    * @return the link args formed from the user-provided shared link line after resolving library
-   *         macro references.
+   *     macro references.
    */
   private Iterable<Arg> getSharedLinkArgs(
-      BuildTarget target,
-      ImmutableMap<String, SourcePath> libs,
-      ImmutableList<String> args) {
+      BuildTarget target, ImmutableMap<String, SourcePath> libs, ImmutableList<String> args) {
     ImmutableList.Builder<Arg> builder = ImmutableList.builder();
     for (String arg : args) {
       Optional<Pair<String, String>> libRef =
@@ -138,9 +139,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
         if (lib == null) {
           throw new HumanReadableException(
               "%s: library \"%s\" (in \"%s\") must refer to keys in the `sharedLibs` parameter",
-              target,
-              libRef.get().getSecond(),
-              arg);
+              target, libRef.get().getSecond(), arg);
         }
         Arg libArg;
         if (libRef.get().getFirst().equals(LIB_MACRO)) {
@@ -148,8 +147,7 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
         } else if (libRef.get().getFirst().equals(REL_LIB_MACRO)) {
           if (!(lib instanceof PathSourcePath)) {
             throw new HumanReadableException(
-                "%s: can only link prebuilt DSOs without sonames",
-                target);
+                "%s: can only link prebuilt DSOs without sonames", target);
           }
           libArg = new RelativeLinkArg((PathSourcePath) lib);
         } else {
@@ -164,20 +162,21 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
   }
 
   @Override
-  public <A extends Args> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
-      final BuildRuleParams params,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
       final BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      final A args) throws NoSuchBuildTargetException {
+      final PrebuiltCxxLibraryGroupDescriptionArg args)
+      throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    return new CustomPrebuiltCxxLibrary(params) {
+    return new CustomPrebuiltCxxLibrary(buildTarget, projectFilesystem, params) {
 
-      private final LoadingCache<
-          CxxPreprocessables.CxxPreprocessorInputCacheKey,
-          ImmutableMap<BuildTarget, CxxPreprocessorInput>
-          > transitiveCxxPreprocessorInputCache =
-          CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
+      private final LoadingCache<CxxPlatform, ImmutableMap<BuildTarget, CxxPreprocessorInput>>
+          transitiveCxxPreprocessorInputCache =
+              CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
 
       @Override
       public Iterable<AndroidPackageable> getRequiredPackageables() {
@@ -190,62 +189,46 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
       }
 
       @Override
-      public Iterable<? extends CxxPreprocessorDep> getCxxPreprocessorDeps(
-          CxxPlatform cxxPlatform) {
+      public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
         if (!isPlatformSupported(cxxPlatform)) {
           return ImmutableList.of();
         }
-        return FluentIterable.from(getBuildDeps())
-            .filter(CxxPreprocessorDep.class);
+        return FluentIterable.from(getBuildDeps()).filter(CxxPreprocessorDep.class);
       }
 
       @Override
-      public CxxPreprocessorInput getCxxPreprocessorInput(
-          CxxPlatform cxxPlatform,
-          HeaderVisibility headerVisibility)
+      public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform)
           throws NoSuchBuildTargetException {
         CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder();
-
-        switch (headerVisibility) {
-          case PUBLIC:
-            builder.putAllPreprocessorFlags(
-                CxxFlags.getLanguageFlags(
-                    args.exportedPreprocessorFlags,
-                    PatternMatchedCollection.of(),
-                    ImmutableMap.of(),
-                    cxxPlatform));
-            for (SourcePath includeDir : args.includeDirs) {
-              builder.addIncludes(
-                  CxxHeadersDir.of(CxxPreprocessables.IncludeType.SYSTEM, includeDir));
-            }
-            return builder.build();
-          case PRIVATE:
-            return builder.build();
+        builder.putAllPreprocessorFlags(
+            ImmutableListMultimap.copyOf(
+                Multimaps.transformValues(
+                    CxxFlags.getLanguageFlags(
+                        args.getExportedPreprocessorFlags(),
+                        PatternMatchedCollection.of(),
+                        ImmutableMap.of(),
+                        cxxPlatform),
+                    StringArg::of)));
+        for (SourcePath includeDir : args.getIncludeDirs()) {
+          builder.addIncludes(CxxHeadersDir.of(CxxPreprocessables.IncludeType.SYSTEM, includeDir));
         }
-
-        // We explicitly don't put this in a default statement because we
-        // want the compiler to warn if someone modifies the HeaderVisibility enum.
-        throw new RuntimeException("Invalid header visibility: " + headerVisibility);
+        return builder.build();
       }
 
       @Override
       public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-          CxxPlatform cxxPlatform,
-          HeaderVisibility headerVisibility)
-          throws NoSuchBuildTargetException {
-        return transitiveCxxPreprocessorInputCache.getUnchecked(
-            ImmutableCxxPreprocessorInputCacheKey.of(cxxPlatform, headerVisibility));
+          CxxPlatform cxxPlatform) throws NoSuchBuildTargetException {
+        return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform);
       }
 
       @Override
       public Iterable<? extends NativeLinkable> getNativeLinkableDeps() {
-        return FluentIterable.from(params.getDeclaredDeps().get())
-            .filter(NativeLinkable.class);
+        return FluentIterable.from(params.getDeclaredDeps().get()).filter(NativeLinkable.class);
       }
 
       @Override
       public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps() {
-        return FluentIterable.from(args.exportedDeps)
+        return FluentIterable.from(args.getExportedDeps())
             .transform(resolver::getRule)
             .filter(NativeLinkable.class);
       }
@@ -253,8 +236,11 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
       @Override
       public NativeLinkableInput getNativeLinkableInput(
           CxxPlatform cxxPlatform,
-          Linker.LinkableDepType type)
+          Linker.LinkableDepType type,
+          boolean forceLinkWhole,
+          ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions)
           throws NoSuchBuildTargetException {
+
         if (!isPlatformSupported(cxxPlatform)) {
           return NativeLinkableInput.of();
         }
@@ -265,22 +251,16 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
                 getStaticLinkArgs(
                     getBuildTarget(),
                     CxxGenruleDescription.fixupSourcePaths(
-                        resolver,
-                        ruleFinder,
-                        cxxPlatform,
-                        args.staticLibs),
-                    args.staticLink));
+                        resolver, ruleFinder, cxxPlatform, args.getStaticLibs()),
+                    args.getStaticLink()));
             break;
           case STATIC_PIC:
             builder.addAllArgs(
                 getStaticLinkArgs(
                     getBuildTarget(),
                     CxxGenruleDescription.fixupSourcePaths(
-                        resolver,
-                        ruleFinder,
-                        cxxPlatform,
-                        args.staticPicLibs),
-                    args.staticPicLink));
+                        resolver, ruleFinder, cxxPlatform, args.getStaticPicLibs()),
+                    args.getStaticPicLink()));
             break;
           case SHARED:
             builder.addAllArgs(
@@ -291,10 +271,10 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
                         ruleFinder,
                         cxxPlatform,
                         ImmutableMap.<String, SourcePath>builder()
-                            .putAll(args.sharedLibs)
-                            .putAll(args.providedSharedLibs)
+                            .putAll(args.getSharedLibs())
+                            .putAll(args.getProvidedSharedLibs())
                             .build()),
-                    args.sharedLink));
+                    args.getSharedLink()));
             break;
         }
         return builder.build();
@@ -304,18 +284,18 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
       public Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
 
         // If we both shared and static libs, we support any linkage.
-        if (!args.sharedLink.isEmpty() &&
-            !(args.staticLink.isEmpty() && args.staticPicLink.isEmpty())) {
+        if (!args.getSharedLink().isEmpty()
+            && !(args.getStaticLink().isEmpty() && args.getStaticPicLink().isEmpty())) {
           return Linkage.ANY;
         }
 
         // Otherwise, if we have a shared library, we only support shared linkage.
-        if (!args.sharedLink.isEmpty()) {
+        if (!args.getSharedLink().isEmpty()) {
           return Linkage.SHARED;
         }
 
         // Otherwise, if we have a static library, we only support static linkage.
-        if (!(args.staticLink.isEmpty() && args.staticPicLink.isEmpty())) {
+        if (!(args.getStaticLink().isEmpty() && args.getStaticPicLink().isEmpty())) {
           return Linkage.STATIC;
         }
 
@@ -347,68 +327,58 @@ abstract class AbstractPrebuiltCxxLibraryGroupDescription implements
         if (!isPlatformSupported(cxxPlatform)) {
           return ImmutableMap.of();
         }
-        return args.sharedLibs;
+        return args.getSharedLibs();
       }
 
       private boolean isPlatformSupported(CxxPlatform cxxPlatform) {
-        return !args.supportedPlatformsRegex.isPresent() ||
-            args.supportedPlatformsRegex.get()
+        return !args.getSupportedPlatformsRegex().isPresent()
+            || args.getSupportedPlatformsRegex()
+                .get()
                 .matcher(cxxPlatform.getFlavor().toString())
                 .find();
       }
     };
   }
 
-  private abstract static class CustomPrebuiltCxxLibrary
-      extends NoopBuildRule
-      implements AbstractCxxLibrary {
-    public CustomPrebuiltCxxLibrary(BuildRuleParams params) {
-      super(params);
+  public abstract static class CustomPrebuiltCxxLibrary
+      extends NoopBuildRuleWithDeclaredAndExtraDeps implements AbstractCxxLibrary {
+    public CustomPrebuiltCxxLibrary(
+        BuildTarget buildTarget, ProjectFilesystem projectFilesystem, BuildRuleParams params) {
+      super(buildTarget, projectFilesystem, params);
     }
   }
 
-  @SuppressFieldNotInitialized
-  public static class Args {
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractPrebuiltCxxLibraryGroupDescriptionArg
+      extends CommonDescriptionArg, HasDeclaredDeps {
+    ImmutableList<String> getExportedPreprocessorFlags();
 
-    public ImmutableList<String> exportedPreprocessorFlags = ImmutableList.of();
-    public ImmutableList<SourcePath> includeDirs = ImmutableList.of();
+    ImmutableList<SourcePath> getIncludeDirs();
 
-    /**
-     * The link arguments to use when linking using the static link style.
-     */
-    public ImmutableList<String> staticLink = ImmutableList.of();
+    /** The link arguments to use when linking using the static link style. */
+    ImmutableList<String> getStaticLink();
 
-    /**
-     * Libraries references in the static link args above.
-     */
-    public ImmutableList<SourcePath> staticLibs = ImmutableList.of();
+    /** Libraries references in the static link args above. */
+    ImmutableList<SourcePath> getStaticLibs();
 
-    /**
-     * The link arguments to use when linking using the static-pic link style.
-     */
-    public ImmutableList<String> staticPicLink = ImmutableList.of();
+    /** The link arguments to use when linking using the static-pic link style. */
+    ImmutableList<String> getStaticPicLink();
 
-    /**
-     * Libraries references in the static-pic link args above.
-     */
-    public ImmutableList<SourcePath> staticPicLibs = ImmutableList.of();
+    /** Libraries references in the static-pic link args above. */
+    ImmutableList<SourcePath> getStaticPicLibs();
 
-    /**
-     * The link arguments to use when linking using the shared link style.
-     */
-    public ImmutableList<String> sharedLink = ImmutableList.of();
+    /** The link arguments to use when linking using the shared link style. */
+    ImmutableList<String> getSharedLink();
 
-    /**
-     * Libraries references in the shared link args above.
-     */
-    public ImmutableMap<String, SourcePath> sharedLibs = ImmutableMap.of();
-    public ImmutableMap<String, SourcePath> providedSharedLibs = ImmutableMap.of();
+    /** Libraries references in the shared link args above. */
+    ImmutableMap<String, SourcePath> getSharedLibs();
 
-    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
-    public ImmutableSortedSet<BuildTarget> exportedDeps = ImmutableSortedSet.of();
+    ImmutableMap<String, SourcePath> getProvidedSharedLibs();
 
-    public Optional<Pattern> supportedPlatformsRegex;
+    @Value.NaturalOrder
+    ImmutableSortedSet<BuildTarget> getExportedDeps();
 
+    Optional<Pattern> getSupportedPlatformsRegex();
   }
-
 }

@@ -19,10 +19,14 @@ package com.facebook.buck.ide.intellij;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.android.AndroidPrebuiltAarBuilder;
+import com.facebook.buck.ide.intellij.model.IjLibrary;
+import com.facebook.buck.ide.intellij.model.IjLibraryFactory;
+import com.facebook.buck.ide.intellij.model.IjLibraryFactoryResolver;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -31,13 +35,11 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.google.common.collect.ImmutableSet;
-
-import org.junit.Before;
-import org.junit.Test;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
+import org.junit.Before;
+import org.junit.Test;
 
 public class DefaultIjLibraryFactoryTest {
 
@@ -57,46 +59,52 @@ public class DefaultIjLibraryFactoryTest {
 
   @Before
   public void setUp() throws Exception {
-    sourcePathResolver = new SourcePathResolver(new SourcePathRuleFinder(
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    ));
+    sourcePathResolver =
+        DefaultSourcePathResolver.from(
+            new SourcePathRuleFinder(
+                new BuildRuleResolver(
+                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     guavaJarPath = Paths.get("third_party/java/guava.jar");
-    guava = PrebuiltJarBuilder
-        .createBuilder(BuildTargetFactory.newInstance("//third_party/java/guava:guava"))
-        .setBinaryJar(guavaJarPath)
-        .build();
+    guava =
+        PrebuiltJarBuilder.createBuilder(
+                BuildTargetFactory.newInstance("//third_party/java/guava:guava"))
+            .setBinaryJar(guavaJarPath)
+            .build();
 
     androidSupportBinaryPath = new FakeSourcePath("third_party/java/support/support.aar");
-    androidSupport = AndroidPrebuiltAarBuilder
-        .createBuilder(BuildTargetFactory.newInstance("//third_party/java/support:support"))
-        .setBinaryAar(androidSupportBinaryPath)
-        .build();
+    androidSupport =
+        AndroidPrebuiltAarBuilder.createBuilder(
+                BuildTargetFactory.newInstance("//third_party/java/support:support"))
+            .setBinaryAar(androidSupportBinaryPath)
+            .build();
 
-    base = JavaLibraryBuilder
-        .createBuilder(BuildTargetFactory.newInstance("//java/com/example/base:base"))
-        .addDep(guava.getBuildTarget())
-        .build();
+    base =
+        JavaLibraryBuilder.createBuilder(
+                BuildTargetFactory.newInstance("//java/com/example/base:base"))
+            .addDep(guava.getBuildTarget())
+            .build();
 
     androidSupportBinaryJarPath = new FakeSourcePath("buck_out/support.aar/classes.jar");
     baseOutputPath = new FakeSourcePath("buck-out/base.jar");
 
-    libraryFactoryResolver = new IjLibraryFactoryResolver() {
-      @Override
-      public Path getPath(SourcePath path) {
-        return sourcePathResolver.getRelativePath(path);
-      }
+    libraryFactoryResolver =
+        new IjLibraryFactoryResolver() {
+          @Override
+          public Path getPath(SourcePath path) {
+            return sourcePathResolver.getRelativePath(path);
+          }
 
-      @Override
-      public Optional<SourcePath> getPathIfJavaLibrary(TargetNode<?, ?> targetNode) {
-        if (targetNode.equals(base)) {
-          return Optional.of(baseOutputPath);
-        }
-        if (targetNode.equals(androidSupport)) {
-          return Optional.of(androidSupportBinaryJarPath);
-        }
-        return Optional.empty();
-      }
-    };
+          @Override
+          public Optional<SourcePath> getPathIfJavaLibrary(TargetNode<?, ?> targetNode) {
+            if (targetNode.equals(base)) {
+              return Optional.of(baseOutputPath);
+            }
+            if (targetNode.equals(androidSupport)) {
+              return Optional.of(androidSupportBinaryJarPath);
+            }
+            return Optional.empty();
+          }
+        };
 
     factory = new DefaultIjLibraryFactory(libraryFactoryResolver);
 
@@ -107,24 +115,25 @@ public class DefaultIjLibraryFactoryTest {
 
   @Test
   public void testPrebuiltJar() {
-    assertEquals("library_third_party_java_guava_guava", guavaLibrary.getName());
-    assertEquals(Optional.of(guavaJarPath), guavaLibrary.getBinaryJar());
-    assertEquals(ImmutableSet.of(guava), guavaLibrary.getTargets());
+    assertEquals("//third_party/java/guava:guava", guavaLibrary.getName());
+    assertEquals(ImmutableSet.of(guavaJarPath), guavaLibrary.getBinaryJars());
+    assertEquals(ImmutableSet.of(guava.getBuildTarget()), guavaLibrary.getTargets());
   }
 
   @Test
   public void testPrebuiltAar() {
-    assertEquals("library_third_party_java_support_support", androidSupportLibrary.getName());
+    assertEquals("//third_party/java/support:support", androidSupportLibrary.getName());
     assertEquals(
-        Optional.of(androidSupportBinaryJarPath.getRelativePath()),
-        androidSupportLibrary.getBinaryJar());
-    assertEquals(ImmutableSet.of(androidSupport), androidSupportLibrary.getTargets());
+        ImmutableSet.of(androidSupportBinaryJarPath.getRelativePath()),
+        androidSupportLibrary.getBinaryJars());
+    assertEquals(
+        ImmutableSet.of(androidSupport.getBuildTarget()), androidSupportLibrary.getTargets());
   }
 
   @Test
   public void testLibraryFromOtherTargets() {
-    assertEquals("library_java_com_example_base_base", baseLibrary.getName());
-    assertEquals(Optional.of(baseOutputPath.getRelativePath()), baseLibrary.getBinaryJar());
-    assertEquals(ImmutableSet.of(base), baseLibrary.getTargets());
+    assertEquals("//java/com/example/base:base", baseLibrary.getName());
+    assertEquals(ImmutableSet.of(baseOutputPath.getRelativePath()), baseLibrary.getBinaryJars());
+    assertEquals(ImmutableSet.of(base.getBuildTarget()), baseLibrary.getTargets());
   }
 }

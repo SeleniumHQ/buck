@@ -24,15 +24,12 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.google.common.collect.ImmutableList;
-
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
-/**
- * Scrub any non-deterministic meta-data from the given file (e.g. timestamp, UID, GID).
- */
+/** Scrub any non-deterministic meta-data from the given file (e.g. timestamp, UID, GID). */
 public class FileScrubberStep implements Step {
 
   private final ProjectFilesystem filesystem;
@@ -40,9 +37,7 @@ public class FileScrubberStep implements Step {
   private final ImmutableList<FileScrubber> scrubbers;
 
   public FileScrubberStep(
-      ProjectFilesystem filesystem,
-      Path input,
-      ImmutableList<FileScrubber> scrubbers) {
+      ProjectFilesystem filesystem, Path input, ImmutableList<FileScrubber> scrubbers) {
     this.filesystem = filesystem;
     this.input = input;
     this.scrubbers = scrubbers;
@@ -53,7 +48,8 @@ public class FileScrubberStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
     Path filePath = filesystem.resolve(input);
     try {
       for (FileScrubber scrubber : scrubbers) {
@@ -65,7 +61,7 @@ public class FileScrubberStep implements Step {
           }
         }
       }
-    } catch (IOException | FileContentsScrubber.ScrubException e) {
+    } catch (FileContentsScrubber.ScrubException e) {
       context.logError(e, "Error scrubbing non-deterministic metadata from %s", filePath);
       return StepExecutionResult.ERROR;
     }
@@ -81,5 +77,4 @@ public class FileScrubberStep implements Step {
   public String getDescription(ExecutionContext context) {
     return "file-scrub";
   }
-
 }

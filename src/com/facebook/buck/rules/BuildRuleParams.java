@@ -16,88 +16,62 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
+import com.facebook.buck.util.collect.SortedSets;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Sets;
+import java.util.SortedSet;
 
-import java.util.Set;
-
-/**
- * Standard set of parameters that is passed to all build rules.
- */
+/** Standard set of parameters that is passed to all build rules. */
 public class BuildRuleParams {
 
-  private final BuildTarget buildTarget;
-  private final Supplier<ImmutableSortedSet<BuildRule>> declaredDeps;
-  private final Supplier<ImmutableSortedSet<BuildRule>> extraDeps;
-  private final Supplier<ImmutableSortedSet<BuildRule>> totalBuildDeps;
+  private final Supplier<? extends SortedSet<BuildRule>> declaredDeps;
+  private final Supplier<? extends SortedSet<BuildRule>> extraDeps;
+  private final Supplier<SortedSet<BuildRule>> totalBuildDeps;
   private final ImmutableSortedSet<BuildRule> targetGraphOnlyDeps;
-  private final ProjectFilesystem projectFilesystem;
 
   public BuildRuleParams(
-      BuildTarget buildTarget,
-      final Supplier<ImmutableSortedSet<BuildRule>> declaredDeps,
-      final Supplier<ImmutableSortedSet<BuildRule>> extraDeps,
-      ImmutableSortedSet<BuildRule> targetGraphOnlyDeps,
-      ProjectFilesystem projectFilesystem) {
-    this.buildTarget = buildTarget;
+      final Supplier<? extends SortedSet<BuildRule>> declaredDeps,
+      final Supplier<? extends SortedSet<BuildRule>> extraDeps,
+      ImmutableSortedSet<BuildRule> targetGraphOnlyDeps) {
     this.declaredDeps = Suppliers.memoize(declaredDeps);
     this.extraDeps = Suppliers.memoize(extraDeps);
-    this.projectFilesystem = projectFilesystem;
     this.targetGraphOnlyDeps = targetGraphOnlyDeps;
 
-    this.totalBuildDeps = Suppliers.memoize(
-        () -> ImmutableSortedSet.<BuildRule>naturalOrder()
-            .addAll(declaredDeps.get())
-            .addAll(extraDeps.get())
-            .build());
+    this.totalBuildDeps =
+        Suppliers.memoize(() -> SortedSets.union(this.declaredDeps.get(), this.extraDeps.get()));
   }
 
-  private BuildRuleParams(
-      BuildRuleParams baseForDeps,
-      BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem) {
-    this.buildTarget = buildTarget;
-    this.projectFilesystem = projectFilesystem;
-    this.declaredDeps = baseForDeps.declaredDeps;
-    this.extraDeps = baseForDeps.extraDeps;
-    this.targetGraphOnlyDeps = baseForDeps.targetGraphOnlyDeps;
-    this.totalBuildDeps = baseForDeps.totalBuildDeps;
+  public BuildRuleParams withDeclaredDeps(SortedSet<BuildRule> declaredDeps) {
+    return withDeclaredDeps(() -> declaredDeps);
   }
 
-  public BuildRuleParams copyReplacingExtraDeps(Supplier<ImmutableSortedSet<BuildRule>> extraDeps) {
-    return copyReplacingDeclaredAndExtraDeps(declaredDeps, extraDeps);
+  public BuildRuleParams withDeclaredDeps(Supplier<? extends SortedSet<BuildRule>> declaredDeps) {
+    return new BuildRuleParams(declaredDeps, extraDeps, targetGraphOnlyDeps);
+  }
+
+  public BuildRuleParams withoutDeclaredDeps() {
+    return withDeclaredDeps(ImmutableSortedSet.of());
+  }
+
+  public BuildRuleParams withExtraDeps(Supplier<? extends SortedSet<BuildRule>> extraDeps) {
+    return new BuildRuleParams(declaredDeps, extraDeps, targetGraphOnlyDeps);
+  }
+
+  public BuildRuleParams withExtraDeps(SortedSet<BuildRule> extraDeps) {
+    return withExtraDeps(() -> extraDeps);
   }
 
   public BuildRuleParams copyAppendingExtraDeps(
       final Supplier<? extends Iterable<? extends BuildRule>> additional) {
-    return copyReplacingDeclaredAndExtraDeps(
-        declaredDeps,
-        () -> ImmutableSortedSet.<BuildRule>naturalOrder()
-            .addAll(extraDeps.get())
-            .addAll(additional.get())
-            .build());
-  }
-
-  /**
-   * @return a copy of these {@link BuildRuleParams} with the deps removed to prevent using them to
-   *         as the deps in constructed {@link BuildRule}s.
-   */
-  public BuildRuleParams copyInvalidatingDeps() {
-    Supplier<ImmutableSortedSet<BuildRule>> throwingDeps =
-        () -> {
-          throw new IllegalStateException(
-              String.format(
-                  "%s: Access to target-node level `BuildRuleParam` deps. " +
-                      "Please compose application-specific deps from the constructor arg instead.",
-                  getBuildTarget()));
-        };
-    return copyReplacingDeclaredAndExtraDeps(throwingDeps, throwingDeps);
+    Supplier<? extends SortedSet<BuildRule>> extraDeps1 =
+        () ->
+            ImmutableSortedSet.<BuildRule>naturalOrder()
+                .addAll(extraDeps.get())
+                .addAll(additional.get())
+                .build();
+    return withDeclaredDeps(declaredDeps).withExtraDeps(extraDeps1);
   }
 
   public BuildRuleParams copyAppendingExtraDeps(Iterable<? extends BuildRule> additional) {
@@ -108,75 +82,25 @@ public class BuildRuleParams {
     return copyAppendingExtraDeps(Suppliers.ofInstance(ImmutableList.copyOf(additional)));
   }
 
-  public BuildRuleParams copyReplacingDeclaredAndExtraDeps(
-      Supplier<ImmutableSortedSet<BuildRule>> declaredDeps,
-      Supplier<ImmutableSortedSet<BuildRule>> extraDeps) {
-    return new BuildRuleParams(
-        buildTarget,
-        declaredDeps,
-        extraDeps,
-        targetGraphOnlyDeps,
-        projectFilesystem);
+  public BuildRuleParams withoutExtraDeps() {
+    return withExtraDeps(ImmutableSortedSet.of());
   }
 
-  public BuildRuleParams withBuildTarget(BuildTarget target) {
-    return new BuildRuleParams(this, target, projectFilesystem);
-  }
-
-  public BuildRuleParams withoutFlavor(Flavor flavor) {
-    Set<Flavor> flavors = Sets.newHashSet(getBuildTarget().getFlavors());
-    flavors.remove(flavor);
-    BuildTarget target = BuildTarget
-        .builder(getBuildTarget().getUnflavoredBuildTarget())
-        .addAllFlavors(flavors)
-        .build();
-
-    return new BuildRuleParams(this, target, projectFilesystem);
-  }
-
-  public BuildRuleParams withAppendedFlavor(Flavor flavor) {
-    Set<Flavor> flavors = Sets.newHashSet(getBuildTarget().getFlavors());
-    flavors.add(flavor);
-    BuildTarget target = BuildTarget
-        .builder(getBuildTarget().getUnflavoredBuildTarget())
-        .addAllFlavors(flavors)
-        .build();
-
-    return new BuildRuleParams(this, target, projectFilesystem);
-  }
-
-  public BuildTarget getBuildTarget() {
-    return buildTarget;
-  }
-
-  /**
-   * @return all BuildRules which must be built before this one can be.
-   */
-  public ImmutableSortedSet<BuildRule> getBuildDeps() {
+  /** @return all BuildRules which must be built before this one can be. */
+  public SortedSet<BuildRule> getBuildDeps() {
     return totalBuildDeps.get();
   }
 
-  public Supplier<ImmutableSortedSet<BuildRule>> getTotalBuildDeps() {
-    return totalBuildDeps;
-  }
-
-  public Supplier<ImmutableSortedSet<BuildRule>> getDeclaredDeps() {
+  public Supplier<? extends SortedSet<BuildRule>> getDeclaredDeps() {
     return declaredDeps;
   }
 
-  public Supplier<ImmutableSortedSet<BuildRule>> getExtraDeps() {
+  public Supplier<? extends SortedSet<BuildRule>> getExtraDeps() {
     return extraDeps;
   }
 
-  /**
-   * See {@link TargetNode#getTargetGraphOnlyDeps}.
-   */
+  /** See {@link TargetNode#getTargetGraphOnlyDeps}. */
   public ImmutableSortedSet<BuildRule> getTargetGraphOnlyDeps() {
     return targetGraphOnlyDeps;
   }
-
-  public ProjectFilesystem getProjectFilesystem() {
-    return projectFilesystem;
-  }
-
 }

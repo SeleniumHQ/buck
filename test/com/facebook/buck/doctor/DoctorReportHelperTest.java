@@ -16,29 +16,27 @@
 
 package com.facebook.buck.doctor;
 
+import static com.facebook.buck.doctor.DoctorTestUtils.createDoctorConfig;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.doctor.config.DoctorConfig;
 import com.facebook.buck.doctor.config.DoctorEndpointResponse;
-import com.facebook.buck.rage.UserInputFixture;
+import com.facebook.buck.doctor.config.DoctorProtocolVersion;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-
+import java.util.Optional;
+import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
-import java.util.Optional;
-
 public class DoctorReportHelperTest {
 
-  @Rule
-  public TemporaryPaths tempFolder = new TemporaryPaths();
+  @Rule public TemporaryPaths tempFolder = new TemporaryPaths();
 
   private ProjectWorkspace workspace;
 
@@ -51,22 +49,17 @@ public class DoctorReportHelperTest {
   @Test
   public void testErrorMessage() throws Exception {
     TestConsole console = new TestConsole();
-    DoctorConfig doctorConfig = DoctorConfig.of(
-        FakeBuckConfig.builder()
-            .setSections(ImmutableMap.of(
-                    DoctorConfig.DOCTOR_SECTION,
-                    ImmutableMap.of(DoctorConfig.URL_FIELD, "url"))).build());
-
-    DoctorReportHelper helper = new DoctorReportHelper(
-        workspace.asCell().getFilesystem(),
-        (new UserInputFixture("0")).getUserInput(),
-        console,
-        doctorConfig);
+    DoctorConfig doctorConfig = createDoctorConfig(0, "", DoctorProtocolVersion.SIMPLE);
+    DoctorReportHelper helper =
+        new DoctorReportHelper(
+            workspace.asCell().getFilesystem(),
+            (new UserInputFixture("0")).getUserInput(),
+            console,
+            doctorConfig);
 
     String errorMessage = "This is an error message.";
-    DoctorEndpointResponse response = DoctorEndpointResponse.of(
-        Optional.of(errorMessage),
-        ImmutableList.of());
+    DoctorEndpointResponse response =
+        DoctorEndpointResponse.of(Optional.of(errorMessage), ImmutableList.of());
 
     helper.presentResponse(response);
     assertEquals("=> " + errorMessage + "\n", console.getTextWrittenToStdOut());
@@ -75,27 +68,33 @@ public class DoctorReportHelperTest {
   @Test
   public void testNoAvailableSuggestions() throws Exception {
     TestConsole console = new TestConsole();
-    DoctorConfig doctorConfig = DoctorConfig.of(
-        FakeBuckConfig.builder()
-            .setSections(ImmutableMap.of(
-                DoctorConfig.DOCTOR_SECTION,
-                ImmutableMap.of(DoctorConfig.URL_FIELD, "url"))).build());
+    DoctorConfig doctorConfig = createDoctorConfig(0, "", DoctorProtocolVersion.SIMPLE);
+    DoctorReportHelper helper =
+        new DoctorReportHelper(
+            workspace.asCell().getFilesystem(),
+            (new UserInputFixture("0")).getUserInput(),
+            console,
+            doctorConfig);
 
-    DoctorReportHelper helper = new DoctorReportHelper(
-        workspace.asCell().getFilesystem(),
-        (new UserInputFixture("0")).getUserInput(),
-        console,
-        doctorConfig);
-
-    DoctorEndpointResponse response = DoctorEndpointResponse.of(
-        Optional.empty(),
-        ImmutableList.of());
+    DoctorEndpointResponse response =
+        DoctorEndpointResponse.of(Optional.empty(), ImmutableList.of());
 
     helper.presentResponse(response);
-    assertEquals(
-        "\n:: No available suggestions right now.\n\n",
-        console.getTextWrittenToStdOut());
+    assertEquals("\n:: No available suggestions right now.\n\n", console.getTextWrittenToStdOut());
+  }
+
+  @Test
+  public void testIssueCategoryThatDoesNotPromptsInput() throws Exception {
+    TestConsole console = new TestConsole();
+    DoctorConfig doctorConfig = createDoctorConfig(0, "", DoctorProtocolVersion.SIMPLE);
+    DoctorReportHelper helper =
+        new DoctorReportHelper(
+            workspace.asCell().getFilesystem(),
+            (new UserInputFixture("1")).getUserInput(),
+            console,
+            doctorConfig);
+
+    Optional<String> issue = helper.promptForIssue();
+    assertThat(issue.get(), Matchers.equalTo("Cache error"));
   }
 }
-
-

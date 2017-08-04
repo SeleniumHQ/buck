@@ -17,26 +17,21 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.config.Config;
-import com.facebook.buck.config.Configs;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.HumanReadableException;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.BinaryOperator;
 import java.util.stream.Collectors;
-
 
 public class DefaultCellPathResolver implements CellPathResolver {
   private static final Logger LOG = Logger.get(DefaultCellPathResolver.class);
@@ -46,17 +41,23 @@ public class DefaultCellPathResolver implements CellPathResolver {
   private final Path root;
   private final ImmutableMap<String, Path> cellPaths;
   private final ImmutableMap<Path, String> canonicalNames;
+  private final ImmutableMap<RelativeCellName, Path> pathMapping;
 
   public DefaultCellPathResolver(Path root, ImmutableMap<String, Path> cellPaths) {
     this.root = root;
     this.cellPaths = cellPaths;
-    this.canonicalNames = cellPaths.entrySet().stream().collect(
-        Collectors.collectingAndThen(
-            Collectors.toMap(
-                Map.Entry::getValue,
-                Map.Entry::getKey,
-                BinaryOperator.minBy(Comparator.<String>naturalOrder())),
-            ImmutableMap::copyOf));
+    this.canonicalNames =
+        cellPaths
+            .entrySet()
+            .stream()
+            .collect(
+                Collectors.collectingAndThen(
+                    Collectors.toMap(
+                        Map.Entry::getValue,
+                        Map.Entry::getKey,
+                        BinaryOperator.minBy(Comparator.<String>naturalOrder())),
+                    ImmutableMap::copyOf));
+    this.pathMapping = bootstrapPathMapping(root, cellPaths);
   }
 
   public DefaultCellPathResolver(Path root, Config config) {
@@ -64,103 +65,71 @@ public class DefaultCellPathResolver implements CellPathResolver {
   }
 
   static ImmutableMap<String, Path> getCellPathsFromConfigRepositoriesSection(
-      Path root,
-      ImmutableMap<String, String> repositoriesSection) {
+      Path root, ImmutableMap<String, String> repositoriesSection) {
     return ImmutableMap.copyOf(
         Maps.transformValues(
             repositoriesSection,
-            input -> root.resolve(MorePaths.expandHomeDir(root.getFileSystem().getPath(input)))
-                .normalize()));
+            input ->
+                root.resolve(MorePaths.expandHomeDir(root.getFileSystem().getPath(input)))
+                    .normalize()));
   }
 
   /**
-   * Recursively walks configuration files to find all possible {@link Cell} locations.
+   * Helper function to precompute the {@link RelativeCellName} to Path mapping
    *
-   * @return MultiMap of Path to cell name. The map will contain multiple names for a path if
-   *         that cell is reachable through different paths from the current cell.
+   * @return Map of cell name to path.
    */
-  public ImmutableMap<RelativeCellName, Path> getTransitivePathMapping() {
+  private static ImmutableMap<RelativeCellName, Path> bootstrapPathMapping(
+      Path root, ImmutableMap<String, Path> cellPaths) {
     ImmutableMap.Builder<RelativeCellName, Path> builder = ImmutableMap.builder();
+    // Add the implicit empty root cell
     builder.put(RelativeCellName.of(ImmutableList.of()), root);
-
     HashSet<Path> seenPaths = new HashSet<>();
-    seenPaths.add(root);
 
-    constructFullMapping(
-        builder,
-        seenPaths,
-        RelativeCellName.of(ImmutableList.of()),
-        this);
+    ImmutableSortedSet<String> sortedCellNames =
+        ImmutableSortedSet.<String>naturalOrder().addAll(cellPaths.keySet()).build();
+    for (String cellName : sortedCellNames) {
+      Path cellRoot = getCellPath(cellPaths, root, cellName);
+      try {
+        cellRoot = cellRoot.toRealPath().normalize();
+      } catch (IOException e) {
+        LOG.warn("cellroot [" + cellRoot + "] does not exist in filesystem");
+      }
+      if (seenPaths.contains(cellRoot)) {
+        continue;
+      }
+      builder.put(RelativeCellName.of(ImmutableList.of(cellName)), cellRoot);
+      seenPaths.add(cellRoot);
+    }
     return builder.build();
+  }
+
+  public static ImmutableMap<RelativeCellName, Path> bootstrapPathMapping(
+      Path root, Config config) {
+    return bootstrapPathMapping(
+        root, getCellPathsFromConfigRepositoriesSection(root, config.get(REPOSITORIES_SECTION)));
+  }
+
+  public ImmutableMap<RelativeCellName, Path> getPathMapping() {
+    return pathMapping;
   }
 
   public Path getRoot() {
     return root;
   }
 
-  private ImmutableMap<String, Path> getPartialMapping() {
-    ImmutableSortedSet<String> sortedCellNames =
-        ImmutableSortedSet.<String>naturalOrder().addAll(cellPaths.keySet()).build();
-    ImmutableMap.Builder<String, Path> rootsMap = ImmutableMap.builder();
-    for (String cellName : sortedCellNames) {
-      Path cellRoot = Preconditions.checkNotNull(getCellPath(cellName));
-      rootsMap.put(cellName, cellRoot);
-    }
-    return rootsMap.build();
-  }
-
-  private static void constructFullMapping(
-      ImmutableMap.Builder<RelativeCellName, Path> result,
-      Set<Path> pathStack,
-      RelativeCellName parentCellPath,
-      DefaultCellPathResolver parentStub) {
-    ImmutableMap<String, Path> partialMapping = parentStub.getPartialMapping();
-    for (Map.Entry<String, Path> entry : partialMapping.entrySet()) {
-      Path cellRoot = entry.getValue().normalize();
-      try {
-        cellRoot = cellRoot.toRealPath().normalize();
-      } catch (IOException e) {
-        LOG.warn("cellroot [" + cellRoot + "] does not exist in filesystem");
-      }
-
-      // Do not recurse into previously visited Cell roots. It's OK for cell references to form
-      // cycles as long as the targets don't form a cycle.
-      // We intentionally allow for the map to contain entries whose Config objects can't be
-      // created. These are still technically reachable and will not cause problems as long as none
-      // of the BuildTargets in the build reference them.
-      if (pathStack.contains(cellRoot)) {
-        continue;
-      }
-      pathStack.add(cellRoot);
-
-      RelativeCellName relativeCellName = parentCellPath.withAppendedComponent(entry.getKey());
-      result.put(relativeCellName, cellRoot);
-
-      Config config;
-      try {
-        // We don't support overriding repositories from the command line so creating the config
-        // with no overrides is OK.
-        config = Configs.createDefaultConfig(cellRoot);
-      } catch (IOException e) {
-        LOG.debug(e, "Error when constructing cell, skipping path %s", cellRoot);
-        continue;
-      }
-      constructFullMapping(
-          result,
-          pathStack,
-          relativeCellName,
-          new DefaultCellPathResolver(cellRoot, config));
-      pathStack.remove(cellRoot);
-    }
-  }
-
-  private Path getCellPath(String cellName) {
+  private static Path getCellPath(
+      ImmutableMap<String, Path> cellPaths, Path root, String cellName) {
     Path path = cellPaths.get(cellName);
     if (path == null) {
       throw new HumanReadableException(
           "In cell rooted at %s: cell named '%s' is not defined.", root, cellName);
     }
     return path;
+  }
+
+  private Path getCellPath(String cellName) {
+    return getCellPath(cellPaths, root, cellName);
   }
 
   @Override

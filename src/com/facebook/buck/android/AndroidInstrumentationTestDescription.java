@@ -16,73 +16,73 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasContacts;
+import com.facebook.buck.rules.HasTestTimeout;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.collect.ImmutableSortedSet;
-
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import java.util.Optional;
+import org.immutables.value.Value;
 
 public class AndroidInstrumentationTestDescription
-    implements Description<AndroidInstrumentationTestDescription.Arg> {
+    implements Description<AndroidInstrumentationTestDescriptionArg> {
 
   private final JavaOptions javaOptions;
   private final Optional<Long> defaultTestRuleTimeoutMs;
 
   public AndroidInstrumentationTestDescription(
-      JavaOptions javaOptions,
-      Optional<Long> defaultTestRuleTimeoutMs) {
+      JavaOptions javaOptions, Optional<Long> defaultTestRuleTimeoutMs) {
     this.javaOptions = javaOptions;
     this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
   }
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<AndroidInstrumentationTestDescriptionArg> getConstructorArgType() {
+    return AndroidInstrumentationTestDescriptionArg.class;
   }
 
   @Override
-  public <A extends Arg> AndroidInstrumentationTest createBuildRule(
+  public AndroidInstrumentationTest createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) {
-    BuildRule apk = resolver.getRule(args.apk);
+      AndroidInstrumentationTestDescriptionArg args) {
+    BuildRule apk = resolver.getRule(args.getApk());
     if (!(apk instanceof HasInstallableApk)) {
       throw new HumanReadableException(
-          "In %s, instrumentation_apk='%s' must be an android_binary(), apk_genrule() or " +
-          "android_instrumentation_apk(), but was %s().",
-          params.getBuildTarget(),
-          apk.getFullyQualifiedName(),
-          apk.getType());
+          "In %s, instrumentation_apk='%s' must be an android_binary(), apk_genrule() or "
+              + "android_instrumentation_apk(), but was %s().",
+          buildTarget, apk.getFullyQualifiedName(), apk.getType());
     }
 
     return new AndroidInstrumentationTest(
-        params.copyAppendingExtraDeps(
-            BuildRules.getExportedRules(
-                params.getDeclaredDeps().get())),
+        buildTarget,
+        projectFilesystem,
+        params.copyAppendingExtraDeps(BuildRules.getExportedRules(params.getDeclaredDeps().get())),
         (HasInstallableApk) apk,
-        args.labels,
-        args.contacts,
+        args.getLabels(),
+        args.getContacts(),
         javaOptions.getJavaRuntimeLauncher(),
-        args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs));
+        args.getTestRuleTimeoutMs().map(Optional::of).orElse(defaultTestRuleTimeoutMs));
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends AbstractDescriptionArg {
-    public BuildTarget apk;
-    public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
-    public Optional<Long> testRuleTimeoutMs;
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractAndroidInstrumentationTestDescriptionArg
+      extends CommonDescriptionArg, HasContacts, HasTestTimeout {
+    BuildTarget getApk();
   }
-
 }

@@ -22,6 +22,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxPlatformUtils;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Either;
@@ -30,14 +31,15 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.FakeCellPathResolver;
+import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.shell.ExportFileBuilder;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableSortedSet;
-
 import org.junit.Test;
 
 public class ApplePackageDescriptionTest {
@@ -47,43 +49,50 @@ public class ApplePackageDescriptionTest {
     ApplePackageDescription description = descriptionWithCommand("echo");
     BuildTarget binaryBuildTarget = BuildTargetFactory.newInstance("//foo:binary");
     BuildTarget bundleBuildTarget = BuildTargetFactory.newInstance("//foo:bundle");
-    TargetGraph graph = TargetGraphFactory.newInstance(
-        AppleBinaryBuilder.createBuilder(binaryBuildTarget).build(),
-        AppleBundleBuilder.createBuilder(bundleBuildTarget)
-            .setBinary(binaryBuildTarget)
-            .setExtension(Either.ofLeft(AppleBundleExtension.APP))
-            .build());
+    TargetGraph graph =
+        TargetGraphFactory.newInstance(
+            AppleBinaryBuilder.createBuilder(binaryBuildTarget).build(),
+            AppleBundleBuilder.createBuilder(bundleBuildTarget)
+                .setBinary(binaryBuildTarget)
+                .setExtension(Either.ofLeft(AppleBundleExtension.APP))
+                .setInfoPlist(new FakeSourcePath("Info.plist"))
+                .build());
 
-    ApplePackageDescription.Arg arg = description.createUnpopulatedConstructorArg();
-    arg.bundle = bundleBuildTarget;
+    ApplePackageDescriptionArg arg =
+        ApplePackageDescriptionArg.builder()
+            .setName("package")
+            .setBundle(bundleBuildTarget)
+            .build();
 
     BuildTarget packageBuildTarget = BuildTargetFactory.newInstance("//foo:package#macosx-x86_64");
 
     BuildRuleResolver resolver =
         new BuildRuleResolver(graph, new DefaultTargetNodeToBuildRuleTransformer());
 
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder(packageBuildTarget).build();
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     ImmutableSortedSet.Builder<BuildTarget> implicitDeps = ImmutableSortedSet.naturalOrder();
     description.findDepsForTargetFromConstructorArgs(
         packageBuildTarget,
-        new FakeCellPathResolver(params.getProjectFilesystem()),
+        TestCellPathResolver.get(projectFilesystem),
         arg,
         implicitDeps,
         ImmutableSortedSet.naturalOrder());
     resolver.requireAllRules(implicitDeps.build());
-    BuildRule rule = description.createBuildRule(
-        graph,
-        new FakeBuildRuleParamsBuilder(packageBuildTarget).build(),
-        resolver,
-        TestCellBuilder.createCellRoots(params.getProjectFilesystem()),
-        arg);
+    BuildRule rule =
+        description.createBuildRule(
+            graph,
+            packageBuildTarget,
+            projectFilesystem,
+            TestBuildRuleParams.create(),
+            resolver,
+            TestCellBuilder.createCellRoots(projectFilesystem),
+            arg);
 
     assertThat(rule, instanceOf(ExternallyBuiltApplePackage.class));
     assertThat(
         rule.getBuildDeps(),
         hasItem(
-            resolver.getRule(
-                bundleBuildTarget.withFlavors(InternalFlavor.of("macosx-x86_64")))));
+            resolver.getRule(bundleBuildTarget.withFlavors(InternalFlavor.of("macosx-x86_64")))));
   }
 
   @Test
@@ -92,37 +101,46 @@ public class ApplePackageDescriptionTest {
     BuildTarget binaryBuildTarget = BuildTargetFactory.newInstance("//foo:binary");
     BuildTarget bundleBuildTarget = BuildTargetFactory.newInstance("//foo:bundle");
     BuildTarget exportFileBuildTarget = BuildTargetFactory.newInstance("//foo:exportfile");
-    TargetGraph graph = TargetGraphFactory.newInstance(
-        ExportFileBuilder.newExportFileBuilder(exportFileBuildTarget).build(),
-        AppleBinaryBuilder.createBuilder(binaryBuildTarget).build(),
-        AppleBundleBuilder.createBuilder(bundleBuildTarget)
-            .setBinary(binaryBuildTarget)
-            .setExtension(Either.ofLeft(AppleBundleExtension.APP))
-            .build());
+    TargetGraph graph =
+        TargetGraphFactory.newInstance(
+            new ExportFileBuilder(exportFileBuildTarget).build(),
+            AppleBinaryBuilder.createBuilder(binaryBuildTarget).build(),
+            AppleBundleBuilder.createBuilder(bundleBuildTarget)
+                .setBinary(binaryBuildTarget)
+                .setExtension(Either.ofLeft(AppleBundleExtension.APP))
+                .setInfoPlist(new FakeSourcePath("Info.plist"))
+                .build());
 
-    ApplePackageDescription.Arg arg = description.createUnpopulatedConstructorArg();
-    arg.bundle = bundleBuildTarget;
+    ApplePackageDescriptionArg arg =
+        ApplePackageDescriptionArg.builder()
+            .setName("package")
+            .setBundle(bundleBuildTarget)
+            .build();
 
     BuildTarget packageBuildTarget = BuildTargetFactory.newInstance("//foo:package#macosx-x86_64");
 
     BuildRuleResolver resolver =
         new BuildRuleResolver(graph, new DefaultTargetNodeToBuildRuleTransformer());
 
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder(packageBuildTarget).build();
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    BuildRuleParams params = TestBuildRuleParams.create();
     ImmutableSortedSet.Builder<BuildTarget> implicitDeps = ImmutableSortedSet.naturalOrder();
     description.findDepsForTargetFromConstructorArgs(
         packageBuildTarget,
-        new FakeCellPathResolver(params.getProjectFilesystem()),
+        TestCellPathResolver.get(projectFilesystem),
         arg,
         implicitDeps,
         ImmutableSortedSet.naturalOrder());
     resolver.requireAllRules(implicitDeps.build());
-    BuildRule rule = description.createBuildRule(
-        graph,
-        params,
-        resolver,
-        TestCellBuilder.createCellRoots(params.getProjectFilesystem()),
-        arg);
+    BuildRule rule =
+        description.createBuildRule(
+            graph,
+            packageBuildTarget,
+            projectFilesystem,
+            params,
+            resolver,
+            TestCellBuilder.createCellRoots(projectFilesystem),
+            arg);
 
     assertThat(rule.getBuildDeps(), hasItem(resolver.getRule(exportFileBuildTarget)));
   }
@@ -133,8 +151,7 @@ public class ApplePackageDescriptionTest {
             .setSections(
                 "[apple]",
                 "macosx_package_command = " + command.replace("$", "\\$"),
-                "macosx_package_extension = api"
-            )
+                "macosx_package_extension = api")
             .build()
             .getView(AppleConfig.class),
         CxxPlatformUtils.DEFAULT_PLATFORM,

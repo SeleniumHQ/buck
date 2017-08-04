@@ -1,11 +1,7 @@
-standard_java_library(
+java_immutables_library(
     name = "slb",
-    immutable_types = [
-        "ClientSideSlbConfig",
-        "PerServerData",
-        "ServerHealthManagerEventData",
-        "ThriftOverHttpServiceConfig",
-    ],
+    srcs = glob(["*.java"]),
+    visibility = ["PUBLIC"],
     deps = [
         "//src/com/facebook/buck/cli:config",
         "//src/com/facebook/buck/counters:counters",
@@ -15,6 +11,7 @@ standard_java_library(
         "//src/com/facebook/buck/log:log",
         "//src/com/facebook/buck/model:simple_types",
         "//src/com/facebook/buck/timing:timing",
+        "//src/com/facebook/buck/util:exceptions",
         "//third-party/java/okhttp:okhttp",
         "//third-party/java/thrift:libthrift",
     ],

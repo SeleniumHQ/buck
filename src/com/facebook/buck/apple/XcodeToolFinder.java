@@ -16,14 +16,16 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.FileFinder;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -31,38 +33,51 @@ import java.nio.file.NotDirectoryException;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
-
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 
 final class XcodeToolFinder {
+  private final Platform platform;
+
+  public XcodeToolFinder() {
+    this.platform = Platform.detect();
+  }
+
   private final LoadingCache<Path, ImmutableSet<Path>> directoryContentsCache =
       CacheBuilder.newBuilder()
-          .build(new CacheLoader<Path, ImmutableSet<Path>>() {
-            @Override
-            public ImmutableSet<Path> load(@Nonnull Path key) throws IOException {
-              try {
-                return RichStream.from(Files.list(key)).map(Path::getFileName).toImmutableSet();
-              } catch (NotDirectoryException | NoSuchFileException e) {
-                return ImmutableSet.of();
-              }
-            }
-          });
+          .build(
+              new CacheLoader<Path, ImmutableSet<Path>>() {
+                @Override
+                public ImmutableSet<Path> load(@Nonnull Path key) throws IOException {
+                  try (Stream<Path> contents = Files.list(key)) {
+                    return RichStream.from(contents).map(Path::getFileName).toImmutableSet();
+                  } catch (NotDirectoryException | NoSuchFileException e) {
+                    return ImmutableSet.of();
+                  }
+                }
+              });
 
   public Optional<Path> getToolPath(ImmutableList<Path> searchPath, String toolName) {
-    return FileFinder.getOptionalFile(ImmutableSet.of(toolName), searchPath, (path) -> {
-      try {
-        if (!directoryContentsCache.get(path.getParent()).contains(path.getFileName())) {
-          return false;
-        }
-      } catch (ExecutionException e) {
-        if (!(e.getCause() instanceof IOException)) {
-          throw new IllegalStateException("Unexpected exception cause", e);
-        }
-        // Fallback to a direct check if the `ls` on the parent directory experienced an
-        // unexpected IOException.
-      }
+    return FileFinder.getOptionalFile(
+        FileFinder.combine(
+            ImmutableSet.of(),
+            toolName,
+            ExecutableFinder.getExecutableSuffixes(platform, ImmutableMap.of())),
+        searchPath,
+        (path) -> {
+          try {
+            if (!directoryContentsCache.get(path.getParent()).contains(path.getFileName())) {
+              return false;
+            }
+          } catch (ExecutionException e) {
+            if (!(e.getCause() instanceof IOException)) {
+              throw new IllegalStateException("Unexpected exception cause", e);
+            }
+            // Fallback to a direct check if the `ls` on the parent directory experienced an
+            // unexpected IOException.
+          }
 
-      return !Files.isDirectory(path) && Files.isExecutable(path);
-    });
+          return !Files.isDirectory(path) && Files.isExecutable(path);
+        });
   }
 }

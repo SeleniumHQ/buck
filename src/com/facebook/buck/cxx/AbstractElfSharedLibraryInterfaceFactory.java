@@ -16,16 +16,16 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.SharedLibraryInterfaceFactory;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.ToolProvider;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
-
 import org.immutables.value.Value;
 
 @Value.Immutable
@@ -34,26 +34,28 @@ abstract class AbstractElfSharedLibraryInterfaceFactory implements SharedLibrary
 
   abstract ToolProvider getObjcopy();
 
+  abstract boolean isRemoveUndefinedSymbols();
+
   @Override
   public final BuildRule createSharedInterfaceLibrary(
       BuildTarget target,
-      BuildRuleParams baseParams,
+      ProjectFilesystem projectFilesystem,
       BuildRuleResolver resolver,
       SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
       SourcePath library) {
     return ElfSharedLibraryInterface.from(
         target,
-        baseParams,
+        projectFilesystem,
         pathResolver,
         ruleFinder,
         getObjcopy().resolve(resolver),
-        library);
+        library,
+        isRemoveUndefinedSymbols());
   }
 
   @Override
   public Iterable<BuildTarget> getParseTimeDeps() {
     return getObjcopy().getParseTimeDeps();
   }
-
 }

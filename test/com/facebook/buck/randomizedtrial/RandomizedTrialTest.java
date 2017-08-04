@@ -55,7 +55,7 @@ public class RandomizedTrialTest {
   @Test
   public void testCreatingWithWrongConfiguration() throws Exception {
     try {
-      RandomizedTrial.getGroup("name", BrokenEnum.class, BrokenEnum.GROUP1);
+      RandomizedTrial.getGroup("name", BrokenEnum.class);
     } catch (RuntimeException e) {
       assertThat(e.getMessage(), Matchers.containsString("misconfigured"));
       return;
@@ -66,17 +66,16 @@ public class RandomizedTrialTest {
   @Test
   public void testPointStaysStable() throws Exception {
     assertThat(
-        RandomizedTrial.getPoint("test"),
-        Matchers.equalTo(RandomizedTrial.getPoint("test")));
+        RandomizedTrial.getPoint("test"), Matchers.equalTo(RandomizedTrial.getPoint("test")));
   }
 
-// The following test has caused some flakiness on Windows, so we disable this for now.
-//  @Test
-//  public void testPointDifferentForDifferentTests() throws Exception {
-//    assertThat(
-//        RandomizedTrial.getPoint("test1"),
-//        Matchers.not(Matchers.equalTo(RandomizedTrial.getPoint("test2"))));
-//  }
+  // The following test has caused some flakiness on Windows, so we disable this for now.
+  //  @Test
+  //  public void testPointDifferentForDifferentTests() throws Exception {
+  //    assertThat(
+  //        RandomizedTrial.getPoint("test1"),
+  //        Matchers.not(Matchers.equalTo(RandomizedTrial.getPoint("test2"))));
+  //  }
 
   @Test
   public void testReturnsCorrectGroup() throws Exception {
@@ -85,7 +84,6 @@ public class RandomizedTrialTest {
     MutableEnum.probabilityGroup2 = 1.0 - point;
 
     assertThat(
-        RandomizedTrial.getGroup("name", MutableEnum.class, MutableEnum.GROUP1),
-        Matchers.equalTo(MutableEnum.GROUP2));
+        RandomizedTrial.getGroup("name", MutableEnum.class), Matchers.equalTo(MutableEnum.GROUP2));
   }
 }

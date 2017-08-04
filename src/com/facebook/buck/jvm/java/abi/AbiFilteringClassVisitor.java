@@ -17,29 +17,30 @@
 package com.facebook.buck.jvm.java.abi;
 
 import com.google.common.base.Preconditions;
-
+import java.util.Set;
+import javax.annotation.Nullable;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 
-
-import javax.annotation.Nullable;
-
-/**
- * A {@link ClassVisitor} that only passes to its delegate events for the class's ABI.
- */
+/** A {@link ClassVisitor} that only passes to its delegate events for the class's ABI. */
 class AbiFilteringClassVisitor extends ClassVisitor {
-  @Nullable
-  private String name;
-  @Nullable
-  private String outerName = null;
+  @Nullable private final Set<String> referencedClassNames;
+
+  @Nullable private String name;
+  @Nullable private String outerName = null;
   private int classAccess;
   private boolean hasVisibleConstructor = false;
 
   public AbiFilteringClassVisitor(ClassVisitor cv) {
+    this(cv, null);
+  }
+
+  public AbiFilteringClassVisitor(ClassVisitor cv, @Nullable Set<String> referencedClassNames) {
     super(Opcodes.ASM5, cv);
+    this.referencedClassNames = referencedClassNames;
   }
 
   @Override
@@ -57,24 +58,21 @@ class AbiFilteringClassVisitor extends ClassVisitor {
 
   @Override
   public void visitInnerClass(String name, String outerName, String innerName, int access) {
-    boolean isAnonymousOrLocalClass = (outerName == null);
-    String currentClassName = Preconditions.checkNotNull(this.name);
-    if (name.equals(currentClassName)) {
+    if (name.equals(this.name)) {
       this.outerName = outerName;
-    } else if (!shouldInclude(access) || isAnonymousOrLocalClass) {
+    }
+
+    if (!shouldIncludeInnerClass(access, name, outerName)) {
       return;
     }
+
     super.visitInnerClass(name, outerName, innerName, access);
   }
 
   @Override
   @Nullable
   public FieldVisitor visitField(
-      int access,
-      String name,
-      String desc,
-      String signature,
-      Object value) {
+      int access, String name, String desc, String signature, Object value) {
     if (!shouldInclude(access)) {
       return null;
     }
@@ -84,11 +82,7 @@ class AbiFilteringClassVisitor extends ClassVisitor {
   @Override
   @Nullable
   public MethodVisitor visitMethod(
-      int access,
-      String name,
-      String desc,
-      String signature,
-      String[] exceptions) {
+      int access, String name, String desc, String signature, String[] exceptions) {
     // Per JVMS8 2.9, "Class and interface initialization methods are invoked
     // implicitly by the Java Virtual Machine; they are never invoked directly from any
     // Java Virtual Machine instruction, but are invoked only indirectly as part of the class
@@ -122,27 +116,67 @@ class AbiFilteringClassVisitor extends ClassVisitor {
 
   @Override
   public void visitEnd() {
-    if (!hasVisibleConstructor &&
-        !isInterface(classAccess) &&
-        !isAnnotation(classAccess)) {
+    if (!hasVisibleConstructor && !isInterface(classAccess) && !isAnnotation(classAccess)) {
       String desc;
       if (isEnum(classAccess)) {
-        desc = Type.getMethodType(
-            Type.VOID_TYPE,
-            Type.getObjectType("java/lang/String"),
-            Type.INT_TYPE).getDescriptor();
+        desc =
+            Type.getMethodType(
+                    Type.VOID_TYPE, Type.getObjectType("java/lang/String"), Type.INT_TYPE)
+                .getDescriptor();
       } else {
-        desc = outerName == null ?
-            Type.getMethodType(Type.VOID_TYPE).getDescriptor() :
-            Type.getMethodType(Type.VOID_TYPE, Type.getObjectType(outerName)).getDescriptor();
+        desc =
+            outerName == null
+                ? Type.getMethodType(Type.VOID_TYPE).getDescriptor()
+                : Type.getMethodType(Type.VOID_TYPE, Type.getObjectType(outerName)).getDescriptor();
       }
       super.visitMethod(Opcodes.ACC_PRIVATE, "<init>", desc, null, null);
     }
     super.visitEnd();
   }
 
+  private boolean shouldIncludeInnerClass(int access, String name, @Nullable String outerName) {
+    if (referencedClassNames == null || referencedClassNames.contains(name)) {
+      // Either it's the first pass, and we're not filtering inner classes yet,
+      // or it's the second one, and this inner class is part of the ABI and should
+      // therefore be included
+      return true;
+    }
+
+    String currentClassName = Preconditions.checkNotNull(this.name);
+    if (name.equals(currentClassName)) {
+      // Must always include the entry for our own class, since that's what makes it an inner class.
+      return true;
+    }
+
+    boolean isAnonymousOrLocalClass = (outerName == null);
+    if (isAnonymousOrLocalClass) {
+      // Anonymous and local classes are never part of the ABI.
+      return false;
+    }
+
+    if ((access & (Opcodes.ACC_SYNTHETIC | Opcodes.ACC_BRIDGE)) == Opcodes.ACC_SYNTHETIC) {
+      // Don't include synthetic classes
+      return false;
+    }
+
+    if (currentClassName.equals(outerName)) {
+      // For now, always include our own inner classes, regardless of visibility
+      return true;
+    }
+
+    return false;
+  }
+
   private boolean shouldInclude(int access) {
-    return (access & Opcodes.ACC_PRIVATE) == 0;
+    if ((access & Opcodes.ACC_PRIVATE) == Opcodes.ACC_PRIVATE) {
+      return false;
+    }
+
+    if ((access & (Opcodes.ACC_SYNTHETIC | Opcodes.ACC_BRIDGE)) == Opcodes.ACC_SYNTHETIC) {
+      return false;
+    }
+
+    return true;
   }
 
   private boolean isInterface(int access) {

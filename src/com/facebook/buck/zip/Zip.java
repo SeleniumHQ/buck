@@ -16,39 +16,43 @@
 
 package com.facebook.buck.zip;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.HasOutputName;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 
-public class Zip extends AbstractBuildRule implements HasOutputName {
+public class Zip extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements HasOutputName, SupportsInputBasedRuleKey {
 
-  @AddToRuleKey
-  private final String name;
-  @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> sources;
-  @AddToRuleKey
-  private final boolean flatten;
+  @AddToRuleKey private final String name;
+  @AddToRuleKey private final ImmutableSortedSet<SourcePath> sources;
+  @AddToRuleKey private final boolean flatten;
 
   public Zip(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       String outputName,
       ImmutableSortedSet<SourcePath> sources,
       boolean flatten) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
+
     this.name = outputName;
     this.sources = sources;
     this.flatten = flatten;
@@ -61,8 +65,7 @@ public class Zip extends AbstractBuildRule implements HasOutputName {
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
 
     Path output = getOutput();
     Path scratchDir =
@@ -70,13 +73,22 @@ public class Zip extends AbstractBuildRule implements HasOutputName {
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.add(RmStep.of(getProjectFilesystem(), output));
-    steps.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), scratchDir));
+    steps.add(
+        RmStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output)));
+    steps.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), scratchDir)));
 
     SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
-    bundler.copy(
-        getProjectFilesystem(), context.getSourcePathResolver(), steps, scratchDir, sources);
+    bundler.copy(getProjectFilesystem(), context, steps, scratchDir, sources);
 
     steps.add(
         new ZipStep(

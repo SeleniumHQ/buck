@@ -16,20 +16,18 @@
 
 package com.facebook.buck.android;
 
-import static com.facebook.buck.rules.BuildableProperties.Kind.ANDROID;
-import static com.facebook.buck.rules.BuildableProperties.Kind.PACKAGING;
-
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.HasClasspathEntries;
 import com.facebook.buck.jvm.java.JarDirectoryStep;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryClasspathProvider;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
@@ -43,13 +41,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries {
+public class AndroidAar extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements HasClasspathEntries {
 
-  private static final BuildableProperties PROPERTIES = new BuildableProperties(ANDROID, PACKAGING);
   public static final String AAR_FORMAT = "%s.aar";
 
   private final Path pathToOutputFile;
@@ -63,6 +60,8 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
   private final ImmutableSortedSet<SourcePath> classpathsToIncludeInJar;
 
   public AndroidAar(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       AndroidManifest manifest,
       AndroidResource androidResource,
@@ -71,8 +70,7 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
       Optional<Path> assembledNativeLibs,
       ImmutableSet<SourcePath> nativeLibAssetsDirectories,
       ImmutableSortedSet<SourcePath> classpathsToIncludeInJar) {
-    super(params);
-    BuildTarget buildTarget = params.getBuildTarget();
+    super(buildTarget, projectFilesystem, params);
     this.pathToOutputFile =
         BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, AAR_FORMAT);
     this.temp = BuildTargets.getScratchPath(getProjectFilesystem(), buildTarget, "__temp__%s");
@@ -87,15 +85,21 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     // Create temp folder to store the files going to be zipped
-    commands.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), temp));
+
+    commands.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), temp)));
 
     // Remove the output .aar file
-    commands.add(RmStep.of(getProjectFilesystem(), pathToOutputFile));
+    commands.add(
+        RmStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), pathToOutputFile)));
 
     // put manifest into tmp folder
     commands.add(
@@ -108,17 +112,21 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
     commands.add(
         CopyStep.forFile(
             getProjectFilesystem(),
-            context.getSourcePathResolver().getAbsolutePath(
-                Preconditions.checkNotNull(androidResource.getPathToTextSymbolsFile())),
+            context
+                .getSourcePathResolver()
+                .getAbsolutePath(
+                    Preconditions.checkNotNull(androidResource.getPathToTextSymbolsFile())),
             temp.resolve("R.txt")));
 
     // put res/ and assets/ into tmp folder
-    commands.add(CopyStep.forDirectory(
+    commands.add(
+        CopyStep.forDirectory(
             getProjectFilesystem(),
             context.getSourcePathResolver().getRelativePath(assembledResourceDirectory),
             temp.resolve("res"),
             CopyStep.DirectoryMode.CONTENTS_ONLY));
-    commands.add(CopyStep.forDirectory(
+    commands.add(
+        CopyStep.forDirectory(
             getProjectFilesystem(),
             context.getSourcePathResolver().getRelativePath(assembledAssetsDirectory),
             temp.resolve("assets"),
@@ -146,6 +154,7 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
     // move native assets into tmp folder under assets/lib/
     for (SourcePath dir : nativeLibAssetsDirectories) {
       CopyNativeLibraries.copyNativeLibrary(
+          context,
           getProjectFilesystem(),
           context.getSourcePathResolver().getAbsolutePath(dir),
           temp.resolve("assets").resolve("lib"),
@@ -154,7 +163,12 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
     }
 
     // do the zipping
-    commands.add(MkdirStep.of(getProjectFilesystem(), pathToOutputFile.getParent()));
+    commands.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                pathToOutputFile.getParent())));
     commands.add(
         new ZipStep(
             getProjectFilesystem(),
@@ -164,7 +178,6 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
             ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL,
             temp));
 
-
     buildableContext.recordArtifact(pathToOutputFile);
     return commands.build();
   }
@@ -172,11 +185,6 @@ public class AndroidAar extends AbstractBuildRule implements HasClasspathEntries
   @Override
   public SourcePath getSourcePathToOutput() {
     return new ExplicitBuildTargetSourcePath(getBuildTarget(), pathToOutputFile);
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return PROPERTIES;
   }
 
   @Override

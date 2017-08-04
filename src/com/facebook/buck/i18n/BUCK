@@ -1,6 +1,5 @@
-standard_java_library(
+java_immutables_library(
     name = "i18n",
-    immutable_types = [
-        "NumberFormatterCacheKey",
-    ],
+    srcs = glob(["*.java"]),
+    visibility = ["PUBLIC"],
 )

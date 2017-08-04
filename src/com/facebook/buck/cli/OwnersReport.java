@@ -24,25 +24,32 @@ import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.Optionals;
+import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeMultimap;
 import com.google.common.util.concurrent.ListeningExecutorService;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 final class OwnersReport {
   final ImmutableSetMultimap<TargetNode<?, ?>, Path> owners;
@@ -50,7 +57,8 @@ final class OwnersReport {
   final ImmutableSet<String> nonExistentInputs;
   final ImmutableSet<String> nonFileInputs;
 
-  OwnersReport(SetMultimap<TargetNode<?, ?>, Path> owners,
+  private OwnersReport(
+      SetMultimap<TargetNode<?, ?>, Path> owners,
       Set<Path> inputsWithNoOwners,
       Set<String> nonExistentInputs,
       Set<String> nonFileInputs) {
@@ -60,17 +68,15 @@ final class OwnersReport {
     this.nonFileInputs = ImmutableSet.copyOf(nonFileInputs);
   }
 
+  @VisibleForTesting
   static OwnersReport emptyReport() {
     return new OwnersReport(
-        ImmutableSetMultimap.of(),
-        Sets.newHashSet(),
-        Sets.newHashSet(),
-        Sets.newHashSet());
+        ImmutableSetMultimap.of(), new HashSet<>(), new HashSet<>(), new HashSet<>());
   }
 
+  @VisibleForTesting
   OwnersReport updatedWith(OwnersReport other) {
-    SetMultimap<TargetNode<?, ?>, Path> updatedOwners =
-        TreeMultimap.create(owners);
+    SetMultimap<TargetNode<?, ?>, Path> updatedOwners = TreeMultimap.create(owners);
     updatedOwners.putAll(other.owners);
 
     return new OwnersReport(
@@ -80,59 +86,45 @@ final class OwnersReport {
         Sets.union(nonFileInputs, other.nonFileInputs));
   }
 
-  /**
-   * @return relative paths under the project root
-   */
-  static Iterable<Path> getArgumentsAsPaths(Path projectRoot, Iterable<String> args)
-      throws IOException {
-    return PathArguments.getCanonicalFilesUnderProjectRoot(projectRoot, args)
-        .relativePathsUnderProjectRoot;
-  }
-
   @VisibleForTesting
   static OwnersReport generateOwnersReport(
-      Cell rootCell,
-      TargetNode<?, ?> targetNode,
-      Iterable<String> filePaths) {
-
-    // Process arguments assuming they are all relative file paths.
-    Set<Path> inputs = Sets.newHashSet();
-    Set<String> nonExistentInputs = Sets.newHashSet();
-    Set<String> nonFileInputs = Sets.newHashSet();
-
-    for (String filePath : filePaths) {
-      Path file = rootCell.getFilesystem().getPathForRelativePath(filePath);
-      if (!Files.exists(file)) {
-        nonExistentInputs.add(filePath);
-      } else if (!Files.isRegularFile(file)) {
-        nonFileInputs.add(filePath);
-      } else {
-        inputs.add(rootCell.getFilesystem().getPath(filePath));
-      }
-    }
-
-    // Try to find owners for each valid and existing file.
-    Set<Path> inputsWithNoOwners = Sets.newHashSet(inputs);
-    SetMultimap<TargetNode<?, ?>, Path> owners = TreeMultimap.create();
-    for (final Path commandInput : inputs) {
+      Cell rootCell, TargetNode<?, ?> targetNode, String filePath) {
+    Path file = rootCell.getFilesystem().getPathForRelativePath(filePath);
+    if (!Files.exists(file)) {
+      return new OwnersReport(
+          ImmutableSetMultimap.of(),
+          ImmutableSet.of(),
+          ImmutableSet.of(filePath),
+          ImmutableSet.of());
+    } else if (!Files.isRegularFile(file)) {
+      return new OwnersReport(
+          ImmutableSetMultimap.of(),
+          ImmutableSet.of(),
+          ImmutableSet.of(),
+          ImmutableSet.of(filePath));
+    } else {
+      Path commandInput = rootCell.getFilesystem().getPath(filePath);
+      Set<Path> ruleInputs = targetNode.getInputs();
       Predicate<Path> startsWith =
           input -> !commandInput.equals(input) && commandInput.startsWith(input);
-
-      Set<Path> ruleInputs = targetNode.getInputs();
-      if (ruleInputs.contains(commandInput) ||
-          FluentIterable.from(ruleInputs).anyMatch(startsWith)) {
-        inputsWithNoOwners.remove(commandInput);
-        owners.put(targetNode, commandInput);
+      if (ruleInputs.contains(commandInput)
+          || FluentIterable.from(ruleInputs).anyMatch(startsWith)) {
+        return new OwnersReport(
+            ImmutableSetMultimap.of(targetNode, commandInput),
+            ImmutableSet.of(),
+            ImmutableSet.of(),
+            ImmutableSet.of());
+      } else {
+        return new OwnersReport(
+            ImmutableSetMultimap.of(),
+            ImmutableSet.of(commandInput),
+            ImmutableSet.of(),
+            ImmutableSet.of());
       }
     }
-
-    return new OwnersReport(owners, inputsWithNoOwners, nonExistentInputs, nonFileInputs);
   }
 
-  static Builder builder(Cell rootCell,
-      Parser parser,
-      BuckEventBus eventBus,
-      Console console) {
+  static Builder builder(Cell rootCell, Parser parser, BuckEventBus eventBus, Console console) {
     return new Builder(rootCell, parser, eventBus, console);
   }
 
@@ -142,75 +134,146 @@ final class OwnersReport {
     private final BuckEventBus eventBus;
     private final Console console;
 
-    private Builder(Cell rootCell,
-        Parser parser,
-        BuckEventBus eventBus,
-        Console console) {
-
+    private Builder(Cell rootCell, Parser parser, BuckEventBus eventBus, Console console) {
       this.rootCell = rootCell;
       this.parser = parser;
       this.eventBus = eventBus;
       this.console = console;
     }
 
-    OwnersReport build(BuildFileTree buildFileTree,
+    private OwnersReport getReportForBasePath(
+        Map<Path, ImmutableSet<TargetNode<?, ?>>> map,
+        ListeningExecutorService executor,
+        Cell cell,
+        Path basePath,
+        Path cellRelativePath) {
+      Path buckFile = cell.getFilesystem().resolve(basePath).resolve(cell.getBuildFileName());
+      ImmutableSet<TargetNode<?, ?>> targetNodes =
+          map.computeIfAbsent(
+              buckFile,
+              basePath1 -> {
+                try {
+                  return parser.getAllTargetNodes(
+                      eventBus, cell, /* enable profiling */ false, executor, basePath1);
+                } catch (BuildFileParseException e) {
+                  Path targetBasePath = MorePaths.relativize(cell.getRoot(), basePath);
+                  String targetBaseName =
+                      cell.getCanonicalName().orElse("")
+                          + "//"
+                          + MorePaths.pathWithUnixSeparators(targetBasePath);
+
+                  console
+                      .getStdErr()
+                      .format(
+                          "Could not parse build targets for %s: %s%n",
+                          targetBaseName, e.getHumanReadableErrorMessage());
+                  throw new RuntimeException(e);
+                }
+              });
+      return targetNodes
+          .stream()
+          .map(targetNode -> generateOwnersReport(cell, targetNode, cellRelativePath.toString()))
+          .reduce(OwnersReport.emptyReport(), OwnersReport::updatedWith);
+    }
+
+    private ImmutableSet<Path> getAllBasePathsForPath(
+        BuildFileTree buildFileTree, Path cellRelativePath) {
+      Collection<Path> pathTree =
+          rootCell.isEnforcingBuckPackageBoundaries(cellRelativePath)
+              ? ImmutableSet.of(cellRelativePath)
+              : IntStream.range(1, cellRelativePath.getNameCount())
+                  .mapToObj(end -> cellRelativePath.subpath(0, end))
+                  .collect(Collectors.toList());
+      return RichStream.from(pathTree)
+          .map(buildFileTree::getBasePathOfAncestorTarget)
+          .flatMap(Optionals::toStream)
+          .toImmutableSet();
+    }
+
+    OwnersReport build(
+        ImmutableMap<Cell, BuildFileTree> buildFileTrees,
         ListeningExecutorService executor,
         Iterable<String> arguments)
         throws IOException, BuildFileParseException {
-      ProjectFilesystem cellFilesystem = rootCell.getFilesystem();
-      final Path rootPath = cellFilesystem.getRootPath();
+      ProjectFilesystem rootCellFilesystem = rootCell.getFilesystem();
+      final Path rootPath = rootCellFilesystem.getRootPath();
       Preconditions.checkState(rootPath.isAbsolute());
-      Map<Path, ImmutableSet<TargetNode<?, ?>>> targetNodes = new HashMap<>();
-      OwnersReport report = emptyReport();
 
-      for (Path filePath : getArgumentsAsPaths(rootPath, arguments)) {
-        Optional<Path> basePath = buildFileTree.getBasePathOfAncestorTarget(filePath);
-        if (!basePath.isPresent()) {
-          report = report.updatedWith(
-              new OwnersReport(
-                  ImmutableSetMultimap.of(),
-                /* inputWithNoOwners */ ImmutableSet.of(filePath),
-                  Sets.newHashSet(),
-                  Sets.newHashSet()));
+      // Order cells by cell path length so that nested cells will resolve to the most specific
+      // cell.
+      List<Cell> cellsByRootLength =
+          RichStream.from(buildFileTrees.keySet())
+              .sorted(
+                  Comparator.comparing((Cell cell) -> cell.getRoot().toString().length())
+                      .reversed())
+              .toImmutableList();
+
+      Map<Optional<Cell>, List<Path>> argumentsByCell =
+          RichStream.from(arguments)
+              // Assume paths given are relative to root cell.
+              .map(rootCellFilesystem::getPathForRelativePath)
+              // Filter out any non-existent paths.
+              .filter(Files::exists)
+              // Resolve them all to absolute paths.
+              .map(
+                  pathString -> {
+                    try {
+                      return pathString.toRealPath();
+                    } catch (IOException e) {
+                      throw new RuntimeException(e);
+                    }
+                  })
+              // Group them into cells that they belong to.
+              .collect(
+                  Collectors.groupingBy(
+                      path ->
+                          cellsByRootLength
+                              .stream()
+                              .filter(cell -> path.startsWith(cell.getRoot()))
+                              .findFirst()));
+
+      ImmutableSet.Builder<Path> inputWithNoOwners = ImmutableSet.builder();
+      OwnersReport report = OwnersReport.emptyReport();
+
+      // Process every cell's files independently.
+      for (Map.Entry<Optional<Cell>, List<Path>> entry : argumentsByCell.entrySet()) {
+        if (!entry.getKey().isPresent()) {
+          inputWithNoOwners.addAll(entry.getValue());
           continue;
         }
 
-        Path buckFile = cellFilesystem.resolve(basePath.get())
-            .resolve(rootCell.getBuildFileName());
-        Preconditions.checkState(cellFilesystem.exists(buckFile));
+        Cell cell = entry.getKey().get();
+        BuildFileTree buildFileTree =
+            Preconditions.checkNotNull(
+                buildFileTrees.get(cell),
+                "cell is be derived from buildFileTree keys, so should be present");
 
-        // Parse buck files and load target nodes.
-        if (!targetNodes.containsKey(buckFile)) {
-          try {
-            targetNodes.put(
-                buckFile,
-                parser.getAllTargetNodes(
-                    eventBus,
-                    rootCell,
-                  /* enable profiling */ false,
-                    executor,
-                    buckFile));
-          } catch (BuildFileParseException e) {
-            Path targetBasePath = MorePaths.relativize(rootPath, rootPath.resolve(basePath.get()));
-            String targetBaseName = "//" + MorePaths.pathWithUnixSeparators(targetBasePath);
-
-            console
-                .getStdErr()
-                .format("Could not parse build targets for %s: %s%n", targetBaseName,
-                    e.getHumanReadableErrorMessage());
-            throw e;
+        // Path from buck file to target nodes. We keep our own cache here since the manner that we
+        // are calling the parser does not make use of its internal caches.
+        Map<Path, ImmutableSet<TargetNode<?, ?>>> map = new HashMap<>();
+        for (Path absolutePath : entry.getValue()) {
+          Path cellRelativePath = cell.getFilesystem().relativize(absolutePath);
+          ImmutableSet<Path> basePaths = getAllBasePathsForPath(buildFileTree, cellRelativePath);
+          if (basePaths.isEmpty()) {
+            inputWithNoOwners.add(absolutePath);
+            continue;
           }
-        }
-
-        for (TargetNode<?, ?> targetNode : targetNodes.get(buckFile)) {
-          report = report.updatedWith(
-              generateOwnersReport(
-                  rootCell,
-                  targetNode,
-                  ImmutableList.of(filePath.toString())));
+          report =
+              basePaths
+                  .stream()
+                  .map(
+                      basePath ->
+                          getReportForBasePath(map, executor, cell, basePath, cellRelativePath))
+                  .reduce(report, OwnersReport::updatedWith);
         }
       }
-      return report;
+
+      return report.updatedWith(
+          new OwnersReport(
+              ImmutableSetMultimap.of(),
+              /* inputWithNoOwners */ inputWithNoOwners.build(),
+              new HashSet<>(),
+              new HashSet<>()));
     }
   }
 }

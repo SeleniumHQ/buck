@@ -26,11 +26,10 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
-
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
-
+import java.util.concurrent.atomic.AtomicLong;
 
 public class RawNodeParsePipeline extends ParsePipeline<Map<String, Object>> {
 
@@ -55,24 +54,21 @@ public class RawNodeParsePipeline extends ParsePipeline<Map<String, Object>> {
    * @return the build target defined by the rule.
    */
   public static UnflavoredBuildTarget parseBuildTargetFromRawRule(
-      Path cellRoot,
-      Optional<String> cellName,
-      Map<String, Object> map,
-      Path rulePathForDebug) {
+      Path cellRoot, Optional<String> cellName, Map<String, Object> map, Path rulePathForDebug) {
     String basePath = (String) map.get("buck.base_path");
     String name = (String) map.get("name");
     if (basePath == null || name == null) {
       throw new IllegalStateException(
-          String.format("Attempting to parse build target from malformed raw data in %s: %s.",
-              rulePathForDebug,
-              Joiner.on(",").withKeyValueSeparator("->").join(map)));
+          String.format(
+              "Attempting to parse build target from malformed raw data in %s: %s.",
+              rulePathForDebug, Joiner.on(",").withKeyValueSeparator("->").join(map)));
     }
     Path otherBasePath = cellRoot.relativize(MorePaths.getParentOrEmpty(rulePathForDebug));
     if (!otherBasePath.equals(otherBasePath.getFileSystem().getPath(basePath))) {
       throw new IllegalStateException(
-          String.format("Raw data claims to come from [%s], but we tried rooting it at [%s].",
-              basePath,
-              otherBasePath));
+          String.format(
+              "Raw data claims to come from [%s], but we tried rooting it at [%s].",
+              basePath, otherBasePath));
     }
     return UnflavoredBuildTarget.builder()
         .setBaseName(UnflavoredBuildTarget.BUILD_TARGET_PREFIX + basePath)
@@ -84,8 +80,8 @@ public class RawNodeParsePipeline extends ParsePipeline<Map<String, Object>> {
 
   @Override
   public ListenableFuture<ImmutableSet<Map<String, Object>>> getAllNodesJob(
-      final Cell cell,
-      final Path buildFile) throws BuildTargetException {
+      final Cell cell, final Path buildFile, AtomicLong processedBytes)
+      throws BuildTargetException {
 
     if (shuttingDown()) {
       return Futures.immediateCancelledFuture();
@@ -100,18 +96,16 @@ public class RawNodeParsePipeline extends ParsePipeline<Map<String, Object>> {
           }
 
           return projectBuildFileParserPool.getAllRulesAndMetaRules(
-              cell,
-              buildFile,
-              executorService);
+              cell, buildFile, processedBytes, executorService);
         });
   }
 
   @Override
   public ListenableFuture<Map<String, Object>> getNodeJob(
-      final Cell cell,
-      final BuildTarget buildTarget) throws BuildTargetException {
+      final Cell cell, final BuildTarget buildTarget, AtomicLong processedBytes)
+      throws BuildTargetException {
     return Futures.transformAsync(
-        getAllNodesJob(cell, cell.getAbsolutePathToBuildFile(buildTarget)),
+        getAllNodesJob(cell, cell.getAbsolutePathToBuildFile(buildTarget), processedBytes),
         input -> {
           for (Map<String, Object> rawNode : input) {
             Object shortName = rawNode.get("name");
@@ -120,10 +114,7 @@ public class RawNodeParsePipeline extends ParsePipeline<Map<String, Object>> {
             }
           }
           throw NoSuchBuildTargetException.createForMissingBuildRule(
-              buildTarget,
-              BuildTargetPatternParser.forBaseName(buildTarget.getBaseName()),
-              cell.getBuildFileName(),
-              "Defined in file: " + cell.getAbsolutePathToBuildFile(buildTarget));
+              buildTarget, cell.getAbsolutePathToBuildFile(buildTarget));
         },
         executorService);
   }

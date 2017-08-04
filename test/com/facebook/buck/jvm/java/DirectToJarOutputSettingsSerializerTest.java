@@ -20,26 +20,25 @@ import static org.junit.Assert.assertThat;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
-import org.hamcrest.Matchers;
-import org.junit.Test;
-
 import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
+import org.hamcrest.Matchers;
+import org.junit.Test;
 
 public class DirectToJarOutputSettingsSerializerTest {
   @Test
   public void testSerializingAndDeserializing() throws Exception {
-    DirectToJarOutputSettings input = DirectToJarOutputSettings.of(
-        Paths.get("/some/path"),
-        ImmutableSet.of(
-            Pattern.compile("[a-z]"),
-            Pattern.compile("[0-9]", Pattern.MULTILINE)),
-        ImmutableSortedSet.of(Paths.get("some/path"), Paths.get("/other path/")),
-        Optional.of("hello I am main class"),
-        Optional.of(Paths.get("/MANIFEST/FILE.TXT")));
+    DirectToJarOutputSettings input =
+        DirectToJarOutputSettings.of(
+            Paths.get("/some/path"),
+            new RemoveClassesPatternsMatcher(
+                ImmutableSet.of(
+                    Pattern.compile("[a-z]"), Pattern.compile("[0-9]", Pattern.MULTILINE))),
+            ImmutableSortedSet.of(Paths.get("some/path"), Paths.get("/other path/")),
+            Optional.of("hello I am main class"),
+            Optional.of(Paths.get("/MANIFEST/FILE.TXT")));
 
     Map<String, Object> data = DirectToJarOutputSettingsSerializer.serialize(input);
     DirectToJarOutputSettings output = DirectToJarOutputSettingsSerializer.deserialize(data);
@@ -47,21 +46,15 @@ public class DirectToJarOutputSettingsSerializerTest {
     assertThat(
         output.getDirectToJarOutputPath(),
         Matchers.equalToObject(input.getDirectToJarOutputPath()));
+    assertThat(output.getEntriesToJar(), Matchers.equalToObject(input.getEntriesToJar()));
+    assertThat(output.getMainClass(), Matchers.equalToObject(input.getMainClass()));
+    assertThat(output.getManifestFile(), Matchers.equalToObject(input.getManifestFile()));
     assertThat(
-        output.getEntriesToJar(),
-        Matchers.equalToObject(input.getEntriesToJar()));
-    assertThat(
-        output.getMainClass(),
-        Matchers.equalToObject(input.getMainClass()));
-    assertThat(
-        output.getManifestFile(),
-        Matchers.equalToObject(input.getManifestFile()));
-    assertThat(
-        output.getClassesToRemoveFromJar().size(),
-        Matchers.equalToObject(input.getClassesToRemoveFromJar().size()));
-    for (int i = 0; i < input.getClassesToRemoveFromJar().size(); i++) {
-      Pattern inputPattern = input.getClassesToRemoveFromJar().asList().get(i);
-      Pattern outputPattern = output.getClassesToRemoveFromJar().asList().get(i);
+        output.getClassesToRemoveFromJar().getPatterns().size(),
+        Matchers.equalToObject(input.getClassesToRemoveFromJar().getPatterns().size()));
+    for (int i = 0; i < input.getClassesToRemoveFromJar().getPatterns().size(); i++) {
+      Pattern inputPattern = input.getClassesToRemoveFromJar().getPatterns().asList().get(i);
+      Pattern outputPattern = output.getClassesToRemoveFromJar().getPatterns().asList().get(i);
       assertThat(outputPattern.pattern(), Matchers.equalToObject(inputPattern.pattern()));
       assertThat(outputPattern.flags(), Matchers.equalTo(inputPattern.flags()));
     }
@@ -69,14 +62,15 @@ public class DirectToJarOutputSettingsSerializerTest {
 
   @Test
   public void testWorkingWithOptionals() throws Exception {
-    DirectToJarOutputSettings input = DirectToJarOutputSettings.of(
-        Paths.get("/some/path"),
-        ImmutableSet.of(
-            Pattern.compile("[a-z]"),
-            Pattern.compile("[0-9]", Pattern.MULTILINE)),
-        ImmutableSortedSet.of(Paths.get("some/path"), Paths.get("/other path/")),
-        Optional.empty(),
-        Optional.empty());
+    DirectToJarOutputSettings input =
+        DirectToJarOutputSettings.of(
+            Paths.get("/some/path"),
+            new RemoveClassesPatternsMatcher(
+                ImmutableSet.of(
+                    Pattern.compile("[a-z]"), Pattern.compile("[0-9]", Pattern.MULTILINE))),
+            ImmutableSortedSet.of(Paths.get("some/path"), Paths.get("/other path/")),
+            Optional.empty(),
+            Optional.empty());
 
     Map<String, Object> data = DirectToJarOutputSettingsSerializer.serialize(input);
     DirectToJarOutputSettings output = DirectToJarOutputSettingsSerializer.deserialize(data);

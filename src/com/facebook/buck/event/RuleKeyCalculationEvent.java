@@ -16,9 +16,9 @@
 
 package com.facebook.buck.event;
 
-/**
- * Events used to track time spent calculating rule keys.
- */
+import com.facebook.buck.util.Scope;
+
+/** Events used to track time spent calculating rule keys. */
 public interface RuleKeyCalculationEvent extends LeafEvent, WorkAdvanceEvent {
 
   Type getType();
@@ -29,12 +29,10 @@ public interface RuleKeyCalculationEvent extends LeafEvent, WorkAdvanceEvent {
   }
 
   enum Type {
-
     NORMAL("rule_key_calc"),
     INPUT("input_rule_key_calc"),
     DEP_FILE("dep_file_rule_key_calc"),
     MANIFEST("manifest_rule_key_calc"),
-
     ;
 
     private final String category;
@@ -46,7 +44,6 @@ public interface RuleKeyCalculationEvent extends LeafEvent, WorkAdvanceEvent {
     public String getCategory() {
       return category;
     }
-
   }
 
   class Event extends AbstractBuckEvent implements RuleKeyCalculationEvent {
@@ -72,10 +69,10 @@ public interface RuleKeyCalculationEvent extends LeafEvent, WorkAdvanceEvent {
     public String getValueString() {
       return type.toString();
     }
-
   }
 
   interface Started extends RuleKeyCalculationEvent {}
+
   interface Finished extends RuleKeyCalculationEvent {}
 
   class DefaultStarted extends Event implements Started {
@@ -83,7 +80,6 @@ public interface RuleKeyCalculationEvent extends LeafEvent, WorkAdvanceEvent {
     private DefaultStarted(EventKey eventKey, Type type) {
       super(eventKey, type);
     }
-
   }
 
   class DefaultFinished extends Event implements Finished {
@@ -91,15 +87,11 @@ public interface RuleKeyCalculationEvent extends LeafEvent, WorkAdvanceEvent {
     private DefaultFinished(EventKey eventKey, Type type) {
       super(eventKey, type);
     }
-
   }
 
-  static Scope scope(
-      BuckEventBus buckEventBus,
-      Type type) {
+  static Scope scope(BuckEventBus buckEventBus, Type type) {
     EventKey eventKey = EventKey.unique();
     buckEventBus.post(new DefaultStarted(eventKey, type));
     return () -> buckEventBus.post(new DefaultFinished(eventKey, type));
   }
-
 }

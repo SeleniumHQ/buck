@@ -16,26 +16,23 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.util.OptionalCompat;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedSet;
-
+import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Stream;
 import org.immutables.value.Value;
 
-import java.nio.file.Path;
-import java.util.Optional;
-
-/**
- * Encapsulates headers modeled using a {@link HeaderSymlinkTree}.
- */
-@Value.Immutable
+/** Encapsulates headers modeled using a {@link HeaderSymlinkTree}. */
+@Value.Immutable(prehash = true)
 @BuckStyleImmutable
 abstract class AbstractCxxSymlinkTreeHeaders extends CxxHeaders {
 
@@ -46,8 +43,8 @@ abstract class AbstractCxxSymlinkTreeHeaders extends CxxHeaders {
   public abstract SourcePath getRoot();
 
   /**
-   * @return the path to add to the preprocessor search path to find the includes.  This defaults
-   *     to the root, but can be overridden to use an alternate path.
+   * @return the path to add to the preprocessor search path to find the includes. This defaults to
+   *     the root, but can be overridden to use an alternate path.
    */
   @Override
   @Value.Default
@@ -58,67 +55,68 @@ abstract class AbstractCxxSymlinkTreeHeaders extends CxxHeaders {
   @Override
   public abstract Optional<SourcePath> getHeaderMap();
 
+  @Value.Auxiliary
   abstract ImmutableMap<Path, SourcePath> getNameToPathMap();
+
+  /** The build target that this object is modeling. */
+  abstract BuildTarget getBuildTarget();
 
   @Override
   public void addToHeaderPathNormalizer(HeaderPathNormalizer.Builder builder) {
     builder.addSymlinkTree(getRoot(), getNameToPathMap());
   }
 
-  /**
-   * @return all deps required by this header pack.
-   */
+  /** @return all deps required by this header pack. */
   @Override
-  public Iterable<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
-    ImmutableList.Builder<BuildRule> deps = ImmutableList.builder();
-    deps.addAll(ruleFinder.filterBuildRuleInputs(getNameToPathMap().values()));
-    deps.addAll(ruleFinder.filterBuildRuleInputs(getRoot()));
-    deps.addAll(ruleFinder.filterBuildRuleInputs(getIncludeRoot()));
-    deps.addAll(ruleFinder.filterBuildRuleInputs(OptionalCompat.asSet(getHeaderMap())));
-    return deps.build();
+  public Stream<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
+    Stream.Builder<BuildRule> builder = Stream.builder();
+    getNameToPathMap().values().forEach(value -> ruleFinder.getRule(value).ifPresent(builder));
+    ruleFinder.getRule(getRoot()).ifPresent(builder);
+    ruleFinder.getRule(getIncludeRoot()).ifPresent(builder);
+    getHeaderMap().flatMap(ruleFinder::getRule).ifPresent(builder);
+    return builder.build().distinct();
   }
 
   @Override
   public void appendToRuleKey(RuleKeyObjectSink sink) {
     sink.setReflectively("type", getIncludeType());
-    for (Path path : ImmutableSortedSet.copyOf(getNameToPathMap().keySet())) {
-      SourcePath source = getNameToPathMap().get(path);
-      sink.setReflectively("include(" + path.toString() + ")", source);
-    }
+    getNameToPathMap()
+        .entrySet()
+        .stream()
+        .sorted(Comparator.comparing(Map.Entry::getKey))
+        .forEachOrdered(
+            entry ->
+                sink.setReflectively(
+                    "include(" + entry.getKey().toString() + ")", entry.getValue()));
   }
 
-  /**
-   * @return a {@link CxxHeaders} constructed from the given {@link HeaderSymlinkTree}.
-   */
+  /** @return a {@link CxxHeaders} constructed from the given {@link HeaderSymlinkTree}. */
   public static CxxSymlinkTreeHeaders from(
-      HeaderSymlinkTree symlinkTree,
-      CxxPreprocessables.IncludeType includeType) {
+      HeaderSymlinkTree symlinkTree, CxxPreprocessables.IncludeType includeType) {
     CxxSymlinkTreeHeaders.Builder builder = CxxSymlinkTreeHeaders.builder();
+    builder.setBuildTarget(symlinkTree.getBuildTarget());
     builder.setIncludeType(includeType);
     builder.setRoot(
         new ExplicitBuildTargetSourcePath(
             symlinkTree.getBuildTarget(),
-            symlinkTree.getRoot()));
+            symlinkTree.getProjectFilesystem().relativize(symlinkTree.getRoot())));
 
     if (includeType == CxxPreprocessables.IncludeType.LOCAL) {
       builder.setIncludeRoot(
           new ExplicitBuildTargetSourcePath(
-              symlinkTree.getBuildTarget(),
-              symlinkTree.getIncludePath()));
+              symlinkTree.getBuildTarget(), symlinkTree.getIncludePath()));
       if (symlinkTree.getHeaderMap().isPresent()) {
         builder.setHeaderMap(
             new ExplicitBuildTargetSourcePath(
-                symlinkTree.getBuildTarget(),
-                symlinkTree.getHeaderMap().get()));
+                symlinkTree.getBuildTarget(), symlinkTree.getHeaderMap().get()));
       }
     } else {
       builder.setIncludeRoot(
           new ExplicitBuildTargetSourcePath(
               symlinkTree.getBuildTarget(),
-              symlinkTree.getRoot()));
+              symlinkTree.getProjectFilesystem().relativize(symlinkTree.getRoot())));
     }
     builder.putAllNameToPathMap(symlinkTree.getLinks());
     return builder.build();
   }
-
 }

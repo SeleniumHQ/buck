@@ -16,51 +16,56 @@
 
 package com.facebook.buck.rust;
 
-import com.facebook.buck.cxx.CxxPlatform;
-import com.facebook.buck.cxx.Linker;
-import com.facebook.buck.cxx.NativeLinkable;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.platform.NativeLinkable;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionPropagator;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
+import org.immutables.value.Value;
 
-public class PrebuiltRustLibraryDescription implements
-    Description<PrebuiltRustLibraryDescription.Arg>,
-    VersionPropagator<PrebuiltRustLibraryDescription.Arg> {
+public class PrebuiltRustLibraryDescription
+    implements Description<PrebuiltRustLibraryDescriptionArg>,
+        VersionPropagator<PrebuiltRustLibraryDescriptionArg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<PrebuiltRustLibraryDescriptionArg> getConstructorArgType() {
+    return PrebuiltRustLibraryDescriptionArg.class;
   }
 
   @Override
-  public <A extends Arg> PrebuiltRustLibrary createBuildRule(
+  public PrebuiltRustLibrary createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      PrebuiltRustLibraryDescriptionArg args)
+      throws NoSuchBuildTargetException {
     final SourcePathResolver pathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
 
-    return new PrebuiltRustLibrary(params, pathResolver) {
+    return new PrebuiltRustLibrary(buildTarget, projectFilesystem, params) {
 
       @Override
       protected SourcePath getRlib() {
-        return args.rlib;
+        return args.getRlib();
       }
 
       @Override
@@ -70,11 +75,7 @@ public class PrebuiltRustLibraryDescription implements
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType depType) {
         return new RustLibraryArg(
-            getResolver(),
-            args.crate.orElse(getBuildTarget().getShortName()),
-            args.rlib,
-            direct,
-            getBuildDeps());
+            pathResolver, args.getCrate(), args.getRlib(), direct, getBuildDeps());
       }
 
       @Override
@@ -89,11 +90,17 @@ public class PrebuiltRustLibraryDescription implements
     };
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends AbstractDescriptionArg {
-    public SourcePath rlib;
-    public Optional<String> crate;
-    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
-    public Optional<Linker.LinkableDepType> linkStyle;
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractPrebuiltRustLibraryDescriptionArg
+      extends CommonDescriptionArg, HasDeclaredDeps {
+    SourcePath getRlib();
+
+    @Value.Default
+    default String getCrate() {
+      return getName();
+    }
+
+    Optional<Linker.LinkableDepType> getLinkStyle();
   }
 }

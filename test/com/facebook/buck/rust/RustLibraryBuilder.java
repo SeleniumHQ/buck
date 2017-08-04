@@ -23,15 +23,12 @@ import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.collect.ImmutableSortedSet;
 
-public class RustLibraryBuilder extends
-    AbstractNodeBuilder<
-        RustLibraryDescription.Arg,
-        RustLibraryDescription,
+public class RustLibraryBuilder
+    extends AbstractNodeBuilder<
+        RustLibraryDescriptionArg.Builder, RustLibraryDescriptionArg, RustLibraryDescription,
         RustLibrary> {
 
-  private RustLibraryBuilder(
-      RustLibraryDescription description,
-      BuildTarget target) {
+  private RustLibraryBuilder(RustLibraryDescription description, BuildTarget target) {
     super(description, target);
   }
 
@@ -45,13 +42,12 @@ public class RustLibraryBuilder extends
   }
 
   public RustLibraryBuilder setSrcs(ImmutableSortedSet<SourcePath> srcs) {
-    arg.srcs = srcs;
+    getArgForPopulating().setSrcs(srcs);
     return this;
   }
 
   public RustLibraryBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
-    arg.deps = deps;
+    getArgForPopulating().setDeps(deps);
     return this;
   }
-
 }

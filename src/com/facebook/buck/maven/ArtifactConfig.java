@@ -21,19 +21,15 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
-
-import org.kohsuke.args4j.Argument;
-import org.kohsuke.args4j.CmdLineException;
-import org.kohsuke.args4j.CmdLineParser;
-import org.kohsuke.args4j.Option;
-
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-
 import javax.annotation.Nullable;
+import org.kohsuke.args4j.Argument;
+import org.kohsuke.args4j.CmdLineException;
+import org.kohsuke.args4j.CmdLineParser;
+import org.kohsuke.args4j.Option;
 
 public class ArtifactConfig {
 
@@ -122,14 +118,14 @@ public class ArtifactConfig {
     System.out.println("Usage: java -jar resolver.jar [OPTIONS] -repo REPO artifact...");
     System.out.println();
     System.out.println(
-        "Artifacts are of the form group:artifact[:extension[:classifier]]:version, " +
-            "or a .pom file");
+        "Artifacts are of the form group:artifact[:extension[:classifier]]:version, "
+            + "or a .pom file");
     parser.printUsage(System.out);
     System.exit(0);
   }
 
-  public static ArtifactConfig fromCommandLineArgs(
-      String[] args) throws CmdLineException, IOException {
+  public static ArtifactConfig fromCommandLineArgs(String[] args)
+      throws CmdLineException, IOException {
 
     CmdLineArgs parsedArgs = new CmdLineArgs();
     CmdLineParser parser = new CmdLineParser(parsedArgs);
@@ -143,8 +139,8 @@ public class ArtifactConfig {
 
     // If the -config argument was specified, load a config from JSON.
     if (parsedArgs.artifactConfigJson != null) {
-      File jsonFile = new File(parsedArgs.artifactConfigJson);
-      artifactConfig = ObjectMappers.readValue(jsonFile, ArtifactConfig.class);
+      artifactConfig =
+          ObjectMappers.readValue(Paths.get(parsedArgs.artifactConfigJson), ArtifactConfig.class);
     } else {
       artifactConfig = new ArtifactConfig();
     }

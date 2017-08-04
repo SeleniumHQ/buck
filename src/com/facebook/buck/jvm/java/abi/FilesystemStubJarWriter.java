@@ -18,65 +18,48 @@ package com.facebook.buck.jvm.java.abi;
 
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.zip.CustomJarOutputStream;
-import com.facebook.buck.zip.ZipOutputStreams;
+import com.facebook.buck.util.function.ThrowingSupplier;
+import com.facebook.buck.zip.CustomZipEntry;
+import com.facebook.buck.zip.JarBuilder;
+import com.facebook.buck.zip.JarEntrySupplier;
 import com.google.common.base.Preconditions;
-import com.google.common.io.ByteSource;
-
-import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.tree.ClassNode;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
-import java.util.jar.Attributes;
 
-/**
- * A {@link StubJarWriter} that writes to a file through {@link ProjectFilesystem}.
- */
+/** A {@link StubJarWriter} that writes to a file through {@link ProjectFilesystem}. */
 class FilesystemStubJarWriter implements StubJarWriter {
-  private final CustomJarOutputStream jar;
+  private final Path outputPath;
+  private final JarBuilder jarBuilder;
   private boolean closed = false;
 
-  public FilesystemStubJarWriter(
-      ProjectFilesystem filesystem,
-      Path outputPath) throws IOException {
+  public FilesystemStubJarWriter(ProjectFilesystem filesystem, Path outputPath) throws IOException {
     Preconditions.checkState(
-        !filesystem.exists(outputPath),
-        "Output file already exists: %s)",
-        outputPath);
+        !filesystem.exists(outputPath), "Output file already exists: %s)", outputPath);
 
     if (outputPath.getParent() != null && !filesystem.exists(outputPath.getParent())) {
       filesystem.createParentDirs(outputPath);
     }
 
-    jar = ZipOutputStreams.newJarOutputStream(filesystem.newFileOutputStream(outputPath));
-    jar.setEntryHashingEnabled(true);
-    jar.getManifest().getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+    this.outputPath = filesystem.resolve(outputPath);
+    jarBuilder = new JarBuilder().setShouldHashEntries(true).setShouldMergeManifests(true);
   }
 
   @Override
-  public void writeResource(Path relativePath, InputStream resourceContents) throws IOException {
-    jar.writeEntry(MorePaths.pathWithUnixSeparators(relativePath), resourceContents);
-  }
-
-  @Override
-  public void writeClass(Path relativePath, ClassNode stub) throws IOException {
-    try (InputStream contents = getStubClassBytes(stub).openStream()) {
-      jar.writeEntry(MorePaths.pathWithUnixSeparators(relativePath), contents);
-    }
-  }
-
-  private static ByteSource getStubClassBytes(ClassNode node) {
-    ClassWriter writer = new ClassWriter(0);
-    node.accept(new AbiFilteringClassVisitor(writer));
-    return ByteSource.wrap(writer.toByteArray());
+  public void writeEntry(
+      Path relativePath, ThrowingSupplier<InputStream, IOException> streamSupplier)
+      throws IOException {
+    jarBuilder.addEntry(
+        new JarEntrySupplier(
+            new CustomZipEntry(MorePaths.pathWithUnixSeparators(relativePath)),
+            outputPath.toString(),
+            streamSupplier));
   }
 
   @Override
   public void close() throws IOException {
     if (!closed) {
-      jar.close();
+      jarBuilder.createJarFile(outputPath);
     }
     closed = true;
   }

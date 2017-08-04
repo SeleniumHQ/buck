@@ -26,7 +26,6 @@ import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
@@ -35,9 +34,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-/**
- * Abstract implementation of {@link Step} that ...
- */
+/** Abstract implementation of {@link Step} that ... */
 public abstract class AbstractTestStep implements Step {
 
   private final String name;
@@ -69,7 +66,8 @@ public abstract class AbstractTestStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
     // Build the process, redirecting output to the provided output file.  In general,
     // it's undesirable that both stdout and stderr are being redirected to the same
     // input stream.  However, due to the nature of OS pipe buffering, we can't really
@@ -82,48 +80,39 @@ public abstract class AbstractTestStep implements Step {
     if (env.isPresent()) {
       environment.putAll(env.get());
     }
-    ProcessExecutorParams params = ProcessExecutorParams.builder()
-        .setCommand(command)
-        .setDirectory(workingDirectory.map(filesystem::resolve))
-        .setEnvironment(ImmutableMap.copyOf(environment))
-        .setRedirectOutput(ProcessBuilder.Redirect.to(filesystem.resolve(output).toFile()))
-        .setRedirectErrorStream(true)
-        .build();
+    ProcessExecutorParams params =
+        ProcessExecutorParams.builder()
+            .setCommand(command)
+            .setDirectory(workingDirectory.map(filesystem::resolve))
+            .setEnvironment(ImmutableMap.copyOf(environment))
+            .setRedirectOutput(ProcessBuilder.Redirect.to(filesystem.resolve(output).toFile()))
+            .setRedirectErrorStream(true)
+            .build();
 
     ProcessExecutor.Result result;
-    try {
-      // Run the test process, saving the exit code.
-      ProcessExecutor executor = context.getProcessExecutor();
-      ImmutableSet<ProcessExecutor.Option> options = ImmutableSet.of(
-          ProcessExecutor.Option.EXPECTING_STD_OUT);
-      result = executor.launchAndExecute(
-          params,
-          options,
-          /* stdin */ Optional.empty(),
-          testRuleTimeoutMs,
-          /* timeOutHandler */ Optional.empty());
-    } catch (IOException e) {
-      context.logError(e, "Error starting command %s", command);
-      return StepExecutionResult.ERROR;
-    }
+    // Run the test process, saving the exit code.
+    ProcessExecutor executor = context.getProcessExecutor();
+    ImmutableSet<ProcessExecutor.Option> options =
+        ImmutableSet.of(ProcessExecutor.Option.EXPECTING_STD_OUT);
+    result =
+        executor.launchAndExecute(
+            params,
+            options,
+            /* stdin */ Optional.empty(),
+            testRuleTimeoutMs,
+            /* timeOutHandler */ Optional.empty());
 
     if (result.isTimedOut()) {
       throw new HumanReadableException(
-          "Timed out after %d ms running test command %s",
-          testRuleTimeoutMs.orElse(-1L),
-          command);
+          "Timed out after %d ms running test command %s", testRuleTimeoutMs.orElse(-1L), command);
     }
 
     // Since test binaries return a non-zero exit code when unittests fail, save the exit code
     // to a file rather than signalling a step failure.
     try (FileOutputStream fileOut = new FileOutputStream(filesystem.resolve(exitCode).toFile());
-         ObjectOutputStream objectOut = new ObjectOutputStream(fileOut)) {
+        ObjectOutputStream objectOut = new ObjectOutputStream(fileOut)) {
       objectOut.writeInt(result.getExitCode());
-    } catch (IOException e) {
-      context.logError(e, "Error saving exit code to %s", exitCode);
-      return StepExecutionResult.ERROR;
     }
-
     return StepExecutionResult.SUCCESS;
   }
 

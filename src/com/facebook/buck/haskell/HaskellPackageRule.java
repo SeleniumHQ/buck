@@ -15,10 +15,13 @@
  */
 package com.facebook.buck.haskell;
 
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -43,89 +46,99 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
-public class HaskellPackageRule extends AbstractBuildRule {
+public class HaskellPackageRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
-  @AddToRuleKey
-  private final Tool ghcPkg;
+  @AddToRuleKey private final Tool ghcPkg;
 
   private final HaskellVersion haskellVersion;
 
-  @AddToRuleKey
-  private final HaskellPackageInfo packageInfo;
+  @AddToRuleKey Linker.LinkableDepType depType;
 
-  @AddToRuleKey
-  private final ImmutableSortedMap<String, HaskellPackage> depPackages;
+  @AddToRuleKey private final HaskellPackageInfo packageInfo;
 
-  @AddToRuleKey
-  private final ImmutableSortedSet<String> modules;
+  @AddToRuleKey private final ImmutableSortedMap<String, HaskellPackage> depPackages;
 
-  @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> libraries;
+  @AddToRuleKey private final ImmutableSortedSet<String> modules;
 
-  @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> interfaces;
+  @AddToRuleKey private final ImmutableSortedSet<SourcePath> libraries;
+
+  @AddToRuleKey private final ImmutableSortedSet<SourcePath> interfaces;
+
+  @AddToRuleKey private final ImmutableSortedSet<SourcePath> objects;
 
   public HaskellPackageRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       Tool ghcPkg,
       HaskellVersion haskellVersion,
+      Linker.LinkableDepType depType,
       HaskellPackageInfo packageInfo,
       ImmutableSortedMap<String, HaskellPackage> depPackages,
       ImmutableSortedSet<String> modules,
       ImmutableSortedSet<SourcePath> libraries,
-      ImmutableSortedSet<SourcePath> interfaces) {
-    super(buildRuleParams);
+      ImmutableSortedSet<SourcePath> interfaces,
+      ImmutableSortedSet<SourcePath> objects) {
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.ghcPkg = ghcPkg;
     this.haskellVersion = haskellVersion;
+    this.depType = depType;
     this.packageInfo = packageInfo;
     this.depPackages = depPackages;
     this.modules = modules;
     this.libraries = libraries;
     this.interfaces = interfaces;
+    this.objects = objects;
   }
 
   public static HaskellPackageRule from(
       BuildTarget target,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams baseParams,
       SourcePathRuleFinder ruleFinder,
       final Tool ghcPkg,
       HaskellVersion haskellVersion,
+      Linker.LinkableDepType depType,
       HaskellPackageInfo packageInfo,
       final ImmutableSortedMap<String, HaskellPackage> depPackages,
       ImmutableSortedSet<String> modules,
       final ImmutableSortedSet<SourcePath> libraries,
-      final ImmutableSortedSet<SourcePath> interfaces) {
-    Supplier<ImmutableSortedSet<BuildRule>> declaredDeps = Suppliers.memoize(
-        () -> ImmutableSortedSet.<BuildRule>naturalOrder()
-            .addAll(ghcPkg.getDeps(ruleFinder))
-            .addAll(
-                depPackages.values().stream()
-                    .flatMap(pkg -> pkg.getDeps(ruleFinder))
-                    .iterator())
-            .addAll(
-                ruleFinder.filterBuildRuleInputs(Iterables.concat(libraries, interfaces)))
-            .build());
+      final ImmutableSortedSet<SourcePath> interfaces,
+      ImmutableSortedSet<SourcePath> objects) {
+    Supplier<ImmutableSortedSet<BuildRule>> declaredDeps =
+        Suppliers.memoize(
+            () ->
+                ImmutableSortedSet.<BuildRule>naturalOrder()
+                    .addAll(ghcPkg.getDeps(ruleFinder))
+                    .addAll(
+                        depPackages
+                            .values()
+                            .stream()
+                            .flatMap(pkg -> pkg.getDeps(ruleFinder))
+                            .iterator())
+                    .addAll(
+                        ruleFinder.filterBuildRuleInputs(Iterables.concat(libraries, interfaces)))
+                    .build());
     return new HaskellPackageRule(
-        baseParams
-            .withBuildTarget(target)
-            .copyReplacingDeclaredAndExtraDeps(
-                declaredDeps,
-                Suppliers.ofInstance(ImmutableSortedSet.of())),
+        target,
+        projectFilesystem,
+        baseParams.withDeclaredDeps(declaredDeps).withoutExtraDeps(),
         ghcPkg,
         haskellVersion,
+        depType,
         packageInfo,
         depPackages,
         modules,
         libraries,
-        interfaces);
+        interfaces,
+        objects);
   }
 
   private Path getPackageDb() {
@@ -133,9 +146,7 @@ public class HaskellPackageRule extends AbstractBuildRule {
   }
 
   private WriteFileStep getWriteRegistrationFileStep(
-      SourcePathResolver resolver,
-      Path registrationFile,
-      Path packageDb) {
+      SourcePathResolver resolver, Path registrationFile, Path packageDb) {
     Map<String, String> entries = new LinkedHashMap<>();
 
     entries.put("name", packageInfo.getName());
@@ -152,7 +163,7 @@ public class HaskellPackageRule extends AbstractBuildRule {
     Path pkgRoot = getProjectFilesystem().getPath("${pkgroot}");
 
     if (!modules.isEmpty()) {
-      List<String> importDirs = new ArrayList<>();
+      Set<String> importDirs = new LinkedHashSet<>();
       for (SourcePath interfaceDir : interfaces) {
         Path relInterfaceDir =
             pkgRoot.resolve(
@@ -162,24 +173,31 @@ public class HaskellPackageRule extends AbstractBuildRule {
       entries.put("import-dirs", Joiner.on(", ").join(importDirs));
     }
 
-    List<String> libDirs = new ArrayList<>();
-    List<String> libs = new ArrayList<>();
+    Set<String> libDirs = new LinkedHashSet<>();
+    Set<String> libs = new LinkedHashSet<>();
     for (SourcePath library : libraries) {
       Path relLibPath =
           pkgRoot.resolve(packageDb.getParent().relativize(resolver.getRelativePath(library)));
       libDirs.add('"' + relLibPath.getParent().toString() + '"');
-      libs.add(MorePaths.stripPathPrefixAndExtension(relLibPath.getFileName(), "lib"));
+
+      String libName = MorePaths.stripPathPrefixAndExtension(relLibPath.getFileName(), "lib");
+      libs.add(libName.replaceAll("_p$", ""));
     }
     entries.put("library-dirs", Joiner.on(", ").join(libDirs));
-    // Use extra libraries here, so GHC won't try to find libraries with any extra suffices
-    // (e.g. lib<name>-ghc7.10.3.dylib).
-    entries.put("extra-libraries", Joiner.on(", ").join(libs));
+
+    if (Linker.LinkableDepType.STATIC == depType) {
+      entries.put("hs-libraries", Joiner.on(", ").join(libs));
+    } else {
+      entries.put("extra-libraries", Joiner.on(", ").join(libs));
+    }
 
     entries.put("depends", Joiner.on(", ").join(depPackages.keySet()));
 
     return new WriteFileStep(
         getProjectFilesystem(),
-        entries.entrySet().stream()
+        entries
+            .entrySet()
+            .stream()
             .map(input -> input.getKey() + ": " + input.getValue())
             .collect(Collectors.joining(System.lineSeparator())),
         registrationFile,
@@ -188,48 +206,69 @@ public class HaskellPackageRule extends AbstractBuildRule {
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
     // Setup the scratch dir.
     Path scratchDir = BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s");
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), scratchDir));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), scratchDir)));
 
     // Setup the package DB directory.
     final Path packageDb = getPackageDb();
-    steps.add(RmStep.of(getProjectFilesystem(), packageDb).withRecursive(true));
+    steps.add(
+        RmStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), packageDb))
+            .withRecursive(true));
     buildableContext.recordArtifact(packageDb);
 
     // Create the registration file.
     Path registrationFile = scratchDir.resolve("registration-file");
     steps.add(
-        getWriteRegistrationFileStep(
-            context.getSourcePathResolver(),
-            registrationFile,
-            packageDb));
+        getWriteRegistrationFileStep(context.getSourcePathResolver(), registrationFile, packageDb));
 
-    // Build the the package DB.
+    // Initialize the package DB.
     steps.add(
         new GhcPkgStep(
             context.getSourcePathResolver(),
             ImmutableList.of("init", packageDb.toString()),
             ImmutableMap.of()));
+
+    // Build the the package DB.
+    ImmutableList.Builder<String> ghcPkgCmdBuilder = ImmutableList.builder();
+    ghcPkgCmdBuilder.add("-v0", "register", "--package-conf=" + packageDb, "--no-expand-pkgroot");
+    // Older versions of `ghc-pkg` appear to fail finding the interface files which are being
+    // exported by this package, so ignore these failure explicitly.
+    if (haskellVersion.getMajorVersion() < 8) {
+      ghcPkgCmdBuilder.add("--force-files");
+    }
+    ghcPkgCmdBuilder.add(registrationFile.toString());
+    ImmutableList<String> ghcPkgCmd = ghcPkgCmdBuilder.build();
     steps.add(
         new GhcPkgStep(
             context.getSourcePathResolver(),
-            ImmutableList.of(
-                "-v0",
-                "register",
-                "--package-conf=" + packageDb,
-                "--no-expand-pkgroot",
-                registrationFile.toString()),
+            ghcPkgCmd,
             ImmutableMap.of(
                 "GHC_PACKAGE_PATH",
-                depPackages.values().stream()
-                    .map(input -> context.getSourcePathResolver().getAbsolutePath(
-                        input.getPackageDb()).toString())
+                depPackages
+                    .values()
+                    .stream()
+                    .map(
+                        input ->
+                            context
+                                .getSourcePathResolver()
+                                .getAbsolutePath(input.getPackageDb())
+                                .toString())
+                    // Different packages might have the same underlying package DB and specifying
+                    // the same package DB multiple times to `ghc-pkg` will cause additional
+                    // processing which can make `ghc-pkg` really slow.  So, dedup the package DBs
+                    // before passing them into `ghc-pkg`.
+                    .distinct()
                     .collect(Collectors.joining(":")))));
 
     return steps.build();
@@ -246,6 +285,7 @@ public class HaskellPackageRule extends AbstractBuildRule {
         .setPackageDb(new ExplicitBuildTargetSourcePath(getBuildTarget(), getPackageDb()))
         .addAllLibraries(libraries)
         .addAllInterfaces(interfaces)
+        .addAllObjects(objects)
         .build();
   }
 
@@ -256,9 +296,7 @@ public class HaskellPackageRule extends AbstractBuildRule {
     private final ImmutableMap<String, String> env;
 
     public GhcPkgStep(
-        SourcePathResolver resolver,
-        ImmutableList<String> args,
-        ImmutableMap<String, String> env) {
+        SourcePathResolver resolver, ImmutableList<String> args, ImmutableMap<String, String> env) {
       super(getProjectFilesystem().getRootPath());
       this.resolver = resolver;
       this.args = args;
@@ -286,7 +324,5 @@ public class HaskellPackageRule extends AbstractBuildRule {
     public final String getShortName() {
       return "ghc-pkg";
     }
-
   }
-
 }

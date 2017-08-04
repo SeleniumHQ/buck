@@ -21,20 +21,17 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-
+import java.io.IOException;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
-import java.io.IOException;
-import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel;
-
 public class ElfVerNeedTest {
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   private ProjectWorkspace workspace;
 
@@ -49,11 +46,12 @@ public class ElfVerNeedTest {
     try (FileChannel channel = FileChannel.open(workspace.resolve("libfoo.so"))) {
       MappedByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size());
       Elf elf = new Elf(buffer);
-      ElfSection stringTable = elf.getSectionByName(".dynstr").get().getSecond();
-      ElfVerNeed verNeed =
-          ElfVerNeed.parse(
-              elf.header.ei_class,
-              elf.getSectionByName(".gnu.version_r").get().getSecond().body);
+      ElfSection stringTable =
+          elf.getMandatorySectionByName(channel.toString(), ".dynstr").getSection();
+      ElfSection section =
+          elf.getMandatorySectionByName(channel.toString(), ".gnu.version_r").getSection();
+      assertThat(section.header.sh_type, Matchers.is(ElfSectionHeader.SHType.SHT_GNU_VERNEED));
+      ElfVerNeed verNeed = ElfVerNeed.parse(elf.header.ei_class, section.body);
       assertThat(verNeed.entries, Matchers.hasSize(1));
       assertThat(
           stringTable.lookupString(verNeed.entries.get(0).getFirst().vn_file),
@@ -64,5 +62,4 @@ public class ElfVerNeedTest {
           Matchers.equalTo("GLIBC_2.2.5"));
     }
   }
-
 }

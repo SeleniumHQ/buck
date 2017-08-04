@@ -20,36 +20,30 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.cxx.platform.CxxPlatform;
 import com.google.common.collect.ImmutableMap;
-
 import org.junit.Test;
 
 public class DefaultCxxPlatformsTest {
 
   @Test
   public void compilerFlagsPropagateToPreprocessorFlags() {
-    CxxPlatform cxxPlatform = CxxPlatformUtils.build(
-        new CxxBuckConfig(
-            FakeBuckConfig.builder().setSections(
-                ImmutableMap.of(
-                    "cxx", ImmutableMap.of(
-                        "cflags", "-std=gnu11",
-                        "cppflags", "-DCFOO",
-                        "cxxflags", "-std=c++11",
-                        "cxxppflags", "-DCXXFOO"))).build()));
-    assertThat(
-        cxxPlatform.getCflags(),
-        containsInAnyOrder("-std=gnu11"));
-    assertThat(
-        cxxPlatform.getCppflags(),
-        containsInAnyOrder("-DCFOO"));
-    assertThat(
-        cxxPlatform.getCxxflags(),
-        containsInAnyOrder("-std=c++11"));
-    assertThat(
-        cxxPlatform.getCxxppflags(),
-        containsInAnyOrder("-DCXXFOO"));
+    CxxPlatform cxxPlatform =
+        CxxPlatformUtils.build(
+            new CxxBuckConfig(
+                FakeBuckConfig.builder()
+                    .setSections(
+                        ImmutableMap.of(
+                            "cxx",
+                            ImmutableMap.of(
+                                "cflags", "-std=gnu11",
+                                "cppflags", "-DCFOO",
+                                "cxxflags", "-std=c++11",
+                                "cxxppflags", "-DCXXFOO")))
+                    .build()));
+    assertThat(cxxPlatform.getCflags(), containsInAnyOrder("-std=gnu11"));
+    assertThat(cxxPlatform.getCppflags(), containsInAnyOrder("-DCFOO"));
+    assertThat(cxxPlatform.getCxxflags(), containsInAnyOrder("-std=c++11"));
+    assertThat(cxxPlatform.getCxxppflags(), containsInAnyOrder("-DCXXFOO"));
   }
-
-
 }

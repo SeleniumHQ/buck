@@ -17,21 +17,20 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.rules.SourcePathRuleFinder;
-
 import javax.annotation.Nullable;
 
 public final class JavacFactory {
-  private JavacFactory() {
-  }
+  private JavacFactory() {}
 
   public static Javac create(
-      SourcePathRuleFinder ruleFinder,
-      JavaBuckConfig config,
-      @Nullable JvmLibraryArg args) {
+      SourcePathRuleFinder ruleFinder, JavaBuckConfig config, @Nullable JvmLibraryArg args) {
     JavacSpec spec = null;
 
     if (args != null) {
       spec = args.getJavacSpec();
+      if (spec != null) {
+        spec = spec.withJavacLocation(config.getJavacSpec().getJavacLocation());
+      }
     }
 
     if (spec == null) {

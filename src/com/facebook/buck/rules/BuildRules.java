@@ -22,11 +22,9 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-
 import java.util.Optional;
 
 public class BuildRules {
@@ -46,7 +44,8 @@ public class BuildRules {
       if (buildRule.isPresent()) {
         buildRules.add(buildRule.get());
       } else {
-        throw new HumanReadableException("No rule for %s found when processing %s",
+        throw new HumanReadableException(
+            "No rule for %s found when processing %s",
             target, invokingBuildTarget.getFullyQualifiedName());
       }
     }
@@ -69,12 +68,10 @@ public class BuildRules {
         new AbstractBreadthFirstTraversal<ExportDependencies>(
             Iterables.filter(rules, ExportDependencies.class)) {
           @Override
-          public ImmutableSet<ExportDependencies> visit(ExportDependencies exporter) {
+          public Iterable<ExportDependencies> visit(ExportDependencies exporter) {
             Iterable<BuildRule> exported = exporter.getExportedDeps();
             exportedRules.addAll(exported);
-            return FluentIterable.from(exported)
-                .filter(ExportDependencies.class)
-                .toSet();
+            return FluentIterable.from(exported).filter(ExportDependencies.class).toSet();
           }
         };
     visitor.start();
@@ -82,20 +79,20 @@ public class BuildRules {
   }
 
   public static ImmutableSet<BuildTarget> getTransitiveRuntimeDeps(
-      HasRuntimeDeps rule,
-      BuildRuleResolver resolver) {
+      HasRuntimeDeps rule, BuildRuleResolver resolver) {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     final ImmutableSet.Builder<BuildTarget> runtimeDeps = ImmutableSet.builder();
     AbstractBreadthFirstTraversal<BuildTarget> visitor =
         new AbstractBreadthFirstTraversal<BuildTarget>(
-            rule.getRuntimeDeps().collect(MoreCollectors.toImmutableSet())) {
+            rule.getRuntimeDeps(ruleFinder).collect(MoreCollectors.toImmutableSet())) {
           @Override
-          public ImmutableCollection<BuildTarget> visit(BuildTarget runtimeDep) {
+          public Iterable<BuildTarget> visit(BuildTarget runtimeDep) {
             runtimeDeps.add(runtimeDep);
             Optional<BuildRule> rule = resolver.getRuleOptional(runtimeDep);
             if (rule.isPresent() && rule.get() instanceof HasRuntimeDeps) {
-              return
-                  ((HasRuntimeDeps) rule.get()).getRuntimeDeps()
-                      .collect(MoreCollectors.toImmutableSet());
+              return ((HasRuntimeDeps) rule.get())
+                  .getRuntimeDeps(ruleFinder)
+                  .collect(MoreCollectors.toImmutableSet());
             }
             return ImmutableSet.of();
           }
@@ -103,5 +100,4 @@ public class BuildRules {
     visitor.start();
     return runtimeDeps.build();
   }
-
 }

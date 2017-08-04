@@ -32,19 +32,14 @@ import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
-/**
- * Provides a base implementation for post compile steps.
- */
+/** Provides a base implementation for post compile steps. */
 public abstract class BaseCompileToJarStepFactory implements CompileToJarStepFactory {
 
   public static final Function<BuildContext, Iterable<Path>> EMPTY_EXTRA_CLASSPATH =
@@ -72,41 +67,63 @@ public abstract class BaseCompileToJarStepFactory implements CompileToJarStepFac
       ProjectFilesystem filesystem,
       ImmutableSortedSet<Path> declaredClasspathEntries,
       Path outputDirectory,
+      Optional<Path> generatedCodeDirectory,
       Optional<Path> workingDirectory,
+      Optional<Path> depFilePath,
       Path pathToSrcsList,
       ImmutableList<String> postprocessClassesCommands,
       ImmutableSortedSet<Path> entriesToJar,
       Optional<String> mainClass,
       Optional<Path> manifestFile,
       Path outputJar,
-      ClassUsageFileWriter usedClassesFileWriter,
       /* output params */
       ImmutableList.Builder<Step> steps,
       BuildableContext buildableContext,
-      ImmutableSet<Pattern> classesToRemoveFromJar) {
+      RemoveClassesPatternsMatcher classesToRemoveFromJar) {
 
     createCompileStep(
         context,
         sourceFilePaths,
         invokingRule,
         resolver,
-        ruleFinder,
         filesystem,
         declaredClasspathEntries,
         outputDirectory,
+        generatedCodeDirectory,
         workingDirectory,
+        depFilePath,
         pathToSrcsList,
-        usedClassesFileWriter,
         steps,
         buildableContext);
 
-    steps.addAll(Lists.newCopyOnWriteArrayList(addPostprocessClassesCommands(
-        filesystem,
-        postprocessClassesCommands,
-        outputDirectory,
-        declaredClasspathEntries,
-        getBootClasspath(context))));
+    steps.addAll(
+        Lists.newCopyOnWriteArrayList(
+            addPostprocessClassesCommands(
+                filesystem,
+                postprocessClassesCommands,
+                outputDirectory,
+                declaredClasspathEntries,
+                getBootClasspath(context))));
 
+    createJarStep(
+        filesystem,
+        outputDirectory,
+        mainClass,
+        manifestFile,
+        classesToRemoveFromJar,
+        outputJar,
+        steps);
+  }
+
+  @Override
+  public void createJarStep(
+      ProjectFilesystem filesystem,
+      Path outputDirectory,
+      Optional<String> mainClass,
+      Optional<Path> manifestFile,
+      RemoveClassesPatternsMatcher classesToRemoveFromJar,
+      Path outputJar,
+      ImmutableList.Builder<Step> steps) {
     steps.add(
         new JarDirectoryStep(
             filesystem,
@@ -115,15 +132,16 @@ public abstract class BaseCompileToJarStepFactory implements CompileToJarStepFac
             mainClass.orElse(null),
             manifestFile.orElse(null),
             true,
-            classesToRemoveFromJar));
+            classesToRemoveFromJar::shouldRemoveClass));
   }
 
   /**
    * This can be used make the bootclasspath if available, to the postprocess classes commands.
+   *
    * @return the bootclasspath.
    */
   @SuppressWarnings("unused")
-  Optional<String> getBootClasspath(BuildContext context) {
+  protected Optional<String> getBootClasspath(BuildContext context) {
     return Optional.empty();
   }
 
@@ -131,12 +149,12 @@ public abstract class BaseCompileToJarStepFactory implements CompileToJarStepFac
    * Adds a BashStep for each postprocessClasses command that runs the command followed by the
    * outputDirectory of javac outputs.
    *
-   * The expectation is that the command will inspect and update the directory by
-   * modifying, adding, and deleting the .class files in the directory.
+   * <p>The expectation is that the command will inspect and update the directory by modifying,
+   * adding, and deleting the .class files in the directory.
    *
-   * The outputDirectory should be a valid java root.  I.e., if outputDirectory
-   * is buck-out/bin/java/abc/lib__abc__classes/, then a contained class abc.AbcModule
-   * should be at buck-out/bin/java/abc/lib__abc__classes/abc/AbcModule.class
+   * <p>The outputDirectory should be a valid java root. I.e., if outputDirectory is
+   * buck-out/bin/java/abc/lib__abc__classes/, then a contained class abc.AbcModule should be at
+   * buck-out/bin/java/abc/lib__abc__classes/abc/AbcModule.class
    *
    * @param filesystem the project filesystem.
    * @param postprocessClassesCommands the list of commands to post-process .class files.
@@ -159,10 +177,7 @@ public abstract class BaseCompileToJarStepFactory implements CompileToJarStepFac
     ImmutableMap.Builder<String, String> envVarBuilder = ImmutableMap.builder();
     envVarBuilder.put(
         "COMPILATION_CLASSPATH",
-        Joiner.on(':').join(
-            Iterables.transform(
-                declaredClasspathEntries,
-                filesystem::resolve)));
+        Joiner.on(':').join(Iterables.transform(declaredClasspathEntries, filesystem::resolve)));
 
     if (bootClasspath.isPresent()) {
       envVarBuilder.put("COMPILATION_BOOTCLASSPATH", bootClasspath.get());
@@ -170,14 +185,14 @@ public abstract class BaseCompileToJarStepFactory implements CompileToJarStepFac
     ImmutableMap<String, String> envVars = envVarBuilder.build();
 
     for (final String postprocessClassesCommand : postprocessClassesCommands) {
-      BashStep bashStep = new BashStep(
-          filesystem.getRootPath(),
-          postprocessClassesCommand + " " + outputDirectory) {
-        @Override
-        public ImmutableMap<String, String> getEnvironmentVariables(ExecutionContext context) {
-          return envVars;
-        }
-      };
+      BashStep bashStep =
+          new BashStep(
+              filesystem.getRootPath(), postprocessClassesCommand + " " + outputDirectory) {
+            @Override
+            public ImmutableMap<String, String> getEnvironmentVariables(ExecutionContext context) {
+              return envVars;
+            }
+          };
       commands.add(bashStep);
     }
     return commands.build();

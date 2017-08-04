@@ -21,22 +21,25 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-
-import org.junit.Assert;
-import org.junit.Test;
-
 import java.util.Optional;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 public class CellPathResolverViewTest {
 
-  private ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
+  private ProjectFilesystem filesystem;
+
+  @Before
+  public void setUp() throws InterruptedException {
+    filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
+  }
 
   @Test
   public void presentsSubsetOfCellsInDelegate() {
-    CellPathResolverView view = new CellPathResolverView(
-        getTestDelegate(),
-        ImmutableSet.of("b", "c"),
-        filesystem.getPath("foo/c"));
+    CellPathResolverView view =
+        new CellPathResolverView(
+            getTestDelegate(), ImmutableSet.of("b", "c"), filesystem.getPath("foo/c"));
 
     Assert.assertEquals(filesystem.getPath("foo/b"), view.getCellPath(Optional.of("b")));
     Assert.assertEquals(filesystem.getPath("foo/c"), view.getCellPath(Optional.of("c")));
@@ -57,19 +60,17 @@ public class CellPathResolverViewTest {
 
   @Test
   public void returnsOwnCellPathWhenCellNameIsEmpty() {
-    CellPathResolverView view = new CellPathResolverView(
-        getTestDelegate(),
-        ImmutableSet.of("b", "c"),
-        filesystem.getPath("foo/c"));
+    CellPathResolverView view =
+        new CellPathResolverView(
+            getTestDelegate(), ImmutableSet.of("b", "c"), filesystem.getPath("foo/c"));
     Assert.assertEquals(filesystem.getPath("foo/c"), view.getCellPath(Optional.empty()));
   }
 
   @Test
   public void canonicalCellNameRelativeToDelegateCell() {
-    CellPathResolverView view = new CellPathResolverView(
-        getTestDelegate(),
-        ImmutableSet.of("b", "c"),
-        filesystem.getPath("foo/c"));
+    CellPathResolverView view =
+        new CellPathResolverView(
+            getTestDelegate(), ImmutableSet.of("b", "c"), filesystem.getPath("foo/c"));
     Assert.assertEquals(
         "root cell resolves to no prefix.",
         Optional.empty(),

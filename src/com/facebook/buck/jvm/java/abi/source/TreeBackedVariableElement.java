@@ -17,32 +17,30 @@
 package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.util.liteinfersupport.Nullable;
-import com.sun.source.tree.ModifiersTree;
 import com.sun.source.tree.VariableTree;
 import com.sun.source.util.TreePath;
-
+import java.util.Collections;
+import java.util.List;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ElementVisitor;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;
 
-class TreeBackedVariableElement extends TreeBackedElement implements VariableElement {
+class TreeBackedVariableElement extends TreeBackedElement implements ArtificialVariableElement {
   private final VariableElement underlyingElement;
 
-  @Nullable
-  private final VariableTree tree;
+  @Nullable private final VariableTree tree;
 
-  @Nullable
-  private TypeMirror type;
+  @Nullable private TypeMirror type;
 
   TreeBackedVariableElement(
       VariableElement underlyingElement,
       TreeBackedElement enclosingElement,
-      @Nullable TreePath path,
-      TreeBackedElementResolver resolver) {
-    super(underlyingElement, enclosingElement, path, resolver);
+      @Nullable TreePath treePath,
+      PostEnterCanonicalizer canonicalizer) {
+    super(underlyingElement, enclosingElement, treePath, canonicalizer);
     this.underlyingElement = underlyingElement;
-    tree = path != null ? (VariableTree) path.getLeaf() : null;
+    this.tree = treePath == null ? null : (VariableTree) treePath.getLeaf();
     if (underlyingElement.getKind() == ElementKind.PARAMETER) {
       ((TreeBackedExecutableElement) enclosingElement).addParameter(this);
     } else {
@@ -51,17 +49,22 @@ class TreeBackedVariableElement extends TreeBackedElement implements VariableEle
   }
 
   @Override
-  public TypeMirror asType() {
-    if (type == null) {
-      type = getResolver().getCanonicalType(underlyingElement.asType());
-    }
-    return type;
+  public List<? extends ArtificialElement> getEnclosedElements() {
+    return Collections.emptyList();
   }
 
   @Override
   @Nullable
-  protected ModifiersTree getModifiersTree() {
-    return tree != null ? tree.getModifiers() : null;
+  VariableTree getTree() {
+    return tree;
+  }
+
+  @Override
+  public TypeMirror asType() {
+    if (type == null) {
+      type = getCanonicalizer().getCanonicalType(underlyingElement.asType());
+    }
+    return type;
   }
 
   @Override

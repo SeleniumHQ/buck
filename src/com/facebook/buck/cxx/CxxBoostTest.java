@@ -16,14 +16,15 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -32,7 +33,7 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.result.type.ResultType;
-import com.facebook.buck.util.XmlDomParser;
+import com.facebook.buck.util.xml.XmlDomParser;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -41,12 +42,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
-import org.w3c.dom.Document;
-import org.w3c.dom.NamedNodeMap;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
-
 import java.io.BufferedReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -59,6 +54,10 @@ import java.util.Stack;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import org.w3c.dom.Document;
+import org.w3c.dom.NamedNodeMap;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTestRunnerRule {
@@ -67,47 +66,49 @@ public class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTes
   private static final Pattern SUITE_END = Pattern.compile("^Leaving test suite \"(.*)\"$");
 
   private static final Pattern CASE_START = Pattern.compile("^Entering test case \"(.*)\"$");
-  private static final Pattern CASE_END = Pattern.compile(
-      "^Leaving test case \"(.*)\"(?:; testing time: (\\d+)ms)?$");
+  private static final Pattern CASE_END =
+      Pattern.compile("^Leaving test case \"(.*)\"(?:; testing time: (\\d+)ms)?$");
 
   private static final Pattern ERROR = Pattern.compile("^.*\\(\\d+\\): error .*");
 
-  private final SourcePathRuleFinder ruleFinder;
   private final BuildRule binary;
 
   public CxxBoostTest(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      SourcePathRuleFinder ruleFinder,
       BuildRule binary,
       Tool executable,
       ImmutableMap<String, String> env,
       Supplier<ImmutableList<String>> args,
       ImmutableSortedSet<? extends SourcePath> resources,
+      ImmutableSet<SourcePath> additionalCoverageTargets,
       Supplier<ImmutableSortedSet<BuildRule>> additionalDeps,
-      ImmutableSet<Label> labels,
+      ImmutableSet<String> labels,
       ImmutableSet<String> contacts,
       boolean runTestSeparately,
       Optional<Long> testRuleTimeoutMs) {
     super(
+        buildTarget,
+        projectFilesystem,
         params,
         executable,
         env,
         args,
         resources,
+        additionalCoverageTargets,
         additionalDeps,
         labels,
         contacts,
         runTestSeparately,
         testRuleTimeoutMs);
-    this.ruleFinder = ruleFinder;
     this.binary = binary;
   }
 
   @Override
   public SourcePath getSourcePathToOutput() {
     return new ForwardingBuildTargetSourcePath(
-        getBuildTarget(),
-        Preconditions.checkNotNull(binary.getSourcePathToOutput()));
+        getBuildTarget(), Preconditions.checkNotNull(binary.getSourcePathToOutput()));
   }
 
   @Override
@@ -174,10 +175,7 @@ public class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTes
   }
 
   @Override
-  protected ImmutableList<TestResultSummary> parseResults(
-      Path exitCode,
-      Path output,
-      Path results)
+  protected ImmutableList<TestResultSummary> parseResults(Path exitCode, Path output, Path results)
       throws Exception {
 
     ImmutableList.Builder<TestResultSummary> summariesBuilder = ImmutableList.builder();
@@ -232,26 +230,30 @@ public class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTes
   // The C++ test rules just wrap a test binary produced by another rule, so make sure that's
   // always available to run the test.
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return Stream.concat(
-        super.getRuntimeDeps(),
-        getExecutableCommand().getDeps(ruleFinder).stream()
-            .map(BuildRule::getBuildTarget));
+        super.getRuntimeDeps(ruleFinder),
+        getExecutableCommand().getDeps(ruleFinder).stream().map(BuildRule::getBuildTarget));
   }
 
   @Override
   public ExternalTestRunnerTestSpec getExternalTestRunnerSpec(
       ExecutionContext executionContext,
       TestRunningOptions testRunningOptions,
-      SourcePathResolver pathResolver) {
+      BuildContext buildContext) {
     return ExternalTestRunnerTestSpec.builder()
         .setTarget(getBuildTarget())
         .setType("boost")
-        .addAllCommand(getExecutableCommand().getCommandPrefix(pathResolver))
+        .addAllCommand(
+            getExecutableCommand().getCommandPrefix(buildContext.getSourcePathResolver()))
         .addAllCommand(getArgs().get())
-        .putAllEnv(getEnv(pathResolver))
+        .putAllEnv(getEnv(buildContext.getSourcePathResolver()))
         .addAllLabels(getLabels())
         .addAllContacts(getContacts())
+        .addAllAdditionalCoverageTargets(
+            buildContext
+                .getSourcePathResolver()
+                .getAllAbsolutePaths(getAdditionalCoverageTargets()))
         .build();
   }
 }

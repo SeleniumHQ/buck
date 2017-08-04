@@ -16,36 +16,38 @@
 
 package com.facebook.buck.cli;
 
+import static com.facebook.buck.util.environment.Platform.WINDOWS;
+import static org.hamcrest.CoreMatchers.not;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
-
-import org.hamcrest.Matchers;
-import org.junit.Rule;
-import org.junit.Test;
-
+import com.facebook.buck.util.environment.Platform;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.hamcrest.Matchers;
+import org.junit.Rule;
+import org.junit.Test;
 
 public class BuildCommandIntegrationTest {
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
   public void justBuild() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "just_build", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "just_build", tmp);
     workspace.setUp();
-    workspace.runBuckBuild("--just-build", "//:bar", "//:foo").assertSuccess();
+    workspace.runBuckBuild("--just-build", "//:bar", "//:foo", "//:ex ample").assertSuccess();
     assertThat(
         workspace.getBuildLog().getAllTargets(),
         Matchers.contains(BuildTargetFactory.newInstance(workspace.getDestPath(), "//:bar")));
@@ -53,24 +55,22 @@ public class BuildCommandIntegrationTest {
 
   @Test
   public void showOutput() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "just_build", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "just_build", tmp);
     workspace.setUp();
-    ProjectWorkspace.ProcessResult runBuckResult = workspace.runBuckBuild(
-        "--show-output",
-        "//:bar");
+    ProjectWorkspace.ProcessResult runBuckResult =
+        workspace.runBuckBuild("--show-output", "//:bar");
     runBuckResult.assertSuccess();
     assertThat(runBuckResult.getStdout(), Matchers.containsString("//:bar buck-out"));
   }
 
   @Test
   public void showFullOutput() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "just_build", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "just_build", tmp);
     workspace.setUp();
-    ProjectWorkspace.ProcessResult runBuckResult = workspace.runBuckBuild(
-        "--show-full-output",
-        "//:bar");
+    ProjectWorkspace.ProcessResult runBuckResult =
+        workspace.runBuckBuild("--show-full-output", "//:bar");
     runBuckResult.assertSuccess();
     Path expectedRootDirectory = tmp.getRoot();
     String expectedOutputDirectory = expectedRootDirectory.resolve("buck-out/").toString();
@@ -80,13 +80,50 @@ public class BuildCommandIntegrationTest {
   }
 
   @Test
-  public void showRuleKey() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "just_build", tmp);
+  public void showJsonOutput() throws IOException {
+    assumeThat(Platform.detect(), is(not(WINDOWS)));
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "just_build", tmp);
     workspace.setUp();
-    ProjectWorkspace.ProcessResult runBuckResult = workspace.runBuckBuild(
-        "--show-rulekey",
-        "//:bar");
+    ProjectWorkspace.ProcessResult runBuckResult =
+        workspace.runBuckBuild("--show-json-output", "//:foo", "//:bar", "//:ex ample");
+    runBuckResult.assertSuccess();
+    assertThat(
+        runBuckResult.getStdout(),
+        Matchers.containsString(
+            "\"//:bar\" : \"buck-out/gen/bar/bar\",\n  \"//:ex ample\" : \"buck-out/gen/ex ample/example\",\n  \"//:foo\" : \"buck-out/gen/foo/foo\"\n}"));
+  }
+
+  @Test
+  public void showFullJsonOutput() throws IOException {
+    assumeThat(Platform.detect(), is(not(WINDOWS)));
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "just_build/sub folder", tmp);
+    workspace.setUp();
+    ProjectWorkspace.ProcessResult runBuckResult =
+        workspace.runBuckBuild("--show-full-json-output", "//:bar", "//:foo", "//:ex ample");
+    runBuckResult.assertSuccess();
+    Path expectedRootDirectory = tmp.getRoot();
+    String expectedOutputDirectory = expectedRootDirectory.resolve("buck-out/").toString();
+    assertThat(
+        runBuckResult.getStdout(),
+        Matchers.containsString(
+            "{\n  \"//:bar\" : \""
+                + expectedOutputDirectory
+                + "/gen/bar/bar\",\n  \"//:ex ample\" : \""
+                + expectedOutputDirectory
+                + "/gen/ex ample/example\",\n  \"//:foo\" : \""
+                + expectedOutputDirectory
+                + "/gen/foo/foo\"\n}"));
+  }
+
+  @Test
+  public void showRuleKey() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "just_build", tmp);
+    workspace.setUp();
+    ProjectWorkspace.ProcessResult runBuckResult =
+        workspace.runBuckBuild("--show-rulekey", "//:bar");
     runBuckResult.assertSuccess();
 
     Pattern pattern = Pattern.compile("\\b[0-9a-f]{5,40}\\b"); // sha
@@ -99,13 +136,11 @@ public class BuildCommandIntegrationTest {
 
   @Test
   public void showRuleKeyAndOutput() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "just_build", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "just_build", tmp);
     workspace.setUp();
-    ProjectWorkspace.ProcessResult runBuckResult = workspace.runBuckBuild(
-        "--show-output",
-        "--show-rulekey",
-        "//:bar");
+    ProjectWorkspace.ProcessResult runBuckResult =
+        workspace.runBuckBuild("--show-output", "--show-rulekey", "//:bar");
     runBuckResult.assertSuccess();
 
     Pattern pattern = Pattern.compile("\\b[0-9a-f]{5,40}\\b"); // sha
@@ -114,14 +149,13 @@ public class BuildCommandIntegrationTest {
     String shaValue = shaMatcher.group();
     assertThat(shaValue.length(), Matchers.equalTo(40));
     assertThat(
-        runBuckResult.getStdout(),
-        Matchers.containsString("//:bar " + shaValue + " buck-out"));
+        runBuckResult.getStdout(), Matchers.containsString("//:bar " + shaValue + " buck-out"));
   }
 
   @Test
   public void buckBuildAndCopyOutputFileWithBuildTargetThatSupportsIt() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "build_into", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "build_into", tmp);
     workspace.setUp();
 
     Path externalOutputs = tmp.newFolder("into-output");
@@ -136,19 +170,19 @@ public class BuildCommandIntegrationTest {
 
   @Test
   public void buckBuildAndCopyOutputFileWithBuildTargetThatDoesNotSupportIt() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "build_into", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "build_into", tmp);
     workspace.setUp();
 
     Path externalOutputs = tmp.newFolder("into-output");
     Path output = externalOutputs.resolve("pylib.zip");
     assertFalse(output.toFile().exists());
-    ProjectWorkspace.ProcessResult result = workspace.runBuckBuild(
-        "//:example_py",
-        "--out",
-        output.toString());
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckBuild("//:example_py", "--out", output.toString());
     result.assertFailure();
-    assertThat(result.getStderr(), Matchers.containsString(
-        "//:example_py does not have an output that is compatible with `buck build --out`"));
+    assertThat(
+        result.getStderr(),
+        Matchers.containsString(
+            "//:example_py does not have an output that is compatible with `buck build --out`"));
   }
 }

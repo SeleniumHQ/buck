@@ -14,41 +14,37 @@
  * under the License.
  */
 
-
 package com.facebook.buck.android;
-
 
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ObjectMappers;
 import com.fasterxml.jackson.databind.JsonNode;
-
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
-import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-
-/**
- * Tests for AndroidLibraryDescription
- */
-public class AndroidLibraryDescriptionIntegrationTest {
-  @Rule
-  public TemporaryPaths tmpFolder = new TemporaryPaths();
+/** Tests for AndroidLibraryDescription */
+public class AndroidLibraryDescriptionIntegrationTest extends AbiCompilationModeTest {
+  @Rule public TemporaryPaths tmpFolder = new TemporaryPaths();
   private ProjectWorkspace workspace;
 
   @Before
   public void setUp() throws IOException {
-    workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "android_library_dynamic_deps", tmpFolder);
+    workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "android_library_dynamic_deps", tmpFolder);
     workspace.setUp();
+    setWorkspaceCompilationMode(workspace);
   }
 
   @Test
@@ -84,6 +80,11 @@ public class AndroidLibraryDescriptionIntegrationTest {
 
     // Now, add lib_a to the 'top_level' library and build again
     workspace.replaceFileContents("BUCK", "#placeholder", "':lib_a',");
+
+    // Have the src for the 'top_level' rule actually use its dependency
+    workspace.replaceFileContents("TopLevel.java", "// placeholder", "public A a;");
+
+    // Build again
     workspace.runBuckCommand("build", "//:android_libraries");
 
     // Now we should rebuild top_level, re-run the query, and rebuild android_libraries
@@ -159,16 +160,16 @@ public class AndroidLibraryDescriptionIntegrationTest {
   @Test
   public void testProvidedDepsQueryDoesNotAffectPackaging() throws Exception {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
-    workspace.runBuckCommand("build", "//:check_output_of_does_not_package_lib_c")
-        .assertSuccess();
-    String[] outputs = workspace.getFileContents(
-        getOutputFile("//:check_output_of_does_not_package_lib_c"))
-        .split("\\s");
+    workspace.runBuckCommand("build", "//:check_output_of_does_not_package_lib_c").assertSuccess();
+    String[] outputs =
+        workspace
+            .getFileContents(getOutputFile("//:check_output_of_does_not_package_lib_c"))
+            .split("\\s");
     // There should be a class entry for UsesC.java
     Assert.assertThat(outputs, Matchers.hasItemInArray("com/facebook/example/UsesC.class"));
     // But not one for C.java
-    Assert.assertThat(outputs,
-        Matchers.not(Matchers.hasItemInArray("com/facebook/example/C.class")));
+    Assert.assertThat(
+        outputs, Matchers.not(Matchers.hasItemInArray("com/facebook/example/C.class")));
   }
 
   private Path getOutputFile(String targetName) {

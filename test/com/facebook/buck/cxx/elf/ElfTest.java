@@ -21,15 +21,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-
-import org.hamcrest.Matchers;
-import org.junit.Rule;
-import org.junit.Test;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
@@ -37,16 +31,18 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
+import org.hamcrest.Matchers;
+import org.junit.Rule;
+import org.junit.Test;
 
 public class ElfTest {
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
   public void le64() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "samples", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "samples", tmp);
     workspace.setUp();
 
     Path elfPath = workspace.resolve(Paths.get("le64.o"));
@@ -58,13 +54,12 @@ public class ElfTest {
       assertEquals(11, elf.getNumberOfSections());
       assertTrue(elf.getSectionByName(".text").isPresent());
     }
-
   }
 
   @Test
   public void le32() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "samples", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "samples", tmp);
     workspace.setUp();
 
     Path elfPath = workspace.resolve(Paths.get("le32.o"));
@@ -76,13 +71,12 @@ public class ElfTest {
       assertEquals(9, elf.getNumberOfSections());
       assertTrue(elf.getSectionByName(".text").isPresent());
     }
-
   }
 
   @Test
   public void be32() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "samples", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "samples", tmp);
     workspace.setUp();
 
     Path elfPath = workspace.resolve(Paths.get("be32.o"));
@@ -94,13 +88,12 @@ public class ElfTest {
       assertEquals(14, elf.getNumberOfSections());
       assertTrue(elf.getSectionByName(".text").isPresent());
     }
-
   }
 
   @Test
   public void sectionTypes() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "samples", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "samples", tmp);
     workspace.setUp();
 
     Path elfPath = workspace.resolve(Paths.get("section_types.o"));
@@ -109,29 +102,28 @@ public class ElfTest {
       Elf elf = new Elf(buffer);
       Optional<ElfSection> section;
 
-      section = elf.getSectionByName(".text").map(Pair::getSecond);
+      section = elf.getSectionByName(".text").map(ElfSectionLookupResult::getSection);
       assertTrue(section.isPresent());
       assertEquals(ElfSectionHeader.SHType.SHT_PROGBITS, section.get().header.sh_type);
 
-      section = elf.getSectionByName(".bss").map(Pair::getSecond);
+      section = elf.getSectionByName(".bss").map(ElfSectionLookupResult::getSection);
       assertTrue(section.isPresent());
       assertEquals(ElfSectionHeader.SHType.SHT_NOBITS, section.get().header.sh_type);
 
-      section = elf.getSectionByName(".strtab").map(Pair::getSecond);
+      section = elf.getSectionByName(".strtab").map(ElfSectionLookupResult::getSection);
       assertTrue(section.isPresent());
       assertEquals(ElfSectionHeader.SHType.SHT_STRTAB, section.get().header.sh_type);
 
-      section = elf.getSectionByName(".symtab").map(Pair::getSecond);
+      section = elf.getSectionByName(".symtab").map(ElfSectionLookupResult::getSection);
       assertTrue(section.isPresent());
       assertEquals(ElfSectionHeader.SHType.SHT_SYMTAB, section.get().header.sh_type);
     }
-
   }
 
   @Test
   public void lotsOfSectionHeaders() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "samples", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "samples", tmp);
     workspace.setUp();
 
     Path elfPath = workspace.resolve(Paths.get("has43664sections.o"));
@@ -140,12 +132,10 @@ public class ElfTest {
       Elf elf = new Elf(buffer);
       assertThat(elf.getNumberOfSections(), Matchers.equalTo(43664));
     }
-
   }
 
   @Test
   public void isElfEmptyBuffer() throws IOException {
     assertFalse(Elf.isElf(ByteBuffer.allocate(0)));
   }
-
 }

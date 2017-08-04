@@ -16,8 +16,11 @@
 
 package org.openqa.selenium.buck.javascript;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
@@ -34,10 +37,9 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
-
 import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Path;
@@ -45,8 +47,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedSet;
 
-public class JsBinary extends AbstractBuildRule implements
+public class JsBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps implements
     InitializableFromDisk<JavascriptDependencies>, HasJavascriptDependencies {
 
   private final Path joyPath;
@@ -54,9 +57,9 @@ public class JsBinary extends AbstractBuildRule implements
   @AddToRuleKey
   private final Tool compiler;
   @AddToRuleKey
-  private final com.google.common.base.Supplier<ImmutableSortedSet<BuildRule>> deps;
+  private final Supplier<? extends SortedSet<BuildRule>> deps;
   @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> srcs;
+  private final SortedSet<SourcePath> srcs;
   @AddToRuleKey
   private final ImmutableList<String> defines;
   @AddToRuleKey
@@ -69,15 +72,17 @@ public class JsBinary extends AbstractBuildRule implements
   private final BuildOutputInitializer<JavascriptDependencies> buildOutputInitializer;
 
   public JsBinary(
+      BuildTarget target,
+      ProjectFilesystem filesystem,
       BuildRuleParams params,
       Tool compiler,
-      com.google.common.base.Supplier<ImmutableSortedSet<BuildRule>> deps,
-      ImmutableSortedSet<SourcePath> srcs,
+      Supplier<? extends SortedSet<BuildRule>> deps,
+      SortedSet<SourcePath> srcs,
       ImmutableList<String> defines,
       ImmutableList<String> flags,
       ImmutableList<SourcePath> externs,
       Optional<Boolean> noFormat) {
-    super(params);
+    super(target, filesystem, params);
 
     this.compiler = compiler;
 
@@ -164,9 +169,17 @@ public class JsBinary extends AbstractBuildRule implements
     StringWriter writer = new StringWriter();
     smidgen.writeTo(writer);
 
-    steps.add(MkdirStep.of(getProjectFilesystem(), joyPath.getParent()));
+    steps.add(MkdirStep.of(
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(),
+            getProjectFilesystem(),
+            joyPath.getParent())));
     steps.add(new WriteFileStep(getProjectFilesystem(), writer.toString(), joyPath, false));
-    steps.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
+    steps.add(MkdirStep.of(
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(),
+            getProjectFilesystem(),
+            output.getParent())));
     steps.add(compileStep);
 
     buildableContext.recordArtifact(output);

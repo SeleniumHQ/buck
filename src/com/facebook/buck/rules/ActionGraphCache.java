@@ -29,6 +29,8 @@ import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.keys.ContentAgnosticRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.WatchmanOverflowEvent;
+import com.facebook.buck.util.WatchmanPathEvent;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -38,13 +40,9 @@ import com.google.common.eventbus.Subscribe;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
-
-import java.nio.file.StandardWatchEventKinds;
-import java.nio.file.WatchEvent;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-
 import javax.annotation.Nullable;
 
 /**
@@ -54,11 +52,9 @@ import javax.annotation.Nullable;
 public class ActionGraphCache {
   private static final Logger LOG = Logger.get(ActionGraphCache.class);
 
-  @Nullable
-  private Pair<TargetGraph, ActionGraphAndResolver> lastActionGraph;
+  @Nullable private Pair<TargetGraph, ActionGraphAndResolver> lastActionGraph;
 
-  @Nullable
-  private HashCode lastTargetGraphHash;
+  @Nullable private HashCode lastTargetGraphHash;
 
   private BroadcastEventListener broadcastEventListener;
 
@@ -67,9 +63,10 @@ public class ActionGraphCache {
   }
 
   /**
-   * It returns an {@link ActionGraphAndResolver}. If the {@code targetGraph} exists in the cache
-   * it returns a cached version of the {@link ActionGraphAndResolver}, else returns a new one and
+   * It returns an {@link ActionGraphAndResolver}. If the {@code targetGraph} exists in the cache it
+   * returns a cached version of the {@link ActionGraphAndResolver}, else returns a new one and
    * updates the cache.
+   *
    * @param eventBus the {@link BuckEventBus} to post the events of the processing.
    * @param skipActionGraphCache if true, do not invalidate the {@link ActionGraph} cached in
    *     memory. Instead, create a new {@link ActionGraph} for this request, which should be
@@ -112,9 +109,7 @@ public class ActionGraphCache {
             new Pair<TargetGraph, ActionGraphAndResolver>(
                 targetGraph,
                 createActionGraph(
-                    eventBus,
-                    new DefaultTargetNodeToBuildRuleTransformer(),
-                    targetGraph));
+                    eventBus, new DefaultTargetNodeToBuildRuleTransformer(), targetGraph));
         out = freshActionGraph.getSecond();
         if (!skipActionGraphCache) {
           LOG.info("ActionGraph cache assignment. skipActionGraphCache? %s", skipActionGraphCache);
@@ -128,15 +123,15 @@ public class ActionGraphCache {
   }
 
   /**
-   * * It returns a new {@link ActionGraphAndResolver} based on the targetGraph without checking
-   * the cache. It uses a {@link DefaultTargetNodeToBuildRuleTransformer}.
+   * * It returns a new {@link ActionGraphAndResolver} based on the targetGraph without checking the
+   * cache. It uses a {@link DefaultTargetNodeToBuildRuleTransformer}.
+   *
    * @param eventBus the {@link BuckEventBus} to post the events of the processing.
    * @param targetGraph the target graph that the action graph will be based on.
    * @return a {@link ActionGraphAndResolver}
    */
   public static ActionGraphAndResolver getFreshActionGraph(
-      final BuckEventBus eventBus,
-      final TargetGraph targetGraph) {
+      final BuckEventBus eventBus, final TargetGraph targetGraph) {
     TargetNodeToBuildRuleTransformer transformer = new DefaultTargetNodeToBuildRuleTransformer();
     return getFreshActionGraph(eventBus, transformer, targetGraph);
   }
@@ -144,9 +139,10 @@ public class ActionGraphCache {
   /**
    * It returns a new {@link ActionGraphAndResolver} based on the targetGraph without checking the
    * cache. It uses a custom {@link TargetNodeToBuildRuleTransformer}.
+   *
    * @param eventBus The {@link BuckEventBus} to post the events of the processing.
    * @param transformer Custom {@link TargetNodeToBuildRuleTransformer} that the transformation will
-   *                    be based on.
+   *     be based on.
    * @param targetGraph The target graph that the action graph will be based on.
    * @return It returns a {@link ActionGraphAndResolver}
    */
@@ -203,7 +199,7 @@ public class ActionGraphCache {
       BuildRuleResolver buildRuleResolver,
       RuleKeyFieldLoader fieldLoader) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ContentAgnosticRuleKeyFactory factory =
         new ContentAgnosticRuleKeyFactory(fieldLoader, pathResolver, ruleFinder);
 
@@ -216,9 +212,10 @@ public class ActionGraphCache {
   }
 
   /**
-   * Compares the cached ActionGraph with a newly generated from the targetGraph. The comparison
-   * is done by generating and comparing content agnostic RuleKeys. In case of mismatch, the
+   * Compares the cached ActionGraph with a newly generated from the targetGraph. The comparison is
+   * done by generating and comparing content agnostic RuleKeys. In case of mismatch, the
    * mismatching BuildRules are printed and the building process is stopped.
+   *
    * @param eventBus Buck's event bus.
    * @param lastActionGraphAndResolver The cached version of the graph that gets compared.
    * @param targetGraph Used to generate the actionGraph that gets compared with lastActionGraph.
@@ -228,9 +225,8 @@ public class ActionGraphCache {
       final ActionGraphAndResolver lastActionGraphAndResolver,
       final TargetGraph targetGraph,
       final RuleKeyFieldLoader fieldLoader) {
-    try (SimplePerfEvent.Scope scope = SimplePerfEvent.scope(
-        eventBus,
-        PerfEventId.of("ActionGraphCacheCheck"))) {
+    try (SimplePerfEvent.Scope scope =
+        SimplePerfEvent.scope(eventBus, PerfEventId.of("ActionGraphCacheCheck"))) {
       // We check that the lastActionGraph is not null because it's possible we had a
       // invalidateCache() between the scheduling and the execution of this task.
       LOG.info("ActionGraph integrity check spawned.");
@@ -238,18 +234,18 @@ public class ActionGraphCache {
           new Pair<TargetGraph, ActionGraphAndResolver>(
               targetGraph,
               createActionGraph(
-                  eventBus,
-                  new DefaultTargetNodeToBuildRuleTransformer(),
-                  targetGraph));
+                  eventBus, new DefaultTargetNodeToBuildRuleTransformer(), targetGraph));
 
-      Map<BuildRule, RuleKey> lastActionGraphRuleKeys = getRuleKeysFromBuildRules(
-          lastActionGraphAndResolver.getActionGraph().getNodes(),
-          lastActionGraphAndResolver.getResolver(),
-          fieldLoader);
-      Map<BuildRule, RuleKey> newActionGraphRuleKeys = getRuleKeysFromBuildRules(
-          newActionGraph.getSecond().getActionGraph().getNodes(),
-          newActionGraph.getSecond().getResolver(),
-          fieldLoader);
+      Map<BuildRule, RuleKey> lastActionGraphRuleKeys =
+          getRuleKeysFromBuildRules(
+              lastActionGraphAndResolver.getActionGraph().getNodes(),
+              lastActionGraphAndResolver.getResolver(),
+              fieldLoader);
+      Map<BuildRule, RuleKey> newActionGraphRuleKeys =
+          getRuleKeysFromBuildRules(
+              newActionGraph.getSecond().getActionGraph().getNodes(),
+              newActionGraph.getSecond().getResolver(),
+              fieldLoader);
 
       if (!lastActionGraphRuleKeys.equals(newActionGraphRuleKeys)) {
         invalidateCache();
@@ -257,13 +253,16 @@ public class ActionGraphCache {
         MapDifference<BuildRule, RuleKey> mismatchedRules =
             Maps.difference(lastActionGraphRuleKeys, newActionGraphRuleKeys);
         mismatchInfo +=
-            "Number of nodes in common/differing: " + mismatchedRules.entriesInCommon().size() +
-                "/" + mismatchedRules.entriesDiffering().size() + "\n" +
-                "Entries only in the cached ActionGraph: " +
-                mismatchedRules.entriesOnlyOnLeft().size() +
-                "Entries only in the newly created ActionGraph: " +
-                mismatchedRules.entriesOnlyOnRight().size() +
-                "The rules that did not match:\n";
+            "Number of nodes in common/differing: "
+                + mismatchedRules.entriesInCommon().size()
+                + "/"
+                + mismatchedRules.entriesDiffering().size()
+                + "\n"
+                + "Entries only in the cached ActionGraph: "
+                + mismatchedRules.entriesOnlyOnLeft().size()
+                + "Entries only in the newly created ActionGraph: "
+                + mismatchedRules.entriesOnlyOnRight().size()
+                + "The rules that did not match:\n";
         mismatchInfo += mismatchedRules.entriesDiffering().keySet().toString();
         LOG.error(mismatchInfo);
         throw new RuntimeException(mismatchInfo);
@@ -272,23 +271,37 @@ public class ActionGraphCache {
   }
 
   @Subscribe
-  public void invalidateBasedOn(WatchEvent<?> event) {
+  public void invalidateBasedOn(WatchmanPathEvent event) {
     // We invalidate in every case except a modify event.
-    if (event.kind() != StandardWatchEventKinds.ENTRY_MODIFY) {
-      if (!isCacheEmpty()) {
-        LOG.info("ActionGraphCache invalidation due to Watchman event %s.", event);
-      }
-      invalidateCache();
-      if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
-        broadcastEventListener.broadcast(WatchmanStatusEvent.overflow((String) event.context()));
-      } else if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE) {
-        broadcastEventListener.broadcast(
-            WatchmanStatusEvent.fileCreation(event.context().toString()));
-      } else if (event.kind() == StandardWatchEventKinds.ENTRY_DELETE) {
-        broadcastEventListener.broadcast(
-            WatchmanStatusEvent.fileDeletion(event.context().toString()));
-      }
+    if (event.getKind() == WatchmanPathEvent.Kind.MODIFY) {
+      return;
     }
+    if (!isCacheEmpty()) {
+      LOG.info("ActionGraphCache invalidation due to Watchman event %s.", event);
+    }
+    invalidateCache();
+    switch (event.getKind()) {
+      case CREATE:
+        broadcastEventListener.broadcast(
+            WatchmanStatusEvent.fileCreation(event.getPath().toString()));
+        return;
+      case DELETE:
+        broadcastEventListener.broadcast(
+            WatchmanStatusEvent.fileDeletion(event.getPath().toString()));
+        return;
+      case MODIFY:
+        throw new IllegalStateException("Should have handled MODIFY event earlier.");
+    }
+    throw new IllegalStateException("Unhandled case: " + event.getKind());
+  }
+
+  @Subscribe
+  public void invalidateBasedOn(WatchmanOverflowEvent event) {
+    if (!isCacheEmpty()) {
+      LOG.info("ActionGraphCache invalidation due to Watchman event %s.", event);
+    }
+    invalidateCache();
+    broadcastEventListener.broadcast(WatchmanStatusEvent.overflow(event.getReason()));
   }
 
   private void invalidateCache() {

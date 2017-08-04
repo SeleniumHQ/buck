@@ -33,38 +33,38 @@ import com.facebook.buck.rules.BuildRuleKeys;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.concurrent.MostExecutors;
-
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.Optional;
-import java.util.concurrent.ExecutorService;
-
 public class RuleKeyLoggerListenerTest {
 
-  private TemporaryFolder tempDirectory;
   private ProjectFilesystem projectFilesystem;
   private ExecutorService outputExecutor;
   private InvocationInfo info;
   private BuildRuleDurationTracker durationTracker;
 
   @Before
-  public void setUp() throws IOException {
-    tempDirectory = new TemporaryFolder();
+  public void setUp() throws InterruptedException, IOException {
+    TemporaryFolder tempDirectory = new TemporaryFolder();
     tempDirectory.create();
     projectFilesystem = new ProjectFilesystem(tempDirectory.getRoot().toPath());
-    outputExecutor = MostExecutors.newSingleThreadExecutor(
-        new CommandThreadFactory(getClass().getName()));
-    info = InvocationInfo.of(
-        new BuildId(),
-        false,
-        false,
-        "topspin",
-        tempDirectory.getRoot().toPath());
+    outputExecutor =
+        MostExecutors.newSingleThreadExecutor(new CommandThreadFactory(getClass().getName()));
+    info =
+        InvocationInfo.of(
+            new BuildId(),
+            false,
+            false,
+            "topspin",
+            new String[0],
+            new String[0],
+            tempDirectory.getRoot().toPath());
     durationTracker = new BuildRuleDurationTracker();
   }
 
@@ -102,38 +102,28 @@ public class RuleKeyLoggerListenerTest {
   }
 
   private BuildRuleEvent.Finished createBuildEvent() {
-    BuildRule rule = new FakeBuildRule(BuildTarget.builder()
-        .setUnflavoredBuildTarget(
-            UnflavoredBuildTarget.of(
-                projectFilesystem.getRootPath(),
-                Optional.empty(),
-                "//topspin",
-                "//downtheline"))
-        .build(), null);
+    BuildRule rule =
+        new FakeBuildRule(
+            BuildTarget.of(
+                UnflavoredBuildTarget.of(
+                    projectFilesystem.getRootPath(),
+                    Optional.empty(),
+                    "//topspin",
+                    "//downtheline")));
     BuildRuleKeys keys = BuildRuleKeys.of(new RuleKey("1a1a1a"));
-    BuildRuleEvent.Started started = TestEventConfigurator.configureTestEvent(
-        BuildRuleEvent.started(rule, durationTracker));
-    return BuildRuleEvent.finished(started, keys, null, null, null, null, null, Optional.empty());
+    BuildRuleEvent.Started started =
+        TestEventConfigurator.configureTestEvent(BuildRuleEvent.started(rule, durationTracker));
+    return BuildRuleEvent.finished(
+        started, keys, null, null, Optional.empty(), null, false, null, null, Optional.empty());
   }
 
   private HttpArtifactCacheEvent.Finished createArtifactCacheEvent(CacheResultType type) {
-    RuleKey ruleKey = new RuleKey("abababab42");
-    HttpArtifactCacheEvent.Started startedEvent = HttpArtifactCacheEvent.newFetchStartedEvent(
-        ruleKey);
-    HttpArtifactCacheEvent.Finished.Builder builder =
-        HttpArtifactCacheEvent.newFinishedEventBuilder(startedEvent);
-    builder.getFetchBuilder().setFetchResult(CacheResult.builder()
-        .setType(type)
-        .setCacheSource("random source")
-        .build());
-    return builder.build();
+    return ArtifactCacheTestUtils.newFetchFinishedEvent(
+        ArtifactCacheTestUtils.newFetchStartedEvent(new RuleKey("abababab42")),
+        CacheResult.builder().setType(type).setCacheSource("random source").build());
   }
 
   private RuleKeyLoggerListener newInstance(int minLinesForAutoFlush) {
-    return new RuleKeyLoggerListener(
-        projectFilesystem,
-        info,
-        outputExecutor,
-        minLinesForAutoFlush);
+    return new RuleKeyLoggerListener(projectFilesystem, info, outputExecutor, minLinesForAutoFlush);
   }
 }

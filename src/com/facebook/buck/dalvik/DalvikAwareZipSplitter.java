@@ -17,7 +17,6 @@
 package com.facebook.buck.dalvik;
 
 import com.facebook.buck.android.APKModule;
-import com.facebook.buck.android.APKModuleGraph;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.classes.AbstractFileLike;
 import com.facebook.buck.jvm.java.classes.ClasspathTraversal;
@@ -33,7 +32,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteStreams;
-
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -44,29 +42,23 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import javax.annotation.Nullable;
 
 /**
- * Implementation of {@link ZipSplitter} that uses estimates from {@link DalvikStatsTool}
- * to determine how many classes to pack into a dex.
- * <p>
- * It does three passes through the .class files:
+ * Implementation of {@link ZipSplitter} that uses estimates from {@link DalvikStatsTool} to
+ * determine how many classes to pack into a dex.
+ *
+ * <p>It does three passes through the .class files:
+ *
  * <ul>
- *   <li>
- *     During the first pass, it uses the {@code requiredInPrimaryZip} predicate to filter the set
- *     of classes that <em>must</em> be included in the primary dex. These classes are added to
- *     the primary zip.
- *   </li>
- *   <li>
- *     During the second pass, it uses the {@code wantedInPrimaryZip} list to find classes that
- *     were not included in the first pass but that should still be in the primary zip for
- *     performance reasons, and adds them to the primary zip.
- *   </li>
- *   <li>
- *     During the third pass, classes that were not matched during the earlier passes are added
- *     to zips as space allows. This is a simple, greedy algorithm.
- *   </li>
+ *   <li>During the first pass, it uses the {@code requiredInPrimaryZip} predicate to filter the set
+ *       of classes that <em>must</em> be included in the primary dex. These classes are added to
+ *       the primary zip.
+ *   <li>During the second pass, it uses the {@code wantedInPrimaryZip} list to find classes that
+ *       were not included in the first pass but that should still be in the primary zip for
+ *       performance reasons, and adds them to the primary zip.
+ *   <li>During the third pass, classes that were not matched during the earlier passes are added to
+ *       zips as space allows. This is a simple, greedy algorithm.
  * </ul>
  */
 public class DalvikAwareZipSplitter implements ZipSplitter {
@@ -83,22 +75,14 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
   private final DexSplitStrategy dexSplitStrategy;
   private final ImmutableSet<String> secondaryHeadSet;
   private final ImmutableSet<String> secondaryTailSet;
-  @Nullable
-  private final ImmutableMultimap<String, APKModule> classPathToDexStore;
+  @Nullable private final ImmutableMultimap<String, APKModule> classPathToDexStore;
 
   private final MySecondaryDexHelper secondaryDexWriter;
   private final Map<APKModule, MySecondaryDexHelper> additionalDexWriters;
-  private final APKModuleGraph apkModuleGraph;
+  private final APKModule rootModule;
 
-  @Nullable
-  private DalvikAwareOutputStreamHelper primaryOut;
+  @Nullable private DalvikAwareOutputStreamHelper primaryOut;
 
-  /**
-   * @see ZipSplitterFactory#newInstance(ProjectFilesystem, Set, Path, Path, String, Path,
-   *     Predicate, ImmutableSet, ImmutableSet, ImmutableMultimap, APKModuleGraph,
-   *     com.facebook.buck.dalvik.ZipSplitter.DexSplitStrategy,
-   *     com.facebook.buck.dalvik.ZipSplitter.CanaryStrategy, Path)
-   */
   private DalvikAwareZipSplitter(
       ProjectFilesystem filesystem,
       Set<Path> inFiles,
@@ -112,9 +96,9 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
       ImmutableSet<String> secondaryHeadSet,
       ImmutableSet<String> secondaryTailSet,
       ImmutableMultimap<APKModule, String> additionalDexStoreSets,
-      APKModuleGraph apkModuleGraph,
+      APKModule rootAPKModule,
       DexSplitStrategy dexSplitStrategy,
-      ZipSplitter.CanaryStrategy canaryStrategy,
+      CanaryStrategy canaryStrategy,
       Path reportDir) {
     if (linearAllocLimit <= 0) {
       throw new HumanReadableException("linear_alloc_hard_limit must be greater than zero.");
@@ -131,7 +115,7 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
     this.secondaryTailSet = secondaryTailSet;
     this.classPathToDexStore = additionalDexStoreSets.inverse();
     for (APKModule dexStore : additionalDexStoreSets.keySet()) {
-      if (!dexStore.equals(apkModuleGraph.getRootAPKModule())) {
+      if (!dexStore.equals(rootAPKModule)) {
         additionalDexWriters.put(
             dexStore,
             new MySecondaryDexHelper(
@@ -141,7 +125,7 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
                 CanaryStrategy.INCLUDE_CANARIES));
       }
     }
-    this.apkModuleGraph = apkModuleGraph;
+    this.rootModule = rootAPKModule;
     this.reportDir = reportDir;
     this.dexSplitStrategy = dexSplitStrategy;
     this.linearAllocLimit = linearAllocLimit;
@@ -161,9 +145,9 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
       ImmutableSet<String> secondaryHeadSet,
       ImmutableSet<String> secondaryTailSet,
       ImmutableMultimap<APKModule, String> additionalDexStoreSets,
-      APKModuleGraph apkModuleGraph,
+      APKModule rootAPKModule,
       DexSplitStrategy dexSplitStrategy,
-      ZipSplitter.CanaryStrategy canaryStrategy,
+      CanaryStrategy canaryStrategy,
       Path reportDir) {
     return new DalvikAwareZipSplitter(
         filesystem,
@@ -178,7 +162,7 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
         secondaryHeadSet,
         secondaryTailSet,
         additionalDexStoreSets,
-        apkModuleGraph,
+        rootAPKModule,
         dexSplitStrategy,
         canaryStrategy,
         reportDir);
@@ -218,8 +202,8 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
 
             if (requiredInPrimaryZip.apply(relativePath)) {
               primaryOut.putEntry(entry);
-            } else if (wantedInPrimaryZip.contains(relativePath) ||
-                (secondaryHeadSet != null && secondaryHeadSet.contains(relativePath))) {
+            } else if (wantedInPrimaryZip.contains(relativePath)
+                || (secondaryHeadSet != null && secondaryHeadSet.contains(relativePath))) {
               entriesBuilder.put(relativePath, new BufferedFileLike(entry));
             } else if (secondaryTailSet != null && secondaryTailSet.contains(relativePath)) {
               entriesBuilder.put(relativePath, new BufferedFileLike(entry));
@@ -228,13 +212,13 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
               ImmutableCollection<APKModule> containingModule = classPathToDexStore.get(classPath);
               if (!containingModule.isEmpty()) {
                 if (containingModule.size() > 1) {
-                  throw new IllegalStateException(String.format(
-                      "classpath %s is contained in multiple dex stores: %s",
-                      classPath,
-                      classPathToDexStore.get(classPath).asList().toString()));
+                  throw new IllegalStateException(
+                      String.format(
+                          "classpath %s is contained in multiple dex stores: %s",
+                          classPath, classPathToDexStore.get(classPath).asList().toString()));
                 }
                 APKModule dexStore = containingModule.iterator().next();
-                if (!dexStore.equals(apkModuleGraph.getRootAPKModule())) {
+                if (!dexStore.equals(rootModule)) {
                   MySecondaryDexHelper dexHelper = additionalDexWriters.get(dexStore);
                   Preconditions.checkNotNull(dexHelper);
                   dexHelper.getOutputToWriteTo(entry).putEntry(entry);
@@ -267,41 +251,43 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
 
     // Now that all of the required entries have been added to the primary zip, fill the rest of
     // the zip up with the remaining entries.
-    classpathTraverser.traverse(new ClasspathTraversal(inFiles, filesystem) {
-      @Override
-      public void visit(FileLike entry) throws IOException {
-        Preconditions.checkNotNull(primaryOut);
-        String relativePath = entry.getRelativePath();
+    classpathTraverser.traverse(
+        new ClasspathTraversal(inFiles, filesystem) {
+          @Override
+          public void visit(FileLike entry) throws IOException {
+            Preconditions.checkNotNull(primaryOut);
+            String relativePath = entry.getRelativePath();
 
-        // skip if it is the primary dex, is part of a modular dex store, or is not a class file
-        if (primaryOut.containsEntry(entry) ||
-            additionalDexStoreEntries.contains(relativePath)) {
-          return;
-        }
+            // skip if it is the primary dex, is part of a modular dex store, or is not a class file
+            if (primaryOut.containsEntry(entry)
+                || additionalDexStoreEntries.contains(relativePath)) {
+              return;
+            }
 
-        LOG.debug("Visiting " + entry.getRelativePath());
+            LOG.debug("Visiting " + entry.getRelativePath());
 
-        // Even if we have started writing a secondary dex, we still check if there is any leftover
-        // room in the primary dex for the current entry in the traversal.
-        if (dexSplitStrategy == DexSplitStrategy.MAXIMIZE_PRIMARY_DEX_SIZE &&
-            primaryOut.canPutEntry(entry)) {
-          primaryOut.putEntry(entry);
-        } else {
-          if (secondaryHeadSet != null && secondaryHeadSet.contains(relativePath)) {
-            return;
+            // Even if we have started writing a secondary dex, we still check if there is any leftover
+            // room in the primary dex for the current entry in the traversal.
+            if (dexSplitStrategy == DexSplitStrategy.MAXIMIZE_PRIMARY_DEX_SIZE
+                && primaryOut.canPutEntry(entry)) {
+              primaryOut.putEntry(entry);
+            } else {
+              if (secondaryHeadSet != null && secondaryHeadSet.contains(relativePath)) {
+                return;
+              }
+              if (secondaryTail.contains(relativePath)) {
+                return;
+              }
+              secondaryDexWriter.getOutputToWriteTo(entry).putEntry(entry);
+            }
           }
-          if (secondaryTail.contains(relativePath)) {
-            return;
-          }
-          secondaryDexWriter.getOutputToWriteTo(entry).putEntry(entry);
-        }
-      }
-    });
+        });
     if (secondaryTailSet != null) {
       for (String tail : secondaryTailSet) {
         FileLike tailEntry = entries.get(tail);
-        if ((tailEntry != null) && !primaryOut.containsEntry(tailEntry) &&
-            secondaryTail.contains(tail)) {
+        if ((tailEntry != null)
+            && !primaryOut.containsEntry(tailEntry)
+            && secondaryTail.contains(tail)) {
           secondaryDexWriter.getOutputToWriteTo(tailEntry).putEntry(tailEntry);
         }
       }
@@ -310,7 +296,7 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
     secondaryDexWriter.close();
 
     ImmutableMultimap.Builder<APKModule, Path> outputFilesBuilder = ImmutableMultimap.builder();
-    APKModule secondaryDexStore = apkModuleGraph.getRootAPKModule();
+    APKModule secondaryDexStore = rootModule;
     outputFilesBuilder.putAll(secondaryDexStore, secondaryDexWriter.getFiles());
     for (Map.Entry<APKModule, MySecondaryDexHelper> entry : additionalDexWriters.entrySet()) {
       if (!entry.getKey().equals(secondaryDexStore)) {
@@ -325,8 +311,7 @@ public class DalvikAwareZipSplitter implements ZipSplitter {
     return new DalvikAwareOutputStreamHelper(file, linearAllocLimit, reportDir, dalvikStatsCache);
   }
 
-  private class MySecondaryDexHelper
-      extends SecondaryDexHelper<DalvikAwareOutputStreamHelper> {
+  private class MySecondaryDexHelper extends SecondaryDexHelper<DalvikAwareOutputStreamHelper> {
 
     MySecondaryDexHelper(
         String storeName,

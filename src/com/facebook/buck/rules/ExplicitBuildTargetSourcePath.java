@@ -18,15 +18,15 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Pair;
-
+import com.google.common.collect.ComparisonChain;
 import java.nio.file.Path;
+import java.util.Objects;
 
 /**
  * A {@link BuildTargetSourcePath} which resolves to a specific (possibly non-default) output of the
  * {@link BuildRule} referred to by its target.
  */
-public class ExplicitBuildTargetSourcePath
-    extends BuildTargetSourcePath<ExplicitBuildTargetSourcePath> {
+public class ExplicitBuildTargetSourcePath extends BuildTargetSourcePath {
 
   private final Path resolvedPath;
 
@@ -40,21 +40,45 @@ public class ExplicitBuildTargetSourcePath
   }
 
   @Override
-  protected Object asReference() {
-    return new Pair<>(getTarget(), resolvedPath);
+  public int hashCode() {
+    return Objects.hash(getTarget(), resolvedPath);
   }
 
   @Override
-  protected int compareReferences(ExplicitBuildTargetSourcePath o) {
-    if (o == this) {
+  public boolean equals(Object other) {
+    if (this == other) {
+      return true;
+    }
+
+    if (!(other instanceof ExplicitBuildTargetSourcePath)) {
+      return false;
+    }
+
+    ExplicitBuildTargetSourcePath that = (ExplicitBuildTargetSourcePath) other;
+    return getTarget().equals(that.getTarget()) && resolvedPath.equals(that.resolvedPath);
+  }
+
+  @Override
+  public String toString() {
+    return String.valueOf(new Pair<>(getTarget(), resolvedPath));
+  }
+
+  @Override
+  public int compareTo(SourcePath other) {
+    if (other == this) {
       return 0;
     }
 
-    int res = getTarget().compareTo(o.getTarget());
-    if (res != 0) {
-      return res;
+    int classComparison = compareClasses(other);
+    if (classComparison != 0) {
+      return classComparison;
     }
 
-    return resolvedPath.compareTo(o.resolvedPath);
+    ExplicitBuildTargetSourcePath that = (ExplicitBuildTargetSourcePath) other;
+
+    return ComparisonChain.start()
+        .compare(getTarget(), that.getTarget())
+        .compare(resolvedPath, that.resolvedPath)
+        .result();
   }
 }

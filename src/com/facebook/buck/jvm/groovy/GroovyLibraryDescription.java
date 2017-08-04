@@ -16,10 +16,12 @@
 
 package com.facebook.buck.jvm.groovy;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -27,62 +29,69 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
-
 import java.util.Optional;
+import org.immutables.value.Value;
 
-
-public class GroovyLibraryDescription implements Description<GroovyLibraryDescription.Arg> {
+public class GroovyLibraryDescription implements Description<GroovyLibraryDescriptionArg> {
 
   private final GroovyBuckConfig groovyBuckConfig;
   // For cross compilation
   private final JavacOptions defaultJavacOptions;
 
   public GroovyLibraryDescription(
-      GroovyBuckConfig groovyBuckConfig,
-      JavacOptions defaultJavacOptions) {
+      GroovyBuckConfig groovyBuckConfig, JavacOptions defaultJavacOptions) {
     this.groovyBuckConfig = groovyBuckConfig;
     this.defaultJavacOptions = defaultJavacOptions;
   }
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<GroovyLibraryDescriptionArg> getConstructorArgType() {
+    return GroovyLibraryDescriptionArg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
-    JavacOptions javacOptions = JavacOptionsFactory
-        .create(
-          defaultJavacOptions,
-          params,
-          resolver,
-          args);
-    DefaultGroovyLibraryBuilder defaultGroovyLibraryBuilder = new DefaultGroovyLibraryBuilder(
-        params,
-        resolver,
-        javacOptions,
-        groovyBuckConfig)
-        .setArgs(args);
+      GroovyLibraryDescriptionArg args)
+      throws NoSuchBuildTargetException {
+    JavacOptions javacOptions =
+        JavacOptionsFactory.create(
+            defaultJavacOptions, buildTarget, projectFilesystem, resolver, args);
+    DefaultGroovyLibraryBuilder defaultGroovyLibraryBuilder =
+        new DefaultGroovyLibraryBuilder(
+                targetGraph,
+                buildTarget,
+                projectFilesystem,
+                params,
+                resolver,
+                cellRoots,
+                javacOptions,
+                groovyBuckConfig)
+            .setArgs(args);
 
-    return HasJavaAbi.isAbiTarget(params.getBuildTarget())
+    return HasJavaAbi.isAbiTarget(buildTarget)
         ? defaultGroovyLibraryBuilder.buildAbi()
         : defaultGroovyLibraryBuilder.build();
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends JavaLibraryDescription.Arg {
-    public Arg() {
-      // Groovyc may not play nice with this, so turning it off
-      generateAbiFromSource = Optional.of(false);
+  public interface CoreArg extends JavaLibraryDescription.CoreArg {
+    // Groovyc may not play nice with this, so turning it off
+    @Override
+    default Optional<Boolean> getGenerateAbiFromSource() {
+      return Optional.of(false);
     }
 
-    public ImmutableList<String> extraGroovycArguments = ImmutableList.of();
+    ImmutableList<String> getExtraGroovycArguments();
   }
+
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractGroovyLibraryDescriptionArg extends CoreArg {}
 }

@@ -63,7 +63,6 @@ BUCK_CORE_RESOURCES = {
     "native_exopackage_fake_path": "//assets/android:native-exopackage-fakes.apk",
     "path_to_asm_jar": "//third-party/java/asm:asm",
     "path_to_rawmanifest_py": "//src/com/facebook/buck/util/versioncontrol:rawmanifest",
-    "path_to_intellij_py": "//src/com/facebook/buck/ide/intellij/deprecated:intellij.py",
     "path_to_pathlib_py": "//third-party/py/pathlib:pathlib.py",
     "path_to_pex": "//src/com/facebook/buck/python:pex",
     "path_to_pywatchman": "//third-party/py/pywatchman:pywatchman-archive",
@@ -71,6 +70,7 @@ BUCK_CORE_RESOURCES = {
     "path_to_sh_binary_template": "//src/com/facebook/buck/shell:sh_binary_template",
     "report_generator_jar": "//src/com/facebook/buck/jvm/java/coverage:report-generator",
     "testrunner_classes": "//src/com/facebook/buck/testrunner:testrunner-bin-fixed",
+    "external_executor_jar": "//src/com/facebook/buck/step/external:executor",
 
     # TODO(#5448619): We currently don't have a great way of packaging up
     # entire directories into a PEX file, so for now, we aren't pulling in
@@ -81,6 +81,7 @@ BUCK_CORE_RESOURCES = {
 python_library(
     name = "bucklib",
     srcs = [
+        "buck_logging.py",
         "buck_package.py",
         "buck_project.py",
         "buck_repo.py",

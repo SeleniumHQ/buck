@@ -18,7 +18,7 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
-import com.facebook.buck.model.BuildTargetPattern;
+import java.nio.file.Path;
 
 @SuppressWarnings("serial")
 public class NoSuchBuildTargetException extends BuildTargetException {
@@ -31,21 +31,13 @@ public class NoSuchBuildTargetException extends BuildTargetException {
     super(message);
   }
 
-  /**
-   * @param buildTarget the failing {@link com.facebook.buck.model.BuildTarget}
-   */
+  /** @param buildTarget the failing {@link com.facebook.buck.model.BuildTarget} */
   static NoSuchBuildTargetException createForMissingBuildRule(
-      BuildTarget buildTarget,
-      BuildTargetPatternParser<BuildTargetPattern> buildTargetPatternParser,
-      String buildFileName,
-      String buckFilepath) {
-    String message = String.format(
-        "No rule found when resolving target %s\n%s",
-        buildTargetPatternParser.makeTargetDescription(
-            buildTarget.getFullyQualifiedName(),
-            buildFileName),
-        buckFilepath);
-
+      BuildTarget buildTarget, Path buckFilePath) {
+    String message =
+        String.format(
+            "The rule %s could not be found.\nPlease check the spelling and whether it exists in %s.",
+            buildTarget.getFullyQualifiedName(), buckFilePath);
     return new NoSuchBuildTargetException(message);
   }
 
@@ -53,5 +45,4 @@ public class NoSuchBuildTargetException extends BuildTargetException {
   public String getHumanReadableErrorMessage() {
     return getMessage();
   }
-
 }

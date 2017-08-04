@@ -16,8 +16,11 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
@@ -34,7 +37,6 @@ import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
-
 import java.nio.file.Path;
 
 /**
@@ -43,16 +45,15 @@ import java.nio.file.Path;
  * parameter set to {@link com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode
  * #ENABLED_WITH_STRINGS_AS_ASSETS}.
  *
- * Produces an all_locales_string_assets.zip containing .fbstr files for all locales the app has
- * strings for, and a string_assets.zip file that contains the .fbstr files filtered by the set
- * of locales provided. The contents of string_assets.zip is built into the assets of the APK.
+ * <p>Produces an all_locales_string_assets.zip containing .fbstr files for all locales the app has
+ * strings for, and a string_assets.zip file that contains the .fbstr files filtered by the set of
+ * locales provided. The contents of string_assets.zip is built into the assets of the APK.
  * all_locales_string_assets.zip is used for debugging purposes.
  */
-public class PackageStringAssets extends AbstractBuildRule {
+public class PackageStringAssets extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private static final String STRING_ASSETS_ZIP_HASH = "STRING_ASSETS_ZIP_HASH";
-  @VisibleForTesting
-  static final String STRING_ASSET_FILE_EXTENSION = ".fbstr";
+  @VisibleForTesting static final String STRING_ASSET_FILE_EXTENSION = ".fbstr";
   public static final String STRING_ASSETS_DIR_FORMAT = "__strings_%s__";
 
   private final FilteredResourcesProvider filteredResourcesProvider;
@@ -60,11 +61,13 @@ public class PackageStringAssets extends AbstractBuildRule {
   private final ImmutableSet<String> locales;
 
   public PackageStringAssets(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       ImmutableSet<String> locales,
       FilteredResourcesProvider filteredResourcesProvider,
       SourcePath rDotTxtPath) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.locales = locales;
     this.filteredResourcesProvider = filteredResourcesProvider;
     this.rDotTxtPath = rDotTxtPath;
@@ -73,14 +76,11 @@ public class PackageStringAssets extends AbstractBuildRule {
   // TODO(russell): Add an integration test for packaging string assets
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     if (filteredResourcesProvider.getResDirectories().isEmpty()) {
       // There is no zip file, but we still need to provide a consistent hash to
       // ComputeExopackageDepsAbi in this case.
-      buildableContext.addMetadata(
-          STRING_ASSETS_ZIP_HASH,
-          Hashing.sha1().hashInt(0).toString());
+      buildableContext.addMetadata(STRING_ASSETS_ZIP_HASH, Hashing.sha1().hashInt(0).toString());
       return ImmutableList.of();
     }
 
@@ -88,36 +88,51 @@ public class PackageStringAssets extends AbstractBuildRule {
     // We need to generate a zip file with the following dir structure:
     // /assets/strings/*.fbstr
     Path pathToBaseDir = getPathToStringAssetsDir();
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToBaseDir));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), pathToBaseDir)));
     Path pathToDirContainingAssetsDir = pathToBaseDir.resolve("string_assets");
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToDirContainingAssetsDir));
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                pathToDirContainingAssetsDir)));
     final Path pathToStrings = pathToDirContainingAssetsDir.resolve("assets").resolve("strings");
     Function<String, Path> assetPathBuilder =
         locale -> pathToStrings.resolve(locale + STRING_ASSET_FILE_EXTENSION);
     Path pathToStringAssetsZip = getPathToStringAssetsZip();
     Path pathToAllLocalesStringAssetsZip = getPathToAllLocalesStringAssetsZip();
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), pathToStrings));
-    steps.add(new CompileStringsStep(
+
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), pathToStrings)));
+    steps.add(
+        new CompileStringsStep(
             getProjectFilesystem(),
             filteredResourcesProvider.getStringFiles(),
             context.getSourcePathResolver().getIdeallyRelativePath(rDotTxtPath),
             assetPathBuilder));
-    steps.add(new ZipStep(
+    steps.add(
+        new ZipStep(
             getProjectFilesystem(),
             pathToAllLocalesStringAssetsZip,
             ImmutableSet.of(),
             false,
-        ZipCompressionLevel.MAX_COMPRESSION_LEVEL,
+            ZipCompressionLevel.MAX_COMPRESSION_LEVEL,
             pathToDirContainingAssetsDir));
-    steps.add(new ZipStep(
-        getProjectFilesystem(),
-        pathToStringAssetsZip,
-        locales.stream()
-            .map(assetPathBuilder::apply)
-            .collect(MoreCollectors.toImmutableSet()),
-        false,
-        ZipCompressionLevel.MAX_COMPRESSION_LEVEL,
-        pathToDirContainingAssetsDir));
+    steps.add(
+        new ZipStep(
+            getProjectFilesystem(),
+            pathToStringAssetsZip,
+            locales.stream().map(assetPathBuilder::apply).collect(MoreCollectors.toImmutableSet()),
+            false,
+            ZipCompressionLevel.MAX_COMPRESSION_LEVEL,
+            pathToDirContainingAssetsDir));
     steps.add(
         new RecordFileSha1Step(
             getProjectFilesystem(),
@@ -145,9 +160,7 @@ public class PackageStringAssets extends AbstractBuildRule {
 
   private Path getPathToStringAssetsDir() {
     return BuildTargets.getScratchPath(
-        getProjectFilesystem(),
-        getBuildTarget(),
-        STRING_ASSETS_DIR_FORMAT);
+        getProjectFilesystem(), getBuildTarget(), STRING_ASSETS_DIR_FORMAT);
   }
 
   public SourcePath getSourcePathToStringAssetsZip() {

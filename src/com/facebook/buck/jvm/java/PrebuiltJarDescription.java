@@ -16,11 +16,12 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.AbstractDescriptionArg;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -28,8 +29,11 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -37,105 +41,114 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 import java.util.Optional;
+import org.immutables.value.Value;
 
-public class PrebuiltJarDescription implements Description<PrebuiltJarDescription.Arg> {
+public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptionArg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<PrebuiltJarDescriptionArg> getConstructorArgType() {
+    return PrebuiltJarDescriptionArg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      PrebuiltJarDescriptionArg args)
+      throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-    if (HasJavaAbi.isClassAbiTarget(params.getBuildTarget())) {
+    if (HasJavaAbi.isClassAbiTarget(buildTarget)) {
       return CalculateAbiFromClasses.of(
-          params.getBuildTarget(),
-          ruleFinder,
-          params,
-          args.binaryJar);
+          buildTarget, ruleFinder, projectFilesystem, params, args.getBinaryJar());
     }
 
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
-    BuildRule prebuilt = new PrebuiltJar(
-        params,
-        pathResolver,
-        args.binaryJar,
-        args.sourceJar,
-        args.gwtJar,
-        args.javadocUrl,
-        args.mavenCoords,
-        args.provided.orElse(false));
+    BuildRule prebuilt =
+        new PrebuiltJar(
+            buildTarget,
+            projectFilesystem,
+            params,
+            pathResolver,
+            args.getBinaryJar(),
+            args.getSourceJar(),
+            args.getGwtJar(),
+            args.getJavadocUrl(),
+            args.getMavenCoords(),
+            args.getProvided());
 
-    params.getBuildTarget().checkUnflavored();
-    BuildRuleParams gwtParams = params
-        .withAppendedFlavor(JavaLibrary.GWT_MODULE_FLAVOR)
-        .copyReplacingDeclaredAndExtraDeps(
-            Suppliers.ofInstance(ImmutableSortedSet.of(prebuilt)),
-            Suppliers.ofInstance(ImmutableSortedSet.of()));
-    BuildRule gwtModule = createGwtModule(gwtParams, args);
+    buildTarget.checkUnflavored();
+    BuildTarget gwtTarget = buildTarget.withAppendedFlavors(JavaLibrary.GWT_MODULE_FLAVOR);
+    BuildRuleParams gwtParams =
+        params.withDeclaredDeps(ImmutableSortedSet.of(prebuilt)).withoutExtraDeps();
+    BuildRule gwtModule = createGwtModule(gwtTarget, projectFilesystem, gwtParams, args);
     resolver.addToIndex(gwtModule);
 
     return prebuilt;
   }
 
   @VisibleForTesting
-  static BuildRule createGwtModule(BuildRuleParams params, Arg arg) {
+  static BuildRule createGwtModule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      PrebuiltJarDescriptionArg arg) {
     // Because a PrebuiltJar rarely requires any building whatsoever (it could if the source_jar
     // is a BuildTargetSourcePath), we make the PrebuiltJar a dependency of the GWT module. If this
     // becomes a performance issue in practice, then we will explore reducing the dependencies of
     // the GWT module.
     final SourcePath input;
-    if (arg.gwtJar.isPresent()) {
-      input = arg.gwtJar.get();
-    } else if (arg.sourceJar.isPresent()) {
-      input = arg.sourceJar.get();
+    if (arg.getGwtJar().isPresent()) {
+      input = arg.getGwtJar().get();
+    } else if (arg.getSourceJar().isPresent()) {
+      input = arg.getSourceJar().get();
     } else {
-      input = arg.binaryJar;
+      input = arg.getBinaryJar();
     }
 
-    class ExistingOuputs extends AbstractBuildRule {
-      @AddToRuleKey
-      private final SourcePath source;
+    class ExistingOuputs extends AbstractBuildRuleWithDeclaredAndExtraDeps {
+      @AddToRuleKey private final SourcePath source;
       private final Path output;
 
       protected ExistingOuputs(
+          BuildTarget buildTarget,
+          ProjectFilesystem projectFilesystem,
           BuildRuleParams params,
           SourcePath source) {
-        super(params);
+        super(buildTarget, projectFilesystem, params);
         this.source = source;
-        BuildTarget target = params.getBuildTarget();
-        this.output = BuildTargets.getGenPath(
-            getProjectFilesystem(),
-            target,
-            String.format("%s/%%s-gwt.jar", target.getShortName()));
+        this.output =
+            BuildTargets.getGenPath(
+                getProjectFilesystem(),
+                buildTarget,
+                String.format("%s/%%s-gwt.jar", buildTarget.getShortName()));
       }
 
       @Override
       public ImmutableList<Step> getBuildSteps(
-          BuildContext context,
-          BuildableContext buildableContext) {
+          BuildContext context, BuildableContext buildableContext) {
         buildableContext.recordArtifact(
             context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()));
 
         ImmutableList.Builder<Step> steps = ImmutableList.builder();
-        steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), output.getParent()));
-        steps.add(CopyStep.forFile(
+
+        steps.addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())));
+        steps.add(
+            CopyStep.forFile(
                 getProjectFilesystem(),
                 context.getSourcePathResolver().getAbsolutePath(source),
                 output));
@@ -148,18 +161,25 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
         return new ExplicitBuildTargetSourcePath(getBuildTarget(), output);
       }
     }
-    return new ExistingOuputs(params, input);
+    return new ExistingOuputs(buildTarget, projectFilesystem, params, input);
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends AbstractDescriptionArg {
-    public SourcePath binaryJar;
-    public Optional<SourcePath> sourceJar;
-    public Optional<SourcePath> gwtJar;
-    public Optional<String> javadocUrl;
-    public Optional<String> mavenCoords;
-    public Optional<Boolean> provided;
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractPrebuiltJarDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps {
+    SourcePath getBinaryJar();
 
-    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
+    Optional<SourcePath> getSourceJar();
+
+    Optional<SourcePath> getGwtJar();
+
+    Optional<String> getJavadocUrl();
+
+    Optional<String> getMavenCoords();
+
+    @Value.Default
+    default boolean getProvided() {
+      return false;
+    }
   }
 }

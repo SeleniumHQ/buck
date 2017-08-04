@@ -16,44 +16,49 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionPropagator;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.collect.ImmutableSortedSet;
+import org.immutables.value.Value;
 
-public class CxxPrecompiledHeaderDescription implements
-    Description<CxxPrecompiledHeaderDescription.Arg>,
-    VersionPropagator<CxxPrecompiledHeaderDescription.Arg> {
+public class CxxPrecompiledHeaderDescription
+    implements Description<CxxPrecompiledHeaderDescriptionArg>,
+        VersionPropagator<CxxPrecompiledHeaderDescriptionArg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<CxxPrecompiledHeaderDescriptionArg> getConstructorArgType() {
+    return CxxPrecompiledHeaderDescriptionArg.class;
   }
 
   @Override
-  public <A extends Arg> CxxPrecompiledHeaderTemplate createBuildRule(
+  public CxxPrecompiledHeaderTemplate createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       CellPathResolver cellRoots,
-      A args) {
+      CxxPrecompiledHeaderDescriptionArg args) {
     return new CxxPrecompiledHeaderTemplate(
-        params.copyAppendingExtraDeps(ruleResolver.getAllRules(args.deps)),
-        ruleResolver,
-        args.src);
+        buildTarget,
+        projectFilesystem,
+        params.copyAppendingExtraDeps(ruleResolver.getAllRules(args.getDeps())),
+        args.getSrc());
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends AbstractDescriptionArg {
-    public SourcePath src;
-    public ImmutableSortedSet<BuildTarget> deps;
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractCxxPrecompiledHeaderDescriptionArg
+      extends CommonDescriptionArg, HasDeclaredDeps {
+    SourcePath getSrc();
   }
-
 }

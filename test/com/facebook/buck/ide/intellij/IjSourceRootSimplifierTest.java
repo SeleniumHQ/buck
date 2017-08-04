@@ -18,18 +18,22 @@ package com.facebook.buck.ide.intellij;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.ide.intellij.lang.android.AndroidResourceFolder;
+import com.facebook.buck.ide.intellij.model.folders.ExcludeFolder;
+import com.facebook.buck.ide.intellij.model.folders.IjFolder;
+import com.facebook.buck.ide.intellij.model.folders.SourceFolder;
+import com.facebook.buck.ide.intellij.model.folders.TestFolder;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
 import com.facebook.buck.model.BuildTarget;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-
-import org.hamcrest.Matchers;
-import org.junit.Test;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import org.hamcrest.Matchers;
+import org.junit.Test;
 
 public class IjSourceRootSimplifierTest {
 
@@ -46,7 +50,7 @@ public class IjSourceRootSimplifierTest {
   }
 
   private static IjFolder buildTestFolder(String path) {
-    return new TestFolder(Paths.get(path));
+    return new TestFolder(Paths.get(path), true);
   }
 
   private static IjFolder buildNonCoalescingFolder(String path) {
@@ -90,8 +94,24 @@ public class IjSourceRootSimplifierTest {
     IjFolder right = buildSourceFolder("src/right");
 
     assertThat(
-        simplifier.simplify(SimplificationLimit.of(0), ImmutableSet.of(left, right)),
+        simplifier
+            .simplify(0, ImmutableSet.of(left, right), Paths.get(""), ImmutableSet.of())
+            .values(),
         Matchers.contains(buildSourceFolder("src")));
+  }
+
+  @Test
+  public void testSameTypeAndPackageAreMergedWithParent() {
+    IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
+    IjFolder left = buildSourceFolder("src/left");
+    IjFolder right = buildSourceFolder("src/right");
+    IjFolder parent = buildSourceFolder("src");
+
+    assertThat(
+        simplifier
+            .simplify(0, ImmutableSet.of(left, right, parent), Paths.get(""), ImmutableSet.of())
+            .values(),
+        Matchers.contains(parent));
   }
 
   @Test
@@ -100,36 +120,51 @@ public class IjSourceRootSimplifierTest {
     IjFolder src = buildSourceFolder("src");
 
     assertThat(
-        simplifier.simplify(SimplificationLimit.of(0), ImmutableSet.of(src)),
+        simplifier.simplify(0, ImmutableSet.of(src), Paths.get(""), ImmutableSet.of()).values(),
         Matchers.contains(src));
   }
 
   @Test
-  public void testSimplificationLimit() {
+  public void testSinglePathElementMergesIntoParent() {
+    IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
+    IjFolder parent = buildSourceFolder("src");
+    IjFolder child = buildSourceFolder("src/a");
+
+    assertThat(
+        simplifier
+            .simplify(0, ImmutableSet.of(parent, child), Paths.get(""), ImmutableSet.of())
+            .values(),
+        Matchers.contains(parent));
+  }
+
+  @Test
+  public void testSimplificationLimit0() {
     IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
     IjFolder folder = buildSourceFolder("a/b/c/d/e/f/g");
 
     assertThat(
-        simplifier.simplify(SimplificationLimit.of(2), ImmutableSet.of(folder)),
-        Matchers.contains(buildSourceFolder("a/b")));
-
-    assertThat(
-        simplifier.simplify(SimplificationLimit.of(4), ImmutableSet.of(folder)),
-        Matchers.contains(buildSourceFolder("a/b/c/d")));
-
-    assertThat(
-        simplifier.simplify(SimplificationLimit.of(10), ImmutableSet.of(folder)),
-        Matchers.contains(buildSourceFolder("a/b/c/d/e/f/g")));
+        simplifier.simplify(0, ImmutableSet.of(folder), Paths.get(""), ImmutableSet.of()).values(),
+        Matchers.contains(buildSourceFolder("a")));
   }
 
   @Test
-  public void testComplexPathElement() {
+  public void testSimplificationLimit4() {
     IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
-    IjFolder src = buildSourceFolder("src/a/b/c/d");
+    IjFolder folder = buildSourceFolder("a/b/c/d/e/f/g");
 
     assertThat(
-        simplifier.simplify(SimplificationLimit.of(0), ImmutableSet.of(src)),
-        Matchers.contains(buildSourceFolder("src")));
+        simplifier.simplify(4, ImmutableSet.of(folder), Paths.get(""), ImmutableSet.of()).values(),
+        Matchers.contains(buildSourceFolder("a/b/c/d")));
+  }
+
+  @Test
+  public void testSimplificationLimit10() {
+    IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
+    IjFolder folder = buildSourceFolder("a/b/c/d/e/f/g");
+
+    assertThat(
+        simplifier.simplify(10, ImmutableSet.of(folder), Paths.get(""), ImmutableSet.of()).values(),
+        Matchers.contains(buildSourceFolder("a/b/c/d/e/f/g")));
   }
 
   @Test
@@ -139,8 +174,25 @@ public class IjSourceRootSimplifierTest {
     IjFolder rightTest = buildTestFolder("src/right");
 
     assertThat(
-        simplifier.simplify(SimplificationLimit.of(0), ImmutableSet.of(leftSource, rightTest)),
-        Matchers.containsInAnyOrder(leftSource, rightTest));
+        simplifier
+            .simplify(0, ImmutableSet.of(leftSource, rightTest), Paths.get(""), ImmutableSet.of())
+            .values(),
+        Matchers.containsInAnyOrder(buildSourceFolder("src"), rightTest));
+  }
+
+  @Test
+  public void testDifferentTypeAreNotMergedWithParent() {
+    IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
+    IjFolder parent = buildSourceFolder("src");
+    IjFolder leftSource = buildNoPrefixSourceFolder("src/left");
+    IjFolder rightTest = buildTestFolder("src/right");
+
+    assertThat(
+        simplifier
+            .simplify(
+                0, ImmutableSet.of(parent, leftSource, rightTest), Paths.get(""), ImmutableSet.of())
+            .values(),
+        Matchers.containsInAnyOrder(parent, leftSource, rightTest));
   }
 
   @Test
@@ -153,77 +205,213 @@ public class IjSourceRootSimplifierTest {
     IjFolder acTest = buildTestFolder("a/c");
     IjFolder adaTest = buildTestFolder("a/d/a");
 
-    ImmutableSet<IjFolder> mergedFolders = simplifier.simplify(
-        SimplificationLimit.of(0),
-        ImmutableSet.of(aaaSource, aaaaSource, aabSource, abSource, acTest, adaTest));
+    ImmutableCollection<IjFolder> mergedFolders =
+        simplifier
+            .simplify(
+                0,
+                ImmutableSet.of(aaaSource, aaaaSource, aabSource, abSource, acTest, adaTest),
+                Paths.get(""),
+                ImmutableSet.of())
+            .values();
 
-    IjFolder aaSource = buildSourceFolder("a/a");
+    IjFolder aSource = buildSourceFolder("a");
     IjFolder adTest = buildTestFolder("a/d");
-    assertThat(
-        mergedFolders,
-        Matchers.containsInAnyOrder(aaSource, abSource, acTest, adTest));
+    assertThat(mergedFolders, Matchers.containsInAnyOrder(aSource, acTest, adTest));
+  }
+
+  @Test
+  public void testMergingIntoBiggerNumberOfSourceFolders() {
+    IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
+    IjFolder aaSource = buildSourceFolder("a/a");
+    IjFolder abSource = buildSourceFolder("a/b");
+    IjFolder acTest = buildTestFolder("a/c");
+
+    ImmutableCollection<IjFolder> mergedFolders =
+        simplifier
+            .simplify(
+                0, ImmutableSet.of(aaSource, abSource, acTest), Paths.get(""), ImmutableSet.of())
+            .values();
+
+    IjFolder aSource = buildSourceFolder("a");
+    assertThat(mergedFolders, Matchers.containsInAnyOrder(aSource, acTest));
+  }
+
+  @Test
+  public void testMergingIntoBiggerNumberOfTestFolders() {
+    IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
+    IjFolder aaSource = buildSourceFolder("a/a");
+    IjFolder abSource = buildSourceFolder("a/b");
+    IjFolder acTest = buildTestFolder("a/c");
+    IjFolder adTest = buildTestFolder("a/d");
+    IjFolder aeTest = buildTestFolder("a/e");
+
+    ImmutableCollection<IjFolder> mergedFolders =
+        simplifier
+            .simplify(
+                0,
+                ImmutableSet.of(aaSource, abSource, acTest, adTest, aeTest),
+                Paths.get(""),
+                ImmutableSet.of())
+            .values();
+
+    IjFolder aTest = buildTestFolder("a");
+    assertThat(mergedFolders, Matchers.containsInAnyOrder(aaSource, abSource, aTest));
+  }
+
+  @Test
+  public void testDifferentTypesAreNotMergedIntoParent() {
+    IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
+    IjFolder aSource = buildSourceFolder("a");
+    IjFolder aaaSource = buildSourceFolder("a/a/a");
+    IjFolder aaaaSource = buildSourceFolder("a/a/a/a");
+    IjFolder aabSource = buildSourceFolder("a/a/b");
+    IjFolder abSource = buildSourceFolder("a/b");
+    IjFolder acTest = buildTestFolder("a/c");
+    IjFolder adaTest = buildTestFolder("a/d/a");
+
+    ImmutableCollection<IjFolder> mergedFolders =
+        simplifier
+            .simplify(
+                0,
+                ImmutableSet.of(
+                    aSource, aaaSource, aaaaSource, aabSource, abSource, acTest, adaTest),
+                Paths.get(""),
+                ImmutableSet.of())
+            .values();
+
+    IjFolder adTest = buildTestFolder("a/d");
+    assertThat(mergedFolders, Matchers.containsInAnyOrder(aSource, acTest, adTest));
   }
 
   @Test
   public void testDifferentPackageHierarchiesAreNotMerged() {
-    IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(
-        fakePackageFinder(ImmutableMap.of(
-                Paths.get("src/left"), Paths.get("onething"),
-                Paths.get("src/right"), Paths.get("another"))));
+    IjSourceRootSimplifier simplifier =
+        new IjSourceRootSimplifier(
+            fakePackageFinder(
+                ImmutableMap.of(
+                    Paths.get("src/left"), Paths.get("onething"),
+                    Paths.get("src/right"), Paths.get("another"))));
     IjFolder leftSource = buildSourceFolder("src/left");
     IjFolder rightSource = buildTestFolder("src/right");
 
     assertThat(
-        simplifier.simplify(SimplificationLimit.of(0), ImmutableSet.of(leftSource, rightSource)),
+        simplifier
+            .simplify(0, ImmutableSet.of(leftSource, rightSource), Paths.get(""), ImmutableSet.of())
+            .values(),
         Matchers.containsInAnyOrder(leftSource, rightSource));
   }
 
   @Test
-  public void testShortPackagesAreNotMerged() {
-    IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(
-        fakePackageFinder(ImmutableMap.of(
-                Paths.get("r/x/a/a"), Paths.get("a/a"),
-                Paths.get("r/x/a/b"), Paths.get("a/b"))));
+  public void testDifferentPackageHierarchiesAreNotMergedIntoParent() {
+    IjSourceRootSimplifier simplifier =
+        new IjSourceRootSimplifier(
+            fakePackageFinder(
+                ImmutableMap.of(
+                    Paths.get("src"), Paths.get("onething"),
+                    Paths.get("src/left"), Paths.get("onething/left"),
+                    Paths.get("src/right"), Paths.get("another"))));
+    IjFolder parentSource = buildSourceFolder("src");
+    IjFolder leftSource = buildSourceFolder("src/left");
+    IjFolder rightSource = buildTestFolder("src/right");
+
+    assertThat(
+        simplifier
+            .simplify(
+                0,
+                ImmutableSet.of(parentSource, leftSource, rightSource),
+                Paths.get(""),
+                ImmutableSet.of())
+            .values(),
+        Matchers.containsInAnyOrder(parentSource, rightSource));
+  }
+
+  @Test
+  public void testShortPackagesAreMerged() {
+    IjSourceRootSimplifier simplifier =
+        new IjSourceRootSimplifier(
+            fakePackageFinder(
+                ImmutableMap.of(
+                    Paths.get("r/x/a/a"), Paths.get("a/a"),
+                    Paths.get("r/x/a/b"), Paths.get("a/b"))));
     IjFolder aSource = buildSourceFolder("r/x/a/a");
     IjFolder bSource = buildSourceFolder("r/x/a/b");
 
     assertThat(
-        simplifier.simplify(SimplificationLimit.of(0), ImmutableSet.of(aSource, bSource)),
+        simplifier
+            .simplify(0, ImmutableSet.of(aSource, bSource), Paths.get(""), ImmutableSet.of())
+            .values(),
         Matchers.contains(buildSourceFolder("r/x")));
   }
 
   @Test
-  public void testExcludeFoldersAreIgnored() {
-    // While flattening source folder hierarchies is fine within certain bounds given the
-    // information available in the set of IjFolders and their package information, it is not
-    // possible to do anything with exclude folders at this level of abstraction.
-    // That's fine though as the IjTemplateDataPreparer generates excludes at the highest possible
-    // location in the file tree, so they don't need to be merged.
+  public void testExcludeFoldersAreNotMerged() {
+    IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
+    IjFolder leftSource = buildSourceFolder("src/left");
+    IjFolder aaExclude = buildExcludeFolder("src/a/a");
+    IjFolder abExclude = buildExcludeFolder("src/a/b");
 
+    assertThat(
+        simplifier
+            .simplify(
+                0,
+                ImmutableSet.of(leftSource, abExclude, aaExclude),
+                Paths.get(""),
+                ImmutableSet.of())
+            .values(),
+        Matchers.containsInAnyOrder(buildSourceFolder("src"), aaExclude, abExclude));
+  }
+
+  @Test
+  public void testExcludeFoldersAreMergedIntoParent() {
     IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
     IjFolder leftSource = buildSourceFolder("src/left");
     IjFolder aExclude = buildExcludeFolder("src/a");
     IjFolder aaExclude = buildExcludeFolder("src/a/a");
 
     assertThat(
-        simplifier.simplify(
-            SimplificationLimit.of(0),
-            ImmutableSet.of(leftSource, aExclude, aaExclude)),
-        Matchers.containsInAnyOrder(buildSourceFolder("src"), aExclude, aaExclude));
+        simplifier
+            .simplify(
+                0,
+                ImmutableSet.of(leftSource, aExclude, aaExclude),
+                Paths.get(""),
+                ImmutableSet.of())
+            .values(),
+        Matchers.containsInAnyOrder(buildSourceFolder("src"), aExclude));
   }
 
   @Test
-  public void textPrefixlessSourcesAreMergedToHighestRoot() {
+  public void testExcludeFoldersAreNotMergedIntoParentWhenNonExcludedFoldersExist() {
+    IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
+    IjFolder leftSource = buildSourceFolder("src/left");
+    IjFolder aaExclude = buildExcludeFolder("src/a/a");
+    IjFolder abExclude = buildExcludeFolder("src/a/b");
+    IjFolder acNonCoalescing = buildNonCoalescingFolder("src/a/c");
+
+    assertThat(
+        simplifier
+            .simplify(
+                0,
+                ImmutableSet.of(leftSource, abExclude, aaExclude, acNonCoalescing),
+                Paths.get(""),
+                ImmutableSet.of())
+            .values(),
+        Matchers.containsInAnyOrder(
+            buildSourceFolder("src"), abExclude, aaExclude, acNonCoalescing));
+  }
+
+  @Test
+  public void testPrefixlessSourcesAreMergedToHighestRoot() {
     IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
     IjFolder aFolder = buildNoPrefixSourceFolder("src/a/b");
     IjFolder aaFolder = buildNoPrefixSourceFolder("src/a/a");
     IjFolder bFolder = buildNoPrefixSourceFolder("src/b");
 
     assertThat(
-        simplifier.simplify(
-            SimplificationLimit.of(0),
-            ImmutableSet.of(aFolder, aaFolder, bFolder)),
-        Matchers.contains(buildNoPrefixSourceFolder("src")));
+        simplifier
+            .simplify(
+                0, ImmutableSet.of(aFolder, aaFolder, bFolder), Paths.get(""), ImmutableSet.of())
+            .values(),
+        Matchers.contains(buildNoPrefixSourceFolder("")));
   }
 
   @Test
@@ -234,41 +422,25 @@ public class IjSourceRootSimplifierTest {
     IjFolder bFolder = buildNoPrefixSourceFolder("src/b");
 
     assertThat(
-        simplifier.simplify(
-            SimplificationLimit.of(0),
-            ImmutableSet.of(aFolder, aaFolder, bFolder)),
-        Matchers.containsInAnyOrder(aFolder, aaFolder, bFolder));
+        simplifier
+            .simplify(
+                0, ImmutableSet.of(aFolder, aaFolder, bFolder), Paths.get(""), ImmutableSet.of())
+            .values(),
+        Matchers.containsInAnyOrder(buildSourceFolder("src"), aFolder, bFolder));
   }
 
   @Test
-  public void testNonCoalesingChildrenDontMerge() {
+  public void testNonCoalescingChildrenDontMerge() {
     IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
     IjFolder abFolder = buildSourceFolder("src/a/b");
     IjFolder abrFolder = buildNonCoalescingFolder("src/a/b/r");
     IjFolder acFolder = buildSourceFolder("src/a/c");
 
     assertThat(
-        simplifier.simplify(
-            SimplificationLimit.of(0),
-            ImmutableSet.of(abFolder, abrFolder, acFolder)),
-        Matchers.containsInAnyOrder(abFolder, abrFolder, acFolder));
-  }
-
-  @Test
-  public void testDifferentFolderTypesArentMerged() {
-    // If a TestFolder and a SourceFolder are merged problems can occur with the
-    // deps whereby the TestFolder gets promoted to a SourceFolder, but its deps
-    // still remain as test deps and so are unresolvable, so we should ensure
-    // that the two dep streams are never crossed.
-    IjSourceRootSimplifier simplifier = new IjSourceRootSimplifier(fakePackageFinder());
-    IjFolder sourceFolderOne = buildSourceFolder("src/a/source/b");
-    IjFolder sourceFolderTwo = buildSourceFolder("src/a/source/c");
-    IjFolder testFolder = buildTestFolder("src/a/test");
-
-    assertThat(
-        simplifier.simplify(
-          SimplificationLimit.of(0),
-          ImmutableSet.of(sourceFolderOne, sourceFolderTwo, testFolder)),
-        Matchers.containsInAnyOrder(buildSourceFolder("src/a/source/"), testFolder));
+        simplifier
+            .simplify(
+                0, ImmutableSet.of(abFolder, abrFolder, acFolder), Paths.get(""), ImmutableSet.of())
+            .values(),
+        Matchers.containsInAnyOrder(abrFolder, buildSourceFolder("src")));
   }
 }

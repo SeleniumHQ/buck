@@ -16,15 +16,15 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.TestBuildRuleParams;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 
 public class AndroidResourceRuleBuilder {
@@ -40,7 +40,8 @@ public class AndroidResourceRuleBuilder {
   public static class Builder {
 
     private SourcePathRuleFinder ruleFinder;
-    private BuildRuleParams buildRuleParams;
+    private ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    private BuildTarget buildTarget;
     private ImmutableSortedSet<BuildRule> deps = ImmutableSortedSet.of();
     private SourcePath res;
     private ImmutableSortedMap<Path, SourcePath> resSrcs = ImmutableSortedMap.of();
@@ -52,7 +53,9 @@ public class AndroidResourceRuleBuilder {
 
     public AndroidResource build() {
       return new AndroidResource(
-          buildRuleParams,
+          buildTarget,
+          projectFilesystem,
+          TestBuildRuleParams.create(),
           ruleFinder,
           deps,
           res,
@@ -64,18 +67,13 @@ public class AndroidResourceRuleBuilder {
           hasWhitelistedStrings);
     }
 
-    public Builder setBuildRuleParams(BuildRuleParams params) {
-      this.buildRuleParams = params;
-      return this;
-    }
-
     public Builder setRuleFinder(SourcePathRuleFinder ruleFinder) {
       this.ruleFinder = ruleFinder;
       return this;
     }
 
     public Builder setBuildTarget(BuildTarget buildTarget) {
-      buildRuleParams = new FakeBuildRuleParamsBuilder(buildTarget).build();
+      this.buildTarget = buildTarget;
       return this;
     }
 
@@ -113,7 +111,5 @@ public class AndroidResourceRuleBuilder {
       this.manifest = manifest;
       return this;
     }
-
   }
-
 }

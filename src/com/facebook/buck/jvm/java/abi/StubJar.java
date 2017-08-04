@@ -16,28 +16,22 @@
 
 package com.facebook.buck.jvm.java.abi;
 
+import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
-
-import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.InnerClassNode;
-
-import java.io.File;
+import com.facebook.buck.zip.JarBuilder;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.function.Supplier;
-
-import javax.annotation.Nullable;
+import java.util.stream.Collectors;
 import javax.lang.model.SourceVersion;
-import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.Element;
 import javax.lang.model.util.Elements;
 
 public class StubJar {
   private final Supplier<LibraryReader> libraryReaderSupplier;
+  private boolean sourceAbiCompatible;
 
   public StubJar(Path toMirror) {
     libraryReaderSupplier = () -> LibraryReader.of(toMirror);
@@ -45,63 +39,52 @@ public class StubJar {
 
   /**
    * @param targetVersion the class file version to output, expressed as the corresponding Java
-   *                      source version
+   *     source version
    */
   public StubJar(
-      SourceVersion targetVersion,
-      Elements elements,
-      Iterable<TypeElement> topLevelTypes) {
-    libraryReaderSupplier = () -> LibraryReader.of(targetVersion, elements, topLevelTypes);
+      SourceVersion targetVersion, Elements elements, Iterable<Element> topLevelElements) {
+    libraryReaderSupplier = () -> LibraryReader.of(targetVersion, elements, topLevelElements);
+  }
+
+  /**
+   * Filters the stub jar through {@link SourceAbiCompatibleVisitor}. See that class for details.
+   */
+  public StubJar setSourceAbiCompatible(boolean sourceAbiCompatible) {
+    this.sourceAbiCompatible = sourceAbiCompatible;
+    return this;
   }
 
   public void writeTo(ProjectFilesystem filesystem, Path path) throws IOException {
-    try (StubJarWriter writer = new FilesystemStubJarWriter(filesystem, path)) {
-      writeTo(writer);
+    // The order of these declarations is important -- FilesystemStubJarWriter actually uses
+    // the LibraryReader in its close method, and try-with-resources closes the items in the
+    // opposite order of their creation.
+    try (LibraryReader input = libraryReaderSupplier.get();
+        StubJarWriter writer = new FilesystemStubJarWriter(filesystem, path)) {
+      writeTo(input, writer);
     }
   }
 
-  private void writeTo(StubJarWriter writer) throws IOException {
-    try (LibraryReader input = libraryReaderSupplier.get()) {
-      List<Path> paths = new ArrayList<>(input.getRelativePaths());
-      Collections.sort(paths);
+  public void writeTo(JarBuilder jarBuilder) throws IOException {
+    try (LibraryReader input = libraryReaderSupplier.get();
+        StubJarWriter writer = new JarBuilderStubJarWriter(jarBuilder)) {
+      writeTo(input, writer);
+    }
+  }
 
-      for (Path path : paths) {
-        if (isStubbableResource(input, path)) {
-          try (InputStream resourceContents = input.openResourceFile(path)) {
-            writer.writeResource(path, resourceContents);
-          }
-        } else if (input.isClass(path)) {
-          ClassNode stub = new ClassNode(Opcodes.ASM5);
-          input.visitClass(path, new AbiFilteringClassVisitor(stub));
-          if (!isAnonymousOrLocalClass(stub)) {
-            writer.writeClass(path, stub);
-          }
-        }
+  private void writeTo(LibraryReader input, StubJarWriter writer) throws IOException {
+    List<Path> paths =
+        input
+            .getRelativePaths()
+            .stream()
+            .sorted(Comparator.comparing(MorePaths::pathWithUnixSeparators))
+            .collect(Collectors.toList());
+
+    for (Path path : paths) {
+      StubJarEntry entry = StubJarEntry.of(input, path, sourceAbiCompatible);
+      if (entry == null) {
+        continue;
       }
+      entry.write(writer);
     }
-  }
-
-  private static boolean isAnonymousOrLocalClass(ClassNode node) {
-    InnerClassNode innerClass = getInnerClassMetadata(node);
-    if (innerClass == null) {
-      return false;
-    }
-
-    return innerClass.outerName == null;
-  }
-
-  @Nullable
-  private static InnerClassNode getInnerClassMetadata(ClassNode node) {
-    for (InnerClassNode innerClass : node.innerClasses) {
-      if (innerClass.name.equals(node.name)) {
-        return innerClass;
-      }
-    }
-
-    return null;
-  }
-
-  private boolean isStubbableResource(LibraryReader input, Path path) {
-    return input.isResource(path) && !path.endsWith("META-INF" + File.separator + "MANIFEST.MF");
   }
 }

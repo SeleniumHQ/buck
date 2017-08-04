@@ -1,5 +1,13 @@
-standard_java_testutil(
+java_library(
     name = "testutil",
+    srcs = glob(
+        ["*.java"],
+        excludes = [
+            "*Benchmark.java",
+            "*Test.java",
+        ],
+    ),
+    visibility = ["//test/..."],
     deps = [
         "//src/com/facebook/buck/util:object_mapper",
         "//third-party/java/hamcrest:java-hamcrest",
@@ -34,13 +42,13 @@ standard_java_test(
         "//src/com/facebook/buck/rules:relative_cell_name",
         "//src/com/facebook/buck/rules:rule_key",
         "//src/com/facebook/buck/rules/coercer:interface",
-        "//src/com/facebook/buck/shell:worker_process",
         "//src/com/facebook/buck/step:step",
         "//src/com/facebook/buck/test/result/type:type",
         "//src/com/facebook/buck/test/selectors:selectors",
         "//src/com/facebook/buck/timing:timing",
         "//src/com/facebook/buck/util:exceptions",
         "//src/com/facebook/buck/util:io",
+        "//src/com/facebook/buck/util:object_mapper",
         "//src/com/facebook/buck/util:process_executor",
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/autosparse:autosparse_config",
@@ -52,9 +60,9 @@ standard_java_test(
         "//src/com/facebook/buck/util/sha1:sha1",
         "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
         "//src/com/facebook/buck/versions:types",
+        "//src/com/facebook/buck/worker:worker_process",
         "//src/com/facebook/buck/zip:stream",
         "//test/com/facebook/buck/testutil:testutil",
-        "//third-party/java/gson:gson",
         "//third-party/java/guava:guava",
         "//third-party/java/hamcrest:java-hamcrest",
         "//third-party/java/immutables:immutables",

@@ -22,7 +22,7 @@ import com.facebook.buck.io.ProjectFilesystemDelegate;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.sha1.Sha1HashCode;
-
+import com.facebook.buck.util.versioncontrol.SparseSummary;
 import java.io.IOException;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -31,10 +31,10 @@ import java.nio.file.Path;
  * Virtual project filesystem that answers questions about files via the source control manifest.
  * This removes the need to have all files checked out while Buck parses (a so-called
  * <em>sparse</em> profile.
- * <p>
- * The source control system state is tracked by in an {@link AutoSparseState} instance. Any files
- * queries about files outside the source control system manifest are forwarded to
- * {@link DefaultProjectFilesystemDelegate}.
+ *
+ * <p>The source control system state is tracked by in an {@link AutoSparseState} instance. Any
+ * files queries about files outside the source control system manifest are forwarded to {@link
+ * DefaultProjectFilesystemDelegate}.
  */
 public final class AutoSparseProjectFilesystemDelegate implements ProjectFilesystemDelegate {
 
@@ -46,7 +46,8 @@ public final class AutoSparseProjectFilesystemDelegate implements ProjectFilesys
   /** Delegate to forward requests to for files that are outside of the hg root. */
   private final ProjectFilesystemDelegate delegate;
 
-  public AutoSparseProjectFilesystemDelegate(AutoSparseState autoSparseState, Path projectRoot) {
+  public AutoSparseProjectFilesystemDelegate(AutoSparseState autoSparseState, Path projectRoot)
+      throws InterruptedException {
     this.autoSparseState = autoSparseState;
     this.scRoot = autoSparseState.getSCRoot();
     this.delegate = new DefaultProjectFilesystemDelegate(projectRoot);
@@ -58,8 +59,9 @@ public final class AutoSparseProjectFilesystemDelegate implements ProjectFilesys
     AutoSparseStateEvents.SparseRefreshStarted started =
         new AutoSparseStateEvents.SparseRefreshStarted();
     eventBus.post(started);
+    SparseSummary sparseSummary = SparseSummary.of();
     try {
-      autoSparseState.materialiseSparseProfile();
+      sparseSummary = autoSparseState.materialiseSparseProfile();
     } catch (IOException | InterruptedException e) {
       Throwable cause = e.getCause();
       String details = cause == null ? e.getMessage() : cause.getMessage();
@@ -68,10 +70,11 @@ public final class AutoSparseProjectFilesystemDelegate implements ProjectFilesys
       eventBus.post(failed);
       throw new HumanReadableException(
           e,
-          "Sparse profile could not be materialised. " +
-              "Try again or disable the project.enable_autosparse option.");
+          "Sparse profile could not be materialised. "
+              + "Try again or disable the project.enable_autosparse option.");
+    } finally {
+      eventBus.post(new AutoSparseStateEvents.SparseRefreshFinished(started, sparseSummary));
     }
-    eventBus.post(new AutoSparseStateEvents.SparseRefreshFinished(started));
   }
 
   @Override

@@ -15,17 +15,19 @@
  */
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.NativeLinkTarget;
+import com.facebook.buck.cxx.platform.NativeLinkTargetMode;
+import com.facebook.buck.cxx.platform.NativeLinkable;
+import com.facebook.buck.cxx.platform.NativeLinkableInput;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.Iterables;
-
 import java.nio.file.Path;
 import java.util.Optional;
 
 class OmnibusRootNode extends OmnibusNode implements NativeLinkTarget, NativeLinkable {
 
-  public OmnibusRootNode(
-      String target,
-      Iterable<? extends NativeLinkable> deps) {
+  public OmnibusRootNode(String target, Iterable<? extends NativeLinkable> deps) {
     super(target, deps);
   }
 
@@ -39,8 +41,7 @@ class OmnibusRootNode extends OmnibusNode implements NativeLinkTarget, NativeLin
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkTargetDeps(
-      CxxPlatform cxxPlatform) {
+  public Iterable<? extends NativeLinkable> getNativeLinkTargetDeps(CxxPlatform cxxPlatform) {
     return Iterables.concat(
         getNativeLinkableDepsForPlatform(cxxPlatform),
         getNativeLinkableExportedDepsForPlatform(cxxPlatform));
@@ -48,14 +49,11 @@ class OmnibusRootNode extends OmnibusNode implements NativeLinkTarget, NativeLin
 
   @Override
   public NativeLinkableInput getNativeLinkTargetInput(CxxPlatform cxxPlatform) {
-    return NativeLinkableInput.builder()
-        .addArgs(StringArg.of(getBuildTarget().toString()))
-        .build();
+    return NativeLinkableInput.builder().addArgs(StringArg.of(getBuildTarget().toString())).build();
   }
 
   @Override
   public Optional<Path> getNativeLinkTargetOutputPath(CxxPlatform cxxPlatform) {
     return Optional.empty();
   }
-
 }

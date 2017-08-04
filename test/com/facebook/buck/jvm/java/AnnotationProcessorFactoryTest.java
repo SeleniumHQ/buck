@@ -22,71 +22,63 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.ClassLoaderCache;
-
-import org.junit.Test;
-
 import java.io.IOException;
 import java.net.MalformedURLException;
-
 import javax.tools.ToolProvider;
+import org.junit.Test;
 
 public class AnnotationProcessorFactoryTest {
   @Test
   public void testAnnotationProcessorClassloadersNotReusedIfMarkedUnsafe()
       throws MalformedURLException {
-    assertFalse(isAnnotationProcessorClassLoaderReused(
-        "some.Processor",  // processor
-        false));    // safe processors
+    assertFalse(
+        isAnnotationProcessorClassLoaderReused(
+            "some.Processor", // processor
+            false)); // safe processors
   }
 
   @Test
   public void testAnnotationProcessorClassloadersReusedIfMarkedSafe() throws MalformedURLException {
-    assertTrue(isAnnotationProcessorClassLoaderReused(
-        "some.Processor",  // processor
-        true));    // safe processors
+    assertTrue(
+        isAnnotationProcessorClassLoaderReused(
+            "some.Processor", // processor
+            true)); // safe processors
   }
 
   private boolean isAnnotationProcessorClassLoaderReused(
-      String annotationProcessor,
-      boolean canReuseClasspath) throws MalformedURLException {
+      String annotationProcessor, boolean canReuseClasspath) throws MalformedURLException {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     SourcePath classpath = new FakeSourcePath("some/path/to.jar");
     ClassLoader baseClassLoader = ToolProvider.getSystemToolClassLoader();
     ClassLoaderCache classLoaderCache = new ClassLoaderCache();
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//:test");
-    ResolvedJavacPluginProperties processorGroup = new ResolvedJavacPluginProperties(
-        JavacPluginProperties.builder()
-            .addClasspathEntries(classpath)
-            .addProcessorNames(annotationProcessor)
-            .setCanReuseClassLoader(canReuseClasspath)
-            .setDoesNotAffectAbi(false)
-            .setSupportsAbiGenerationFromSource(false)
-            .build(),
-        filesystem,
-        new SourcePathResolver(null));
+    ResolvedJavacPluginProperties processorGroup =
+        new ResolvedJavacPluginProperties(
+            JavacPluginProperties.builder()
+                .addClasspathEntries(classpath)
+                .addProcessorNames(annotationProcessor)
+                .setCanReuseClassLoader(canReuseClasspath)
+                .setDoesNotAffectAbi(false)
+                .setSupportsAbiGenerationFromSource(false)
+                .build(),
+            filesystem,
+            DefaultSourcePathResolver.from(null));
 
-    try (
-        AnnotationProcessorFactory factory1 = new AnnotationProcessorFactory(
-            null,
-            baseClassLoader,
-            classLoaderCache,
-            buildTarget);
-        AnnotationProcessorFactory factory2 = new AnnotationProcessorFactory(
-            null,
-            baseClassLoader,
-            classLoaderCache,
-            buildTarget)) {
-      ClassLoader classLoader1 = factory1.getClassLoaderForProcessorGroup(processorGroup);
-      ClassLoader classLoader2 = factory2.getClassLoaderForProcessorGroup(processorGroup);
+    try (AnnotationProcessorFactory factory1 =
+            new AnnotationProcessorFactory(null, baseClassLoader, classLoaderCache, buildTarget);
+        AnnotationProcessorFactory factory2 =
+            new AnnotationProcessorFactory(null, baseClassLoader, classLoaderCache, buildTarget)) {
+      JavacPluginJsr199Fields fields = processorGroup.getJavacPluginJsr199Fields();
+      ClassLoader classLoader1 = factory1.getClassLoaderForProcessorGroup(fields);
+      ClassLoader classLoader2 = factory2.getClassLoaderForProcessorGroup(fields);
       return classLoader1 == classLoader2;
     } catch (IOException e) {
       throw new AssertionError(e);
     }
   }
-
 }

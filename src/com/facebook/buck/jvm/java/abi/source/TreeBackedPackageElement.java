@@ -16,12 +16,11 @@
 
 package com.facebook.buck.jvm.java.abi.source;
 
-import com.sun.source.tree.ModifiersTree;
-
+import com.facebook.buck.util.liteinfersupport.Nullable;
+import com.sun.source.util.TreePath;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementVisitor;
 import javax.lang.model.element.Name;
@@ -31,20 +30,27 @@ import javax.lang.model.element.TypeElement;
 /**
  * An implementation of {@link TypeElement} that uses only the information available from one or
  * more {@link com.sun.source.tree.CompilationUnitTree}s. This results in an incomplete
- * implementation; see documentation for individual methods and
- * {@link com.facebook.buck.jvm.java.abi.source} for more information.
+ * implementation; see documentation for individual methods and {@link
+ * com.facebook.buck.jvm.java.abi.source} for more information.
  */
-class TreeBackedPackageElement extends TreeBackedElement implements PackageElement {
+class TreeBackedPackageElement extends TreeBackedElement implements ArtificialPackageElement {
   private final PackageElement javacPackage;
   private final StandalonePackageType typeMirror;
+  @Nullable private TreePath treePath;
   private boolean resolved = false;
 
   public TreeBackedPackageElement(
-      PackageElement javacPackage,
-      TreeBackedElementResolver resolver) {
-    super(javacPackage, null, null, resolver);
+      PackageElement javacPackage, PostEnterCanonicalizer canonicalizer) {
+    super(javacPackage, null, null, canonicalizer);
     this.javacPackage = javacPackage;
-    typeMirror = resolver.createType(this);
+    typeMirror = new StandalonePackageType(this);
+  }
+
+  /* package */ void setTreePath(TreePath treePath) {
+    if (this.treePath != null) {
+      throw new IllegalStateException();
+    }
+    this.treePath = treePath;
   }
 
   @Override
@@ -65,9 +71,11 @@ class TreeBackedPackageElement extends TreeBackedElement implements PackageEleme
       // the classpath.
 
       List<? extends Element> treeBackedEnclosedElements = super.getEnclosedElements();
-      Set<Name> enclosedElementNames = treeBackedEnclosedElements.stream()
-          .map(Element::getSimpleName)
-          .collect(Collectors.toSet());
+      Set<Name> enclosedElementNames =
+          treeBackedEnclosedElements
+              .stream()
+              .map(Element::getSimpleName)
+              .collect(Collectors.toSet());
 
       for (Element element : javacPackage.getEnclosedElements()) {
         if (enclosedElementNames.contains(element.getSimpleName())) {
@@ -95,11 +103,6 @@ class TreeBackedPackageElement extends TreeBackedElement implements PackageEleme
   @Override
   public StandalonePackageType asType() {
     return typeMirror;
-  }
-
-  @Override
-  protected ModifiersTree getModifiersTree() {
-    throw new UnsupportedOperationException();
   }
 
   @Override

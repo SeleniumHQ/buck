@@ -16,77 +16,134 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
+import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.InitializableFromDisk;
+import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
+import java.io.IOException;
 import java.nio.file.Path;
 
-public class CalculateAbiFromClasses extends AbstractBuildRule
-    implements CalculateAbi, SupportsInputBasedRuleKey {
+public class CalculateAbiFromClasses extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements CalculateAbi, InitializableFromDisk<Object>, SupportsInputBasedRuleKey {
 
-  @AddToRuleKey
-  private final SourcePath binaryJar;
+  @AddToRuleKey private final SourcePath binaryJar;
+  /**
+   * Strip out things that are intentionally not included in ABI jars generated from source, so that
+   * we can still detect bugs by binary comparison.
+   */
+  @AddToRuleKey private final boolean sourceAbiCompatible;
+
   private final Path outputPath;
+  private final JarContentsSupplier abiJarContentsSupplier;
 
   public CalculateAbiFromClasses(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
-      SourcePath binaryJar) {
-    super(buildRuleParams);
+      SourcePathResolver resolver,
+      SourcePath binaryJar,
+      boolean sourceAbiCompatible) {
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.binaryJar = binaryJar;
-    this.outputPath = getAbiJarPath();
+    this.sourceAbiCompatible = sourceAbiCompatible;
+    this.outputPath = getAbiJarPath(getProjectFilesystem(), getBuildTarget());
+    this.abiJarContentsSupplier = new JarContentsSupplier(resolver, getSourcePathToOutput());
   }
 
   public static CalculateAbiFromClasses of(
       BuildTarget target,
       SourcePathRuleFinder ruleFinder,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams libraryParams,
       SourcePath library) {
-    return new CalculateAbiFromClasses(
-        libraryParams
-            .withBuildTarget(target)
-            .copyReplacingDeclaredAndExtraDeps(
-                Suppliers.ofInstance(
-                    ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(library))),
-                Suppliers.ofInstance(ImmutableSortedSet.of())),
-        library);
+    return of(target, ruleFinder, projectFilesystem, libraryParams, library, false);
   }
 
-  private Path getAbiJarPath() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s")
-        .resolve(String.format("%s-abi.jar", getBuildTarget().getShortName()));
+  public static CalculateAbiFromClasses of(
+      BuildTarget target,
+      SourcePathRuleFinder ruleFinder,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams libraryParams,
+      SourcePath library,
+      boolean sourceAbiCompatible) {
+    return new CalculateAbiFromClasses(
+        target,
+        projectFilesystem,
+        libraryParams
+            .withDeclaredDeps(ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(library)))
+            .withoutExtraDeps(),
+        DefaultSourcePathResolver.from(ruleFinder),
+        library,
+        sourceAbiCompatible);
+  }
+
+  public static Path getAbiJarPath(ProjectFilesystem filesystem, BuildTarget buildTarget) {
+    return BuildTargets.getGenPath(filesystem, buildTarget, "%s")
+        .resolve(String.format("%s-abi.jar", buildTarget.getShortName()));
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
-    return ImmutableList.of(
-        MkdirStep.of(getProjectFilesystem(), getAbiJarPath().getParent()),
-        RmStep.of(getProjectFilesystem(), getAbiJarPath()),
-        new CalculateAbiFromClassesStep(
-            buildableContext,
-            getProjectFilesystem(),
-            context.getSourcePathResolver().getAbsolutePath(binaryJar),
-            context.getSourcePathResolver().getRelativePath(getSourcePathToOutput())));
+      BuildContext context, BuildableContext buildableContext) {
+    ImmutableList<Step> result =
+        ImmutableList.of(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(),
+                    getProjectFilesystem(),
+                    outputPath.getParent())),
+            RmStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), outputPath)),
+            new CalculateAbiFromClassesStep(
+                getProjectFilesystem(),
+                context.getSourcePathResolver().getAbsolutePath(binaryJar),
+                outputPath,
+                sourceAbiCompatible));
+
+    buildableContext.recordArtifact(outputPath);
+
+    return result;
   }
 
   @Override
   public SourcePath getSourcePathToOutput() {
     return new ExplicitBuildTargetSourcePath(getBuildTarget(), outputPath);
+  }
+
+  @Override
+  public ImmutableSortedSet<SourcePath> getJarContents() {
+    return abiJarContentsSupplier.get();
+  }
+
+  @Override
+  public Object initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) throws IOException {
+    // Warm up the jar contents. We just wrote the thing, so it should be in the filesystem cache
+    abiJarContentsSupplier.load();
+    return new Object();
+  }
+
+  @Override
+  public BuildOutputInitializer<Object> getBuildOutputInitializer() {
+    return new BuildOutputInitializer<>(getBuildTarget(), this);
   }
 }

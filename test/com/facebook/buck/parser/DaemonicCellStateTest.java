@@ -32,14 +32,12 @@ import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-
-import org.junit.Before;
-import org.junit.Test;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
+import org.junit.Before;
+import org.junit.Test;
 
 public class DaemonicCellStateTest {
 
@@ -57,7 +55,6 @@ public class DaemonicCellStateTest {
                 "name", target.getShortName(),
                 "buck.base_path", MorePaths.pathWithUnixSeparators(target.getBasePath()))),
         ImmutableSet.of(),
-        ImmutableMap.of(),
         ImmutableMap.of());
   }
 
@@ -66,14 +63,12 @@ public class DaemonicCellStateTest {
     filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     Files.createDirectories(filesystem.resolve("../xplat"));
     Files.createFile(filesystem.resolve("../xplat/.buckconfig"));
-    BuckConfig config = FakeBuckConfig.builder()
-        .setFilesystem(filesystem)
-        .setSections(ImmutableMap.of("repositories", ImmutableMap.of("xplat", "../xplat")))
-        .build();
-    rootCell = new TestCellBuilder()
-        .setFilesystem(filesystem)
-        .setBuckConfig(config)
-        .build();
+    BuckConfig config =
+        FakeBuckConfig.builder()
+            .setFilesystem(filesystem)
+            .setSections(ImmutableMap.of("repositories", ImmutableMap.of("xplat", "../xplat")))
+            .build();
+    rootCell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
     childCell = rootCell.getCell(filesystem.resolve("../xplat").toAbsolutePath());
     state = new DaemonicCellState(rootCell, 1);
     childState = new DaemonicCellState(childCell, 1);
@@ -83,9 +78,8 @@ public class DaemonicCellStateTest {
   public void testPutComputedNodeIfNotPresent()
       throws BuildTargetException, IOException, InterruptedException {
     Cache<BuildTarget, Boolean> cache = state.getOrCreateCache(Boolean.class);
-    BuildTarget target = BuildTargetFactory.newInstance(
-        filesystem.getRootPath(),
-        "//path/to:target");
+    BuildTarget target =
+        BuildTargetFactory.newInstance(filesystem.getRootPath(), "//path/to:target");
 
     // Make sure the cache has a raw node for this target.
     populateDummyRawNode(state, target);
@@ -109,9 +103,9 @@ public class DaemonicCellStateTest {
     Cache<BuildTarget, Boolean> cache = childState.getOrCreateCache(Boolean.class);
 
     Path targetPath = childCell.getRoot().resolve("path/to/BUCK");
-    BuildTarget target = BuildTargetFactory.newInstance(
-        childCell.getFilesystem().getRootPath(),
-        "xplat//path/to:target");
+    BuildTarget target =
+        BuildTargetFactory.newInstance(
+            childCell.getFilesystem().getRootPath(), "xplat//path/to:target");
 
     // Make sure the cache has a raw node for this target.
     populateDummyRawNode(childState, target);
@@ -127,7 +121,6 @@ public class DaemonicCellStateTest {
                 "buck.base_path", "path/to",
                 "name", "target")),
         ImmutableSet.of(),
-        ImmutableMap.of(),
         ImmutableMap.of());
     assertEquals("Still only one invalidated node", 1, childState.invalidatePath(targetPath));
     assertEquals(
@@ -135,5 +128,4 @@ public class DaemonicCellStateTest {
         Optional.empty(),
         cache.lookupComputedNode(childCell, target));
   }
-
 }

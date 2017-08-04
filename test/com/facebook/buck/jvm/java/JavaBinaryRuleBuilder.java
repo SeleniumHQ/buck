@@ -25,11 +25,12 @@ import com.facebook.buck.cxx.CxxPlatformUtils;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.Optional;
 
 public class JavaBinaryRuleBuilder
-    extends AbstractNodeBuilder<JavaBinaryDescription.Args, JavaBinaryDescription, JavaBinary> {
+    extends AbstractNodeBuilder<
+        JavaBinaryDescriptionArg.Builder, JavaBinaryDescriptionArg, JavaBinaryDescription,
+        JavaBinary> {
 
   public JavaBinaryRuleBuilder(BuildTarget target) {
     super(
@@ -42,18 +43,17 @@ public class JavaBinaryRuleBuilder
   }
 
   public JavaBinaryRuleBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
-    arg.deps = deps;
+    getArgForPopulating().setDeps(deps);
     return this;
   }
 
   public JavaBinaryRuleBuilder setMainClass(String mainClass) {
-    arg.mainClass = Optional.of(mainClass);
+    getArgForPopulating().setMainClass(Optional.of(mainClass));
     return this;
   }
 
   public JavaBinaryRuleBuilder addTest(BuildTarget test) {
-    arg.tests = amend(arg.tests, test);
+    getArgForPopulating().addTests(test);
     return this;
   }
 }
-

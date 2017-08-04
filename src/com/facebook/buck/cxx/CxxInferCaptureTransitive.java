@@ -16,23 +16,26 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.HasPostBuildSteps;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-
+import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
+import java.util.SortedSet;
 import java.util.stream.Stream;
 
 public class CxxInferCaptureTransitive extends AbstractBuildRule
@@ -42,9 +45,10 @@ public class CxxInferCaptureTransitive extends AbstractBuildRule
   private Path outputDirectory;
 
   public CxxInferCaptureTransitive(
-      BuildRuleParams params,
+      BuildTarget target,
+      ProjectFilesystem projectFilesystem,
       ImmutableSet<CxxInferCapture> captureRules) {
-    super(params);
+    super(target, projectFilesystem);
     this.captureRules = captureRules;
     this.outputDirectory =
         BuildTargets.getGenPath(getProjectFilesystem(), this.getBuildTarget(), "infer-%s");
@@ -55,7 +59,12 @@ public class CxxInferCaptureTransitive extends AbstractBuildRule
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public SortedSet<BuildRule> getBuildDeps() {
+    return ImmutableSortedSet.copyOf(captureRules);
+  }
+
+  @Override
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return captureRules.stream().map(BuildRule::getBuildTarget);
   }
 
@@ -63,7 +72,10 @@ public class CxxInferCaptureTransitive extends AbstractBuildRule
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
     return ImmutableList.<Step>builder()
-        .add(MkdirStep.of(getProjectFilesystem(), outputDirectory))
+        .add(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), outputDirectory)))
         .build();
   }
 
@@ -75,13 +87,13 @@ public class CxxInferCaptureTransitive extends AbstractBuildRule
   @Override
   public ImmutableList<Step> getPostBuildSteps(BuildContext context) {
     return ImmutableList.<Step>builder()
-        .add(MkdirStep.of(getProjectFilesystem(), outputDirectory))
+        .add(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), outputDirectory)))
         .add(
             CxxCollectAndLogInferDependenciesStep.fromCaptureOnlyRule(
-                this,
-                getProjectFilesystem(),
-                this.outputDirectory.resolve("infer-deps.txt"))
-        )
+                this, getProjectFilesystem(), this.outputDirectory.resolve("infer-deps.txt")))
         .build();
   }
 }

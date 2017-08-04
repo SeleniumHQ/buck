@@ -25,25 +25,24 @@ import com.facebook.buck.config.ConfigBuilder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.google.common.collect.ImmutableSet;
-
-import org.junit.Ignore;
-import org.junit.Rule;
-import org.junit.Test;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.Optional;
+import org.junit.Ignore;
+import org.junit.Rule;
+import org.junit.Test;
 
 public class FilesystemBackedBuildFileTreeTest {
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
-  @Test @Ignore("Remove when test passes on OS X (the case preserving file system hurts us)")
-  public void testCanConstructBuildFileTreeFromFilesystemOnOsX() throws IOException {
+  @Test
+  @Ignore("Remove when test passes on OS X (the case preserving file system hurts us)")
+  public void testCanConstructBuildFileTreeFromFilesystemOnOsX()
+      throws InterruptedException, IOException {
     Path tempDir = tmp.getRoot();
     ProjectFilesystem filesystem = new ProjectFilesystem(tempDir);
 
@@ -61,18 +60,21 @@ public class FilesystemBackedBuildFileTreeTest {
 
     BuildFileTree buildFiles = new FilesystemBackedBuildFileTree(filesystem, "BUCK");
     Iterable<Path> allChildren =
-        buildFiles.getChildPaths(BuildTarget.builder(tmp.getRoot(), "src", "com/facebook").build());
-    assertEquals(ImmutableSet.of(Paths.get("buck")),
-        ImmutableSet.copyOf(allChildren));
+        buildFiles.getChildPaths(
+            BuildTargetFactory.newInstance(tmp.getRoot(), "src", "com/facebook"));
+    assertEquals(ImmutableSet.of(Paths.get("buck")), ImmutableSet.copyOf(allChildren));
 
-    Iterable<Path> subChildren = buildFiles.getChildPaths(
-        BuildTarget.builder(tmp.getRoot(), "//src", "/com/facebook/buck").build());
-    assertEquals(ImmutableSet.of(Paths.get("command"), Paths.get("notbuck")),
+    Iterable<Path> subChildren =
+        buildFiles.getChildPaths(
+            BuildTargetFactory.newInstance(tmp.getRoot(), "//src", "/com/facebook/buck"));
+    assertEquals(
+        ImmutableSet.of(Paths.get("command"), Paths.get("notbuck")),
         ImmutableSet.copyOf(subChildren));
   }
 
   @Test
-  public void testCanConstructBuildFileTreeFromFilesystem() throws IOException {
+  public void testCanConstructBuildFileTreeFromFilesystem()
+      throws InterruptedException, IOException {
     Path tempDir = tmp.getRoot();
     ProjectFilesystem filesystem = new ProjectFilesystem(tempDir);
 
@@ -89,29 +91,33 @@ public class FilesystemBackedBuildFileTreeTest {
     touch(tempDir.resolve("src/com/example/some/directory/BUCK"));
 
     BuildFileTree buildFiles = new FilesystemBackedBuildFileTree(filesystem, "BUCK");
-    Collection<Path> allChildren = buildFiles.getChildPaths(
-        BuildTargetFactory.newInstance("//src/com/example:example"));
-    assertEquals(ImmutableSet.of(Paths.get("build"), Paths.get("some/directory")),
+    Collection<Path> allChildren =
+        buildFiles.getChildPaths(BuildTargetFactory.newInstance("//src/com/example:example"));
+    assertEquals(
+        ImmutableSet.of(Paths.get("build"), Paths.get("some/directory")),
         ImmutableSet.copyOf(allChildren));
 
-    Iterable<Path> subChildren = buildFiles.getChildPaths(
-        BuildTargetFactory.newInstance("//src/com/example/build:build"));
-    assertEquals(ImmutableSet.of(Paths.get("command"), Paths.get("notbuck")),
+    Iterable<Path> subChildren =
+        buildFiles.getChildPaths(BuildTargetFactory.newInstance("//src/com/example/build:build"));
+    assertEquals(
+        ImmutableSet.of(Paths.get("command"), Paths.get("notbuck")),
         ImmutableSet.copyOf(subChildren));
 
-    assertEquals(Paths.get("src/com/example"),
-        buildFiles.getBasePathOfAncestorTarget(
-            Paths.get("src/com/example/foo")).get());
-    assertEquals(Paths.get("src/com/example"),
-        buildFiles.getBasePathOfAncestorTarget(
-            Paths.get("src/com/example/some/bar")).get());
-    assertEquals(Paths.get("src/com/example/some/directory"),
-        buildFiles.getBasePathOfAncestorTarget(
-            Paths.get("src/com/example/some/directory/baz")).get());
+    assertEquals(
+        Paths.get("src/com/example"),
+        buildFiles.getBasePathOfAncestorTarget(Paths.get("src/com/example/foo")).get());
+    assertEquals(
+        Paths.get("src/com/example"),
+        buildFiles.getBasePathOfAncestorTarget(Paths.get("src/com/example/some/bar")).get());
+    assertEquals(
+        Paths.get("src/com/example/some/directory"),
+        buildFiles
+            .getBasePathOfAncestorTarget(Paths.get("src/com/example/some/directory/baz"))
+            .get());
   }
 
   @Test
-  public void respectsIgnorePaths() throws IOException {
+  public void respectsIgnorePaths() throws InterruptedException, IOException {
     Path tempDir = tmp.getRoot();
     Path fooBuck = tempDir.resolve("foo/BUCK");
     Path fooBarBuck = tempDir.resolve("foo/bar/BUCK");
@@ -122,14 +128,12 @@ public class FilesystemBackedBuildFileTreeTest {
     touch(fooBarBuck);
     touch(fooBazBuck);
 
-    Config config = ConfigBuilder.createFromText(
-        "[project]",
-        "ignore = foo/bar");
+    Config config = ConfigBuilder.createFromText("[project]", "ignore = foo/bar");
     ProjectFilesystem filesystem = new ProjectFilesystem(tempDir, config);
     BuildFileTree buildFiles = new FilesystemBackedBuildFileTree(filesystem, "BUCK");
 
     Collection<Path> children =
-        buildFiles.getChildPaths(BuildTarget.builder(tempDir, "//foo", "foo").build());
+        buildFiles.getChildPaths(BuildTargetFactory.newInstance(tempDir, "//foo", "foo"));
     assertEquals(ImmutableSet.of(Paths.get("baz")), children);
 
     Path ancestor = buildFiles.getBasePathOfAncestorTarget(Paths.get("foo/bar/xyzzy")).get();
@@ -137,7 +141,7 @@ public class FilesystemBackedBuildFileTreeTest {
   }
 
   @Test
-  public void rootBasePath() throws IOException {
+  public void rootBasePath() throws InterruptedException, IOException {
     Path root = tmp.getRoot();
     Files.createFile(root.resolve("BUCK"));
     Files.createDirectory(root.resolve("foo"));
@@ -151,7 +155,7 @@ public class FilesystemBackedBuildFileTreeTest {
   }
 
   @Test
-  public void missingBasePath() throws IOException {
+  public void missingBasePath() throws InterruptedException, IOException {
     Path root = tmp.getRoot();
     Files.createDirectory(root.resolve("foo"));
     Files.createFile(root.resolve("foo/BUCK"));
@@ -164,7 +168,8 @@ public class FilesystemBackedBuildFileTreeTest {
   }
 
   @Test
-  public void shouldIgnoreBuckOutputDirectoriesByDefault() throws IOException {
+  public void shouldIgnoreBuckOutputDirectoriesByDefault()
+      throws InterruptedException, IOException {
     Path root = tmp.getRoot();
     ProjectFilesystem filesystem = new ProjectFilesystem(root, new Config());
 
@@ -177,13 +182,14 @@ public class FilesystemBackedBuildFileTreeTest {
     // Config doesn't set any "ignore" entries.
     BuildFileTree buildFileTree = new FilesystemBackedBuildFileTree(filesystem, "BUCK");
 
-    Optional<Path> ancestor = buildFileTree.getBasePathOfAncestorTarget(
-        filesystem.getBuckPaths().getBuckOut().resolve("someFile"));
+    Optional<Path> ancestor =
+        buildFileTree.getBasePathOfAncestorTarget(
+            filesystem.getBuckPaths().getBuckOut().resolve("someFile"));
     assertFalse(ancestor.isPresent());
   }
 
   @Test
-  public void shouldIgnoreBuckCacheDirectoriesByDefault() throws IOException {
+  public void shouldIgnoreBuckCacheDirectoriesByDefault() throws InterruptedException, IOException {
     Path root = tmp.getRoot();
 
     Path cacheDir = root.resolve("buck-out/cache");
@@ -196,11 +202,10 @@ public class FilesystemBackedBuildFileTreeTest {
     ProjectFilesystem filesystem = new ProjectFilesystem(root, new Config());
     BuildFileTree buildFileTree = new FilesystemBackedBuildFileTree(filesystem, "BUCK");
 
-    Optional<Path> ancestor = buildFileTree.getBasePathOfAncestorTarget(
-        cacheDir.resolve("someFile"));
+    Optional<Path> ancestor =
+        buildFileTree.getBasePathOfAncestorTarget(cacheDir.resolve("someFile"));
     assertFalse(ancestor.isPresent());
   }
-
 
   private void touch(Path path) throws IOException {
     Files.write(path, "".getBytes(UTF_8));

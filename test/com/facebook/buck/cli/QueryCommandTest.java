@@ -16,15 +16,15 @@
 
 package com.facebook.buck.cli;
 
-
 import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.BuckEventBusFactory;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
+import com.facebook.buck.query.QueryEnvironment;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.TestConsole;
@@ -36,100 +36,88 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
-
+import java.io.IOException;
+import java.util.Optional;
 import org.easymock.EasyMock;
 import org.easymock.EasyMockRule;
 import org.easymock.EasyMockRunner;
 import org.easymock.Mock;
-import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-
-import java.io.IOException;
-import java.util.Optional;
-import java.util.concurrent.Executors;
 
 @RunWith(EasyMockRunner.class)
 public class QueryCommandTest {
 
   private QueryCommand queryCommand;
   private CommandRunnerParams params;
-  private ListeningExecutorService executor;
 
-  @Mock
-  private BuckQueryEnvironment env;
+  @Mock private BuckQueryEnvironment env;
 
-  @Rule
-  public EasyMockRule rule = new EasyMockRule(this);
+  @Rule public EasyMockRule rule = new EasyMockRule(this);
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   @Before
   public void setUp() throws IOException, InterruptedException {
     TestConsole console = new TestConsole();
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "query_command", tmp
-    );
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "query_command", tmp);
     workspace.setUp();
 
-    ProjectFilesystem filesystem = new ProjectFilesystem(
-        workspace.getDestPath().toRealPath().normalize());
-    Cell cell = new TestCellBuilder()
-        .setFilesystem(filesystem)
-        .build();
+    ProjectFilesystem filesystem =
+        new ProjectFilesystem(workspace.getDestPath().toRealPath().normalize());
+    Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
     ArtifactCache artifactCache = new NoopArtifactCache();
-    BuckEventBus eventBus = BuckEventBusFactory.newInstance();
+    BuckEventBus eventBus = BuckEventBusForTests.newInstance();
 
     queryCommand = new QueryCommand();
     queryCommand.outputAttributes = Suppliers.ofInstance(ImmutableSet.<String>of());
-    params = CommandRunnerParamsForTesting.createCommandRunnerParamsForTesting(
-        console,
-        cell,
-        androidDirectoryResolver,
-        artifactCache,
-        eventBus,
-        FakeBuckConfig.builder().build(),
-        Platform.detect(),
-        ImmutableMap.copyOf(System.getenv()),
-        new FakeJavaPackageFinder(),
-        Optional.empty());
-    executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
-  }
-
-  @After
-  public void tearDown() {
-    executor.shutdown();
+    params =
+        CommandRunnerParamsForTesting.createCommandRunnerParamsForTesting(
+            console,
+            cell,
+            androidDirectoryResolver,
+            artifactCache,
+            eventBus,
+            FakeBuckConfig.builder().build(),
+            Platform.detect(),
+            ImmutableMap.copyOf(System.getenv()),
+            new FakeJavaPackageFinder(),
+            Optional.empty());
   }
 
   @Test
   public void testRunMultiQueryWithSet() throws Exception {
     queryCommand.setArguments(ImmutableList.of("deps(%Ss)", "//foo:bar", "//foo:baz"));
-    EasyMock.expect(env.evaluateQuery("deps(set('//foo:bar' '//foo:baz'))", executor))
+    EasyMock.expect(env.evaluateQuery("deps(set('//foo:bar' '//foo:baz'))"))
         .andReturn(ImmutableSet.of());
     EasyMock.replay(env);
-    queryCommand.formatAndRunQuery(params, env, executor);
+    queryCommand.formatAndRunQuery(params, env);
     EasyMock.verify(env);
   }
 
   @Test
   public void testRunMultiQuery() throws Exception {
     queryCommand.setArguments(ImmutableList.of("deps(%s)", "//foo:bar", "//foo:baz"));
+    QueryEnvironment.TargetEvaluator evaluator =
+        EasyMock.createNiceMock(QueryEnvironment.TargetEvaluator.class);
+    EasyMock.expect(evaluator.getType())
+        .andReturn(QueryEnvironment.TargetEvaluator.Type.LAZY)
+        .times(2);
     EasyMock.expect(env.getFunctions())
         .andReturn(BuckQueryEnvironment.DEFAULT_QUERY_FUNCTIONS)
         .anyTimes();
-    env.preloadTargetPatterns(ImmutableSet.of("//foo:bar", "//foo:baz"), executor);
-    EasyMock.expect(env.evaluateQuery("deps(//foo:bar)", executor))
-        .andReturn(ImmutableSet.of());
-    EasyMock.expect(env.evaluateQuery("deps(//foo:baz)", executor))
-        .andReturn(ImmutableSet.of());
+    EasyMock.expect(env.getTargetEvaluator()).andReturn(evaluator).times(2);
+    env.preloadTargetPatterns(ImmutableSet.of("//foo:bar", "//foo:baz"));
+    EasyMock.expect(env.evaluateQuery("deps(//foo:bar)")).andReturn(ImmutableSet.of());
+    EasyMock.expect(env.evaluateQuery("deps(//foo:baz)")).andReturn(ImmutableSet.of());
     EasyMock.replay(env);
-    queryCommand.formatAndRunQuery(params, env, executor);
+    EasyMock.replay(evaluator);
+    queryCommand.formatAndRunQuery(params, env);
     EasyMock.verify(env);
+    EasyMock.verify(evaluator);
   }
 }

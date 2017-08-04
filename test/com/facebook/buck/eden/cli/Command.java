@@ -16,13 +16,13 @@
 
 package com.facebook.buck.eden.cli;
 
+import com.facebook.buck.eden.EdenClient;
 import com.facebook.eden.thrift.EdenError;
 import com.facebook.thrift.TException;
-
 import java.io.IOException;
 
 /** Command in the Eden CLI. */
 public interface Command {
   /** Runs the command and returns the exit code that reflects the termination status. */
-  int run() throws EdenError, IOException, TException;
+  int run(EdenClient edenClient) throws EdenError, IOException, TException;
 }

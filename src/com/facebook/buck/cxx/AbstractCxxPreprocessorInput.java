@@ -20,26 +20,23 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
-
+import java.util.Optional;
 import org.immutables.value.Value;
 
-import java.util.Optional;
-
-/**
- * The components that get contributed to a top-level run of the C++ preprocessor.
- */
+/** The components that get contributed to a top-level run of the C++ preprocessor. */
 @Value.Immutable
 @BuckStyleImmutable
 abstract class AbstractCxxPreprocessorInput {
 
   @Value.Parameter
-  public abstract Multimap<CxxSource.Type, String> getPreprocessorFlags();
+  public abstract Multimap<CxxSource.Type, Arg> getPreprocessorFlags();
 
   @Value.Parameter
   public abstract ImmutableList<CxxHeaders> getIncludes();
@@ -53,22 +50,24 @@ abstract class AbstractCxxPreprocessorInput {
   protected abstract ImmutableSet<BuildTarget> getRules();
 
   public Iterable<BuildRule> getDeps(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder) {
+      BuildRuleResolver ruleResolver, SourcePathRuleFinder ruleFinder) {
     ImmutableList.Builder<BuildRule> builder = ImmutableList.builder();
     for (CxxHeaders cxxHeaders : getIncludes()) {
-      builder.addAll(cxxHeaders.getDeps(ruleFinder));
+      cxxHeaders.getDeps(ruleFinder).forEachOrdered(builder::add);
     }
     builder.addAll(ruleResolver.getAllRules(getRules()));
 
     for (FrameworkPath frameworkPath : getFrameworks()) {
       if (frameworkPath.getSourcePath().isPresent()) {
-        Optional<BuildRule> frameworkRule =
-            ruleFinder.getRule(frameworkPath.getSourcePath().get());
+        Optional<BuildRule> frameworkRule = ruleFinder.getRule(frameworkPath.getSourcePath().get());
         if (frameworkRule.isPresent()) {
           builder.add(frameworkRule.get());
         }
       }
+    }
+
+    for (Arg arg : getPreprocessorFlags().values()) {
+      builder.addAll(arg.getDeps(ruleFinder));
     }
 
     return builder.build();
@@ -77,8 +76,7 @@ abstract class AbstractCxxPreprocessorInput {
   public static final CxxPreprocessorInput EMPTY = CxxPreprocessorInput.builder().build();
 
   public static CxxPreprocessorInput concat(Iterable<CxxPreprocessorInput> inputs) {
-    ImmutableMultimap.Builder<CxxSource.Type, String> preprocessorFlags =
-      ImmutableMultimap.builder();
+    ImmutableMultimap.Builder<CxxSource.Type, Arg> preprocessorFlags = ImmutableMultimap.builder();
     ImmutableList.Builder<CxxHeaders> headers = ImmutableList.builder();
     ImmutableSet.Builder<FrameworkPath> frameworks = ImmutableSet.builder();
     ImmutableSet.Builder<BuildTarget> rules = ImmutableSet.builder();
@@ -91,10 +89,6 @@ abstract class AbstractCxxPreprocessorInput {
     }
 
     return CxxPreprocessorInput.of(
-        preprocessorFlags.build(),
-        headers.build(),
-        frameworks.build(),
-        rules.build());
+        preprocessorFlags.build(), headers.build(), frameworks.build(), rules.build());
   }
-
 }

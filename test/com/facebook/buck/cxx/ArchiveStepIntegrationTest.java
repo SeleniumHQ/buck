@@ -21,8 +21,13 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.cxx.platform.Archiver;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.ObjectFileCommonModificationDate;
+import com.facebook.buck.cxx.platform.ObjectFileScrubbers;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -35,13 +40,6 @@ import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-
-import org.apache.commons.compress.archivers.ar.ArArchiveEntry;
-import org.apache.commons.compress.archivers.ar.ArArchiveInputStream;
-import org.hamcrest.Matchers;
-import org.junit.Rule;
-import org.junit.Test;
-
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -50,24 +48,30 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Optional;
+import org.apache.commons.compress.archivers.ar.ArArchiveEntry;
+import org.apache.commons.compress.archivers.ar.ArArchiveInputStream;
+import org.hamcrest.Matchers;
+import org.junit.Rule;
+import org.junit.Test;
 
 public class ArchiveStepIntegrationTest {
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
   @SuppressWarnings("PMD.AvoidUsingOctalValues")
   public void thatGeneratedArchivesAreDeterministic() throws IOException, InterruptedException {
     assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
     ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot());
-    CxxPlatform platform = CxxPlatformUtils.build(
-        new CxxBuckConfig(FakeBuckConfig.builder().build()));
+    CxxPlatform platform =
+        CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
     // Build up the paths to various files the archive step will use.
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(new SourcePathRuleFinder(
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    ));
+    SourcePathResolver sourcePathResolver =
+        DefaultSourcePathResolver.from(
+            new SourcePathRuleFinder(
+                new BuildRuleResolver(
+                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     Archiver archiver = platform.getAr();
     Path output = filesystem.getPath("output.a");
     Path input = filesystem.getPath("input.dat");
@@ -75,22 +79,22 @@ public class ArchiveStepIntegrationTest {
     Preconditions.checkState(filesystem.resolve(input).toFile().setExecutable(true));
 
     // Build an archive step.
-    ArchiveStep archiveStep = new ArchiveStep(
-        filesystem,
-        archiver.getEnvironment(sourcePathResolver),
-        archiver.getCommandPrefix(sourcePathResolver),
-        ImmutableList.of(),
-        getArchiveOptions(false),
-        output,
-        ImmutableList.of(input),
-        archiver);
-    FileScrubberStep fileScrubberStep = new FileScrubberStep(
-        filesystem,
-        output,
-        platform.getAr().getScrubbers());
+    ArchiveStep archiveStep =
+        new ArchiveStep(
+            filesystem,
+            archiver.getEnvironment(sourcePathResolver),
+            archiver.getCommandPrefix(sourcePathResolver),
+            ImmutableList.of(),
+            getArchiveOptions(false),
+            output,
+            ImmutableList.of(input),
+            archiver,
+            filesystem.getPath("scratchDir"));
+    FileScrubberStep fileScrubberStep =
+        new FileScrubberStep(filesystem, output, platform.getAr().getScrubbers());
 
     // Execute the archive step and verify it ran successfully.
-    ExecutionContext executionContext = TestExecutionContext.newInstance();
+    ExecutionContext executionContext = TestExecutionContext.newInstanceWithRealProcessExecutor();
     TestConsole console = (TestConsole) executionContext.getConsole();
     int exitCode = archiveStep.execute(executionContext).getExitCode();
     assertEquals("archive step failed: " + console.getTextWrittenToStdErr(), 0, exitCode);
@@ -100,11 +104,10 @@ public class ArchiveStepIntegrationTest {
     // Now read the archive entries and verify that the timestamp, UID, and GID fields are
     // zero'd out.
     try (ArArchiveInputStream stream =
-             new ArArchiveInputStream(new FileInputStream(filesystem.resolve(output).toFile()))) {
+        new ArArchiveInputStream(new FileInputStream(filesystem.resolve(output).toFile()))) {
       ArArchiveEntry entry = stream.getNextArEntry();
       assertEquals(
-          ObjectFileCommonModificationDate.COMMON_MODIFICATION_TIME_STAMP,
-          entry.getLastModified());
+          ObjectFileCommonModificationDate.COMMON_MODIFICATION_TIME_STAMP, entry.getLastModified());
       assertEquals(0, entry.getUserId());
       assertEquals(0, entry.getGroupId());
       assertEquals(String.format("0%o", entry.getMode()), 0100644, entry.getMode());
@@ -118,9 +121,11 @@ public class ArchiveStepIntegrationTest {
         CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
     // Build up the paths to various files the archive step will use.
-    SourcePathResolver sourcePathResolver = new SourcePathResolver(new SourcePathRuleFinder(
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    ));
+    SourcePathResolver sourcePathResolver =
+        DefaultSourcePathResolver.from(
+            new SourcePathRuleFinder(
+                new BuildRuleResolver(
+                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     Archiver archiver = platform.getAr();
     Path output = filesystem.getPath("output.a");
 
@@ -133,18 +138,20 @@ public class ArchiveStepIntegrationTest {
             ImmutableList.of(),
             getArchiveOptions(false),
             output,
-            ImmutableList.of(), archiver);
+            ImmutableList.of(),
+            archiver,
+            filesystem.getPath("scratchDir"));
 
     // Execute the archive step and verify it ran successfully.
-    ExecutionContext executionContext = TestExecutionContext.newInstance();
+    ExecutionContext executionContext = TestExecutionContext.newInstanceWithRealProcessExecutor();
     TestConsole console = (TestConsole) executionContext.getConsole();
     int exitCode = archiveStep.execute(executionContext).getExitCode();
     assertEquals("archive step failed: " + console.getTextWrittenToStdErr(), 0, exitCode);
 
     // Now read the archive entries and verify that the timestamp, UID, and GID fields are
     // zero'd out.
-    try (ArArchiveInputStream stream = new ArArchiveInputStream(
-        new FileInputStream(filesystem.resolve(output).toFile()))) {
+    try (ArArchiveInputStream stream =
+        new ArArchiveInputStream(new FileInputStream(filesystem.resolve(output).toFile()))) {
       assertThat(stream.getNextArEntry(), Matchers.nullValue());
     }
   }
@@ -158,10 +165,10 @@ public class ArchiveStepIntegrationTest {
 
     // Build up the paths to various files the archive step will use.
     SourcePathResolver sourcePathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(
-            new BuildRuleResolver(
-                TargetGraph.EMPTY,
-                new DefaultTargetNodeToBuildRuleTransformer())));
+        DefaultSourcePathResolver.from(
+            new SourcePathRuleFinder(
+                new BuildRuleResolver(
+                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     Archiver archiver = platform.getAr();
     Path output = filesystem.getPath("output.a");
     Path input = filesystem.getPath("foo/blah.dat");
@@ -178,18 +185,19 @@ public class ArchiveStepIntegrationTest {
             getArchiveOptions(false),
             output,
             ImmutableList.of(input.getParent()),
-            archiver);
+            archiver,
+            filesystem.getPath("scratchDir"));
 
     // Execute the archive step and verify it ran successfully.
-    ExecutionContext executionContext = TestExecutionContext.newInstance();
+    ExecutionContext executionContext = TestExecutionContext.newInstanceWithRealProcessExecutor();
     TestConsole console = (TestConsole) executionContext.getConsole();
     int exitCode = archiveStep.execute(executionContext).getExitCode();
     assertEquals("archive step failed: " + console.getTextWrittenToStdErr(), 0, exitCode);
 
     // Now read the archive entries and verify that the timestamp, UID, and GID fields are
     // zero'd out.
-    try (ArArchiveInputStream stream = new ArArchiveInputStream(
-         new FileInputStream(filesystem.resolve(output).toFile()))) {
+    try (ArArchiveInputStream stream =
+        new ArArchiveInputStream(new FileInputStream(filesystem.resolve(output).toFile()))) {
       ArArchiveEntry entry = stream.getNextArEntry();
       assertThat(entry.getName(), Matchers.equalTo("blah.dat"));
     }
@@ -205,10 +213,10 @@ public class ArchiveStepIntegrationTest {
 
     // Build up the paths to various files the archive step will use.
     SourcePathResolver sourcePathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(
-            new BuildRuleResolver(
-                TargetGraph.EMPTY,
-                new DefaultTargetNodeToBuildRuleTransformer())));
+        DefaultSourcePathResolver.from(
+            new SourcePathRuleFinder(
+                new BuildRuleResolver(
+                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     Archiver archiver = platform.getAr();
 
     Path output = filesystem.getPath("foo/libthin.a");
@@ -234,10 +242,11 @@ public class ArchiveStepIntegrationTest {
             getArchiveOptions(true),
             output,
             ImmutableList.of(input),
-            archiver);
+            archiver,
+            filesystem.getPath("scratchDir"));
 
     // Execute the archive step and verify it ran successfully.
-    ExecutionContext executionContext = TestExecutionContext.newInstance();
+    ExecutionContext executionContext = TestExecutionContext.newInstanceWithRealProcessExecutor();
     TestConsole console = (TestConsole) executionContext.getConsole();
     int exitCode = archiveStep.execute(executionContext).getExitCode();
     assertEquals("archive step failed: " + console.getTextWrittenToStdErr(), 0, exitCode);
@@ -251,20 +260,19 @@ public class ArchiveStepIntegrationTest {
     // NOTE: Replace the thin header with a normal header just so the commons compress parser
     // can parse the archive contents.
     try (OutputStream outputStream =
-             Files.newOutputStream(filesystem.resolve(output), StandardOpenOption.WRITE)) {
+        Files.newOutputStream(filesystem.resolve(output), StandardOpenOption.WRITE)) {
       outputStream.write(ObjectFileScrubbers.GLOBAL_HEADER);
     }
 
     // Now read the archive entries and verify that the timestamp, UID, and GID fields are
     // zero'd out.
-    try (ArArchiveInputStream stream = new ArArchiveInputStream(
-        new FileInputStream(filesystem.resolve(output).toFile()))) {
+    try (ArArchiveInputStream stream =
+        new ArArchiveInputStream(new FileInputStream(filesystem.resolve(output).toFile()))) {
       ArArchiveEntry entry = stream.getNextArEntry();
 
       // Verify that the input names are relative paths from the outputs parent dir.
       assertThat(
-          entry.getName(),
-          Matchers.equalTo(output.getParent().relativize(input).toString()));
+          entry.getName(), Matchers.equalTo(output.getParent().relativize(input).toString()));
     }
   }
 
@@ -272,5 +280,4 @@ public class ArchiveStepIntegrationTest {
     String options = isThinArchive ? "qcT" : "qc";
     return ImmutableList.of(options);
   }
-
 }

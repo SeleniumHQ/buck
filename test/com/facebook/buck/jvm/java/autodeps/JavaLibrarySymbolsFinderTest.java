@@ -29,6 +29,7 @@ import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.PathSourcePath;
@@ -41,69 +42,55 @@ import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
-import org.easymock.EasyMock;
-import org.junit.Rule;
-import org.junit.Test;
-
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.stream.Stream;
+import org.easymock.EasyMock;
+import org.junit.Rule;
+import org.junit.Test;
 
 public class JavaLibrarySymbolsFinderTest {
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
-  private static final JavaFileParser javaFileParser = JavaFileParser.createJavaFileParser(
-      JavacOptions.builder()
-          .setSourceLevel("7")
-          .setTargetLevel("7")
-          .build());
+  private static final JavaFileParser javaFileParser =
+      JavaFileParser.createJavaFileParser(
+          JavacOptions.builder().setSourceLevel("7").setTargetLevel("7").build());
 
   @Test
-  public void extractSymbolsFromSrcs() throws IOException {
-    TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "java_library_symbols_finder",
-        tmp)
+  public void extractSymbolsFromSrcs() throws InterruptedException, IOException {
+    TestDataHelper.createProjectWorkspaceForScenario(this, "java_library_symbols_finder", tmp)
         .setUp();
     ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot());
 
-    ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.<SourcePath>naturalOrder()
-        .addAll(
-            Stream.of("Example1.java", "Example2.java")
-                .map(Paths::get)
-                .map(p -> new PathSourcePath(projectFilesystem, p))
-                .iterator())
-        .add(new DefaultBuildTargetSourcePath(BuildTargetFactory.newInstance("//foo:bar")))
-        .build();
+    ImmutableSortedSet<SourcePath> srcs =
+        ImmutableSortedSet.<SourcePath>naturalOrder()
+            .addAll(
+                Stream.of("Example1.java", "Example2.java")
+                    .map(Paths::get)
+                    .map(p -> new PathSourcePath(projectFilesystem, p))
+                    .iterator())
+            .add(new DefaultBuildTargetSourcePath(BuildTargetFactory.newInstance("//foo:bar")))
+            .build();
 
-    JavaLibrarySymbolsFinder finder = new JavaLibrarySymbolsFinder(
-        srcs,
-        javaFileParser,
-        /* shouldRecordRequiredSymbols */ true);
+    JavaLibrarySymbolsFinder finder =
+        new JavaLibrarySymbolsFinder(srcs, javaFileParser /* shouldRecordRequiredSymbols */);
     Symbols symbols = finder.extractSymbols();
     assertEquals(
         ImmutableSet.of("com.example.Example1", "com.example.Example2"),
         ImmutableSet.copyOf(symbols.provided));
-    assertEquals(
-        ImmutableSet.of("com.example.other.Bar", "com.example.other.Foo"),
-        ImmutableSet.copyOf(symbols.required));
   }
 
   @Test
   @SuppressWarnings("PMD.PrematureDeclaration")
-  public void onlyNonGeneratedSrcsShouldAffectRuleKey() throws IOException {
-    TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "java_library_symbols_finder",
-        tmp)
+  public void onlyNonGeneratedSrcsShouldAffectRuleKey() throws InterruptedException, IOException {
+    TestDataHelper.createProjectWorkspaceForScenario(this, "java_library_symbols_finder", tmp)
         .setUp();
     final ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot());
 
@@ -114,51 +101,42 @@ public class JavaLibrarySymbolsFinderTest {
     final BuildTarget fakeBuildTarget = BuildTargetFactory.newInstance("//foo:GenEx.java");
     SourcePath generated = new DefaultBuildTargetSourcePath(fakeBuildTarget);
 
-    final boolean shouldRecordRequiredSymbols = true;
-    JavaLibrarySymbolsFinder example1Finder = new JavaLibrarySymbolsFinder(
-        ImmutableSortedSet.of(example1),
-        javaFileParser,
-        shouldRecordRequiredSymbols);
-    JavaLibrarySymbolsFinder example2Finder = new JavaLibrarySymbolsFinder(
-        ImmutableSortedSet.of(example2),
-        javaFileParser,
-        shouldRecordRequiredSymbols);
-    JavaLibrarySymbolsFinder example1AndGeneratedSrcFinder = new JavaLibrarySymbolsFinder(
-        ImmutableSortedSet.of(example1, generated),
-        javaFileParser,
-        shouldRecordRequiredSymbols);
+    JavaLibrarySymbolsFinder example1Finder =
+        new JavaLibrarySymbolsFinder(ImmutableSortedSet.of(example1), javaFileParser);
+    JavaLibrarySymbolsFinder example2Finder =
+        new JavaLibrarySymbolsFinder(ImmutableSortedSet.of(example2), javaFileParser);
+    JavaLibrarySymbolsFinder example1AndGeneratedSrcFinder =
+        new JavaLibrarySymbolsFinder(ImmutableSortedSet.of(example1, generated), javaFileParser);
 
     // Mock out calls to a SourcePathResolver so we can create a legitimate
     // DefaultRuleKeyFactory.
     final SourcePathRuleFinder ruleFinder = createMock(SourcePathRuleFinder.class);
-    final SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    final SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     expect(ruleFinder.getRule(anyObject(SourcePath.class)))
-        .andAnswer(() -> {
-          SourcePath input = (SourcePath) EasyMock.getCurrentArguments()[0];
-          if (input instanceof ExplicitBuildTargetSourcePath) {
-            return Optional.of(new FakeBuildRule(fakeBuildTarget, pathResolver));
-          } else {
-            return Optional.empty();
-          }
-        })
+        .andAnswer(
+            () -> {
+              SourcePath input = (SourcePath) EasyMock.getCurrentArguments()[0];
+              if (input instanceof ExplicitBuildTargetSourcePath) {
+                return Optional.of(new FakeBuildRule(fakeBuildTarget));
+              } else {
+                return Optional.empty();
+              }
+            })
         .anyTimes();
 
     // Calculates the RuleKey for a JavaSymbolsRule with the specified JavaLibrarySymbolsFinder.
     final FileHashCache fileHashCache =
         new StackedFileHashCache(
             ImmutableList.of(
-                DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem)));
-    final DefaultRuleKeyFactory ruleKeyFactory = new DefaultRuleKeyFactory(
-        0,
-        fileHashCache,
-        pathResolver,
-        ruleFinder);
+                DefaultFileHashCache.createDefaultFileHashCache(
+                    projectFilesystem, FileHashCacheMode.DEFAULT)));
+    final DefaultRuleKeyFactory ruleKeyFactory =
+        new DefaultRuleKeyFactory(0, fileHashCache, pathResolver, ruleFinder);
     Function<JavaLibrarySymbolsFinder, RuleKey> createRuleKey =
         finder -> {
-          JavaSymbolsRule javaSymbolsRule = new JavaSymbolsRule(
-              BuildTargetFactory.newInstance("//foo:rule"),
-              finder,
-              projectFilesystem);
+          JavaSymbolsRule javaSymbolsRule =
+              new JavaSymbolsRule(
+                  BuildTargetFactory.newInstance("//foo:rule"), finder, projectFilesystem);
           return ruleKeyFactory.build(javaSymbolsRule);
         };
 

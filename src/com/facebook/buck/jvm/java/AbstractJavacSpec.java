@@ -22,11 +22,9 @@ import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-
-import org.immutables.value.Value;
-
 import java.nio.file.Path;
 import java.util.Optional;
+import org.immutables.value.Value;
 
 @Value.Immutable
 @BuckStyleImmutable
@@ -35,8 +33,11 @@ abstract class AbstractJavacSpec implements RuleKeyAppendable {
       "com.sun.tools.javac.api.JavacTool";
 
   protected abstract Optional<Either<BuiltInJavac, SourcePath>> getCompiler();
+
   protected abstract Optional<Either<Path, SourcePath>> getJavacPath();
+
   protected abstract Optional<SourcePath> getJavacJarPath();
+
   protected abstract Optional<String> getCompilerClassName();
 
   @Value.Lazy
@@ -45,7 +46,8 @@ abstract class AbstractJavacSpec implements RuleKeyAppendable {
       return new ExternalOrJarBackedJavacProvider(
           getCompiler().get().getRight(),
           // compiler_class_name has no effect when compiler is specified
-          COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL);
+          COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL,
+          getJavacLocation());
     }
 
     String compilerClassName = getCompilerClassName().orElse(COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL);
@@ -53,13 +55,10 @@ abstract class AbstractJavacSpec implements RuleKeyAppendable {
     final Javac.Location javacLocation = getJavacLocation();
     switch (javacSource) {
       case EXTERNAL:
-        return new ConstantJavacProvider(
-            ExternalJavac.createJavac(getJavacPath().get()));
+        return new ConstantJavacProvider(ExternalJavac.createJavac(getJavacPath().get()));
       case JAR:
         return new JarBackedJavacProvider(
-            getJavacJarPath().get(),
-            compilerClassName,
-            javacLocation);
+            getJavacJarPath().get(), compilerClassName, javacLocation);
       case JDK:
         switch (javacLocation) {
           case IN_PROCESS:

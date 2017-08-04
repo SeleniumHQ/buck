@@ -8,9 +8,15 @@ java_library(
         "CustomZipEntry.java",
         "CustomZipOutputStream.java",
         "DeterministicManifest.java",
+        "DeterministicZipBuilder.java",
+        "DirectoryJarEntryContainer.java",
         "EntryAccounting.java",
+        "JarBuilder.java",
+        "JarEntryContainer.java",
+        "JarEntrySupplier.java",
         "OverwritingZipOutputStreamImpl.java",
         "ZipConstants.java",
+        "ZipFileJarEntryContainer.java",
         "ZipOutputStreams.java",
         "ZipWriteTest.java",
     ],
@@ -19,8 +25,11 @@ java_library(
     ],
     visibility = ["PUBLIC"],
     deps = [
+        "//src/com/facebook/buck/io:MorePaths.java",
         "//src/com/facebook/buck/timing:timing",
         "//src/com/facebook/buck/util:exceptions",
+        "//src/com/facebook/buck/util:util",
+        "//src/com/facebook/buck/util/function:function",
         "//third-party/java/guava:guava",
         "//third-party/java/jsr:jsr305",
     ],
@@ -45,9 +54,6 @@ java_immutables_library(
     name = "steps",
     srcs = glob(["*Step.java"]) + [
         "ZipScrubber.java",
-    ],
-    immutable_types = [
-        "ZipScrubberStep",
     ],
     tests = [
         "//test/com/facebook/buck/zip:zip",
@@ -80,7 +86,7 @@ java_immutables_library(
     ],
 )
 
-java_library(
+java_immutables_library(
     name = "rules",
     srcs = [
         "SrcZipAwareFileBundler.java",
@@ -102,6 +108,8 @@ java_library(
         "//src/com/facebook/buck/parser:rule_pattern",
         "//src/com/facebook/buck/rules:build_rule",
         "//src/com/facebook/buck/rules:interfaces",
+        "//src/com/facebook/buck/rules:source_path",
+        "//src/com/facebook/buck/rules/keys:keys",
         "//src/com/facebook/buck/step:step",
         "//src/com/facebook/buck/step/fs:fs",
         "//src/com/facebook/buck/util:exceptions",

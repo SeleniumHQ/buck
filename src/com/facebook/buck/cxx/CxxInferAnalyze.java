@@ -16,11 +16,14 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -32,53 +35,53 @@ import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.SymCopyStep;
 import com.facebook.buck.util.MoreCollectors;
-import com.google.common.base.Function;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Ordering;
-
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.SortedSet;
 
 public class CxxInferAnalyze extends AbstractBuildRule {
-
-  private CxxInferCaptureAndAggregatingRules<CxxInferAnalyze>
-      captureAndAnalyzeRules;
 
   private final Path resultsDir;
   private final Path reportFile;
   private final Path specsDir;
   private final Path specsPathList;
 
-  @AddToRuleKey
-  private final InferBuckConfig inferConfig;
+  @AddToRuleKey private final InferBuckConfig inferConfig;
+  private final ImmutableSet<CxxInferCapture> captureRules;
+  private final ImmutableSet<CxxInferAnalyze> transitiveAnalyzeRules;
+  private final ImmutableSortedSet<BuildRule> buildDeps;
 
   CxxInferAnalyze(
-      BuildRuleParams buildRuleParams,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       InferBuckConfig inferConfig,
-      CxxInferCaptureAndAggregatingRules<CxxInferAnalyze> captureAndAnalyzeRules) {
-    super(buildRuleParams);
-    this.captureAndAnalyzeRules = captureAndAnalyzeRules;
-    this.resultsDir = BuildTargets.getGenPath(
-        getProjectFilesystem(),
-        this.getBuildTarget(),
-        "infer-analysis-%s");
+      ImmutableSet<CxxInferCapture> captureRules,
+      ImmutableSet<CxxInferAnalyze> transitiveAnalyzeRules) {
+    super(buildTarget, projectFilesystem);
+    this.resultsDir =
+        BuildTargets.getGenPath(getProjectFilesystem(), this.getBuildTarget(), "infer-analysis-%s");
     this.reportFile = this.resultsDir.resolve("report.json");
     this.specsDir = this.resultsDir.resolve("specs");
     this.specsPathList = this.resultsDir.resolve("specs_path_list.txt");
     this.inferConfig = inferConfig;
+    this.captureRules = captureRules;
+    this.transitiveAnalyzeRules = transitiveAnalyzeRules;
+    this.buildDeps =
+        ImmutableSortedSet.<BuildRule>naturalOrder()
+            .addAll(captureRules)
+            .addAll(transitiveAnalyzeRules)
+            .build();
   }
 
   private ImmutableSortedSet<SourcePath> getSpecsOfAllDeps() {
-    return FluentIterable.from(captureAndAnalyzeRules.aggregatingRules)
-        .transform(
-            (Function<CxxInferAnalyze, SourcePath>) input -> new ExplicitBuildTargetSourcePath(
-                input.getBuildTarget(), input.getSpecsDir())
-        )
-        .toSortedSet(Ordering.natural());
+    return transitiveAnalyzeRules
+        .stream()
+        .map(rule -> new ExplicitBuildTargetSourcePath(rule.getBuildTarget(), rule.getSpecsDir()))
+        .collect(MoreCollectors.toImmutableSortedSet());
   }
 
   public Path getSpecsDir() {
@@ -90,11 +93,11 @@ public class CxxInferAnalyze extends AbstractBuildRule {
   }
 
   public ImmutableSet<CxxInferCapture> getCaptureRules() {
-    return captureAndAnalyzeRules.captureRules;
+    return captureRules;
   }
 
   public ImmutableSet<CxxInferAnalyze> getTransitiveAnalyzeRules() {
-    return captureAndAnalyzeRules.aggregatingRules;
+    return transitiveAnalyzeRules;
   }
 
   private ImmutableList<String> getAnalyzeCommand() {
@@ -110,18 +113,26 @@ public class CxxInferAnalyze extends AbstractBuildRule {
   }
 
   @Override
+  public SortedSet<BuildRule> getBuildDeps() {
+    return buildDeps;
+  }
+
+  @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     buildableContext.recordArtifact(specsDir);
     buildableContext.recordArtifact(
         context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()));
     return ImmutableList.<Step>builder()
-        .add(MkdirStep.of(getProjectFilesystem(), specsDir))
+        .add(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), specsDir)))
         .add(
             new SymCopyStep(
                 getProjectFilesystem(),
-                captureAndAnalyzeRules.captureRules.stream()
+                captureRules
+                    .stream()
                     .map(CxxInferCapture::getSourcePathToOutput)
                     .map(context.getSourcePathResolver()::getRelativePath)
                     .collect(MoreCollectors.toImmutableList()),
@@ -130,27 +141,21 @@ public class CxxInferAnalyze extends AbstractBuildRule {
             new AbstractExecutionStep("write_specs_path_list") {
               @Override
               public StepExecutionResult execute(ExecutionContext executionContext)
-                  throws IOException {
-                try {
-                  ImmutableList<String> specsDirsWithAbsolutePath =
-                      getSpecsOfAllDeps().stream()
-                          .map(input ->
-                              context.getSourcePathResolver().getAbsolutePath(input).toString())
-                          .collect(MoreCollectors.toImmutableList());
-                  getProjectFilesystem().writeLinesToPath(specsDirsWithAbsolutePath, specsPathList);
-                } catch (IOException e) {
-                  executionContext.logError(
-                      e, "Error while writing specs path list file for the analyzer");
-                  return StepExecutionResult.ERROR;
-                }
+                  throws IOException, InterruptedException {
+                ImmutableList<String> specsDirsWithAbsolutePath =
+                    getSpecsOfAllDeps()
+                        .stream()
+                        .map(
+                            input ->
+                                context.getSourcePathResolver().getAbsolutePath(input).toString())
+                        .collect(MoreCollectors.toImmutableList());
+                getProjectFilesystem().writeLinesToPath(specsDirsWithAbsolutePath, specsPathList);
                 return StepExecutionResult.SUCCESS;
               }
             })
         .add(
             new DefaultShellStep(
-                getProjectFilesystem().getRootPath(),
-                getAnalyzeCommand(),
-                ImmutableMap.of()))
+                getProjectFilesystem().getRootPath(), getAnalyzeCommand(), ImmutableMap.of()))
         .build();
   }
 

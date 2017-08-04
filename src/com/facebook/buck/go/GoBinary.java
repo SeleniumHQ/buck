@@ -16,15 +16,17 @@
 
 package com.facebook.buck.go;
 
-import com.facebook.buck.cxx.Linker;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
@@ -35,20 +37,15 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
 import java.nio.file.Path;
 import java.util.Optional;
 
-public class GoBinary extends AbstractBuildRule implements BinaryBuildRule {
+public class GoBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps implements BinaryBuildRule {
 
-  @AddToRuleKey
-  private final Tool linker;
-  @AddToRuleKey
-  private final ImmutableList<String> linkerFlags;
-  @AddToRuleKey
-  private final Optional<Linker> cxxLinker;
-  @AddToRuleKey
-  private final GoPlatform platform;
+  @AddToRuleKey private final Tool linker;
+  @AddToRuleKey private final ImmutableList<String> linkerFlags;
+  @AddToRuleKey private final Optional<Linker> cxxLinker;
+  @AddToRuleKey private final GoPlatform platform;
 
   private final GoCompile mainObject;
   private final SymlinkTree linkTree;
@@ -56,6 +53,8 @@ public class GoBinary extends AbstractBuildRule implements BinaryBuildRule {
   private final Path output;
 
   public GoBinary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Optional<Linker> cxxLinker,
       SymlinkTree linkTree,
@@ -63,35 +62,26 @@ public class GoBinary extends AbstractBuildRule implements BinaryBuildRule {
       Tool linker,
       ImmutableList<String> linkerFlags,
       GoPlatform platform) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.cxxLinker = cxxLinker;
     this.linker = linker;
     this.linkTree = linkTree;
     this.mainObject = mainObject;
     this.platform = platform;
-    this.output = BuildTargets.getGenPath(
-        getProjectFilesystem(),
-        params.getBuildTarget(),
-        "%s/" + params.getBuildTarget().getShortName());
+    this.output =
+        BuildTargets.getGenPath(
+            getProjectFilesystem(), buildTarget, "%s/" + buildTarget.getShortName());
     this.linkerFlags = linkerFlags;
   }
 
   @Override
   public Tool getExecutableCommand() {
-    return new CommandTool.Builder()
-        .addArg(SourcePathArg.of(getSourcePathToOutput()))
-        .build();
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return new BuildableProperties(BuildableProperties.Kind.PACKAGING);
+    return new CommandTool.Builder().addArg(SourcePathArg.of(getSourcePathToOutput())).build();
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
 
     buildableContext.recordArtifact(output);
 
@@ -105,7 +95,9 @@ public class GoBinary extends AbstractBuildRule implements BinaryBuildRule {
     }
     environment.putAll(linker.getEnvironment(context.getSourcePathResolver()));
     return ImmutableList.of(
-        MkdirStep.of(getProjectFilesystem(), output.getParent()),
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())),
         new GoLinkStep(
             getProjectFilesystem().getRootPath(),
             environment.build(),
@@ -116,8 +108,7 @@ public class GoBinary extends AbstractBuildRule implements BinaryBuildRule {
             platform,
             context.getSourcePathResolver().getRelativePath(mainObject.getSourcePathToOutput()),
             GoLinkStep.LinkMode.EXECUTABLE,
-            output)
-        );
+            output));
   }
 
   @Override

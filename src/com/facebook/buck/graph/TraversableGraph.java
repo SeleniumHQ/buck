@@ -16,23 +16,21 @@
 
 package com.facebook.buck.graph;
 
-/**
- * Minimal interface needed by {@link AbstractBottomUpTraversal} to traverse a graph.
- */
+/** Minimal interface needed by {@link AbstractBottomUpTraversal} to traverse a graph. */
 public interface TraversableGraph<T> {
 
   /** @return {@link Iterable} that the caller is not allowed to mutate. */
-  public Iterable<T> getNodesWithNoIncomingEdges();
+  Iterable<T> getNodesWithNoIncomingEdges();
 
   /** @return {@link Iterable} that the caller is not allowed to mutate. */
-  public Iterable<T> getNodesWithNoOutgoingEdges();
+  Iterable<T> getNodesWithNoOutgoingEdges();
 
   /** @return {@link Iterable} that the caller is not allowed to mutate. */
-  public Iterable<T> getIncomingNodesFor(T sink);
+  Iterable<T> getIncomingNodesFor(T sink);
 
   /** @return {@link Iterable} that the caller is not allowed to mutate. */
-  public Iterable<T> getOutgoingNodesFor(T source);
+  Iterable<T> getOutgoingNodesFor(T source);
 
   /** @return an unmodifiable view of the nodes in this graph */
-  public Iterable<T> getNodes();
+  Iterable<T> getNodes();
 }

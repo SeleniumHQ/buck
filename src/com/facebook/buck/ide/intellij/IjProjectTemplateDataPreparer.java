@@ -16,6 +16,21 @@
 
 package com.facebook.buck.ide.intellij;
 
+import com.facebook.buck.ide.intellij.aggregation.AggregationMode;
+import com.facebook.buck.ide.intellij.lang.android.AndroidResourceFolder;
+import com.facebook.buck.ide.intellij.model.ContentRoot;
+import com.facebook.buck.ide.intellij.model.DependencyType;
+import com.facebook.buck.ide.intellij.model.IjLibrary;
+import com.facebook.buck.ide.intellij.model.IjModule;
+import com.facebook.buck.ide.intellij.model.IjModuleAndroidFacet;
+import com.facebook.buck.ide.intellij.model.IjModuleType;
+import com.facebook.buck.ide.intellij.model.IjProjectConfig;
+import com.facebook.buck.ide.intellij.model.IjProjectElement;
+import com.facebook.buck.ide.intellij.model.ModuleIndexEntry;
+import com.facebook.buck.ide.intellij.model.folders.ExcludeFolder;
+import com.facebook.buck.ide.intellij.model.folders.IjFolder;
+import com.facebook.buck.ide.intellij.model.folders.IjSourceFolder;
+import com.facebook.buck.ide.intellij.model.folders.TestFolder;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
@@ -23,24 +38,28 @@ import com.facebook.buck.util.MoreCollectors;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
-
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.FileVisitor;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
-
 import javax.annotation.Nullable;
 
 /**
@@ -58,30 +77,28 @@ public class IjProjectTemplateDataPreparer {
 
   private static final String EMPTY_STRING = "";
 
-  private JavaPackageFinder javaPackageFinder;
-  private IjModuleGraph moduleGraph;
-  private ProjectFilesystem projectFilesystem;
-  private IjSourceRootSimplifier sourceRootSimplifier;
-  private ImmutableSet<Path> referencedFolderPaths;
-  private ImmutableSet<Path> filesystemTraversalBoundaryPaths;
-  private ImmutableSet<IjModule> modulesToBeWritten;
-  private ImmutableSet<IjLibrary> librariesToBeWritten;
+  private final JavaPackageFinder javaPackageFinder;
+  private final IjModuleGraph moduleGraph;
+  private final ProjectFilesystem projectFilesystem;
+  private final IjProjectConfig projectConfig;
+  private final IjSourceRootSimplifier sourceRootSimplifier;
+  private final ImmutableSet<Path> referencedFolderPaths;
+  private final ImmutableSet<Path> filesystemTraversalBoundaryPaths;
+  private final ImmutableSet<IjModule> modulesToBeWritten;
+  private final ImmutableSet<IjLibrary> librariesToBeWritten;
 
   public IjProjectTemplateDataPreparer(
       JavaPackageFinder javaPackageFinder,
       IjModuleGraph moduleGraph,
-      ProjectFilesystem projectFilesystem) {
+      ProjectFilesystem projectFilesystem,
+      IjProjectConfig projectConfig) {
     this.javaPackageFinder = javaPackageFinder;
     this.moduleGraph = moduleGraph;
     this.projectFilesystem = projectFilesystem;
+    this.projectConfig = projectConfig;
     this.sourceRootSimplifier = new IjSourceRootSimplifier(javaPackageFinder);
     this.modulesToBeWritten = createModulesToBeWritten(moduleGraph);
-    this.librariesToBeWritten = moduleGraph
-        .getNodes()
-        .stream()
-        .filter(node -> node instanceof IjLibrary)
-        .map(IjLibrary.class::cast)
-        .collect(MoreCollectors.toImmutableSet());
+    this.librariesToBeWritten = moduleGraph.getLibraries();
     this.filesystemTraversalBoundaryPaths =
         createFilesystemTraversalBoundaryPathSet(modulesToBeWritten);
     this.referencedFolderPaths = createReferencedFolderPathsSet(modulesToBeWritten);
@@ -91,7 +108,7 @@ public class IjProjectTemplateDataPreparer {
     do {
       pathSet.add(path);
       path = path.getParent();
-    } while(path != null && !pathSet.contains(path));
+    } while (path != null && !pathSet.contains(path));
   }
 
   public static ImmutableSet<Path> createReferencedFolderPathsSet(ImmutableSet<IjModule> modules) {
@@ -105,26 +122,28 @@ public class IjProjectTemplateDataPreparer {
     return ImmutableSet.copyOf(pathSet);
   }
 
-  public static ImmutableSet<Path> createFilesystemTraversalBoundaryPathSet(
+  public ImmutableSet<Path> createFilesystemTraversalBoundaryPathSet(
       ImmutableSet<IjModule> modules) {
-    return Stream
-        .concat(
+    return Stream.concat(
             modules.stream().map(IjModule::getModuleBasePath),
-            Stream.of(IjProjectPaths.IDEA_CONFIG_DIR))
+            Stream.of(projectConfig.getProjectPaths().getIdeaConfigDir()))
         .collect(MoreCollectors.toImmutableSet());
   }
 
   public static ImmutableSet<Path> createPackageLookupPathSet(IjModuleGraph moduleGraph) {
     ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
 
-    for (IjModule module : moduleGraph.getModuleNodes()) {
+    for (IjModule module : moduleGraph.getModules()) {
       for (IjFolder folder : module.getFolders()) {
         if (!folder.getWantsPackagePrefix()) {
           continue;
         }
-        Optional<Path> firstJavaFile = folder.getInputs().stream()
-            .filter(input -> input.getFileName().toString().endsWith(".java"))
-            .findFirst();
+        Optional<Path> firstJavaFile =
+            folder
+                .getInputs()
+                .stream()
+                .filter(input -> input.getFileName().toString().endsWith(".java"))
+                .findFirst();
         if (firstJavaFile.isPresent()) {
           builder.add(firstJavaFile.get());
         }
@@ -134,24 +153,26 @@ public class IjProjectTemplateDataPreparer {
     return builder.build();
   }
 
-  private static ImmutableSet<IjModule> createModulesToBeWritten(IjModuleGraph graph) {
-    Path rootModuleBasePath = Paths.get("");
-    boolean hasRootModule = graph
-        .getModuleNodes()
-        .stream()
-        .anyMatch(module -> rootModuleBasePath.equals(module.getModuleBasePath()));
+  private ImmutableSet<IjModule> createModulesToBeWritten(IjModuleGraph graph) {
+    Path rootModuleBasePath = Paths.get(projectConfig.getProjectRoot());
+    boolean hasRootModule =
+        graph
+            .getModules()
+            .stream()
+            .anyMatch(module -> rootModuleBasePath.equals(module.getModuleBasePath()));
 
     ImmutableSet<IjModule> supplementalModules = ImmutableSet.of();
     if (!hasRootModule) {
-      supplementalModules = ImmutableSet.of(
-          IjModule.builder()
-              .setModuleBasePath(rootModuleBasePath)
-              .setTargets(ImmutableSet.of())
-              .build());
+      supplementalModules =
+          ImmutableSet.of(
+              IjModule.builder()
+                  .setModuleBasePath(rootModuleBasePath)
+                  .setTargets(ImmutableSet.of())
+                  .setModuleType(IjModuleType.UNKNOWN_MODULE)
+                  .build());
     }
 
-    return Stream
-        .concat(graph.getModuleNodes().stream(), supplementalModules.stream())
+    return Stream.concat(graph.getModules().stream(), supplementalModules.stream())
         .collect(MoreCollectors.toImmutableSet());
   }
 
@@ -163,35 +184,53 @@ public class IjProjectTemplateDataPreparer {
     return librariesToBeWritten;
   }
 
-  private ContentRoot createContentRoot(
+  private ImmutableList<ContentRoot> createContentRoots(
       final IjModule module,
       Path contentRootPath,
-      ImmutableSet<IjFolder> folders,
+      ImmutableCollection<IjFolder> folders,
       final Path moduleLocationBasePath) {
-    String url = IjProjectPaths.toModuleDirRelativeString(contentRootPath, moduleLocationBasePath);
-    ImmutableSet<IjFolder> simplifiedFolders = sourceRootSimplifier.simplify(
-        SimplificationLimit.of(contentRootPath.getNameCount()),
-        folders);
+    ImmutableListMultimap<Path, IjFolder> simplifiedFolders =
+        sourceRootSimplifier.simplify(
+            contentRootPath.toString().isEmpty() ? 0 : contentRootPath.getNameCount(),
+            folders,
+            moduleLocationBasePath,
+            filesystemTraversalBoundaryPaths);
     IjFolderToIjSourceFolderTransform transformToFolder =
         new IjFolderToIjSourceFolderTransform(module);
-    ImmutableSortedSet<IjSourceFolder> sourceFolders = simplifiedFolders
-        .stream()
-        .map(transformToFolder::apply)
-        .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural()));
-    return ContentRoot.builder()
-        .setUrl(url)
-        .setFolders(sourceFolders)
-        .build();
+    Map<String, List<IjSourceFolder>> sources = Maps.newTreeMap();
+    sources.put(contentRootPath.toString(), Collections.emptyList());
+    simplifiedFolders
+        .asMap()
+        .forEach(
+            (contentRoot, contentRootFolders) -> {
+              List<IjSourceFolder> sourceFolders =
+                  contentRootFolders
+                      .stream()
+                      .map(transformToFolder::apply)
+                      .sorted()
+                      .collect(MoreCollectors.toImmutableList());
+              sources.put(contentRoot.toString(), sourceFolders);
+            });
+    ImmutableList.Builder<ContentRoot> contentRootsBuilder = ImmutableList.builder();
+    for (Map.Entry<String, List<IjSourceFolder>> entry : sources.entrySet()) {
+      String url =
+          IjProjectPaths.toModuleDirRelativeString(
+              Paths.get(entry.getKey()), moduleLocationBasePath);
+      contentRootsBuilder.add(
+          ContentRoot.builder().setUrl(url).setFolders(entry.getValue()).build());
+    }
+    return contentRootsBuilder.build();
   }
 
-  public ImmutableSet<IjFolder> createExcludes(final IjModule module) throws IOException {
-    final ImmutableSet.Builder<IjFolder> excludesBuilder = ImmutableSet.builder();
+  public ImmutableCollection<IjFolder> createExcludes(final IjModule module) throws IOException {
+    final ImmutableList.Builder<IjFolder> excludesBuilder = ImmutableList.builder();
     final Path moduleBasePath = module.getModuleBasePath();
     projectFilesystem.walkRelativeFileTree(
-        moduleBasePath, new FileVisitor<Path>() {
+        moduleBasePath,
+        new FileVisitor<Path>() {
           @Override
-          public FileVisitResult preVisitDirectory(
-              Path dir, BasicFileAttributes attrs) throws IOException {
+          public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
+              throws IOException {
             // This is another module that's nested in this one. The entire subtree will be handled
             // When we create excludes for that module.
             if (filesystemTraversalBoundaryPaths.contains(dir) && !moduleBasePath.equals(dir)) {
@@ -211,8 +250,8 @@ public class IjProjectTemplateDataPreparer {
           }
 
           @Override
-          public FileVisitResult visitFile(
-              Path file, BasicFileAttributes attrs) throws IOException {
+          public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+              throws IOException {
             return FileVisitResult.CONTINUE;
           }
 
@@ -243,26 +282,28 @@ public class IjProjectTemplateDataPreparer {
     return false;
   }
 
-  public ContentRoot getContentRoot(IjModule module) throws IOException {
+  public ImmutableList<ContentRoot> getContentRoots(IjModule module) throws IOException {
     Path moduleBasePath = module.getModuleBasePath();
     Path moduleLocation = module.getModuleImlFilePath();
     final Path moduleLocationBasePath =
         (moduleLocation.getParent() == null) ? Paths.get("") : moduleLocation.getParent();
-    ImmutableSet<IjFolder> sourcesAndExcludes = Stream
-            .concat(module.getFolders().stream(), createExcludes(module).stream())
-            .collect(MoreCollectors.toImmutableSet());
-    return createContentRoot(module, moduleBasePath, sourcesAndExcludes, moduleLocationBasePath);
+    ImmutableList<IjFolder> sourcesAndExcludes =
+        Stream.concat(module.getFolders().stream(), createExcludes(module).stream())
+            .sorted()
+            .collect(MoreCollectors.toImmutableList());
+    return createContentRoots(module, moduleBasePath, sourcesAndExcludes, moduleLocationBasePath);
   }
 
   public ImmutableSet<IjSourceFolder> getGeneratedSourceFolders(final IjModule module) {
-    return module.getGeneratedSourceCodeFolders().stream()
+    return module
+        .getGeneratedSourceCodeFolders()
+        .stream()
         .map(new IjFolderToIjSourceFolderTransform(module)::apply)
-        .collect(MoreCollectors.toImmutableSet());
+        .collect(MoreCollectors.toImmutableSortedSet());
   }
 
   public ImmutableSet<DependencyEntry> getDependencies(IjModule module) {
-    ImmutableMap<IjProjectElement, DependencyType> deps =
-        moduleGraph.getDepsFor(module);
+    ImmutableMap<IjProjectElement, DependencyType> deps = moduleGraph.getDepsFor(module);
     IjDependencyListBuilder dependencyListBuilder = new IjDependencyListBuilder();
 
     for (Map.Entry<IjProjectElement, DependencyType> entry : deps.entrySet()) {
@@ -274,8 +315,7 @@ public class IjProjectTemplateDataPreparer {
   }
 
   public Optional<String> getFirstResourcePackageFromDependencies(IjModule module) {
-    ImmutableMap<IjModule, DependencyType> deps =
-        moduleGraph.getDependentModulesFor(module);
+    ImmutableMap<IjModule, DependencyType> deps = moduleGraph.getDependentModulesFor(module);
     for (IjModule dep : deps.keySet()) {
       Optional<IjModuleAndroidFacet> facet = dep.getAndroidFacet();
       if (facet.isPresent()) {
@@ -289,23 +329,33 @@ public class IjProjectTemplateDataPreparer {
   }
 
   public ImmutableSortedSet<ModuleIndexEntry> getModuleIndexEntries() {
+    String moduleGroupName = projectConfig.getModuleGroupName();
+    boolean needToPutModuleToGroup = !moduleGroupName.isEmpty();
     return modulesToBeWritten
         .stream()
         .map(
             module -> {
               Path moduleOutputFilePath = module.getModuleImlFilePath();
-              String fileUrl = IjProjectPaths.toProjectDirRelativeString(moduleOutputFilePath);
+              String fileUrl =
+                  projectConfig.getProjectPaths().toProjectDirRelativeUrl(moduleOutputFilePath);
+              Path moduleOutputFileRelativePath =
+                  Paths.get(
+                      projectConfig
+                          .getProjectPaths()
+                          .toProjectDirRelativeString(moduleOutputFilePath));
               // The root project module cannot belong to any group.
-              String group = (module.getModuleBasePath().toString().isEmpty()) ? null : "modules";
+              String group =
+                  (module.getModuleBasePath().toString().isEmpty() || !needToPutModuleToGroup)
+                      ? null
+                      : moduleGroupName;
               return ModuleIndexEntry.builder()
                   .setFileUrl(fileUrl)
-                  .setFilePath(moduleOutputFilePath)
+                  .setFilePath(moduleOutputFileRelativePath)
                   .setGroup(group)
                   .build();
             })
         .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural()));
   }
-
 
   public Map<String, Object> getAndroidProperties(IjModule module) {
     Map<String, Object> androidProperties = new HashMap<>();
@@ -320,13 +370,14 @@ public class IjProjectTemplateDataPreparer {
     IjModuleAndroidFacet androidFacet = androidFacetOptional.get();
 
     androidProperties.put("is_android_library_project", androidFacet.isAndroidLibrary());
+    androidProperties.put("project_type", androidFacet.getAndroidProjectType().getId());
+    androidProperties.put("autogenerate_sources", androidFacet.autogenerateSources());
     androidProperties.put(
-        "autogenerate_sources",
-        androidFacet.autogenerateSources());
+        "disallow_user_configuration",
+        projectConfig.isAggregatingAndroidResourceModulesEnabled()
+            && projectConfig.getAggregationMode() != AggregationMode.NONE);
 
     Path basePath = module.getModuleBasePath();
-
-    addAndroidConstants(androidProperties);
 
     addAndroidApkPaths(androidProperties, module, basePath, androidFacet);
     addAndroidAssetPaths(androidProperties, module, androidFacet);
@@ -334,18 +385,9 @@ public class IjProjectTemplateDataPreparer {
     addAndroidManifestPath(androidProperties, basePath, androidFacet);
     addAndroidProguardPath(androidProperties, androidFacet);
     addAndroidResourcePaths(androidProperties, module, androidFacet);
+    addAndroidCompilerOutputPath(androidProperties, module, basePath);
 
     return androidProperties;
-  }
-
-  private void addAndroidConstants(Map<String, Object> androidProperties) {
-    androidProperties.put("run_proguard", false);
-
-    // TODO(alsutton): Fix keystore detection
-    androidProperties.put("keystore", "");
-
-    // TODO(alsutton): See if we need nativeLibs and libs
-    androidProperties.put("libs_path", "/libs");
   }
 
   private void addAndroidApkPaths(
@@ -354,96 +396,127 @@ public class IjProjectTemplateDataPreparer {
       Path moduleBasePath,
       IjModuleAndroidFacet androidFacet) {
     if (androidFacet.isAndroidLibrary()) {
-      androidProperties.put(APK_PATH_TEMPLATE_PARAMETER, EMPTY_STRING);
       return;
     }
 
-    Path apkPath = moduleBasePath
-        .relativize(Paths.get(""))
-        .resolve(IjAndroidHelper.getAndroidApkDir(projectFilesystem))
-        .resolve(Paths.get("").relativize(moduleBasePath))
-        .resolve(module.getName() + ".apk");
+    Path apkPath =
+        moduleBasePath
+            .relativize(Paths.get(""))
+            .resolve(IjAndroidHelper.getAndroidApkDir(projectFilesystem))
+            .resolve(Paths.get("").relativize(moduleBasePath))
+            .resolve(module.getName() + ".apk");
     androidProperties.put(APK_PATH_TEMPLATE_PARAMETER, apkPath);
   }
 
   private void addAndroidAssetPaths(
-      Map<String, Object> androidProperties,
-      IjModule module,
-      IjModuleAndroidFacet androidFacet) {
+      Map<String, Object> androidProperties, IjModule module, IjModuleAndroidFacet androidFacet) {
+    if (androidFacet.isAndroidLibrary()) {
+      return;
+    }
     ImmutableSet<Path> assetPaths = androidFacet.getAssetPaths();
     if (assetPaths.isEmpty()) {
-      androidProperties.put(ASSETS_FOLDER_TEMPLATE_PARAMETER, "/assets");
-    } else {
-      Set<Path> relativeAssetPaths = new HashSet<>(assetPaths.size());
-      Path moduleBase = module.getModuleBasePath();
-      for (Path assetPath : assetPaths) {
-        relativeAssetPaths.add(moduleBase.relativize(assetPath));
-      }
-      androidProperties.put(
-          ASSETS_FOLDER_TEMPLATE_PARAMETER,
-          "/" + Joiner.on(";/").join(relativeAssetPaths));
+      return;
     }
+    Set<Path> relativeAssetPaths = new HashSet<>(assetPaths.size());
+    Path moduleBase = module.getModuleBasePath();
+    for (Path assetPath : assetPaths) {
+      relativeAssetPaths.add(moduleBase.relativize(assetPath));
+    }
+    androidProperties.put(
+        ASSETS_FOLDER_TEMPLATE_PARAMETER, "/" + Joiner.on(";/").join(relativeAssetPaths));
   }
 
   private void addAndroidGenPath(
       Map<String, Object> androidProperties,
       IjModuleAndroidFacet androidFacet,
       Path moduleBasePath) {
-    Path genPath = moduleBasePath
-        .relativize(androidFacet.getGeneratedSourcePath());
-    androidProperties.put(
-        "module_gen_path",
-        "/" + MorePaths.pathWithUnixSeparators(genPath));
+    Path genPath = moduleBasePath.relativize(androidFacet.getGeneratedSourcePath());
+    androidProperties.put("module_gen_path", "/" + MorePaths.pathWithUnixSeparators(genPath));
   }
 
   private void addAndroidManifestPath(
       Map<String, Object> androidProperties,
       Path moduleBasePath,
       IjModuleAndroidFacet androidFacet) {
-    Optional<Path> androidManifestPath = androidFacet.getManifestPath();
-    Path manifestPath;
-    if (androidManifestPath.isPresent()) {
-      manifestPath = projectFilesystem.resolve(moduleBasePath)
-          .relativize(androidManifestPath.get());
-    } else {
-      manifestPath = moduleBasePath
-                      .relativize(
-                          Paths
-                            .get("")
-                            .resolve("android_res/AndroidManifest.xml"));
+    Optional<Path> androidManifestPath = getAndroidManifestPath(androidFacet);
 
+    if (!androidManifestPath.isPresent()) {
+      return;
     }
-    androidProperties.put(ANDROID_MANIFEST_TEMPLATE_PARAMETER, "/" + manifestPath);
+
+    Path manifestPath =
+        projectFilesystem
+            .resolve(moduleBasePath)
+            .relativize(projectFilesystem.resolve(androidManifestPath.get()));
+
+    if (!"AndroidManifest.xml".equals(manifestPath.toString())) {
+      androidProperties.put(ANDROID_MANIFEST_TEMPLATE_PARAMETER, "/" + manifestPath);
+    }
+  }
+
+  private Optional<Path> getAndroidManifestPath(IjModuleAndroidFacet androidFacet) {
+    ImmutableSet<Path> androidManifestPaths = androidFacet.getManifestPaths();
+
+    if (androidManifestPaths.size() == 1) {
+      return Optional.of(androidManifestPaths.iterator().next());
+    }
+
+    if (projectConfig.isGeneratingAndroidManifestEnabled()) {
+      Optional<String> packageName = androidFacet.getPackageName();
+      if (packageName.isPresent()) {
+        return Optional.of(
+            androidFacet
+                .getGeneratedSourcePath()
+                .resolve(packageName.get().replace('.', '/'))
+                .resolve("AndroidManifest.xml"));
+      } else if (androidManifestPaths.size() > 0) {
+        return Optional.of(androidManifestPaths.iterator().next());
+      }
+    }
+
+    return projectConfig.getAndroidManifest();
   }
 
   private void addAndroidProguardPath(
-      Map<String, Object> androidProperties,
-      IjModuleAndroidFacet androidFacet) {
-    Optional<Path> proguardPath = androidFacet.getProguardConfigPath();
-    if (proguardPath.isPresent()) {
-      androidProperties.put(PROGUARD_CONFIG_TEMPLATE_PARAMETER, proguardPath.get());
-    } else {
-      androidProperties.put(PROGUARD_CONFIG_TEMPLATE_PARAMETER, EMPTY_STRING);
-    }
+      Map<String, Object> androidProperties, IjModuleAndroidFacet androidFacet) {
+    androidFacet
+        .getProguardConfigPath()
+        .ifPresent(
+            proguardPath ->
+                androidProperties.put(PROGUARD_CONFIG_TEMPLATE_PARAMETER, proguardPath));
   }
 
   private void addAndroidResourcePaths(
-      Map<String, Object> androidProperties,
-      IjModule module,
-      IjModuleAndroidFacet androidFacet) {
+      Map<String, Object> androidProperties, IjModule module, IjModuleAndroidFacet androidFacet) {
     ImmutableSet<Path> resourcePaths = androidFacet.getResourcePaths();
     if (resourcePaths.isEmpty()) {
       androidProperties.put(RESOURCES_RELATIVE_PATH_TEMPLATE_PARAMETER, EMPTY_STRING);
     } else {
-      Set<Path> relativeResourcePaths = new HashSet<>(resourcePaths.size());
+      Set<String> relativeResourcePaths = new HashSet<>(resourcePaths.size());
       Path moduleBase = module.getModuleBasePath();
       for (Path resourcePath : resourcePaths) {
-        relativeResourcePaths.add(moduleBase.relativize(resourcePath));
+        relativeResourcePaths.add(
+            IjProjectPaths.toModuleDirRelativeString(resourcePath, moduleBase));
       }
 
       androidProperties.put(
-          RESOURCES_RELATIVE_PATH_TEMPLATE_PARAMETER,
-          "/" + Joiner.on(";/").join(relativeResourcePaths));
+          RESOURCES_RELATIVE_PATH_TEMPLATE_PARAMETER, Joiner.on(";").join(relativeResourcePaths));
+    }
+  }
+
+  /**
+   * IntelliJ may not be able to find classes on the compiler output path if the jar_spool_mode is
+   * set to direct_to_jar.
+   */
+  private void addAndroidCompilerOutputPath(
+      Map<String, Object> androidProperties, IjModule module, Path moduleBasePath) {
+    // The compiler output path is relative to the project root
+    Optional<Path> compilerOutputPath = module.getCompilerOutputPath();
+    if (compilerOutputPath.isPresent()) {
+      Path relativeCompilerOutputPath = moduleBasePath.relativize(compilerOutputPath.get());
+      androidProperties.put(
+          "compiler_output_path",
+          "/" + MorePaths.pathWithUnixSeparators(relativeCompilerOutputPath));
     }
   }
 
@@ -459,9 +532,9 @@ public class IjProjectTemplateDataPreparer {
     @Override
     public IjSourceFolder apply(IjFolder input) {
       String packagePrefix;
-      if (input instanceof AndroidResourceFolder &&
-          androidFacet.isPresent() &&
-          androidFacet.get().getPackageName().isPresent()) {
+      if (input instanceof AndroidResourceFolder
+          && androidFacet.isPresent()
+          && androidFacet.get().getPackageName().isPresent()) {
         packagePrefix = androidFacet.get().getPackageName().get();
       } else {
         packagePrefix = getPackagePrefix(input);
@@ -470,20 +543,17 @@ public class IjProjectTemplateDataPreparer {
     }
 
     private IjSourceFolder createSourceFolder(
-        IjFolder folder,
-        Path moduleLocationBasePath,
-        @Nullable String packagePrefix) {
+        IjFolder folder, Path moduleLocationBasePath, @Nullable String packagePrefix) {
       return IjSourceFolder.builder()
           .setType(folder.getIjName())
-          .setUrl(IjProjectPaths.toModuleDirRelativeString(
-              folder.getPath(),
-              moduleLocationBasePath))
+          .setUrl(
+              IjProjectPaths.toModuleDirRelativeString(folder.getPath(), moduleLocationBasePath))
+          .setPath(folder.getPath())
           .setIsTestSource(folder instanceof TestFolder)
           .setIsAndroidResources(folder instanceof AndroidResourceFolder)
           .setPackagePrefix(packagePrefix)
           .build();
     }
-
 
     @Nullable
     private String getPackagePrefix(IjFolder folder) {
@@ -491,8 +561,8 @@ public class IjProjectTemplateDataPreparer {
         return null;
       }
       Path fileToLookupPackageIn;
-      if (!folder.getInputs().isEmpty() &&
-          folder.getInputs().first().getParent().equals(folder.getPath())) {
+      if (!folder.getInputs().isEmpty()
+          && folder.getInputs().first().getParent().equals(folder.getPath())) {
         fileToLookupPackageIn = folder.getInputs().first();
       } else {
         fileToLookupPackageIn = folder.getPath().resolve("notfound");
@@ -505,5 +575,4 @@ public class IjProjectTemplateDataPreparer {
       return packagePrefix;
     }
   }
-
 }

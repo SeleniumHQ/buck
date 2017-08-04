@@ -23,21 +23,16 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKeyFieldCategory;
 import com.facebook.buck.rules.SourceRoot;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
-
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.regex.Pattern;
 
-/**
- * An implementation of {@link RuleKeyHasher} that wraps Guava's {@link Hasher}.
- */
+/** An implementation of {@link RuleKeyHasher} that wraps Guava's {@link Hasher}. */
 public class GuavaRuleKeyHasher implements RuleKeyHasher<HashCode> {
-
 
   private final Hasher hasher;
 
@@ -58,12 +53,6 @@ public class GuavaRuleKeyHasher implements RuleKeyHasher<HashCode> {
 
   private GuavaRuleKeyHasher putBuildTarget(byte type, BuildTarget target) {
     return putStringified(type, target.getFullyQualifiedName());
-  }
-
-  @Override
-  public GuavaRuleKeyHasher selectCategory(RuleKeyFieldCategory category) {
-    // Category is useful for instrumentation purposes, but can be safely ignored here.
-    return this;
   }
 
   @Override
@@ -171,8 +160,7 @@ public class GuavaRuleKeyHasher implements RuleKeyHasher<HashCode> {
   }
 
   @Override
-  public RuleKeyHasher<HashCode> putBuildTargetSourcePath(
-      BuildTargetSourcePath<?> targetSourcePath) {
+  public RuleKeyHasher<HashCode> putBuildTargetSourcePath(BuildTargetSourcePath targetSourcePath) {
     this.putBuildTarget(RuleKeyHasherTypes.TARGET_SOURCE_PATH, targetSourcePath.getTarget());
     if (targetSourcePath instanceof ExplicitBuildTargetSourcePath) {
       this.putStringified(

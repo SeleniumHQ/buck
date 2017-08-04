@@ -16,14 +16,16 @@
 
 package com.facebook.buck.io;
 
+import com.facebook.buck.model.Pair;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteSource;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileSystem;
@@ -31,12 +33,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
-
 import javax.annotation.Nullable;
 
 /**
- * Common functions that are done with a {@link Path}. If a function is going to take a
- * {@link ProjectFilesystem}, then it should be in {@link MoreProjectFilesystems} instead.
+ * Common functions that are done with a {@link Path}. If a function is going to take a {@link
+ * ProjectFilesystem}, then it should be in {@link MoreProjectFilesystems} instead.
  */
 public class MorePaths {
 
@@ -95,18 +96,16 @@ public class MorePaths {
       // root dir.
       baseDir = EMPTY_PATH;
     }
-    Preconditions.checkArgument(!path.isAbsolute(),
-        "Path must be relative: %s.", path);
-    Preconditions.checkArgument(!baseDir.isAbsolute(),
-        "Path must be relative: %s.", baseDir);
+    Preconditions.checkArgument(!path.isAbsolute(), "Path must be relative: %s.", path);
+    Preconditions.checkArgument(!baseDir.isAbsolute(), "Path must be relative: %s.", baseDir);
     return relativize(baseDir, path);
   }
 
   /**
    * Get a relative path from path1 to path2, first normalizing each path.
    *
-   * This method is a workaround for JDK-6925169 (Path.relativize
-   * returns incorrect result if path contains "." or "..").
+   * <p>This method is a workaround for JDK-6925169 (Path.relativize returns incorrect result if
+   * path contains "." or "..").
    */
   public static Path relativize(Path path1, Path path2) {
     Preconditions.checkArgument(
@@ -130,7 +129,7 @@ public class MorePaths {
   /**
    * Get a path without unnecessary path parts.
    *
-   * This method is a workaround for JDK-8037945 (Paths.get("").normalize() throws
+   * <p>This method is a workaround for JDK-8037945 (Paths.get("").normalize() throws
    * ArrayIndexOutOfBoundsException).
    */
   public static Path normalize(Path path) {
@@ -152,10 +151,11 @@ public class MorePaths {
   public static Path createRelativeSymlink(
       Path pathToDesiredLinkUnderProjectRoot,
       Path pathToExistingFileUnderProjectRoot,
-      Path pathToProjectRoot) throws IOException {
-    Path target = getRelativePath(
-        pathToExistingFileUnderProjectRoot,
-        pathToDesiredLinkUnderProjectRoot.getParent());
+      Path pathToProjectRoot)
+      throws IOException {
+    Path target =
+        getRelativePath(
+            pathToExistingFileUnderProjectRoot, pathToDesiredLinkUnderProjectRoot.getParent());
     Files.createSymbolicLink(pathToProjectRoot.resolve(pathToDesiredLinkUnderProjectRoot), target);
     return target;
   }
@@ -167,26 +167,26 @@ public class MorePaths {
   public static ImmutableSet<Path> filterForSubpaths(Iterable<Path> paths, final Path root) {
     final Path normalizedRoot = root.toAbsolutePath().normalize();
     return FluentIterable.from(paths)
-        .filter(input -> {
-          if (input.isAbsolute()) {
-            return input.normalize().startsWith(normalizedRoot);
-          } else {
-            return true;
-          }
-        })
-        .transform(input -> {
-          if (input.isAbsolute()) {
-            return relativize(normalizedRoot, input);
-          } else {
-            return input;
-          }
-        })
+        .filter(
+            input -> {
+              if (input.isAbsolute()) {
+                return input.normalize().startsWith(normalizedRoot);
+              } else {
+                return true;
+              }
+            })
+        .transform(
+            input -> {
+              if (input.isAbsolute()) {
+                return relativize(normalizedRoot, input);
+              } else {
+                return input;
+              }
+            })
         .toSet();
   }
 
-  /**
-   * Expands "~/foo" into "/home/zuck/foo". Returns regular paths unmodified.
-   */
+  /** Expands "~/foo" into "/home/zuck/foo". Returns regular paths unmodified. */
   public static Path expandHomeDir(Path path) {
     if (!path.startsWith("~")) {
       return path;
@@ -219,22 +219,17 @@ public class MorePaths {
     return index == -1 ? name : name.substring(0, index);
   }
 
-
   public static String stripPathPrefixAndExtension(Path fileName, String prefix) {
     String nameWithoutExtension = getNameWithoutExtension(fileName);
 
-    if (!nameWithoutExtension.startsWith(prefix) ||
-        nameWithoutExtension.length() < prefix.length()) {
+    if (!nameWithoutExtension.startsWith(prefix)
+        || nameWithoutExtension.length() < prefix.length()) {
       throw new HumanReadableException(
           "Invalid prefix on filename in path %s (file %s) - expecting %s",
-          fileName,
-          nameWithoutExtension,
-          prefix);
+          fileName, nameWithoutExtension, prefix);
     }
 
-    return nameWithoutExtension.substring(
-        prefix.length(),
-        nameWithoutExtension.length());
+    return nameWithoutExtension.substring(prefix.length(), nameWithoutExtension.length());
   }
 
   public static Optional<Path> stripPrefix(Path p, Path prefix) {
@@ -264,12 +259,12 @@ public class MorePaths {
   }
 
   /**
-   * Drop any "." parts (useless).  Do keep ".." parts; don't normalize them away.
+   * Drop any "." parts (useless). Do keep ".." parts; don't normalize them away.
    *
-   * Note that while Path objects provide a {@link Path#normalize()} method for eliminating
-   * redundant parts of paths like in {@code foo/a/../b/c}, changing its internal parts
-   * (and actually using the filesystem), we don't use those methods to clean up the incoming paths;
-   * we only strip empty parts, and those consisting only of {@code .} because doing so maps
+   * <p>Note that while Path objects provide a {@link Path#normalize()} method for eliminating
+   * redundant parts of paths like in {@code foo/a/../b/c}, changing its internal parts (and
+   * actually using the filesystem), we don't use those methods to clean up the incoming paths; we
+   * only strip empty parts, and those consisting only of {@code .} because doing so maps
    * exactly-same paths together, and can't influence where it may point to, whereas {@code ..} and
    * symbolic links might.
    */
@@ -288,17 +283,76 @@ public class MorePaths {
   /**
    * Drop the cache in Path object.
    *
-   * Path's implementation class {@code UnixPath}, will lazily initialize a String representation
+   * <p>Path's implementation class {@code UnixPath}, will lazily initialize a String representation
    * and store it in the object when {@code #toString()} is called for the first time. This doubles
    * the memory requirement for the Path object.
    *
-   * This hack constructs a new path, dropping the cached toString value.
+   * <p>This hack constructs a new path, dropping the cached toString value.
    *
-   * Due to the nature of what this function does, it's very sensitive to the implementation. Any
+   * <p>Due to the nature of what this function does, it's very sensitive to the implementation. Any
    * calls to {@code #toString()} on the returned object would also recreate the cached string
    * value.
    */
   public static Path dropInternalCaches(Path p) {
     return p.getFileSystem().getPath(p.toString());
+  }
+
+  public static int commonSuffixLength(Path a, Path b) {
+    int count = 0;
+    while (count < a.getNameCount() && count < b.getNameCount()) {
+      if (!a.getName(a.getNameCount() - count - 1)
+          .equals(b.getName(b.getNameCount() - count - 1))) {
+        break;
+      }
+      count++;
+    }
+    return count;
+  }
+
+  public static Pair<Path, Path> stripCommonSuffix(Path a, Path b) {
+    int count = commonSuffixLength(a, b);
+    return new Pair<>(
+        count == a.getNameCount()
+            ? a.getFileSystem().getPath("")
+            : a.subpath(0, a.getNameCount() - count),
+        count == b.getNameCount()
+            ? b.getFileSystem().getPath("")
+            : b.subpath(0, b.getNameCount() - count));
+  }
+
+  private static int getCommonPrefixLength(Iterable<Path> paths) {
+    Optional<Integer> minSize =
+        RichStream.from(paths).map(Path::getNameCount).min(Integer::compareTo);
+    int count;
+    for (count = 0; count < minSize.orElse(0); count++) {
+      Path prev = null;
+      for (Path path : paths) {
+        if (prev != null && !prev.getName(count).equals(path.getName(count))) {
+          return count;
+        }
+        prev = path;
+      }
+    }
+    return count;
+  }
+
+  public static Optional<Pair<Path, ImmutableList<Path>>> splitOnCommonPrefix(
+      Iterable<Path> paths) {
+    int commonPrefix = getCommonPrefixLength(paths);
+    return RichStream.from(paths)
+        .findFirst()
+        .map(
+            firstPath ->
+                new Pair<>(
+                    commonPrefix == 0
+                        ? firstPath.getFileSystem().getPath("")
+                        : firstPath.subpath(0, commonPrefix),
+                    RichStream.from(paths)
+                        .map(
+                            p ->
+                                commonPrefix == p.getNameCount()
+                                    ? p.getFileSystem().getPath("")
+                                    : p.subpath(commonPrefix, p.getNameCount()))
+                        .toImmutableList()));
   }
 }

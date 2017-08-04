@@ -27,19 +27,18 @@ import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.config.Config;
 import com.facebook.buck.config.Configs;
 import com.facebook.buck.cxx.CxxBuckConfig;
-import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.DefaultCxxPlatforms;
-import com.facebook.buck.cxx.NativeLinkStrategy;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.NativeLinkStrategy;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.FakeExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultCellPathResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.ParameterizedTests;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
@@ -57,19 +56,17 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Optional;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
-
-import java.io.IOException;
-import java.nio.file.Path;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Optional;
 
 @RunWith(Parameterized.class)
 public class LuaBinaryIntegrationTest {
@@ -86,8 +83,7 @@ public class LuaBinaryIntegrationTest {
         ImmutableList.of(true, false));
   }
 
-  @Parameterized.Parameter
-  public LuaBinaryDescription.StarterType starterType;
+  @Parameterized.Parameter public LuaBinaryDescription.StarterType starterType;
 
   @Parameterized.Parameter(value = 1)
   public NativeLinkStrategy nativeLinkStrategy;
@@ -95,8 +91,7 @@ public class LuaBinaryIntegrationTest {
   @Parameterized.Parameter(value = 2)
   public boolean sandboxSources;
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   @Before
   public void setUp() throws Exception {
@@ -106,33 +101,31 @@ public class LuaBinaryIntegrationTest {
 
     // Verify that a Lua interpreter is available on the system.
     LuaBuckConfig fakeConfig =
-        new LuaBuckConfig(
-            FakeBuckConfig.builder().build(),
-            new ExecutableFinder());
+        new LuaBuckConfig(FakeBuckConfig.builder().build(), new ExecutableFinder());
     Optional<Path> luaOptional = fakeConfig.getSystemLua();
     assumeTrue(luaOptional.isPresent());
     lua = luaOptional.get();
 
     // Try to detect if a Lua devel package is available, which is needed to C/C++ support.
     BuildRuleResolver resolver =
-        new BuildRuleResolver(
-            TargetGraph.EMPTY,
-            new DefaultTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     CxxPlatform cxxPlatform =
         DefaultCxxPlatforms.build(
-            Platform.detect(),
-            new FakeProjectFilesystem(),
-            new CxxBuckConfig(FakeBuckConfig.builder().build()));
-    ProcessExecutorParams params = ProcessExecutorParams.builder()
-        .setCommand(
-        ImmutableList.<String>builder()
-            .addAll(
-                cxxPlatform.getCc().resolve(resolver)
-                    .getCommandPrefix(new SourcePathResolver(new SourcePathRuleFinder(resolver))))
-            .add("-includelua.h", "-E", "-")
-            .build())
-        .setRedirectInput(ProcessBuilder.Redirect.PIPE)
-        .build();
+            Platform.detect(), new CxxBuckConfig(FakeBuckConfig.builder().build()));
+    ProcessExecutorParams params =
+        ProcessExecutorParams.builder()
+            .setCommand(
+                ImmutableList.<String>builder()
+                    .addAll(
+                        cxxPlatform
+                            .getCc()
+                            .resolve(resolver)
+                            .getCommandPrefix(
+                                DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver))))
+                    .add("-includelua.h", "-E", "-")
+                    .build())
+            .setRedirectInput(ProcessBuilder.Redirect.PIPE)
+            .build();
     ProcessExecutor executor = new DefaultProcessExecutor(Console.createNullConsole());
     ProcessExecutor.LaunchedProcess launchedProcess = executor.launchProcess(params);
     launchedProcess.getOutputStream().close();
@@ -146,13 +139,14 @@ public class LuaBinaryIntegrationTest {
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "lua_binary", tmp);
     workspace.setUp();
     workspace.writeContentsToPath(
-        Joiner.on(System.lineSeparator()).join(
-            ImmutableList.of(
-                "[lua]",
-                "  starter_type = " + starterType.toString().toLowerCase(),
-                "  native_link_strategy = " + nativeLinkStrategy.toString().toLowerCase(),
-                "[cxx]",
-                "  sandbox_sources =" + sandboxSources)),
+        Joiner.on(System.lineSeparator())
+            .join(
+                ImmutableList.of(
+                    "[lua]",
+                    "  starter_type = " + starterType.toString().toLowerCase(),
+                    "  native_link_strategy = " + nativeLinkStrategy.toString().toLowerCase(),
+                    "[cxx]",
+                    "  sandbox_sources =" + sandboxSources)),
         ".buckconfig");
     LuaBuckConfig config = getLuaBuckConfig();
     assertThat(config.getStarterType(), Matchers.equalTo(Optional.of(starterType)));
@@ -206,8 +200,7 @@ public class LuaBinaryIntegrationTest {
         workspace.runBuckCommand("run", "//:simple").assertSuccess();
     assertThat(
         result.getStdout() + result.getStderr(),
-        Splitter.on(System.lineSeparator())
-            .splitToList(result.getStdout().trim()),
+        Splitter.on(System.lineSeparator()).splitToList(result.getStdout().trim()),
         Matchers.contains(
             ImmutableList.of(
                 Matchers.anyOf(Matchers.equalTo(lua.toString()), Matchers.equalTo("nil")),
@@ -217,8 +210,7 @@ public class LuaBinaryIntegrationTest {
     result = workspace.runBuckCommand("run", "//:simple", "--", "hello", "world").assertSuccess();
     assertThat(
         result.getStdout() + result.getStderr(),
-        Splitter.on(System.lineSeparator())
-            .splitToList(result.getStdout().trim()),
+        Splitter.on(System.lineSeparator()).splitToList(result.getStdout().trim()),
         Matchers.contains(
             ImmutableList.of(
                 Matchers.anyOf(Matchers.equalTo(lua.toString()), Matchers.equalTo("nil")),
@@ -254,16 +246,11 @@ public class LuaBinaryIntegrationTest {
   public void packagedFormat() throws Exception {
     Path output =
         workspace.buildAndReturnOutput(
-            "-c", "lua.package_style=standalone",
-            "-c", "lua.packager=//:packager",
-            "//:simple");
+            "-c", "lua.package_style=standalone", "-c", "lua.packager=//:packager", "//:simple");
     ImmutableMap<String, ImmutableMap<String, String>> components =
         ObjectMappers.readValue(
-            output.toFile(),
-            new TypeReference<ImmutableMap<String, ImmutableMap<String, String>>>() {});
-    assertThat(
-        components.get("modules").keySet(),
-        Matchers.equalTo(ImmutableSet.of("simple.lua")));
+            output, new TypeReference<ImmutableMap<String, ImmutableMap<String, String>>>() {});
+    assertThat(components.get("modules").keySet(), Matchers.equalTo(ImmutableSet.of("simple.lua")));
   }
 
   @Test
@@ -274,24 +261,26 @@ public class LuaBinaryIntegrationTest {
     String standaloneFirst =
         workspace.getFileContents(
             workspace.buildAndReturnOutput(
-                "-c", "lua.package_style=standalone",
-                "-c", "lua.packager=//:packager",
+                "-c",
+                "lua.package_style=standalone",
+                "-c",
+                "lua.packager=//:packager",
                 "//:simple"));
 
     // Now rebuild with just changing to an in-place packaging style.
     String inplaceFirst =
         workspace.getFileContents(
-            workspace.buildAndReturnOutput(
-                "-c", "lua.package_style=inplace",
-                "//:simple"));
+            workspace.buildAndReturnOutput("-c", "lua.package_style=inplace", "//:simple"));
 
     // Now rebuild again, switching back to standalone, and verify the output matches the original
     // build's output.
     String standaloneSecond =
         workspace.getFileContents(
             workspace.buildAndReturnOutput(
-                "-c", "lua.package_style=standalone",
-                "-c", "lua.packager=//:packager",
+                "-c",
+                "lua.package_style=standalone",
+                "-c",
+                "lua.packager=//:packager",
                 "//:simple"));
     assertTrue(standaloneFirst.equals(standaloneSecond));
 
@@ -299,9 +288,7 @@ public class LuaBinaryIntegrationTest {
     // build's output.
     String inplaceSecond =
         workspace.getFileContents(
-            workspace.buildAndReturnOutput(
-                "-c", "lua.package_style=inplace",
-                "//:simple"));
+            workspace.buildAndReturnOutput("-c", "lua.package_style=inplace", "//:simple"));
     assertTrue(inplaceFirst.equals(inplaceSecond));
   }
 
@@ -318,12 +305,10 @@ public class LuaBinaryIntegrationTest {
     ProjectWorkspace.ProcessResult luaBinaryResult =
         workspace.runBuckBuild("//with_includes:native_with_extension");
     luaBinaryResult.assertFailure();
-    assertThat(
-        luaBinaryResult.getStderr(),
-        containsString("extension.h"));
+    assertThat(luaBinaryResult.getStderr(), containsString("extension.h"));
   }
 
-  private LuaBuckConfig getLuaBuckConfig() throws IOException {
+  private LuaBuckConfig getLuaBuckConfig() throws InterruptedException, IOException {
     Config rawConfig = Configs.createDefaultConfig(tmp.getRoot());
     BuckConfig buckConfig =
         new BuckConfig(
@@ -333,9 +318,6 @@ public class LuaBinaryIntegrationTest {
             Platform.detect(),
             ImmutableMap.of(),
             new DefaultCellPathResolver(tmp.getRoot(), rawConfig));
-    return new LuaBuckConfig(
-        buckConfig,
-        new FakeExecutableFinder(ImmutableList.of()));
+    return new LuaBuckConfig(buckConfig, new FakeExecutableFinder(ImmutableList.of()));
   }
-
 }

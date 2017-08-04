@@ -15,87 +15,120 @@
  */
 package com.facebook.buck.event.listener;
 
+import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.distributed.BuildSlaveFinishedStatusEvent;
 import com.facebook.buck.distributed.DistBuildService;
+import com.facebook.buck.distributed.DistBuildSlaveTimingStatsTracker;
 import com.facebook.buck.distributed.DistBuildUtil;
+import com.facebook.buck.distributed.FileMaterializationStatsTracker;
 import com.facebook.buck.distributed.thrift.BuildSlaveConsoleEvent;
+import com.facebook.buck.distributed.thrift.BuildSlaveFinishedStats;
 import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
 import com.facebook.buck.distributed.thrift.RunId;
 import com.facebook.buck.distributed.thrift.StampedeId;
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.test.selectors.Nullable;
 import com.facebook.buck.timing.Clock;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.eventbus.Subscribe;
-
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
-
+import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
- * Listener to transmit DistBuildSlave events over to buck frontend.
- * NOTE: We do not promise to transmit every single update to BuildSlaveStatus,
- * but we do promise to always transmit BuildSlaveStatus with the latest updates.
+ * Listener to transmit DistBuildSlave events over to buck frontend. NOTE: We do not promise to
+ * transmit every single update to BuildSlaveStatus, but we do promise to always transmit
+ * BuildSlaveStatus with the latest updates.
  */
 public class DistBuildSlaveEventBusListener implements BuckEventListener, Closeable {
 
   private static final Logger LOG = Logger.get(DistBuildSlaveEventBusListener.class);
 
   private static final int DEFAULT_SERVER_UPDATE_PERIOD_MILLIS = 500;
+  private static final int SHUTDOWN_TIMEOUT_SECONDS = 10;
 
   private final StampedeId stampedeId;
   private final RunId runId;
   private final Clock clock;
   private final ScheduledFuture<?> scheduledServerUpdates;
+  private final ScheduledExecutorService networkScheduler;
 
   private final Object consoleEventsLock = new Object();
+
   @GuardedBy("consoleEventsLock")
   private final List<BuildSlaveConsoleEvent> consoleEvents = new LinkedList<>();
 
-  private final Object statusLock = new Object();
-  @GuardedBy("statusLock")
-  private final BuildSlaveStatus status = new BuildSlaveStatus();
+  private final CacheRateStatsKeeper cacheRateStatsKeeper = new CacheRateStatsKeeper();
+
+  private volatile int ruleCount = 0;
+  private final AtomicInteger buildRulesStartedCount = new AtomicInteger(0);
+  private final AtomicInteger buildRulesFinishedCount = new AtomicInteger(0);
+  private final AtomicInteger buildRulesSuccessCount = new AtomicInteger(0);
+  private final AtomicInteger buildRulesFailureCount = new AtomicInteger(0);
+
+  private final HttpCacheUploadStats httpCacheUploadStats = new HttpCacheUploadStats();
+
+  private final FileMaterializationStatsTracker fileMaterializationStatsTracker;
+  private final DistBuildSlaveTimingStatsTracker slaveStatsTracker;
 
   private volatile @Nullable DistBuildService distBuildService;
+  private volatile Optional<Integer> exitCode = Optional.empty();
+  private volatile boolean sentFinishedStatsToServer;
 
   public DistBuildSlaveEventBusListener(
       StampedeId stampedeId,
       RunId runId,
       Clock clock,
+      DistBuildSlaveTimingStatsTracker slaveStatsTracker,
+      FileMaterializationStatsTracker fileMaterializationStatsTracker,
       ScheduledExecutorService networkScheduler) {
-    this(stampedeId, runId, clock, networkScheduler, DEFAULT_SERVER_UPDATE_PERIOD_MILLIS);
+    this(
+        stampedeId,
+        runId,
+        clock,
+        slaveStatsTracker,
+        fileMaterializationStatsTracker,
+        networkScheduler,
+        DEFAULT_SERVER_UPDATE_PERIOD_MILLIS);
   }
 
   public DistBuildSlaveEventBusListener(
       StampedeId stampedeId,
       RunId runId,
       Clock clock,
+      DistBuildSlaveTimingStatsTracker slaveStatsTracker,
+      FileMaterializationStatsTracker fileMaterializationStatsTracker,
       ScheduledExecutorService networkScheduler,
       long serverUpdatePeriodMillis) {
     this.stampedeId = stampedeId;
     this.runId = runId;
     this.clock = clock;
+    this.slaveStatsTracker = slaveStatsTracker;
+    this.fileMaterializationStatsTracker = fileMaterializationStatsTracker;
+    this.networkScheduler = networkScheduler;
 
-    // No synchronization needed here because status is final.
-    status.setStampedeId(stampedeId);
-    status.setRunId(runId);
-
-    scheduledServerUpdates = networkScheduler.scheduleAtFixedRate(
-        this::sendServerUpdates,
-        0,
-        serverUpdatePeriodMillis,
-        TimeUnit.MILLISECONDS);
+    scheduledServerUpdates =
+        networkScheduler.scheduleAtFixedRate(
+            this::sendServerUpdates, 0, serverUpdatePeriodMillis, TimeUnit.MILLISECONDS);
   }
 
   public void setDistBuildService(DistBuildService service) {
@@ -107,9 +140,78 @@ public class DistBuildSlaveEventBusListener implements BuckEventListener, Closea
 
   @Override
   public void close() throws IOException {
-    scheduledServerUpdates.cancel(false);
+    if (scheduledServerUpdates.isCancelled()) {
+      return; // close() has already been called. Cancelling again will fail.
+    }
+
+    boolean cancelled = scheduledServerUpdates.cancel(false);
+
+    if (!cancelled) {
+      // Wait for the timer to shut down.
+      try {
+        scheduledServerUpdates.get(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      } catch (InterruptedException | ExecutionException | TimeoutException e) {
+        LOG.error(e);
+      } catch (CancellationException e) {
+        LOG.info("Failed to call get() on scheduled executor future, as already cancelled.");
+      }
+    }
+
     // Send final updates.
     sendServerUpdates();
+    if (exitCode.isPresent()) {
+      sendFinishedStatsToFrontend(createBuildSlaveFinishedStats());
+    }
+  }
+
+  private BuildSlaveStatus createBuildSlaveStatus() {
+    return new BuildSlaveStatus()
+        .setStampedeId(stampedeId)
+        .setRunId(runId)
+        .setTotalRulesCount(ruleCount)
+        .setRulesStartedCount(buildRulesStartedCount.get())
+        .setRulesFinishedCount(buildRulesFinishedCount.get())
+        .setRulesSuccessCount(buildRulesSuccessCount.get())
+        .setRulesFailureCount(buildRulesFailureCount.get())
+        .setCacheRateStats(cacheRateStatsKeeper.getSerializableStats())
+        .setHttpArtifactTotalBytesUploaded(httpCacheUploadStats.getHttpArtifactTotalBytesUploaded())
+        .setHttpArtifactUploadsScheduledCount(
+            httpCacheUploadStats.getHttpArtifactTotalUploadsScheduledCount())
+        .setHttpArtifactUploadsOngoingCount(
+            httpCacheUploadStats.getHttpArtifactUploadsOngoingCount())
+        .setHttpArtifactUploadsSuccessCount(
+            httpCacheUploadStats.getHttpArtifactUploadsSuccessCount())
+        .setHttpArtifactUploadsFailureCount(
+            httpCacheUploadStats.getHttpArtifactUploadsFailureCount())
+        .setFilesMaterializedCount(
+            fileMaterializationStatsTracker.getTotalFilesMaterializedCount());
+  }
+
+  private BuildSlaveFinishedStats createBuildSlaveFinishedStats() {
+    BuildSlaveFinishedStats finishedStats =
+        new BuildSlaveFinishedStats()
+            .setBuildSlaveStatus(createBuildSlaveStatus())
+            .setFileMaterializationStats(
+                fileMaterializationStatsTracker.getFileMaterializationStats())
+            .setBuildSlavePerStageTimingStats(slaveStatsTracker.generateStats());
+    Preconditions.checkState(
+        exitCode.isPresent(),
+        "BuildSlaveFinishedStats can only be generated after we are finished building.");
+    finishedStats.setExitCode(exitCode.get());
+    return finishedStats;
+  }
+
+  private synchronized void sendFinishedStatsToFrontend(BuildSlaveFinishedStats finishedStats) {
+    if (distBuildService == null || sentFinishedStatsToServer) {
+      return;
+    }
+
+    try {
+      distBuildService.storeBuildSlaveFinishedStats(stampedeId, runId, finishedStats);
+      sentFinishedStatsToServer = true;
+    } catch (IOException e) {
+      LOG.error(e, "Could not update slave status to frontend.");
+    }
   }
 
   private void sendStatusToFrontend() {
@@ -117,12 +219,8 @@ public class DistBuildSlaveEventBusListener implements BuckEventListener, Closea
       return;
     }
 
-    BuildSlaveStatus statusCopy;
-    synchronized (statusLock) {
-      statusCopy = status.deepCopy();
-    }
     try {
-      distBuildService.updateBuildSlaveStatus(stampedeId, runId, statusCopy);
+      distBuildService.updateBuildSlaveStatus(stampedeId, runId, createBuildSlaveStatus());
     } catch (IOException e) {
       LOG.error(e, "Could not update slave status to frontend.");
     }
@@ -144,10 +242,7 @@ public class DistBuildSlaveEventBusListener implements BuckEventListener, Closea
     }
 
     try {
-      distBuildService.uploadBuildSlaveConsoleEvents(
-          stampedeId,
-          runId,
-          consoleEventsCopy);
+      distBuildService.uploadBuildSlaveConsoleEvents(stampedeId, runId, consoleEventsCopy);
     } catch (IOException e) {
       LOG.error(e, "Could not upload slave console events to frontend.");
     }
@@ -158,10 +253,18 @@ public class DistBuildSlaveEventBusListener implements BuckEventListener, Closea
     sendConsoleEventsToFrontend();
   }
 
+  public void publishBuildSlaveFinishedEvent(
+      BuckEventBus eventBus, BuckConfig remoteBuckConfig, int exitCode) {
+    this.exitCode = Optional.of(exitCode);
+    BuildSlaveFinishedStats finishedStats = createBuildSlaveFinishedStats();
+    eventBus.post(new BuildSlaveFinishedStatusEvent(finishedStats, remoteBuckConfig));
+    networkScheduler.schedule(
+        () -> sendFinishedStatsToFrontend(finishedStats), 0, TimeUnit.SECONDS);
+  }
+
   @Subscribe
   public void logEvent(ConsoleEvent event) {
-    if (!event.getLevel().equals(Level.WARNING) &&
-        !event.getLevel().equals(Level.SEVERE)) {
+    if (!event.getLevel().equals(Level.WARNING) && !event.getLevel().equals(Level.SEVERE)) {
       return;
     }
     synchronized (consoleEventsLock) {
@@ -173,75 +276,64 @@ public class DistBuildSlaveEventBusListener implements BuckEventListener, Closea
 
   @Subscribe
   public void ruleCountCalculated(BuildEvent.RuleCountCalculated calculated) {
-    synchronized (statusLock) {
-      status.setTotalRulesCount(calculated.getNumRules());
-    }
+    cacheRateStatsKeeper.ruleCountCalculated(calculated);
+    ruleCount = calculated.getNumRules();
   }
 
   @Subscribe
   public void ruleCountUpdated(BuildEvent.UnskippedRuleCountUpdated updated) {
-    synchronized (statusLock) {
-      status.setTotalRulesCount(updated.getNumRules());
-    }
+    cacheRateStatsKeeper.ruleCountUpdated(updated);
+    ruleCount = updated.getNumRules();
   }
 
   @SuppressWarnings("unused")
   @Subscribe
   public void buildRuleStarted(BuildRuleEvent.Started started) {
-    synchronized (statusLock) {
-      status.setRulesStartedCount(status.getRulesStartedCount() + 1);
-    }
+    buildRulesStartedCount.incrementAndGet();
   }
 
   @Subscribe
   public void buildRuleFinished(BuildRuleEvent.Finished finished) {
-    synchronized (statusLock) {
-      status.setRulesStartedCount(status.getRulesStartedCount() - 1);
-      status.setRulesFinishedCount(status.getRulesFinishedCount() + 1);
+    cacheRateStatsKeeper.buildRuleFinished(finished);
+    buildRulesStartedCount.decrementAndGet();
+    buildRulesFinishedCount.incrementAndGet();
 
-      switch (finished.getStatus()) {
-        case SUCCESS:
-          status.setRulesSuccessCount(status.getRulesSuccessCount() + 1);
-          break;
-        case FAIL:
-          status.setRulesFailureCount(status.getRulesFailureCount() + 1);
-          break;
-        case CANCELED:
-          break;
-      }
-
-      switch (finished.getCacheResult().getType()) {
-        case HIT:
-          status.setCacheHitsCount(status.getCacheHitsCount() + 1);
-          break;
-        case MISS:
-          status.setCacheMissesCount(status.getCacheMissesCount() + 1);
-          break;
-        case ERROR:
-          status.setCacheErrorsCount(status.getCacheErrorsCount() + 1);
-          break;
-        case IGNORED:
-          status.setCacheIgnoresCount(status.getCacheIgnoresCount() + 1);
-          break;
-        case LOCAL_KEY_UNCHANGED_HIT:
-          status.setCacheLocalKeyUnchangedHitsCount(
-              status.getCacheLocalKeyUnchangedHitsCount() + 1);
-          break;
-      }
+    switch (finished.getStatus()) {
+      case SUCCESS:
+        buildRulesSuccessCount.incrementAndGet();
+        break;
+      case FAIL:
+        buildRulesFailureCount.incrementAndGet();
+        break;
+      case CANCELED:
+        break;
     }
   }
 
-  /**
-   * TODO(shivanker): Add support for keeping track of suspended rules.
-   *
-   * @Subscribe public void buildRuleResumed(BuildRuleEvent.Resumed resumed) {}
-   * @Subscribe public void buildRuleSuspended(BuildRuleEvent.Suspended suspended) {}
-   */
+  @SuppressWarnings("unused")
+  @Subscribe
+  public void buildRuleResumed(BuildRuleEvent.Resumed resumed) {
+    buildRulesStartedCount.incrementAndGet();
+  }
 
-  /**
-   * TODO(shivanker): Add support for keeping track of cache uploads.
-   * @Subscribe
-   * public void onHttpArtifactCacheFinishedEvent(HttpArtifactCacheEvent.Finished event) {}
-   */
+  @SuppressWarnings("unused")
+  @Subscribe
+  public void buildRuleSuspended(BuildRuleEvent.Suspended suspended) {
+    buildRulesStartedCount.decrementAndGet();
+  }
 
+  @Subscribe
+  public void onHttpArtifactCacheScheduledEvent(HttpArtifactCacheEvent.Scheduled event) {
+    httpCacheUploadStats.processHttpArtifactCacheScheduledEvent(event);
+  }
+
+  @Subscribe
+  public void onHttpArtifactCacheStartedEvent(HttpArtifactCacheEvent.Started event) {
+    httpCacheUploadStats.processHttpArtifactCacheStartedEvent(event);
+  }
+
+  @Subscribe
+  public void onHttpArtifactCacheFinishedEvent(HttpArtifactCacheEvent.Finished event) {
+    httpCacheUploadStats.processHttpArtifactCacheFinishedEvent(event);
+  }
 }

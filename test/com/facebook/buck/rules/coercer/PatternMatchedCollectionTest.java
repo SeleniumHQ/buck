@@ -23,23 +23,21 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.FakeCellPathResolver;
+import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.versions.FixedTargetNodeTranslator;
 import com.facebook.buck.versions.TargetNodeTranslator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
-import org.hamcrest.Matchers;
-import org.junit.Test;
-
 import java.util.Optional;
 import java.util.regex.Pattern;
+import org.hamcrest.Matchers;
+import org.junit.Test;
 
 public class PatternMatchedCollectionTest {
 
   private static final CellPathResolver CELL_PATH_RESOLVER =
-      new FakeCellPathResolver(new FakeProjectFilesystem());
+      TestCellPathResolver.get(new FakeProjectFilesystem());
   private static final BuildTargetPatternParser<BuildTargetPattern> PATTERN =
       BuildTargetPatternParser.fullyQualified();
 
@@ -48,13 +46,15 @@ public class PatternMatchedCollectionTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     BuildTarget newTarget = BuildTargetFactory.newInstance("//something:else");
     TargetNodeTranslator translator =
-        new FixedTargetNodeTranslator(ImmutableMap.of(target, newTarget));
+        new FixedTargetNodeTranslator(
+            new DefaultTypeCoercerFactory(), ImmutableMap.of(target, newTarget));
     PatternMatchedCollection<BuildTarget> collection =
         PatternMatchedCollection.<BuildTarget>builder()
             .add(Pattern.compile("something"), target)
             .build();
     assertThat(
-        translator.translate(CELL_PATH_RESOLVER, PATTERN, collection)
+        translator
+            .translate(CELL_PATH_RESOLVER, PATTERN, collection)
             .map(PatternMatchedCollection::getValues),
         Matchers.equalTo(Optional.of(ImmutableList.of(newTarget))));
   }
@@ -62,7 +62,8 @@ public class PatternMatchedCollectionTest {
   @Test
   public void untranslatedTargets() {
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-    TargetNodeTranslator translator = new FixedTargetNodeTranslator(ImmutableMap.of());
+    TargetNodeTranslator translator =
+        new FixedTargetNodeTranslator(new DefaultTypeCoercerFactory(), ImmutableMap.of());
     PatternMatchedCollection<BuildTarget> collection =
         PatternMatchedCollection.<BuildTarget>builder()
             .add(Pattern.compile("something"), target)
@@ -71,5 +72,4 @@ public class PatternMatchedCollectionTest {
         translator.translate(CELL_PATH_RESOLVER, PATTERN, collection),
         Matchers.equalTo(Optional.empty()));
   }
-
 }

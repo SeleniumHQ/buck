@@ -16,8 +16,11 @@
 
 package org.openqa.selenium.buck.javascript;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -31,15 +34,14 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.SortedSet;
 import java.util.stream.Collectors;
-
 import javax.annotation.Nullable;
 
-public class JsFragment extends AbstractBuildRule {
+public class JsFragment extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private final Path output;
   private final Path temp;
@@ -57,16 +59,18 @@ public class JsFragment extends AbstractBuildRule {
   private final boolean prettyPrint;
 
   public JsFragment(
+      BuildTarget target,
+      ProjectFilesystem filesystem,
       BuildRuleParams params,
       Tool compiler,
-      ImmutableSortedSet<BuildRule> deps,
+      SortedSet<BuildRule> deps,
       String module,
       String function,
       ImmutableList<String> defines,
       boolean prettyPrint) {
-    super(params);
+    super(target, filesystem, params);
 
-    this.deps = deps;
+    this.deps = ImmutableSortedSet.copyOf(deps);
     this.module = module;
     this.function = function;
     this.output = BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.js");
@@ -96,14 +100,22 @@ public class JsFragment extends AbstractBuildRule {
       }
     }
 
-    steps.add(MkdirStep.of(getProjectFilesystem(), temp.getParent()));
+    steps.add(MkdirStep.of(
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(),
+            getProjectFilesystem(),
+            temp.getParent())));
     steps.add(
         new WriteFileStep(
             getProjectFilesystem(),
             String.format("goog.require('%s'); goog.exportSymbol('_', %s);", module, function),
             temp,
             /* executable */ false));
-    steps.add(MkdirStep.of(getProjectFilesystem(), output.getParent()));
+    steps.add(MkdirStep.of(
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(),
+            getProjectFilesystem(),
+            output.getParent())));
 
     List<String> flags = defines.stream()
         .map(define -> "--define=" + define)

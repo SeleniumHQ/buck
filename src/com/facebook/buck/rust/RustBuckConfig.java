@@ -17,19 +17,17 @@
 package com.facebook.buck.rust;
 
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.DefaultLinkerProvider;
-import com.facebook.buck.cxx.LinkerProvider;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.LinkerProvider;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.rules.ConstantToolProvider;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.ToolProvider;
 import com.google.common.collect.ImmutableList;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
-
 
 public class RustBuckConfig {
   private static final String SECTION = "rust";
@@ -39,6 +37,7 @@ public class RustBuckConfig {
   private static final String RUSTC_LIBRARY_FLAGS = "rustc_library_flags";
   private static final String RUSTC_CHECK_FLAGS = "rustc_check_flags";
   private static final String RUSTC_TEST_FLAGS = "rustc_test_flags";
+  private static final String UNFLAVORED_BINARIES = "unflavored_binaries";
 
   private final BuckConfig delegate;
 
@@ -51,10 +50,10 @@ public class RustBuckConfig {
         .getToolProvider(SECTION, "compiler")
         .orElseGet(
             () -> {
-              HashedFileTool tool = new HashedFileTool(
-                  new ExecutableFinder().getExecutable(
-                      DEFAULT_RUSTC_COMPILER,
-                      delegate.getEnvironment()));
+              HashedFileTool tool =
+                  new HashedFileTool(
+                      new ExecutableFinder()
+                          .getExecutable(DEFAULT_RUSTC_COMPILER, delegate.getEnvironment()));
               return new ConstantToolProvider(tool);
             });
   }
@@ -111,8 +110,8 @@ public class RustBuckConfig {
   }
 
   /**
-   * Get rustc flags for #check flavored builds. Caller must also include rule-dependent
-   * flags and common flags.
+   * Get rustc flags for #check flavored builds. Caller must also include rule-dependent flags and
+   * common flags.
    *
    * @return List of rustc_check_flags.
    */
@@ -128,16 +127,13 @@ public class RustBuckConfig {
     return delegate.getToolProvider(SECTION, "linker");
   }
 
-  LinkerProvider getLinkerProvider(
-      CxxPlatform cxxPlatform,
-      LinkerProvider.Type defaultType) {
+  LinkerProvider getLinkerProvider(CxxPlatform cxxPlatform, LinkerProvider.Type defaultType) {
     LinkerProvider.Type type =
-        delegate.getEnum(SECTION, "linker_platform", LinkerProvider.Type.class)
-            .orElse(defaultType);
+        delegate.getEnum(SECTION, "linker_platform", LinkerProvider.Type.class).orElse(defaultType);
 
     return getLinker()
-            .map(tp -> (LinkerProvider) new DefaultLinkerProvider(type, tp))
-            .orElseGet(cxxPlatform::getLd);
+        .map(tp -> (LinkerProvider) new DefaultLinkerProvider(type, tp))
+        .orElseGet(cxxPlatform::getLd);
   }
 
   // Get args for linker. Always return rust.linker_args if provided, and also include cxx.ldflags
@@ -152,5 +148,14 @@ public class RustBuckConfig {
     }
 
     return linkargs.build();
+  }
+
+  /**
+   * Get rustc flags for rust_library() rules.
+   *
+   * @return List of rustc_library_flags, as well as common rustc_flags.
+   */
+  boolean getUnflavoredBinaries() {
+    return delegate.getBoolean(SECTION, UNFLAVORED_BINARIES).orElse(false);
   }
 }

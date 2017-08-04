@@ -16,6 +16,8 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
@@ -26,34 +28,38 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasDepsQuery;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.ImplicitFlavorsInferringDescription;
 import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.rules.query.QueryUtils;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.versions.HasVersionUniverse;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
-
 import java.util.Optional;
 import java.util.Set;
+import java.util.SortedSet;
+import org.immutables.value.Value;
 
-public class CxxBinaryDescription implements
-    Description<CxxBinaryDescription.Arg>,
-    Flavored,
-    ImplicitDepsInferringDescription<CxxBinaryDescription.Arg>,
-    ImplicitFlavorsInferringDescription,
-    MetadataProvidingDescription<CxxBinaryDescription.Arg>,
-    VersionRoot<CxxBinaryDescription.Arg> {
+public class CxxBinaryDescription
+    implements Description<CxxBinaryDescriptionArg>,
+        Flavored,
+        ImplicitDepsInferringDescription<CxxBinaryDescription.AbstractCxxBinaryDescriptionArg>,
+        ImplicitFlavorsInferringDescription,
+        MetadataProvidingDescription<CxxBinaryDescriptionArg>,
+        VersionRoot<CxxBinaryDescriptionArg> {
 
   private final CxxBuckConfig cxxBuckConfig;
   private final InferBuckConfig inferBuckConfig;
@@ -74,37 +80,33 @@ public class CxxBinaryDescription implements
   /**
    * @return a {@link com.facebook.buck.cxx.HeaderSymlinkTree} for the headers of this C/C++ binary.
    */
-  public static <A extends Arg> HeaderSymlinkTree createHeaderSymlinkTreeBuildRule(
-      BuildRuleParams params,
+  public static HeaderSymlinkTree createHeaderSymlinkTreeBuildRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
-      A args)
+      CxxBinaryDescriptionArg args)
       throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     return CxxDescriptionEnhancer.createHeaderSymlinkTree(
-        params,
+        buildTarget,
+        projectFilesystem,
         resolver,
         cxxPlatform,
         CxxDescriptionEnhancer.parseHeaders(
-            params.getBuildTarget(),
-            resolver,
-            ruleFinder,
-            pathResolver,
-            Optional.of(cxxPlatform),
-            args),
+            buildTarget, resolver, ruleFinder, pathResolver, Optional.of(cxxPlatform), args),
         HeaderVisibility.PRIVATE,
         true);
   }
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<CxxBinaryDescriptionArg> getConstructorArgType() {
+    return CxxBinaryDescriptionArg.class;
   }
 
   private CxxPlatform getCxxPlatform(
-      BuildTarget target,
-      Optional<Flavor> defaultCxxPlatformFlavor) {
+      BuildTarget target, Optional<Flavor> defaultCxxPlatformFlavor) {
 
     // First check if the build target is setting a particular target.
     Optional<CxxPlatform> targetPlatform = cxxPlatforms.getValue(target.getFlavors());
@@ -122,69 +124,61 @@ public class CxxBinaryDescription implements
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args)
+      CxxBinaryDescriptionArg args)
       throws NoSuchBuildTargetException {
-    return createBuildRule(targetGraph, params, resolver, cellRoots, args, ImmutableSortedSet.of());
+    return createBuildRule(
+        buildTarget,
+        projectFilesystem,
+        params.getExtraDeps(),
+        resolver,
+        cellRoots,
+        args,
+        ImmutableSortedSet.of());
   }
 
   @SuppressWarnings("PMD.PrematureDeclaration")
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
-      BuildRuleParams metadataRuleParams,
+      BuildTarget target,
+      ProjectFilesystem projectFilesystem,
+      Supplier<? extends SortedSet<BuildRule>> extraDepsFromOriginalParams,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      Arg args,
-      ImmutableSortedSet<BuildTarget> extraDeps)
+      CxxBinaryDescriptionArg args,
+      ImmutableSortedSet<BuildTarget> extraCxxDeps)
       throws NoSuchBuildTargetException {
-
-    // Create a copy of the metadata-rule params with the deps removed to pass around into library
-    // code.  This should prevent this code from using the over-specified deps when constructing
-    // build rules.
-    BuildRuleParams params = metadataRuleParams.copyInvalidatingDeps();
 
     // We explicitly remove some flavors below from params to make sure rule
     // has the same output regardless if we will strip or not.
-    Optional<StripStyle> flavoredStripStyle =
-        StripStyle.FLAVOR_DOMAIN.getValue(params.getBuildTarget());
-    Optional<LinkerMapMode> flavoredLinkerMapMode =
-        LinkerMapMode.FLAVOR_DOMAIN.getValue(params.getBuildTarget());
-    params = CxxStrip.removeStripStyleFlavorInParams(params, flavoredStripStyle);
-    params = LinkerMapMode.removeLinkerMapModeFlavorInParams(params, flavoredLinkerMapMode);
+    Optional<StripStyle> flavoredStripStyle = StripStyle.FLAVOR_DOMAIN.getValue(target);
+    Optional<LinkerMapMode> flavoredLinkerMapMode = LinkerMapMode.FLAVOR_DOMAIN.getValue(target);
+    target = CxxStrip.removeStripStyleFlavorInTarget(target, flavoredStripStyle);
+    target = LinkerMapMode.removeLinkerMapModeFlavorInTarget(target, flavoredLinkerMapMode);
 
     // Extract the platform from the flavor, falling back to the default platform if none are
     // found.
-    ImmutableSet<Flavor> flavors = ImmutableSet.copyOf(params.getBuildTarget().getFlavors());
-    CxxPlatform cxxPlatform = getCxxPlatform(params.getBuildTarget(), args.defaultPlatform);
+    ImmutableSet<Flavor> flavors = ImmutableSet.copyOf(target.getFlavors());
+    CxxPlatform cxxPlatform = getCxxPlatform(target, args.getDefaultPlatform());
     if (flavors.contains(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR)) {
-      flavors = ImmutableSet.copyOf(
-          Sets.difference(
-              flavors,
-              ImmutableSet.of(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR)));
-      BuildTarget target = BuildTarget
-          .builder(params.getBuildTarget().getUnflavoredBuildTarget())
-          .addAllFlavors(flavors)
-          .build();
-      BuildRuleParams typeParams = params.withBuildTarget(target);
-
+      flavors =
+          ImmutableSet.copyOf(
+              Sets.difference(
+                  flavors, ImmutableSet.of(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR)));
       return createHeaderSymlinkTreeBuildRule(
-          typeParams,
-          resolver,
-          cxxPlatform,
-          args);
+          target.withFlavors(flavors), projectFilesystem, resolver, cxxPlatform, args);
     }
 
     if (flavors.contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
-      BuildRuleParams paramsWithoutFlavor =
-          params.withoutFlavor(CxxCompilationDatabase.COMPILATION_DATABASE);
-      CxxLinkAndCompileRules cxxLinkAndCompileRules = CxxDescriptionEnhancer
-          .createBuildRulesForCxxBinaryDescriptionArg(
-              targetGraph,
-              paramsWithoutFlavor,
+      CxxLinkAndCompileRules cxxLinkAndCompileRules =
+          CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
+              target.withoutFlavors(CxxCompilationDatabase.COMPILATION_DATABASE),
+              projectFilesystem,
               resolver,
               cellRoots,
               cxxBuckConfig,
@@ -194,80 +188,45 @@ public class CxxBinaryDescription implements
               flavoredStripStyle,
               flavoredLinkerMapMode);
       return CxxCompilationDatabase.createCompilationDatabase(
-          params,
-          cxxLinkAndCompileRules.compileRules);
+          target, projectFilesystem, cxxLinkAndCompileRules.compileRules);
     }
 
     if (flavors.contains(CxxCompilationDatabase.UBER_COMPILATION_DATABASE)) {
       return CxxDescriptionEnhancer.createUberCompilationDatabase(
-          cxxPlatforms.getValue(flavors).isPresent() ?
-              params :
-              params.withAppendedFlavor(defaultCxxPlatform.getFlavor()),
+          cxxPlatforms.getValue(flavors).isPresent()
+              ? target
+              : target.withAppendedFlavors(defaultCxxPlatform.getFlavor()),
+          projectFilesystem,
           resolver);
     }
 
-    if (flavors.contains(CxxInferEnhancer.InferFlavors.INFER.get())) {
-      return CxxInferEnhancer.requireInferAnalyzeAndReportBuildRuleForCxxDescriptionArg(
-          params,
+    if (CxxInferEnhancer.INFER_FLAVOR_DOMAIN.containsAnyOf(flavors)) {
+      return CxxInferEnhancer.requireInferRule(
+          target,
+          projectFilesystem,
           resolver,
+          cellRoots,
           cxxBuckConfig,
           cxxPlatform,
           args,
-          inferBuckConfig,
-          new CxxInferSourceFilter(inferBuckConfig));
-    }
-
-    if (flavors.contains(CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get())) {
-      return CxxInferEnhancer.requireInferAnalyzeBuildRuleForCxxDescriptionArg(
-          params,
-          resolver,
-          cxxBuckConfig,
-          cxxPlatform,
-          args,
-          inferBuckConfig,
-          new CxxInferSourceFilter(inferBuckConfig));
-    }
-
-    if (flavors.contains(CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get())) {
-      return CxxInferEnhancer.requireAllTransitiveCaptureBuildRules(
-          params,
-          resolver,
-          cxxBuckConfig,
-          cxxPlatform,
-          inferBuckConfig,
-          new CxxInferSourceFilter(inferBuckConfig),
-          args);
-    }
-
-    if (flavors.contains(CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ONLY.get())) {
-      return CxxInferEnhancer.requireInferCaptureAggregatorBuildRuleForCxxDescriptionArg(
-          params,
-          resolver,
-          cxxBuckConfig,
-          cxxPlatform,
-          args,
-          inferBuckConfig,
-          new CxxInferSourceFilter(inferBuckConfig));
+          inferBuckConfig);
     }
 
     if (flavors.contains(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR)) {
       return CxxDescriptionEnhancer.createSandboxTreeBuildRule(
-          resolver,
-          args,
-          cxxPlatform,
-          params);
+          resolver, args, cxxPlatform, target, projectFilesystem);
     }
 
     CxxLinkAndCompileRules cxxLinkAndCompileRules =
         CxxDescriptionEnhancer.createBuildRulesForCxxBinaryDescriptionArg(
-            targetGraph,
-            params,
+            target,
+            projectFilesystem,
             resolver,
             cellRoots,
             cxxBuckConfig,
             cxxPlatform,
             args,
-            extraDeps,
+            extraCxxDeps,
             flavoredStripStyle,
             flavoredLinkerMapMode);
 
@@ -282,22 +241,28 @@ public class CxxBinaryDescription implements
     //     By using another BuildRule, we can keep the original target graph dependency tree while
     //     preventing it from affecting link parallelism.
 
-    params = CxxStrip.restoreStripStyleFlavorInParams(params, flavoredStripStyle);
-    params = LinkerMapMode.restoreLinkerMapModeFlavorInParams(params, flavoredLinkerMapMode);
+    target = CxxStrip.restoreStripStyleFlavorInTarget(target, flavoredStripStyle);
+    target = LinkerMapMode.restoreLinkerMapModeFlavorInTarget(target, flavoredLinkerMapMode);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    CxxBinary cxxBinary = new CxxBinary(
-        params
-            .copyReplacingDeclaredAndExtraDeps(
-                () -> cxxLinkAndCompileRules.deps, metadataRuleParams.getExtraDeps())
-            .copyAppendingExtraDeps(cxxLinkAndCompileRules.executable.getDeps(ruleFinder)),
-        resolver,
-        ruleFinder,
-        cxxPlatform,
-        cxxLinkAndCompileRules.getBinaryRule(),
-        cxxLinkAndCompileRules.executable,
-        args.frameworks,
-        args.tests,
-        params.getBuildTarget().withoutFlavors(cxxPlatforms.getFlavors()));
+    CxxBinary cxxBinary =
+        new CxxBinary(
+            target,
+            projectFilesystem,
+            new BuildRuleParams(
+                () -> cxxLinkAndCompileRules.deps,
+                () ->
+                    ImmutableSortedSet.<BuildRule>naturalOrder()
+                        .addAll(extraDepsFromOriginalParams.get())
+                        .addAll(cxxLinkAndCompileRules.executable.getDeps(ruleFinder))
+                        .build(),
+                ImmutableSortedSet.of()),
+            resolver,
+            cxxPlatform,
+            cxxLinkAndCompileRules.getBinaryRule(),
+            cxxLinkAndCompileRules.executable,
+            args.getFrameworks(),
+            args.getTests(),
+            target.withoutFlavors(cxxPlatforms.getFlavors()));
     resolver.addToIndex(cxxBinary);
     return cxxBinary;
   }
@@ -306,20 +271,21 @@ public class CxxBinaryDescription implements
   public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg,
+      AbstractCxxBinaryDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     extraDepsBuilder.addAll(
-        findDepsForTargetFromConstructorArgs(buildTarget, constructorArg.defaultPlatform));
-    constructorArg.depsQuery.ifPresent(
-        depsQuery ->
-            QueryUtils.extractParseTimeTargets(buildTarget, cellRoots, depsQuery)
-                .forEach(extraDepsBuilder::add));
+        findDepsForTargetFromConstructorArgs(buildTarget, constructorArg.getDefaultPlatform()));
+    constructorArg
+        .getDepsQuery()
+        .ifPresent(
+            depsQuery ->
+                QueryUtils.extractParseTimeTargets(buildTarget, cellRoots, depsQuery)
+                    .forEach(extraDepsBuilder::add));
   }
 
   public Iterable<BuildTarget> findDepsForTargetFromConstructorArgs(
-      BuildTarget buildTarget,
-      Optional<Flavor> defaultCxxPlatformFlavor) {
+      BuildTarget buildTarget, Optional<Flavor> defaultCxxPlatformFlavor) {
     ImmutableSet.Builder<BuildTarget> deps = ImmutableSet.builder();
 
     // Get any parse time deps from the C/C++ platforms.
@@ -331,17 +297,12 @@ public class CxxBinaryDescription implements
 
   @Override
   public Optional<ImmutableSet<FlavorDomain<?>>> flavorDomains() {
-    return
-        Optional.of(
-            ImmutableSet.of(
-                // Missing: CXX Compilation Database
-                // Missing: CXX Description Enhancer
-                // Missing: CXX Infer Enhancer
-                cxxPlatforms,
-                LinkerMapMode.FLAVOR_DOMAIN,
-                StripStyle.FLAVOR_DOMAIN
-            )
-        );
+    return Optional.of(
+        ImmutableSet.of(
+            // Missing: CXX Compilation Database
+            // Missing: CXX Description Enhancer
+            // Missing: CXX Infer Enhancer
+            cxxPlatforms, LinkerMapMode.FLAVOR_DOMAIN, StripStyle.FLAVOR_DOMAIN));
   }
 
   @Override
@@ -354,19 +315,20 @@ public class CxxBinaryDescription implements
     }
     flavors = Sets.difference(flavors, platformFlavors);
 
-    flavors = Sets.difference(
-        flavors,
-        ImmutableSet.of(
-            CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR,
-            CxxCompilationDatabase.COMPILATION_DATABASE,
-            CxxCompilationDatabase.UBER_COMPILATION_DATABASE,
-            CxxInferEnhancer.InferFlavors.INFER.get(),
-            CxxInferEnhancer.InferFlavors.INFER_ANALYZE.get(),
-            CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.get(),
-            StripStyle.ALL_SYMBOLS.getFlavor(),
-            StripStyle.DEBUGGING_SYMBOLS.getFlavor(),
-            StripStyle.NON_GLOBAL_SYMBOLS.getFlavor(),
-            LinkerMapMode.NO_LINKER_MAP.getFlavor()));
+    flavors =
+        Sets.difference(
+            flavors,
+            ImmutableSet.of(
+                CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR,
+                CxxCompilationDatabase.COMPILATION_DATABASE,
+                CxxCompilationDatabase.UBER_COMPILATION_DATABASE,
+                CxxInferEnhancer.InferFlavors.INFER.getFlavor(),
+                CxxInferEnhancer.InferFlavors.INFER_ANALYZE.getFlavor(),
+                CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.getFlavor(),
+                StripStyle.ALL_SYMBOLS.getFlavor(),
+                StripStyle.DEBUGGING_SYMBOLS.getFlavor(),
+                StripStyle.NON_GLOBAL_SYMBOLS.getFlavor(),
+                LinkerMapMode.NO_LINKER_MAP.getFlavor()));
 
     return flavors.isEmpty();
   }
@@ -380,19 +342,21 @@ public class CxxBinaryDescription implements
   }
 
   @Override
-  public <A extends Arg, U> Optional<U> createMetadata(
+  public <U> Optional<U> createMetadata(
       BuildTarget buildTarget,
       BuildRuleResolver resolver,
-      A args,
+      CellPathResolver cellRoots,
+      CxxBinaryDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
-      final Class<U> metadataClass) throws NoSuchBuildTargetException {
-    if (!metadataClass.isAssignableFrom(CxxCompilationDatabaseDependencies.class) ||
-        !buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
+      final Class<U> metadataClass)
+      throws NoSuchBuildTargetException {
+    if (!metadataClass.isAssignableFrom(CxxCompilationDatabaseDependencies.class)
+        || !buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
       return Optional.empty();
     }
-    return CxxDescriptionEnhancer
-        .createCompilationDatabaseDependencies(buildTarget, cxxPlatforms, resolver, args).map(
-            metadataClass::cast);
+    return CxxDescriptionEnhancer.createCompilationDatabaseDependencies(
+            buildTarget, cxxPlatforms, resolver, args)
+        .map(metadataClass::cast);
   }
 
   @Override
@@ -402,8 +366,7 @@ public class CxxBinaryDescription implements
   }
 
   public ImmutableSortedSet<Flavor> addImplicitFlavorsForRuleTypes(
-      ImmutableSortedSet<Flavor> argDefaultFlavors,
-      BuildRuleType... types) {
+      ImmutableSortedSet<Flavor> argDefaultFlavors, BuildRuleType... types) {
     Optional<Flavor> platformFlavor = getCxxPlatforms().getFlavor(argDefaultFlavors);
 
     for (BuildRuleType type : types) {
@@ -411,8 +374,8 @@ public class CxxBinaryDescription implements
           cxxBuckConfig.getDefaultFlavorsForRuleType(type);
 
       if (!platformFlavor.isPresent()) {
-        platformFlavor = Optional.ofNullable(
-            libraryDefaults.get(CxxBuckConfig.DEFAULT_FLAVOR_PLATFORM));
+        platformFlavor =
+            Optional.ofNullable(libraryDefaults.get(CxxBuckConfig.DEFAULT_FLAVOR_PLATFORM));
       }
     }
 
@@ -430,11 +393,16 @@ public class CxxBinaryDescription implements
     return true;
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends LinkableCxxConstructorArg {
-    public Optional<Query> depsQuery = Optional.empty();
-    public Optional<String> versionUniverse;
-    public Optional<Flavor> defaultPlatform;
+  public interface CommonArg extends LinkableCxxConstructorArg, HasVersionUniverse, HasDepsQuery {
+    @Value.Default
+    default boolean getLinkDepsQueryWhole() {
+      return false;
+    }
+
+    Optional<Flavor> getDefaultPlatform();
   }
 
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractCxxBinaryDescriptionArg extends CxxBinaryDescription.CommonArg {}
 }

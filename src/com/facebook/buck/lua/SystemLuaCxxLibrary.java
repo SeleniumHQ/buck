@@ -19,19 +19,19 @@ package com.facebook.buck.lua;
 import com.facebook.buck.android.AndroidPackageable;
 import com.facebook.buck.android.AndroidPackageableCollector;
 import com.facebook.buck.cxx.AbstractCxxLibrary;
-import com.facebook.buck.cxx.CxxPlatform;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
-import com.facebook.buck.cxx.HeaderVisibility;
-import com.facebook.buck.cxx.Linker;
-import com.facebook.buck.cxx.NativeLinkable;
-import com.facebook.buck.cxx.NativeLinkableInput;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.platform.NativeLinkable;
+import com.facebook.buck.cxx.platform.NativeLinkableInput;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 public class SystemLuaCxxLibrary implements AbstractCxxLibrary {
 
@@ -52,27 +52,22 @@ public class SystemLuaCxxLibrary implements AbstractCxxLibrary {
   }
 
   @Override
-  public void addToCollector(AndroidPackageableCollector collector) {
-  }
+  public void addToCollector(AndroidPackageableCollector collector) {}
 
   @Override
-  public Iterable<? extends CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
+  public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
     return ImmutableList.of();
   }
 
   @Override
-  public CxxPreprocessorInput getCxxPreprocessorInput(
-      CxxPlatform cxxPlatform,
-      HeaderVisibility headerVisibility)
+  public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform)
       throws NoSuchBuildTargetException {
     return CxxPreprocessorInput.EMPTY;
   }
 
   @Override
   public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-      CxxPlatform cxxPlatform,
-      HeaderVisibility headerVisibility)
-      throws NoSuchBuildTargetException {
+      CxxPlatform cxxPlatform) throws NoSuchBuildTargetException {
     return ImmutableMap.of();
   }
 
@@ -89,11 +84,11 @@ public class SystemLuaCxxLibrary implements AbstractCxxLibrary {
   @Override
   public NativeLinkableInput getNativeLinkableInput(
       CxxPlatform cxxPlatform,
-      Linker.LinkableDepType type)
+      Linker.LinkableDepType type,
+      boolean forceLinkWhole,
+      ImmutableSet<NativeLinkable.LanguageExtensions> languageExtensions)
       throws NoSuchBuildTargetException {
-    return NativeLinkableInput.builder()
-        .addAllArgs(StringArg.from("-llua"))
-        .build();
+    return NativeLinkableInput.builder().addAllArgs(StringArg.from("-llua")).build();
   }
 
   @Override

@@ -16,6 +16,8 @@
 
 package com.facebook.buck.util;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Throwables;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Optional;
@@ -37,9 +39,7 @@ import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
-/**
- * Implementation that delegates to the standard Stream and wraps the resulting streams.
- */
+/** Implementation that delegates to the standard Stream and wraps the resulting streams. */
 final class RichStreamImpl<T> implements RichStream<T> {
   private final Stream<T> delegate;
 
@@ -154,17 +154,13 @@ final class RichStreamImpl<T> implements RichStream<T> {
 
   @Override
   public <U> U reduce(
-      U identity,
-      BiFunction<U, ? super T, U> accumulator,
-      BinaryOperator<U> combiner) {
+      U identity, BiFunction<U, ? super T, U> accumulator, BinaryOperator<U> combiner) {
     return delegate.reduce(identity, accumulator, combiner);
   }
 
   @Override
   public <R> R collect(
-      Supplier<R> supplier,
-      BiConsumer<R, ? super T> accumulator,
-      BiConsumer<R, R> combiner) {
+      Supplier<R> supplier, BiConsumer<R, ? super T> accumulator, BiConsumer<R, R> combiner) {
     return delegate.collect(supplier, accumulator, combiner);
   }
 
@@ -251,5 +247,73 @@ final class RichStreamImpl<T> implements RichStream<T> {
   @Override
   public void close() {
     delegate.close();
+  }
+
+  @Override
+  public <E extends Exception> void forEachThrowing(ThrowingConsumer<? super T, E> action)
+      throws E {
+    try {
+      forEach(wrapped(action));
+    } catch (TunneledException e) {
+      this.<E>unwrap(e);
+    }
+  }
+
+  @Override
+  public <E extends Exception> void forEachOrderedThrowing(ThrowingConsumer<? super T, E> action)
+      throws E {
+    try {
+      forEachOrdered(wrapped(action));
+    } catch (TunneledException e) {
+      this.<E>unwrap(e);
+    }
+  }
+
+  /**
+   * Returns a consumer which wraps the exception thrown by the {@link ThrowingConsumer} into an
+   * exception tunnel associated with this object.
+   */
+  private <E extends Exception> Consumer<? super T> wrapped(ThrowingConsumer<? super T, E> action) {
+    return t -> {
+      try {
+        action.accept(t);
+      } catch (Exception exception) {
+        // exception: E | RuntimeException | Error
+        Throwables.throwIfUnchecked(exception);
+        // exception: E
+        throw new TunneledException(this, exception);
+      }
+    };
+  }
+
+  /**
+   * Unwrap the exception inside a {@link TunneledException}. This exception is checked to originate
+   * from the current stream instance, to guard against mistakes that leak {@code
+   * TunneledException}s.
+   */
+  private <E extends Exception> void unwrap(TunneledException e) throws E {
+    // e.getCause(): E | AnythingElse
+    Preconditions.checkState(
+        e.owner == this, "Caught TunneledException should be the one thrown by the same stream.");
+    // e.getCause(): E
+    @SuppressWarnings("unchecked")
+    E cause = (E) e.getCause();
+    throw cause;
+  }
+
+  /**
+   * An exception used to tunnel checked exceptions through a non-throwing interface.
+   *
+   * <p>The exception is keyed on the current object. Since a stream object is responsible for a
+   * single operation, this value should be sufficient to differentiate an instance thrown from the
+   * current stream object, and an instance thrown by another.
+   */
+  private static final class TunneledException extends RuntimeException {
+    final Object owner;
+
+    TunneledException(Object owner, Throwable cause) {
+      super(cause);
+      this.owner = owner;
+    }
   }
 }

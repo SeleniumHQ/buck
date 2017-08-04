@@ -16,7 +16,8 @@
 
 package com.facebook.buck.jvm.scala;
 
-import com.facebook.buck.cxx.CxxPlatform;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.ForkMode;
 import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JavaLibrary;
@@ -25,30 +26,42 @@ import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.JavaTestDescription;
 import com.facebook.buck.jvm.java.TestType;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.MacroException;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.HasContacts;
+import com.facebook.buck.rules.HasTestTimeout;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.util.OptionalCompat;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.base.Suppliers;
+import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.MacroArg;
+import com.facebook.buck.rules.macros.LocationMacroExpander;
+import com.facebook.buck.rules.macros.MacroHandler;
+import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.Optionals;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.google.common.base.Function;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
+import com.google.common.collect.Maps;
 import java.util.Optional;
 import java.util.logging.Level;
+import org.immutables.value.Value;
 
-public class ScalaTestDescription implements Description<ScalaTestDescription.Arg>,
-    ImplicitDepsInferringDescription<ScalaTestDescription.Arg> {
+public class ScalaTestDescription
+    implements Description<ScalaTestDescriptionArg>,
+        ImplicitDepsInferringDescription<ScalaTestDescription.AbstractScalaTestDescriptionArg> {
+
+  private static final MacroHandler MACRO_HANDLER =
+      new MacroHandler(ImmutableMap.of("location", new LocationMacroExpander()));
 
   private final ScalaBuckConfig config;
   private final JavaOptions javaOptions;
@@ -67,91 +80,127 @@ public class ScalaTestDescription implements Description<ScalaTestDescription.Ar
   }
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<ScalaTestDescriptionArg> getConstructorArgType() {
+    return ScalaTestDescriptionArg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
-      final BuildRuleParams rawParams,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams rawParams,
       final BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      ScalaTestDescriptionArg args)
+      throws NoSuchBuildTargetException {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     JavaTestDescription.CxxLibraryEnhancement cxxLibraryEnhancement =
         new JavaTestDescription.CxxLibraryEnhancement(
+            buildTarget,
+            projectFilesystem,
             rawParams,
-            args.useCxxLibraries,
-            args.cxxLibraryWhitelist,
+            args.getUseCxxLibraries(),
+            args.getCxxLibraryWhitelist(),
             resolver,
             ruleFinder,
             cxxPlatform);
     BuildRuleParams params = cxxLibraryEnhancement.updatedParams;
-    BuildRuleParams javaLibraryParams =
-        params.withAppendedFlavor(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
+    BuildTarget javaLibraryBuildTarget =
+        buildTarget.withAppendedFlavors(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
 
-    ScalaLibraryBuilder scalaLibraryBuilder = new ScalaLibraryBuilder(
-        javaLibraryParams,
-        resolver,
-        config)
-        .setArgs(args);
+    ScalaLibraryBuilder scalaLibraryBuilder =
+        new ScalaLibraryBuilder(
+                targetGraph,
+                javaLibraryBuildTarget,
+                projectFilesystem,
+                params,
+                resolver,
+                cellRoots,
+                config)
+            .setArgs(args);
 
-    if (HasJavaAbi.isAbiTarget(rawParams.getBuildTarget())) {
+    if (HasJavaAbi.isAbiTarget(buildTarget)) {
       return scalaLibraryBuilder.buildAbi();
     }
 
+    Function<String, Arg> toMacroArgFunction =
+        MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver);
     JavaLibrary testsLibrary = resolver.addToIndex(scalaLibraryBuilder.build());
 
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
     return new JavaTest(
-        params.copyReplacingDeclaredAndExtraDeps(
-            Suppliers.ofInstance(ImmutableSortedSet.of(testsLibrary)),
-            Suppliers.ofInstance(ImmutableSortedSet.of())),
-        pathResolver,
+        buildTarget,
+        projectFilesystem,
+        params.withDeclaredDeps(ImmutableSortedSet.of(testsLibrary)).withoutExtraDeps(),
         testsLibrary,
         ImmutableSortedSet.of(),
         /* additionalClasspathEntries */ ImmutableSet.of(),
-        args.labels,
-        args.contacts,
-        args.testType.orElse(TestType.JUNIT),
+        args.getLabels(),
+        args.getContacts(),
+        args.getTestType(),
         javaOptions.getJavaRuntimeLauncher(),
-        args.vmArgs,
+        args.getVmArgs(),
         cxxLibraryEnhancement.nativeLibsEnvironment,
-        args.testRuleTimeoutMs.map(Optional::of).orElse(defaultTestRuleTimeoutMs),
-        args.testCaseTimeoutMs,
-        args.env,
-        args.runTestSeparately.orElse(false),
-        args.forkMode.orElse(ForkMode.NONE),
-        args.stdOutLogLevel,
-        args.stdErrLogLevel);
+        args.getTestRuleTimeoutMs().map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+        args.getTestCaseTimeoutMs(),
+        ImmutableMap.copyOf(Maps.transformValues(args.getEnv(), toMacroArgFunction::apply)),
+        args.getRunTestSeparately(),
+        args.getForkMode(),
+        args.getStdOutLogLevel(),
+        args.getStdErrLogLevel(),
+        args.getUnbundledResourcesRoot());
   }
 
   @Override
   public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg,
+      AbstractScalaTestDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    extraDepsBuilder
-        .add(config.getScalaLibraryTarget())
-        .addAll(OptionalCompat.asSet(config.getScalacTarget()));
+    extraDepsBuilder.add(config.getScalaLibraryTarget());
+    Optionals.addIfPresent(config.getScalacTarget(), extraDepsBuilder);
+    for (String envValue : constructorArg.getEnv().values()) {
+      try {
+        MACRO_HANDLER.extractParseTimeDeps(
+            buildTarget, cellRoots, envValue, extraDepsBuilder, targetGraphOnlyDepsBuilder);
+      } catch (MacroException e) {
+        throw new HumanReadableException(e, "%s: %s", buildTarget, e.getMessage());
+      }
+    }
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends ScalaLibraryDescription.Arg {
-    public ImmutableSortedSet<String> contacts = ImmutableSortedSet.of();
-    public ImmutableList<String> vmArgs = ImmutableList.of();
-    public Optional<TestType> testType;
-    public Optional<Boolean> runTestSeparately;
-    public Optional<ForkMode> forkMode;
-    public Optional<Level> stdErrLogLevel;
-    public Optional<Level> stdOutLogLevel;
-    public Optional<Boolean> useCxxLibraries;
-    public ImmutableSet<BuildTarget> cxxLibraryWhitelist = ImmutableSet.of();
-    public Optional<Long> testRuleTimeoutMs;
-    public Optional<Long> testCaseTimeoutMs;
-    public ImmutableMap<String, String> env = ImmutableMap.of();
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractScalaTestDescriptionArg
+      extends HasContacts, HasTestTimeout, ScalaLibraryDescription.CoreArg {
+    ImmutableList<String> getVmArgs();
+
+    @Value.Default
+    default TestType getTestType() {
+      return TestType.JUNIT;
+    }
+
+    @Value.Default
+    default boolean getRunTestSeparately() {
+      return false;
+    }
+
+    @Value.Default
+    default ForkMode getForkMode() {
+      return ForkMode.NONE;
+    }
+
+    Optional<Level> getStdErrLogLevel();
+
+    Optional<Level> getStdOutLogLevel();
+
+    Optional<Boolean> getUseCxxLibraries();
+
+    ImmutableSet<BuildTarget> getCxxLibraryWhitelist();
+
+    Optional<Long> getTestCaseTimeoutMs();
+
+    ImmutableMap<String, String> getEnv();
   }
 }

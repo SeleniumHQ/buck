@@ -15,50 +15,47 @@
  */
 package com.facebook.buck.rules;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.Callable;
-
 import javax.annotation.Nullable;
 
-public class FakeTestRule extends AbstractBuildRuleWithResolver implements TestRule {
+public class FakeTestRule extends AbstractBuildRuleWithDeclaredAndExtraDeps implements TestRule {
 
-  private final ImmutableSet<Label> labels;
+  private final ImmutableSet<String> labels;
   private final Optional<Path> pathToTestOutputDirectory;
   private final boolean runTestSeparately;
   private final ImmutableList<Step> testSteps;
   private final Callable<TestResults> interpretedTestResults;
 
   public FakeTestRule(
-      ImmutableSet<Label> labels,
-      BuildTarget target,
-      SourcePathResolver resolver,
-      ImmutableSortedSet<BuildRule> deps) {
+      ImmutableSet<String> labels, BuildTarget target, ImmutableSortedSet<BuildRule> deps) {
     this(
-        new FakeBuildRuleParamsBuilder(target)
-            .setDeclaredDeps(deps)
-            .build(),
-        resolver,
-        labels
-    );
+        target,
+        new FakeProjectFilesystem(),
+        TestBuildRuleParams.create().withDeclaredDeps(deps),
+        labels);
   }
 
   public FakeTestRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
-      ImmutableSet<Label> labels) {
+      ImmutableSet<String> labels) {
     this(
+        buildTarget,
+        projectFilesystem,
         buildRuleParams,
-        resolver,
         labels,
         Optional.empty(),
         false, // runTestSeparately
@@ -69,14 +66,15 @@ public class FakeTestRule extends AbstractBuildRuleWithResolver implements TestR
   }
 
   public FakeTestRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
-      ImmutableSet<Label> labels,
+      ImmutableSet<String> labels,
       Optional<Path> pathToTestOutputDirectory,
       boolean runTestSeparately,
       ImmutableList<Step> testSteps,
       Callable<TestResults> interpretedTestResults) {
-    super(buildRuleParams, resolver);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.labels = labels;
     this.pathToTestOutputDirectory = pathToTestOutputDirectory;
     this.runTestSeparately = runTestSeparately;
@@ -97,15 +95,10 @@ public class FakeTestRule extends AbstractBuildRuleWithResolver implements TestR
   }
 
   @Override
-  public boolean hasTestResultFiles() {
-    return false;
-  }
-
-  @Override
   public ImmutableList<Step> runTests(
       ExecutionContext executionContext,
       TestRunningOptions options,
-      SourcePathResolver pathResolver,
+      BuildContext buildContext,
       TestReportingCallback testReportingCallback) {
     return testSteps;
   }
@@ -113,12 +106,13 @@ public class FakeTestRule extends AbstractBuildRuleWithResolver implements TestR
   @Override
   public Callable<TestResults> interpretTestResults(
       ExecutionContext executionContext,
+      SourcePathResolver pathResolver,
       boolean isUsingTestSelectors) {
     return interpretedTestResults;
   }
 
   @Override
-  public ImmutableSet<Label> getLabels() {
+  public ImmutableSet<String> getLabels() {
     return labels;
   }
 

@@ -16,28 +16,32 @@
 
 package com.facebook.buck.jvm.kotlin;
 
+import com.facebook.buck.io.MoreFiles;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-
+import java.io.IOException;
+import java.nio.file.Path;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 
-import java.io.IOException;
-
 public class KotlinLibraryIntegrationTest {
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   private ProjectWorkspace workspace;
 
   @Before
   public void setUp() throws IOException, InterruptedException {
-    KotlinTestAssumptions.assumeCompilerAvailable();
-    workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "kotlin_library_description", tmp);
+    workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "kotlin_library_description", tmp);
     workspace.setUp();
+
+    Path kotlincPath = TestDataHelper.getTestDataScenario(this, "kotlinc");
+    MoreFiles.copyRecursively(kotlincPath, tmp.newFolder("kotlinc"));
+
+    KotlinTestAssumptions.assumeCompilerAvailable(workspace.asCell().getBuckConfig());
   }
 
   @Test
@@ -59,5 +63,13 @@ public class KotlinLibraryIntegrationTest {
     ProjectWorkspace.ProcessResult buildResult =
         workspace.runBuckCommand("build", "//com/example/bad:fail");
     buildResult.assertFailure();
+  }
+
+  @Test
+  @Ignore("https://github.com/facebook/buck/issues/1371")
+  public void shouldCompileMixedJavaAndKotlinSources() throws Exception {
+    ProjectWorkspace.ProcessResult buildResult =
+        workspace.runBuckCommand("build", "//com/example/mixed:example");
+    buildResult.assertSuccess("Build should have succeeded.");
   }
 }

@@ -16,7 +16,6 @@
 
 package com.facebook.buck.query;
 
-import static org.easymock.EasyMock.anyObject;
 import static org.easymock.EasyMock.createNiceMock;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.replay;
@@ -30,9 +29,6 @@ import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
-
 import org.easymock.Capture;
 import org.easymock.EasyMock;
 import org.hamcrest.Matchers;
@@ -40,20 +36,16 @@ import org.junit.Test;
 
 public class DepsFunctionTest {
 
-  private static final ListeningExecutorService EXECUTOR = MoreExecutors.newDirectExecutorService();
   private static final DepsFunction DEPS_FUNCTION = new DepsFunction();
   private static final QueryEnvironment.Argument FIRST_ORDER_DEPS =
       QueryEnvironment.Argument.of(
-          new FunctionExpression(
-              new DepsFunction.FirstOrderDepsFunction(),
-              ImmutableList.of()));
+          FunctionExpression.of(new DepsFunction.FirstOrderDepsFunction(), ImmutableList.of()));
   private static final QueryEnvironment.Argument DEPTH = QueryEnvironment.Argument.of(10);
 
   @Test
   public void testFilterArgumentDoesNotLimitDeps() throws Exception {
     TargetNode<?, ?> b =
-        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:b"))
-            .build();
+        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:b")).build();
     TargetNode<?, ?> a =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:a"))
             .addDep(b.getBuildTarget())
@@ -62,23 +54,21 @@ public class DepsFunctionTest {
     QueryEnvironment queryEnvironment = makeFakeQueryEnvironment(targetGraph);
     assertThat(
         DEPS_FUNCTION.eval(
+            new NoopQueryEvaluator(),
             queryEnvironment,
             ImmutableList.of(
                 QueryEnvironment.Argument.of(
-                    new TargetLiteral(a.getBuildTarget().getFullyQualifiedName())),
+                    TargetLiteral.of(a.getBuildTarget().getFullyQualifiedName())),
                 DEPTH,
-                FIRST_ORDER_DEPS),
-            EXECUTOR),
+                FIRST_ORDER_DEPS)),
         Matchers.containsInAnyOrder(
-            QueryBuildTarget.of(a.getBuildTarget()),
-            QueryBuildTarget.of(b.getBuildTarget())));
+            QueryBuildTarget.of(a.getBuildTarget()), QueryBuildTarget.of(b.getBuildTarget())));
   }
 
   @Test
   public void testFilterArgumentLimitsDeps() throws Exception {
     TargetNode<?, ?> c =
-        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//foo:c"))
-            .build();
+        JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//foo:c")).build();
     TargetNode<?, ?> b =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//bar:b"))
             .addDep(c.getBuildTarget())
@@ -91,18 +81,17 @@ public class DepsFunctionTest {
     QueryEnvironment queryEnvironment = makeFakeQueryEnvironment(targetGraph);
     assertThat(
         DEPS_FUNCTION.eval(
+            new NoopQueryEvaluator(),
             queryEnvironment,
             ImmutableList.of(
                 QueryEnvironment.Argument.of(
-                    new TargetLiteral(a.getBuildTarget().getFullyQualifiedName())),
+                    TargetLiteral.of(a.getBuildTarget().getFullyQualifiedName())),
                 DEPTH,
                 QueryEnvironment.Argument.of(
-                    new FunctionExpression(
+                    FunctionExpression.of(
                         new FilterFunction(),
                         ImmutableList.of(
-                            QueryEnvironment.Argument.of("//foo.*"),
-                            FIRST_ORDER_DEPS)))),
-            EXECUTOR),
+                            QueryEnvironment.Argument.of("//foo.*"), FIRST_ORDER_DEPS))))),
         Matchers.contains(QueryBuildTarget.of(a.getBuildTarget())));
   }
 
@@ -110,21 +99,25 @@ public class DepsFunctionTest {
     QueryEnvironment env = createNiceMock(QueryEnvironment.class);
 
     final Capture<String> stringCapture = Capture.newInstance();
-    expect(env.getTargetsMatchingPattern(EasyMock.capture(stringCapture), anyObject()))
-        .andStubAnswer(() -> ImmutableSet.of(
-            QueryBuildTarget.of(BuildTargetFactory.newInstance(stringCapture.getValue()))));
+    expect(env.getTargetsMatchingPattern(EasyMock.capture(stringCapture)))
+        .andStubAnswer(
+            () ->
+                ImmutableSet.of(
+                    QueryBuildTarget.of(BuildTargetFactory.newInstance(stringCapture.getValue()))));
 
     final Capture<Iterable<QueryTarget>> targetsCapture = Capture.newInstance();
     expect(env.getFwdDeps(EasyMock.capture(targetsCapture)))
-        .andStubAnswer(() -> RichStream.from(targetsCapture.getValue())
-            .map(QueryBuildTarget.class::cast)
-            .map(QueryBuildTarget::getBuildTarget)
-            .map(targetGraph::get)
-            .flatMap(n -> targetGraph.getOutgoingNodesFor(n).stream())
-            .map(TargetNode::getBuildTarget)
-            .map(QueryBuildTarget::of)
-            .map(QueryTarget.class::cast)
-            .toImmutableSet());
+        .andStubAnswer(
+            () ->
+                RichStream.from(targetsCapture.getValue())
+                    .map(QueryBuildTarget.class::cast)
+                    .map(QueryBuildTarget::getBuildTarget)
+                    .map(targetGraph::get)
+                    .flatMap(n -> targetGraph.getOutgoingNodesFor(n).stream())
+                    .map(TargetNode::getBuildTarget)
+                    .map(QueryBuildTarget::of)
+                    .map(QueryTarget.class::cast)
+                    .toImmutableSet());
 
     replay(env);
 

@@ -17,6 +17,7 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -37,7 +38,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Multiset;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -52,22 +52,17 @@ public class SymlinkTree implements BuildRule, HasRuntimeDeps, SupportsInputBase
   private final ImmutableSortedMap<Path, SourcePath> links;
   private final BuildTarget target;
   private final ProjectFilesystem filesystem;
-  private final SourcePathRuleFinder ruleFinder;
 
   public SymlinkTree(
       BuildTarget target,
       ProjectFilesystem filesystem,
       Path root,
-      final ImmutableMap<Path, SourcePath> links,
-      SourcePathRuleFinder ruleFinder) {
+      final ImmutableMap<Path, SourcePath> links) {
     this.target = target;
     this.filesystem = filesystem;
-    this.ruleFinder = ruleFinder;
 
     Preconditions.checkState(
-        !root.isAbsolute(),
-        "Expected symlink tree root to be relative: %s",
-        root);
+        !root.isAbsolute(), "Expected symlink tree root to be relative: %s", root);
 
     this.root = root;
     this.links = ImmutableSortedMap.copyOf(links);
@@ -88,8 +83,7 @@ public class SymlinkTree implements BuildRule, HasRuntimeDeps, SupportsInputBase
    * @return a map that assigns a unique relative path to each of the SourcePaths.
    */
   public static ImmutableBiMap<SourcePath, Path> resolveDuplicateRelativePaths(
-      ImmutableSortedSet<SourcePath> sourcePaths,
-      SourcePathResolver resolver) {
+      ImmutableSortedSet<SourcePath> sourcePaths, SourcePathResolver resolver) {
     // This serves a dual purpose - it keeps track of whether a particular relative path had been
     // assigned to a SourcePath and how many times a particular relative path had been seen.
     Multiset<Path> assignedPaths = HashMultiset.create();
@@ -146,18 +140,13 @@ public class SymlinkTree implements BuildRule, HasRuntimeDeps, SupportsInputBase
     return "symlink_tree";
   }
 
-  @Override
-  public BuildableProperties getProperties() {
-    return BuildableProperties.NONE;
-  }
-
   /**
    * SymlinkTree never has any compile-time deps, only runtime deps.
    *
-   * All rules which consume SymlinkTrees are themselves required to have dependencies anything
+   * <p>All rules which consume SymlinkTrees are themselves required to have dependencies anything
    * which may alter the SymlinkTree contents.
    *
-   * This is to avoid removing and re-creating the same symlinks every build.
+   * <p>This is to avoid removing and re-creating the same symlinks every build.
    */
   @Override
   public ImmutableSortedSet<BuildRule> getBuildDeps() {
@@ -166,11 +155,14 @@ public class SymlinkTree implements BuildRule, HasRuntimeDeps, SupportsInputBase
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
+
     return new ImmutableList.Builder<Step>()
         .add(getVerifyStep())
-        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), root))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), root)))
         .add(
             new SymlinkTreeStep(
                 getProjectFilesystem(),
@@ -186,8 +178,7 @@ public class SymlinkTree implements BuildRule, HasRuntimeDeps, SupportsInputBase
         ImmutableSortedMap.naturalOrder();
     for (Map.Entry<Path, SourcePath> entry : links.entrySet()) {
       linksForRuleKeyBuilder.put(
-          entry.getKey().toString(),
-          new NonHashableSourcePathContainer(entry.getValue()));
+          entry.getKey().toString(), new NonHashableSourcePathContainer(entry.getValue()));
     }
     return linksForRuleKeyBuilder.build();
   }
@@ -205,25 +196,26 @@ public class SymlinkTree implements BuildRule, HasRuntimeDeps, SupportsInputBase
   @VisibleForTesting
   protected Step getVerifyStep() {
     return new AbstractExecutionStep("verify_symlink_tree") {
-        @Override
-        public StepExecutionResult execute(ExecutionContext context) throws IOException {
-          for (ImmutableMap.Entry<Path, SourcePath> entry : getLinks().entrySet()) {
-            for (Path pathPart : entry.getKey()) {
-              if (pathPart.toString().equals("..")) {
-                context.getBuckEventBus().post(
-                    ConsoleEvent.create(
-                        Level.SEVERE,
-                        String.format(
-                            "Path '%s' should not contain '%s'.",
-                            entry.getKey(),
-                            pathPart)));
-                return StepExecutionResult.ERROR;
-              }
+      @Override
+      public StepExecutionResult execute(ExecutionContext context)
+          throws IOException, InterruptedException {
+        for (ImmutableMap.Entry<Path, SourcePath> entry : getLinks().entrySet()) {
+          for (Path pathPart : entry.getKey()) {
+            if (pathPart.toString().equals("..")) {
+              context
+                  .getBuckEventBus()
+                  .post(
+                      ConsoleEvent.create(
+                          Level.SEVERE,
+                          String.format(
+                              "Path '%s' should not contain '%s'.", entry.getKey(), pathPart)));
+              return StepExecutionResult.ERROR;
             }
           }
-          return StepExecutionResult.SUCCESS;
         }
-      };
+        return StepExecutionResult.SUCCESS;
+      }
+    };
   }
 
   // We don't cache symlinks because:
@@ -236,8 +228,10 @@ public class SymlinkTree implements BuildRule, HasRuntimeDeps, SupportsInputBase
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
-    return links.values().stream()
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
+    return links
+        .values()
+        .stream()
         .map(ruleFinder::filterBuildRuleInputs)
         .flatMap(ImmutableSet::stream)
         .map(BuildRule::getBuildTarget);

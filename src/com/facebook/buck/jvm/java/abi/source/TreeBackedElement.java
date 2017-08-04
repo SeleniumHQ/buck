@@ -17,17 +17,12 @@
 package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.util.liteinfersupport.Nullable;
-import com.sun.source.tree.AnnotationTree;
-import com.sun.source.tree.ModifiersTree;
+import com.sun.source.tree.Tree;
 import com.sun.source.util.TreePath;
-
-import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-
-import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.Modifier;
@@ -35,46 +30,47 @@ import javax.lang.model.element.Name;
 import javax.lang.model.type.TypeMirror;
 
 /**
- * An implementation of {@link Element} that uses only the information available from a
- * {@link com.sun.source.tree.Tree}. This results in an incomplete implementation; see documentation
- * for individual methods and {@link com.facebook.buck.jvm.java.abi.source} for more information.
+ * An implementation of {@link Element} that uses only the information available from a {@link
+ * com.sun.source.tree.Tree}. This results in an incomplete implementation; see documentation for
+ * individual methods and {@link com.facebook.buck.jvm.java.abi.source} for more information.
  */
-abstract class TreeBackedElement implements Element {
+abstract class TreeBackedElement extends TreeBackedAnnotatedConstruct implements ArtificialElement {
   private final Element underlyingElement;
-  @Nullable
-  private final TreeBackedElement enclosingElement;
+  @Nullable private final TreeBackedElement enclosingElement;
   private final List<Element> enclosedElements = new ArrayList<>();
-  private final TreeBackedElementResolver resolver;
+  private final PostEnterCanonicalizer canonicalizer;
 
-  @Nullable
-  private final TreePath path;
-  @Nullable
-  private List<TreeBackedAnnotationMirror> annotationMirrors;
+  @Nullable private final TreePath treePath;
 
   public TreeBackedElement(
       Element underlyingElement,
       @Nullable TreeBackedElement enclosingElement,
-      @Nullable TreePath path,
-      TreeBackedElementResolver resolver) {
+      @Nullable TreePath treePath,
+      PostEnterCanonicalizer canonicalizer) {
     this.underlyingElement = underlyingElement;
     this.enclosingElement = enclosingElement;
     // Some element types don't appear as members of enclosingElement.getEnclosedElements, so
     // it's up to each subtype's constructor to decide whether to add itself or not.
-    this.path = path;
-    this.resolver = resolver;
+    this.treePath = treePath;
+    this.canonicalizer = canonicalizer;
   }
 
   /* package */ Element getUnderlyingElement() {
     return underlyingElement;
   }
 
-  protected final TreeBackedElementResolver getResolver() {
-    return resolver;
+  protected final PostEnterCanonicalizer getCanonicalizer() {
+    return canonicalizer;
   }
 
   @Nullable
   /* package */ TreePath getTreePath() {
-    return path;
+    return treePath;
+  }
+
+  @Nullable
+  /* package */ Tree getTree() {
+    return treePath == null ? null : treePath.getLeaf();
   }
 
   @Override
@@ -109,51 +105,6 @@ abstract class TreeBackedElement implements Element {
 
   @Override
   public abstract TypeMirror asType();
-
-  @Override
-  public List<? extends AnnotationMirror> getAnnotationMirrors() {
-    if (annotationMirrors == null) {
-      List<? extends AnnotationMirror> underlyingAnnotations =
-          underlyingElement.getAnnotationMirrors();
-      if (underlyingAnnotations.isEmpty()) {
-        return underlyingAnnotations;
-      }
-
-      List<? extends AnnotationTree> annotationTrees = getAnnotationTrees();
-      List<TreeBackedAnnotationMirror> result = new ArrayList<>();
-      for (int i = 0; i < underlyingAnnotations.size(); i++) {
-        result.add(new TreeBackedAnnotationMirror(
-            underlyingAnnotations.get(i),
-            new TreePath(path, annotationTrees.get(i)),
-            resolver));
-      }
-      annotationMirrors = Collections.unmodifiableList(result);
-    }
-    return annotationMirrors;
-  }
-
-  private List<? extends AnnotationTree> getAnnotationTrees() {
-    ModifiersTree modifiersTree = getModifiersTree();
-    if (modifiersTree == null) {
-      return Collections.emptyList();
-    }
-
-    return modifiersTree.getAnnotations();
-  }
-
-  @Nullable
-  protected abstract ModifiersTree getModifiersTree();
-
-  @Override
-  @Nullable
-  public <A extends Annotation> A getAnnotation(Class<A> annotationType) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public <A extends Annotation> A[] getAnnotationsByType(Class<A> annotationType) {
-    throw new UnsupportedOperationException();
-  }
 
   @Override
   public String toString() {

@@ -21,18 +21,16 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.RuleKeyFieldCategory;
 import com.facebook.buck.rules.SourceRoot;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.hash.HashCode;
-
 import java.nio.file.Path;
 import java.util.regex.Pattern;
 
 /**
  * A {@link RuleKeyHasher} that forwards all the methods to the two underlying hashers.
  *
- * {@link ForwardingRuleKeyHasher#hash} invokes the method of the both underlying hashers and
+ * <p>{@link ForwardingRuleKeyHasher#hash} invokes the method of the both underlying hashers and
  * returns the hash of the first one.
  */
 public abstract class ForwardingRuleKeyHasher<HASH, HASH2> implements RuleKeyHasher<HASH> {
@@ -43,13 +41,6 @@ public abstract class ForwardingRuleKeyHasher<HASH, HASH2> implements RuleKeyHas
       RuleKeyHasher<HASH> firstHasher, RuleKeyHasher<HASH2> secondHasher) {
     this.secondHasher = secondHasher;
     this.delegate = firstHasher;
-  }
-
-  @Override
-  public ForwardingRuleKeyHasher<HASH, HASH2> selectCategory(RuleKeyFieldCategory category) {
-    secondHasher.selectCategory(category);
-    delegate.selectCategory(category);
-    return this;
   }
 
   @Override
@@ -160,7 +151,7 @@ public abstract class ForwardingRuleKeyHasher<HASH, HASH2> implements RuleKeyHas
 
   @Override
   public ForwardingRuleKeyHasher<HASH, HASH2> putBuildTargetSourcePath(
-      BuildTargetSourcePath<?> buildTargetSourcePath) {
+      BuildTargetSourcePath buildTargetSourcePath) {
     secondHasher.putBuildTargetSourcePath(buildTargetSourcePath);
     delegate.putBuildTargetSourcePath(buildTargetSourcePath);
     return this;

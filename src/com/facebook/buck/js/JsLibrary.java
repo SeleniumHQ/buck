@@ -16,9 +16,11 @@
 
 package com.facebook.buck.js;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -26,34 +28,29 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.shell.WorkerTool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.RmStep;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
-import java.util.stream.Stream;
 
-public class JsLibrary extends AbstractBuildRule {
+public class JsLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
-  @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> libraryDependencies;
+  @AddToRuleKey private final ImmutableSortedSet<SourcePath> libraryDependencies;
 
-  @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> sources;
+  @AddToRuleKey private final ImmutableSortedSet<SourcePath> sources;
 
-  @AddToRuleKey
-  private final WorkerTool worker;
+  @AddToRuleKey private final WorkerTool worker;
 
   protected JsLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       ImmutableSortedSet<SourcePath> sources,
       ImmutableSortedSet<SourcePath> libraryDependencies,
       WorkerTool worker) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.libraryDependencies = libraryDependencies;
     this.sources = sources;
     this.worker = worker;
@@ -61,24 +58,26 @@ public class JsLibrary extends AbstractBuildRule {
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     final SourcePathResolver sourcePathResolver = context.getSourcePathResolver();
+    buildableContext.recordArtifact(sourcePathResolver.getRelativePath(getSourcePathToOutput()));
 
     final Path outputPath = sourcePathResolver.getAbsolutePath(getSourcePathToOutput());
-    final String jobArgs = String.format(
-        "library %s --out %s %s",
-        JsUtil.resolveMapJoin(libraryDependencies, sourcePathResolver, p -> "--lib " + p),
-        outputPath,
-        JsUtil.resolveMapJoin(sources, sourcePathResolver, Path::toString));
+    final String jobArgs =
+        String.format(
+            "library %s %s %s --root %s --out %s %s",
+            JsFlavors.OPTIMIZATION_DOMAIN.getValue(getBuildTarget().getFlavors()).orElse(""),
+            JsFlavors.PLATFORM_DOMAIN.getValue(getBuildTarget().getFlavors()).orElse(""),
+            JsUtil.resolveMapJoin(libraryDependencies, sourcePathResolver, p -> "--lib " + p),
+            getProjectFilesystem().getRootPath(),
+            outputPath,
+            JsUtil.resolveMapJoin(sources, sourcePathResolver, Path::toString));
     return ImmutableList.of(
-        RmStep.of(getProjectFilesystem(), outputPath),
+        RmStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), outputPath)),
         JsUtil.workerShellStep(
-            worker,
-            jobArgs,
-            getBuildTarget(),
-            sourcePathResolver,
-            getProjectFilesystem()));
+            worker, jobArgs, getBuildTarget(), sourcePathResolver, getProjectFilesystem()));
   }
 
   @Override
@@ -88,14 +87,7 @@ public class JsLibrary extends AbstractBuildRule {
         BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.json"));
   }
 
-  Stream<BuildTarget> getLibraryDependencies(SourcePathRuleFinder ruleFinder) {
-    return libraryDependencies.stream()
-        .map(sourcePath ->
-            ruleFinder.getRule(sourcePath).orElseThrow(() -> new HumanReadableException(
-                "js_library %s has '%s' as a lib, but js_library can only have other " +
-                    "js_library targets as lib",
-                getBuildTarget(),
-                sourcePath)
-            ).getBuildTarget());
+  public ImmutableSortedSet<SourcePath> getLibraryDependencies() {
+    return libraryDependencies;
   }
 }

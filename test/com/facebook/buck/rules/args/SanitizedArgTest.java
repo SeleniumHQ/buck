@@ -19,21 +19,22 @@ package com.facebook.buck.rules.args;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.keys.RuleKeyBuilder;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.keys.UncachedRuleKeyBuilder;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.RuleKeyBuilder;
+import com.facebook.buck.rules.keys.UncachedRuleKeyBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.google.common.base.Functions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashCode;
-
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -44,11 +45,13 @@ public class SanitizedArgTest {
     FileHashCache fileHashCache =
         new StackedFileHashCache(
             ImmutableList.of(
-                DefaultFileHashCache.createDefaultFileHashCache(projectFilesystem)));
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())
-    );
-    SourcePathResolver resolver = new SourcePathResolver(ruleFinder);
+                DefaultFileHashCache.createDefaultFileHashCache(
+                    projectFilesystem, FileHashCacheMode.DEFAULT)));
+    SourcePathRuleFinder ruleFinder =
+        new SourcePathRuleFinder(
+            new BuildRuleResolver(
+                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
     return new UncachedRuleKeyBuilder(
         ruleFinder,
         resolver,
@@ -58,16 +61,14 @@ public class SanitizedArgTest {
 
   @Test
   public void stringify() {
-    SourcePathResolver pathResolver = new SourcePathResolver(
-        new SourcePathRuleFinder(
-            new BuildRuleResolver(
-                TargetGraph.EMPTY,
-                new DefaultTargetNodeToBuildRuleTransformer())));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(
+            new SourcePathRuleFinder(
+                new BuildRuleResolver(
+                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
 
     SanitizedArg arg = new SanitizedArg(Functions.constant("sanitized"), "unsanitized");
-    assertThat(
-        Arg.stringifyList(arg, pathResolver),
-        Matchers.contains("unsanitized"));
+    assertThat(Arg.stringifyList(arg, pathResolver), Matchers.contains("unsanitized"));
   }
 
   @Test
@@ -78,9 +79,6 @@ public class SanitizedArgTest {
     RuleKeyBuilder<HashCode> builder2 = createRuleKeyBuilder();
     arg1.appendToRuleKey(builder1);
     arg2.appendToRuleKey(builder2);
-    assertThat(
-        builder1.build(),
-        Matchers.equalTo(builder2.build()));
+    assertThat(builder1.build(), Matchers.equalTo(builder2.build()));
   }
-
 }

@@ -18,14 +18,18 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.google.common.collect.ImmutableSortedSet;
+import org.immutables.value.Value;
 
 /**
  * Constructor args which specify system framework and library fields.
  *
- * E.g. fields with members in the form of {@code $SDKROOT/user/lib/libz.dylib} or
- * {@code $SDKROOT/System/Library/Frameworks/Foundation.framework}.
+ * <p>E.g. fields with members in the form of {@code $SDKROOT/user/lib/libz.dylib} or {@code
+ * $SDKROOT/System/Library/Frameworks/Foundation.framework}.
  */
 public interface HasSystemFrameworkAndLibraries {
+  @Value.NaturalOrder
   ImmutableSortedSet<FrameworkPath> getFrameworks();
+
+  @Value.NaturalOrder
   ImmutableSortedSet<FrameworkPath> getLibraries();
 }

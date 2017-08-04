@@ -16,32 +16,25 @@
 
 package com.facebook.buck.step.fs;
 
-import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.MoreFiles;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.immutables.BuckStyleStep;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
-
-import org.immutables.value.Value;
-
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import org.immutables.value.Value;
 
 @Value.Immutable
 @BuckStyleStep
 abstract class AbstractRmStep implements Step {
 
-  private static final Logger LOG = Logger.get(AbstractRmStep.class);
-
   @Value.Parameter
-  // TODO(dwh): Remove this ProjectFilesystem when ignored files aren't a concept.
-  protected abstract ProjectFilesystem getFilesystem();
-  @Value.Parameter
-  // TODO(dwh): Make this always an absolute path.
-  protected abstract Path getAbsoluteOrRelativePath();
+  protected abstract BuildCellRelativePath getPath();
 
   @Value.Default
   protected boolean isRecursive() {
@@ -54,18 +47,16 @@ abstract class AbstractRmStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) {
-    try {
-      if (isRecursive()) {
-        // Delete a folder recursively
-        getFilesystem().deleteRecursivelyIfExists(getAbsoluteOrRelativePath());
-      } else {
-        // Delete a single file
-        getFilesystem().deleteFileAtPathIfExists(getAbsoluteOrRelativePath());
-      }
-    } catch (IOException e) {
-      LOG.error(e);
-      return StepExecutionResult.ERROR;
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
+    Path absolutePath =
+        context.getBuildCellRootPath().resolve(getPath().getPathRelativeToBuildCellRoot());
+    if (isRecursive()) {
+      // Delete a folder recursively
+      MoreFiles.deleteRecursivelyIfExists(absolutePath);
+    } else {
+      // Delete a single file
+      Files.deleteIfExists(absolutePath);
     }
     return StepExecutionResult.SUCCESS;
   }
@@ -80,8 +71,7 @@ abstract class AbstractRmStep implements Step {
       args.add("-r");
     }
 
-    Path absolutePath = getFilesystem().resolve(getAbsoluteOrRelativePath());
-    args.add(absolutePath.toString());
+    args.add(getPath().getPathRelativeToBuildCellRoot().toString());
 
     return Joiner.on(" ").join(args.build());
   }

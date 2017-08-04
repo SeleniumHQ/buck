@@ -16,6 +16,10 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.NativeLinkTarget;
+import com.facebook.buck.cxx.platform.NativeLinkable;
+import com.facebook.buck.cxx.platform.NativeLinkables;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
@@ -24,12 +28,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
-
-import org.immutables.value.Value;
-
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import org.immutables.value.Value;
 
 /**
  * A helper class for building the included and excluded omnibus roots to pass to the omnibus
@@ -39,14 +41,10 @@ import java.util.Optional;
 @BuckStyleTuple
 abstract class AbstractOmnibusRoots {
 
-  /**
-   * @return the {@link NativeLinkTarget} roots that are included in omnibus linking.
-   */
+  /** @return the {@link NativeLinkTarget} roots that are included in omnibus linking. */
   abstract ImmutableMap<BuildTarget, NativeLinkTarget> getIncludedRoots();
 
-  /**
-   * @return the {@link NativeLinkable} roots that are excluded from omnibus linking.
-   */
+  /** @return the {@link NativeLinkable} roots that are excluded from omnibus linking. */
   abstract ImmutableMap<BuildTarget, NativeLinkable> getExcludedRoots();
 
   public static Builder builder(CxxPlatform cxxPlatform, ImmutableSet<BuildTarget> excludes) {
@@ -66,16 +64,12 @@ abstract class AbstractOmnibusRoots {
       this.excludes = excludes;
     }
 
-    /**
-     * Add a root which is included in omnibus linking.
-     */
+    /** Add a root which is included in omnibus linking. */
     public void addIncludedRoot(NativeLinkTarget root) {
       includedRoots.put(root.getBuildTarget(), root);
     }
 
-    /**
-     * Add a root which is excluded from omnibus linking.
-     */
+    /** Add a root which is excluded from omnibus linking. */
     public void addExcludedRoot(NativeLinkable root) {
       excludedRoots.put(root.getBuildTarget(), root);
     }
@@ -154,7 +148,5 @@ abstract class AbstractOmnibusRoots {
       ImmutableMap<BuildTarget, NativeLinkTarget> included = buildIncluded(excluded.keySet());
       return OmnibusRoots.of(included, excluded);
     }
-
   }
-
 }

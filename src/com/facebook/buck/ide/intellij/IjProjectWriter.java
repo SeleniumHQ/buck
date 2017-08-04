@@ -16,24 +16,28 @@
 
 package com.facebook.buck.ide.intellij;
 
-import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.ide.intellij.model.ContentRoot;
+import com.facebook.buck.ide.intellij.model.IjLibrary;
+import com.facebook.buck.ide.intellij.model.IjModule;
+import com.facebook.buck.ide.intellij.model.IjProjectConfig;
+import com.facebook.buck.ide.intellij.model.folders.ExcludeFolder;
+import com.facebook.buck.ide.intellij.model.folders.IjSourceFolder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.util.MoreCollectors;
-
-import org.stringtemplate.v4.ST;
-
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Optional;
+import org.stringtemplate.v4.ST;
 
-/**
- * Writes the serialized representations of IntelliJ project components to disk.
- */
+/** Writes the serialized representations of IntelliJ project components to disk. */
 public class IjProjectWriter {
 
-  private IjProjectTemplateDataPreparer projectDataPreparer;
-  private IjProjectConfig projectConfig;
-  private ProjectFilesystem projectFilesystem;
+  private final IjProjectTemplateDataPreparer projectDataPreparer;
+  private final IjProjectConfig projectConfig;
+  private final ProjectFilesystem projectFilesystem;
 
   public IjProjectWriter(
       IjProjectTemplateDataPreparer projectDataPreparer,
@@ -45,12 +49,16 @@ public class IjProjectWriter {
   }
 
   public void write(IJProjectCleaner cleaner) throws IOException {
-    projectFilesystem.mkdirs(IjProjectPaths.IDEA_CONFIG_DIR);
+    Path projectIdeaConfigDir = projectConfig.getProjectPaths().getIdeaConfigDir();
+    projectFilesystem.mkdirs(projectIdeaConfigDir);
 
     writeProjectSettings(cleaner, projectConfig);
 
+    ImmutableList.Builder<ContentRoot> contentRootBuilder = ImmutableList.builder();
     for (IjModule module : projectDataPreparer.getModulesToBeWritten()) {
-      Path generatedModuleFile = writeModule(module);
+      ImmutableList<ContentRoot> contentRoots = projectDataPreparer.getContentRoots(module);
+      contentRootBuilder.addAll(contentRoots);
+      Path generatedModuleFile = writeModule(module, contentRoots);
       cleaner.doNotDelete(generatedModuleFile);
     }
     for (IjLibrary library : projectDataPreparer.getLibrariesToBeWritten()) {
@@ -59,51 +67,47 @@ public class IjProjectWriter {
     }
     Path indexFile = writeModulesIndex();
     cleaner.doNotDelete(indexFile);
+
+    Path workspaceFile =
+        writeWorkspace(projectFilesystem.resolve(projectIdeaConfigDir), contentRootBuilder.build());
+    cleaner.doNotDelete(workspaceFile);
   }
 
-  private Path writeModule(IjModule module) throws IOException {
+  private Path writeModule(IjModule module, ImmutableList<ContentRoot> contentRoots)
+      throws IOException {
     Path path = module.getModuleImlFilePath();
 
     ST moduleContents = StringTemplateFile.MODULE_TEMPLATE.getST();
 
+    moduleContents.add("contentRoots", contentRoots);
+    moduleContents.add("dependencies", projectDataPreparer.getDependencies(module));
     moduleContents.add(
-        "contentRoot",
-        projectDataPreparer.getContentRoot(module));
-    moduleContents.add(
-        "dependencies",
-        projectDataPreparer.getDependencies(module));
-    moduleContents.add(
-        "generatedSourceFolders",
-        projectDataPreparer.getGeneratedSourceFolders(module));
-    moduleContents.add(
-        "androidFacet",
-        projectDataPreparer.getAndroidProperties(module));
-    moduleContents.add(
-        "sdk",
-        module.getSdkName().orElse(null));
-    moduleContents.add(
-        "sdkType",
-        module.getSdkType().orElse(null));
+        "generatedSourceFolders", projectDataPreparer.getGeneratedSourceFolders(module));
+    moduleContents.add("androidFacet", projectDataPreparer.getAndroidProperties(module));
+    moduleContents.add("sdk", module.getModuleType().getSdkName(projectConfig).orElse(null));
+    moduleContents.add("sdkType", module.getModuleType().getSdkType(projectConfig));
     moduleContents.add(
         "languageLevel",
         JavaLanguageLevelHelper.convertLanguageLevelToIjFormat(
             module.getLanguageLevel().orElse(null)));
-    moduleContents.add(
-        "moduleType",
-        module.getModuleType().orElse(IjModuleType.DEFAULT));
+    moduleContents.add("moduleType", module.getModuleType().getImlModuleType());
     moduleContents.add(
         "metaInfDirectory",
-        module.getMetaInfDirectory()
+        module
+            .getMetaInfDirectory()
             .map((dir) -> module.getModuleBasePath().relativize(dir))
             .orElse(null));
 
-    StringTemplateFile.writeToFile(projectFilesystem, moduleContents, path);
+    StringTemplateFile.writeToFile(
+        projectFilesystem,
+        moduleContents,
+        path,
+        projectConfig.getProjectPaths().getIdeaConfigDir());
     return path;
   }
 
-  private void writeProjectSettings(
-      IJProjectCleaner cleaner,
-      IjProjectConfig projectConfig) throws IOException {
+  private void writeProjectSettings(IJProjectCleaner cleaner, IjProjectConfig projectConfig)
+      throws IOException {
 
     Optional<String> sdkName = projectConfig.getProjectJdkName();
     Optional<String> sdkType = projectConfig.getProjectJdkType();
@@ -112,7 +116,7 @@ public class IjProjectWriter {
       return;
     }
 
-    Path path = IjProjectPaths.IDEA_CONFIG_DIR.resolve("misc.xml");
+    Path path = projectConfig.getProjectPaths().getIdeaConfigDir().resolve("misc.xml");
 
     ST contents = StringTemplateFile.MISC_TEMPLATE.getST();
 
@@ -122,8 +126,12 @@ public class IjProjectWriter {
     contents.add("jdk15", getJdk15FromLanguageLevel(languageLevelInIjFormat));
     contents.add("jdkName", sdkName.get());
     contents.add("jdkType", sdkType.get());
+    if (projectConfig.getOutputUrl().isPresent()) {
+      contents.add("outputUrl", projectConfig.getOutputUrl().get());
+    }
 
-    StringTemplateFile.writeToFile(projectFilesystem, contents, path);
+    StringTemplateFile.writeToFile(
+        projectFilesystem, contents, path, projectConfig.getProjectPaths().getIdeaConfigDir());
 
     cleaner.doNotDelete(path);
   }
@@ -133,10 +141,8 @@ public class IjProjectWriter {
     if (languageLevelFromConfig.isPresent()) {
       return languageLevelFromConfig.get();
     } else {
-      String languageLevel = projectConfig
-          .getJavaBuckConfig()
-          .getDefaultJavacOptions()
-          .getSourceLevel();
+      String languageLevel =
+          projectConfig.getJavaBuckConfig().getDefaultJavacOptions().getSourceLevel();
       return JavaLanguageLevelHelper.convertLanguageLevelToIjFormat(languageLevel);
     }
   }
@@ -147,36 +153,73 @@ public class IjProjectWriter {
   }
 
   private Path writeLibrary(IjLibrary library) throws IOException {
-    Path path = IjProjectPaths.LIBRARIES_DIR.resolve(library.getName() + ".xml");
+    Path path =
+        projectConfig
+            .getProjectPaths()
+            .getLibrariesDir()
+            .resolve(Util.normalizeIntelliJName(library.getName()) + ".xml");
 
     ST contents = StringTemplateFile.LIBRARY_TEMPLATE.getST();
+    final IjProjectPaths projectPaths = projectConfig.getProjectPaths();
     contents.add("name", library.getName());
     contents.add(
-        "binaryJar",
-        library.getBinaryJar().map(MorePaths::pathWithUnixSeparators).orElse(null));
-    contents.add(
-        "classPaths",
-        library.getClassPaths().stream()
-            .map(MorePaths::pathWithUnixSeparators)
+        "binaryJars",
+        library
+            .getBinaryJars()
+            .stream()
+            .map(projectPaths::toProjectDirRelativeString)
             .collect(MoreCollectors.toImmutableSortedSet()));
     contents.add(
-        "sourceJar",
-        library.getSourceJar().map(MorePaths::pathWithUnixSeparators).orElse(null));
-    contents.add("javadocUrl", library.getJavadocUrl().orElse(null));
-    //TODO(mkosiba): support res and assets for aar.
+        "classPaths",
+        library
+            .getClassPaths()
+            .stream()
+            .map(projectPaths::toProjectDirRelativeString)
+            .collect(MoreCollectors.toImmutableSortedSet()));
+    contents.add(
+        "sourceJars",
+        library
+            .getSourceJars()
+            .stream()
+            .map(projectPaths::toProjectDirRelativeString)
+            .collect(MoreCollectors.toImmutableSortedSet()));
+    contents.add("javadocUrls", library.getJavadocUrls());
+    // TODO(mkosiba): support res and assets for aar.
 
-    StringTemplateFile.writeToFile(projectFilesystem, contents, path);
+    StringTemplateFile.writeToFile(
+        projectFilesystem, contents, path, projectConfig.getProjectPaths().getIdeaConfigDir());
     return path;
   }
 
   private Path writeModulesIndex() throws IOException {
-    projectFilesystem.mkdirs(IjProjectPaths.IDEA_CONFIG_DIR);
-    Path path = IjProjectPaths.IDEA_CONFIG_DIR.resolve("modules.xml");
+    projectFilesystem.mkdirs(projectConfig.getProjectPaths().getIdeaConfigDir());
+    Path path = projectConfig.getProjectPaths().getIdeaConfigDir().resolve("modules.xml");
 
     ST moduleIndexContents = StringTemplateFile.MODULE_INDEX_TEMPLATE.getST();
     moduleIndexContents.add("modules", projectDataPreparer.getModuleIndexEntries());
 
-    StringTemplateFile.writeToFile(projectFilesystem, moduleIndexContents, path);
+    StringTemplateFile.writeToFile(
+        projectFilesystem,
+        moduleIndexContents,
+        path,
+        projectConfig.getProjectPaths().getIdeaConfigDir());
     return path;
+  }
+
+  private Path writeWorkspace(Path projectIdeaConfigDir, ImmutableList<ContentRoot> contentRoots)
+      throws IOException {
+    ImmutableSortedSet<String> excludedPaths =
+        contentRoots
+            .stream()
+            .flatMap(contentRoot -> contentRoot.getFolders().stream())
+            .filter(ijSourceFolder -> ExcludeFolder.FOLDER_IJ_NAME.equals(ijSourceFolder.getType()))
+            .map(IjSourceFolder::getPath)
+            .map(Object::toString)
+            .collect(MoreCollectors.toImmutableSortedSet());
+
+    WorkspaceUpdater workspaceUpdater = new WorkspaceUpdater(projectIdeaConfigDir);
+    workspaceUpdater.updateOrCreateWorkspace(excludedPaths);
+
+    return Paths.get(workspaceUpdater.getWorkspaceFile().toString());
   }
 }

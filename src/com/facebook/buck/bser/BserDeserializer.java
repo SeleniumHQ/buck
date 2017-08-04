@@ -30,14 +30,9 @@ import static com.facebook.buck.bser.BserConstants.BSER_STRING;
 import static com.facebook.buck.bser.BserConstants.BSER_TEMPLATE;
 import static com.facebook.buck.bser.BserConstants.BSER_TRUE;
 
-import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.ImmutableMapWithNullValues;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ForwardingMap;
-import com.google.common.collect.ForwardingMapEntry;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.io.ByteStreams;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.BufferUnderflowException;
@@ -47,33 +42,26 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
-import java.util.stream.Collectors;
-
 import javax.annotation.Nullable;
 
 /**
  * Decoder for the BSER binary JSON format used by the Watchman service:
  *
- * https://facebook.github.io/watchman/docs/bser.html
+ * <p>https://facebook.github.io/watchman/docs/bser.html
  */
 public class BserDeserializer {
 
   public enum KeyOrdering {
-      UNSORTED,
-      SORTED
+    UNSORTED,
+    SORTED
   }
 
-  /**
-   * Exception thrown when BSER parser unexpectedly reaches the end of
-   * the input stream.
-   */
+  /** Exception thrown when BSER parser unexpectedly reaches the end of the input stream. */
   @SuppressWarnings("serial")
   public static class BserEofException extends IOException {
     public BserEofException(String message) {
@@ -89,16 +77,14 @@ public class BserDeserializer {
   private final CharsetDecoder utf8Decoder;
 
   /**
-   * If {@code keyOrdering} is {@code SORTED}, any {@code Map} objects
-   * in the resulting value will have their keys sorted in natural
-   * order. Otherwise, any {@code Map}s will have their keys in the
-   * same order with which they were encoded.
+   * If {@code keyOrdering} is {@code SORTED}, any {@code Map} objects in the resulting value will
+   * have their keys sorted in natural order. Otherwise, any {@code Map}s will have their keys in
+   * the same order with which they were encoded.
    */
   public BserDeserializer(KeyOrdering keyOrdering) {
     this.keyOrdering = keyOrdering;
-    this.utf8Decoder = StandardCharsets.UTF_8
-        .newDecoder()
-        .onMalformedInput(CodingErrorAction.REPORT);
+    this.utf8Decoder =
+        StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT);
   }
 
   // 2 bytes marker, 1 byte int size
@@ -110,9 +96,8 @@ public class BserDeserializer {
   /**
    * Deserializes the next BSER-encoded value from the stream.
    *
-   * @return either a {@link String}, {@link Number}, {@link List},
-   * {@link Map}, or {@code null}, depending on the type of the
-   * top-level encoded object.
+   * @return either a {@link String}, {@link Number}, {@link List}, {@link Map}, or {@code null},
+   *     depending on the type of the top-level encoded object.
    */
   @Nullable
   public Object deserializeBserValue(InputStream inputStream) throws IOException {
@@ -132,8 +117,7 @@ public class BserDeserializer {
       throw new BserEofException(
           String.format(
               "Invalid BSER header (expected %d bytes, got %d bytes)",
-              INITIAL_SNIFF_LEN,
-              sniffBytesRead));
+              INITIAL_SNIFF_LEN, sniffBytesRead));
     }
 
     if (sniffBuffer.get() != 0x00 || sniffBuffer.get() != 0x01) {
@@ -156,39 +140,29 @@ public class BserDeserializer {
         lengthBytesRemaining = 8;
         break;
       default:
-        throw new IOException(
-            String.format("Unrecognized BSER header length type %d", lengthType));
+        throw new IOException(String.format("Unrecognized BSER header length type %d", lengthType));
     }
-    int lengthBytesRead = ByteStreams.read(
-        inputStream,
-        sniffBuffer.array(),
-        sniffBuffer.position(),
-        lengthBytesRemaining);
+    int lengthBytesRead =
+        ByteStreams.read(
+            inputStream, sniffBuffer.array(), sniffBuffer.position(), lengthBytesRemaining);
     if (lengthBytesRead < lengthBytesRemaining) {
       throw new BserEofException(
           String.format(
               "Invalid BSER header length (expected %d bytes, got %d bytes)",
-              lengthBytesRemaining,
-              lengthBytesRead));
+              lengthBytesRemaining, lengthBytesRead));
     }
     int bytesRemaining = deserializeIntLen(sniffBuffer, lengthType);
 
-    ByteBuffer bserBuffer = ByteBuffer.allocate(bytesRemaining)
-        .order(ByteOrder.nativeOrder());
+    ByteBuffer bserBuffer = ByteBuffer.allocate(bytesRemaining).order(ByteOrder.nativeOrder());
     Preconditions.checkState(bserBuffer.hasArray());
 
-    int remainingBytesRead = ByteStreams.read(
-        inputStream,
-        bserBuffer.array(),
-        0,
-        bytesRemaining);
+    int remainingBytesRead = ByteStreams.read(inputStream, bserBuffer.array(), 0, bytesRemaining);
 
     if (remainingBytesRead < bytesRemaining) {
       throw new IOException(
           String.format(
               "Invalid BSER header (expected %d bytes, got %d bytes)",
-              bytesRemaining,
-              remainingBytesRead));
+              bytesRemaining, remainingBytesRead));
     }
 
     return bserBuffer;
@@ -198,15 +172,9 @@ public class BserDeserializer {
     long value = deserializeNumber(buffer, type).longValue();
     if (value > Integer.MAX_VALUE) {
       throw new IOException(
-          String.format(
-              "BSER length out of range (%d > %d)",
-              value,
-              Integer.MAX_VALUE));
+          String.format("BSER length out of range (%d > %d)", value, Integer.MAX_VALUE));
     } else if (value < 0) {
-      throw new IOException(
-          String.format(
-              "BSER length out of range (%d < 0)",
-              value));
+      throw new IOException(String.format("BSER length out of range (%d < 0)", value));
     }
     return (int) value;
   }
@@ -265,25 +233,23 @@ public class BserDeserializer {
     if (numItems == 0) {
       return Collections.emptyMap();
     }
-    ImmutableMap.Builder<String, Object> builder;
+    ImmutableMapWithNullValues.Builder<String, Object> builder;
     if (keyOrdering == KeyOrdering.UNSORTED) {
-      builder = ImmutableMap.builder();
+      builder = ImmutableMapWithNullValues.Builder.insertionOrder();
     } else {
-      builder = ImmutableSortedMap.naturalOrder();
+      builder = ImmutableMapWithNullValues.Builder.sorted();
     }
     for (int i = 0; i < numItems; i++) {
       byte stringType = buffer.get();
       if (stringType != BSER_STRING) {
         throw new IOException(
-            String.format(
-                "Unrecognized BSER object key type %d, expected string",
-                stringType));
+            String.format("Unrecognized BSER object key type %d, expected string", stringType));
       }
       String key = deserializeString(buffer);
       Object value = deserializeRecursive(buffer);
-      builder.put(key, value != null ? value : MapWrapperForNullValues.NULL);
+      builder.put(key, value);
     }
-    return new MapWrapperForNullValues<>(builder.build());
+    return builder.build();
   }
 
   private List<Map<String, Object>> deserializeTemplate(ByteBuffer buffer) throws IOException {
@@ -346,73 +312,6 @@ public class BserDeserializer {
         return deserializeTemplate(buffer);
       default:
         throw new IOException(String.format("Unrecognized BSER value type %d", type));
-    }
-  }
-
-  /**
-   * {@link ImmutableMap} uses 16 fewer bytes per entry than {@link TreeMap}, but does not allow
-   * null values. This wrapper class lets us have our cake and eat it too -- we use a sentinel
-   * object in the underlying {@link ImmutableMap} and translate it on any read path.
-   */
-  private static final class MapWrapperForNullValues<K, V> extends ForwardingMap<K, V> {
-    private static final Object NULL = new Object();
-    private final Map<K, V> delegate;
-
-    public MapWrapperForNullValues(Map<K, V> delegate) {
-      this.delegate = delegate;
-    }
-
-    @Override
-    protected Map<K, V> delegate() {
-      return delegate;
-    }
-
-    @Override
-    public V get(@Nullable Object key) {
-      V result = super.get(key);
-      if (result == NULL) {
-        return null;
-      }
-      return result;
-    }
-
-    @Override
-    public Collection<V> values() {
-      return super.values().stream()
-          .map(v -> v == NULL ? null : v)
-          .collect(Collectors.toList());
-    }
-
-    @Override
-    public Set<Entry<K, V>> entrySet() {
-      return super.entrySet().stream()
-          .map(e -> e.getValue() == NULL
-              ? new EntryWrapperForNullValues<>(e)
-              : e)
-          // Use ImmutableSet instead of Set here to preserve iteration order:
-          .collect(MoreCollectors.toImmutableSet());
-    }
-
-    private static class EntryWrapperForNullValues<K, V> extends ForwardingMapEntry<K, V> {
-      private final Map.Entry<K, V> delegate;
-
-      public EntryWrapperForNullValues(Map.Entry<K, V> delegate) {
-        this.delegate = delegate;
-      }
-
-      @Override
-      protected Entry<K, V> delegate() {
-        return delegate;
-      }
-
-      @Override
-      public V getValue() {
-        V result = super.getValue();
-        if (result == NULL) {
-          return null;
-        }
-        return result;
-      }
     }
   }
 }

@@ -16,9 +16,11 @@
 
 package com.facebook.buck.json;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
@@ -28,13 +30,12 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 
 /*
  * Concatenates Json arrays in files
  */
-public class JsonConcatenate extends AbstractBuildRule {
+public class JsonConcatenate extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private final String stepShortName;
   private final String stepDescription;
@@ -43,19 +44,19 @@ public class JsonConcatenate extends AbstractBuildRule {
   private Path output;
 
   public JsonConcatenate(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       ImmutableSortedSet<Path> inputs,
       String stepShortName,
       String stepDescription,
       String outputDirectoryPrefix,
       String outputName) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.inputs = inputs;
     this.outputDirectory =
         BuildTargets.getGenPath(
-            getProjectFilesystem(),
-            this.getBuildTarget(),
-            outputDirectoryPrefix + "-%s");
+            getProjectFilesystem(), this.getBuildTarget(), outputDirectoryPrefix + "-%s");
     this.output = this.outputDirectory.resolve(outputName);
     this.stepShortName = stepShortName;
     this.stepDescription = stepDescription;
@@ -67,14 +68,13 @@ public class JsonConcatenate extends AbstractBuildRule {
     buildableContext.recordArtifact(output);
     ProjectFilesystem projectFilesystem = getProjectFilesystem();
     return ImmutableList.<Step>builder()
-        .add(MkdirStep.of(projectFilesystem, outputDirectory))
+        .add(
+            MkdirStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), outputDirectory)))
         .add(
             new JsonConcatenateStep(
-                projectFilesystem,
-                inputs,
-                output,
-                stepShortName,
-                stepDescription))
+                projectFilesystem, inputs, output, stepShortName, stepDescription))
         .build();
   }
 

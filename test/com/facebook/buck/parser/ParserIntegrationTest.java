@@ -27,36 +27,35 @@ import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
+import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableSet;
-
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import java.io.IOException;
-import java.nio.file.Paths;
-
 public class ParserIntegrationTest {
-  @Rule
-  public TemporaryPaths temporaryFolder = new TemporaryPaths();
-  @Rule
-  public ExpectedException thrown = ExpectedException.none();
+  @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
+  @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Test
   public void testParserFilesAreSandboxed() throws Exception {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "parser_with_method_overrides", temporaryFolder);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "parser_with_method_overrides", temporaryFolder);
     workspace.setUp();
 
     BuildTarget target = workspace.newBuildTarget("//:base_genrule");
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
-    ProjectWorkspace.ProcessResult buildResult = workspace.runBuckCommand(
-        "build", "", "-v", "2");
+    ProjectWorkspace.ProcessResult buildResult = workspace.runBuckCommand("build", "", "-v", "2");
     buildResult.assertSuccess();
 
     workspace.verify(
@@ -65,19 +64,19 @@ public class ParserIntegrationTest {
   }
 
   /**
-   * If a rule contains an erroneous dep to a non-existent rule, then it should throw an
-   * appropriate message to help the user find the source of his error.
+   * If a rule contains an erroneous dep to a non-existent rule, then it should throw an appropriate
+   * message to help the user find the source of his error.
    */
   @Test
   public void testParseRuleWithBadDependency() throws IOException {
     // Ensure an exception with a specific message is thrown.
     thrown.expect(HumanReadableException.class);
-    thrown.expectMessage("Couldn't get dependency '//:bad-dep' of target '//:base'");
+    thrown.expectMessage(
+        "This error happened while trying to get dependency '//:bad-dep' of target '//:base'");
 
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "parse_rule_with_bad_dependency",
-        temporaryFolder);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "parse_rule_with_bad_dependency", temporaryFolder);
     workspace.setUp();
 
     workspace.runBuckCommand("build", "//:base");
@@ -85,6 +84,7 @@ public class ParserIntegrationTest {
 
   /**
    * Creates the following graph (assume all / and \ indicate downward pointing arrows):
+   *
    * <pre>
    *         A
    *       /   \
@@ -94,15 +94,15 @@ public class ParserIntegrationTest {
    *   \   /            |
    *     F --------------
    * </pre>
+   *
    * Note that there is a circular dependency from C -> E -> F -> C that should be caught by the
    * parser.
    */
   @Test
   public void testCircularDependencyDetection() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "circular_dependency_detection",
-        temporaryFolder);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "circular_dependency_detection", temporaryFolder);
     workspace.setUp();
 
     try {
@@ -127,10 +127,9 @@ public class ParserIntegrationTest {
    */
   @Test
   public void testNotAllowEmptyGlob() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "not_allow_empty_glob",
-        temporaryFolder);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "not_allow_empty_glob", temporaryFolder);
     workspace.setUp();
 
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("build", "//:root_module");
@@ -138,19 +137,16 @@ public class ParserIntegrationTest {
     assertThat(
         "error message for failure to return results from glob is incorrect",
         result.getStderr(),
-        containsString("returned no results.  (allow_empty_globs is set to false in the Buck " +
-                "configuration)"));
+        containsString(
+            "returned no results.  (allow_empty_globs is set to false in the Buck "
+                + "configuration)"));
   }
 
-  /**
-   * By default a glob call returning no results will not cause the build to fail.
-   */
+  /** By default a glob call returning no results will not cause the build to fail. */
   @Test
   public void testAllowEmptyGlob() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "allow_empty_glob",
-        temporaryFolder);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "allow_empty_glob", temporaryFolder);
     workspace.setUp();
 
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("build", "//:root_module");
@@ -159,10 +155,8 @@ public class ParserIntegrationTest {
 
   @Test
   public void ignoredFilesAreNotReturnedByGlob() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "glob_ignores",
-        temporaryFolder);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "glob_ignores", temporaryFolder);
     workspace.setUp();
 
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("build", "//:root_module");
@@ -170,16 +164,15 @@ public class ParserIntegrationTest {
     assertThat(
         "error message for failure to return results from glob is incorrect",
         result.getStderr(),
-        containsString("returned no results.  (allow_empty_globs is set to false in the Buck " +
-            "configuration)"));
+        containsString(
+            "returned no results.  (allow_empty_globs is set to false in the Buck "
+                + "configuration)"));
   }
 
   @Test
   public void testBuildFileName() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "build_file_name",
-        temporaryFolder);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "build_file_name", temporaryFolder);
     workspace.setUp();
 
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("targets", "//:root");
@@ -189,10 +182,8 @@ public class ParserIntegrationTest {
 
   @Test
   public void testMissingName() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "missing_name",
-        temporaryFolder);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "missing_name", temporaryFolder);
     workspace.setUp();
 
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("targets", "//...");
@@ -203,10 +194,8 @@ public class ParserIntegrationTest {
 
   @Test
   public void testMissingRequiredAttribute() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "missing_attr",
-        temporaryFolder);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "missing_attr", temporaryFolder);
     workspace.setUp();
 
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("targets", "//:gr");
@@ -218,10 +207,8 @@ public class ParserIntegrationTest {
 
   @Test
   public void testExtraUnknownAttribute() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "extra_attr",
-        temporaryFolder);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "extra_attr", temporaryFolder);
     workspace.setUp();
 
     ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("targets", "//:gr");
@@ -232,58 +219,16 @@ public class ParserIntegrationTest {
   }
 
   @Test
-  public void testUsingAutodeps() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "autodeps",
-        temporaryFolder);
-    workspace.setUp();
-
-    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand("build", "//java/bar:bar");
-    result.assertSuccess(
-        "//java/bar:bar should pick up the dependency on //java/foo:foo via BUCK.autodeps");
-  }
-
-  /**
-   * We try to test something very subtle in this test. Specifically, if buckd is running and a
-   * {@code BUCK.autodeps} file is changed, the corresponding build rules should be invalidated and
-   * Buck should know to re-create them if an affected rule is rebuilt.
-   */
-  @Test
-  public void testModifyingAutodepsShouldInvalidateCorrespondingBuildRules() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "autodeps",
-        temporaryFolder);
-    workspace.setUp();
-
-    ProjectWorkspace.ProcessResult firstRun = workspace.runBuckdCommand("run", "//java/bar:main");
-    firstRun.assertSuccess();
-    assertThat(firstRun.getStdout(), containsString("I am Foo"));
-
-    // Note that here, the only file being changed is BUCK.autodeps. In practice, this is unlikely
-    // to happen because a change in BUCK.autodeps is often in response to some code that has
-    // changed. Regardless, we change only BUCK.autodeps in this test case to isolate the behavior
-    // we want to verify.
-    workspace.copyFile("java/bar/BUCK.replacement.autodeps", "java/bar/BUCK.autodeps");
-
-    ProjectWorkspace.ProcessResult secondRun = workspace.runBuckdCommand("run", "//java/bar:main");
-    secondRun.assertSuccess();
-    assertThat(secondRun.getStdout(), containsString("I am other Foo"));
-  }
-
-  @Test
   public void testBoundaryChecksAreEnforced() throws IOException {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this,
-        "package_boundaries",
-        temporaryFolder);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "package_boundaries", temporaryFolder);
     workspace.setUp();
     try {
       workspace.runBuckCommand("build", "//java:foo");
       fail("Expected exception");
     } catch (HumanReadableException e) {
-      assertThat(e.getMessage(), containsString("package boundary"));
+      assertThat(e.getMessage(), containsString("can only be referenced from"));
     }
 
     workspace.addBuckConfigLocalOption("project", "check_package_boundary", "false");
@@ -296,7 +241,56 @@ public class ParserIntegrationTest {
       workspace.runBuckCommand("build", "//java2:foo").assertSuccess();
       fail("Expected exception");
     } catch (HumanReadableException e) {
-      assertThat(e.getMessage(), containsString("package boundary"));
+      assertThat(e.getMessage(), containsString("can only be referenced from"));
     }
+  }
+
+  static class BigFileTree {
+    private final ProjectWorkspace workspace;
+
+    BigFileTree(ProjectWorkspace workspace) {
+      this.workspace = workspace;
+    }
+
+    interface LeafVisitor {
+      void visit(Path path) throws IOException;
+    }
+
+    public void visit(LeafVisitor visitor) throws IOException {
+      for (int i = 0; i < 10; i++) {
+        Path levelOne = workspace.resolve(Integer.toString(i));
+        Files.createDirectories(levelOne);
+        for (int j = 0; j < 10; j++) {
+          Path levelTwo = levelOne.resolve(Integer.toString(j));
+          Files.createDirectories(levelTwo);
+          for (int k = 0; k < 100; k++) {
+            Path leafFile = levelTwo.resolve(Integer.toString(k));
+            visitor.visit(leafFile);
+          }
+        }
+      }
+    }
+  }
+
+  @Ignore
+  @Test
+  public void testOverflowInvalidatesBuildFileTree() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "overflow", temporaryFolder);
+    workspace.setUp();
+    BigFileTree bigFileTree = new BigFileTree(workspace);
+
+    // We need to change a bunch of files to trigger watchman overflow.  Build a directory hierarchy to avoid overstuffing any individual directory.
+    byte[] initialContents = "xxx".getBytes();
+    bigFileTree.visit(path -> Files.write(path, initialContents));
+
+    workspace.copyFile("foo/BUCK.1", "foo/BUCK");
+    workspace.runBuckdCommand("build", "//foo:foo").assertSuccess();
+
+    workspace.copyFile("foo/BUCK.2", "foo/BUCK");
+    workspace.copyFile("foo/bar/BUCK.1", "foo/bar/BUCK");
+    byte[] modifiedContents = "yyy".getBytes();
+    bigFileTree.visit(path -> Files.write(path, modifiedContents));
+    workspace.runBuckdCommand("build", "//foo/bar:bar").assertSuccess();
   }
 }

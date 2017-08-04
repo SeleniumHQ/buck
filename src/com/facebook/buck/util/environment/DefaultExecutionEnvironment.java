@@ -18,27 +18,18 @@ package com.facebook.buck.util.environment;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.google.common.collect.ImmutableMap;
 import com.sun.management.OperatingSystemMXBean;
-
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.util.Optional;
 import java.util.Properties;
 
 public class DefaultExecutionEnvironment implements ExecutionEnvironment {
-  // Buck's own integration tests will run with this system property
-  // set to false.
-  //
-  // Otherwise, we would need to add libjcocoa.dylib to
-  // java.library.path, which could interfere with external Java
-  // tests' own C library dependencies.
-  private static final boolean ENABLE_OBJC = Boolean.getBoolean("buck.enable_objc");
   private final Platform platform;
   private final ImmutableMap<String, String> environment;
   private final Properties properties;
 
   public DefaultExecutionEnvironment(
-      ImmutableMap<String, String> environment,
-      Properties properties) {
+      ImmutableMap<String, String> environment, Properties properties) {
     this.platform = Platform.detect();
     this.environment = environment;
     this.properties = properties;
@@ -57,7 +48,7 @@ public class DefaultExecutionEnvironment implements ExecutionEnvironment {
 
   @Override
   public String getUsername() {
-    return getenv("USER", properties.getProperty("user.name", "<unknown>"));
+    return getenv("USER").orElse(properties.getProperty("user.name", "<unknown>"));
   }
 
   @Override
@@ -79,24 +70,16 @@ public class DefaultExecutionEnvironment implements ExecutionEnvironment {
 
   @Override
   public Network getLikelyActiveNetwork() {
-    if (ENABLE_OBJC) {
-      return MacNetworkConfiguration.getLikelyActiveNetwork();
-    }
-    return new Network(NetworkMedium.UNKNOWN);
+    return NetworkInfo.getLikelyActiveNetwork();
   }
 
   @Override
   public Optional<String> getWifiSsid() {
-    // TODO(royw): Support Linux and Windows.
-    if (ENABLE_OBJC) {
-      return MacWifiSsidFinder.findCurrentSsid();
-    }
-    return Optional.empty();
+    return NetworkInfo.getWifiSsid();
   }
 
   @Override
-  public String getenv(String key, String defaultValue) {
-    String value = environment.get(key);
-    return value != null ? value : defaultValue;
+  public Optional<String> getenv(String key) {
+    return Optional.ofNullable(environment.get(key));
   }
 }

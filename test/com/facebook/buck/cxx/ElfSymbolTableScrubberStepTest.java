@@ -28,27 +28,25 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-
-import org.hamcrest.Matchers;
-import org.junit.Rule;
-import org.junit.Test;
-
 import java.io.IOException;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.StandardOpenOption;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
+import org.hamcrest.Matchers;
+import org.junit.Rule;
+import org.junit.Test;
 
 public class ElfSymbolTableScrubberStepTest {
 
   private static final String SECTION = ".dynsym";
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
-  public void test() throws IOException {
+  public void test() throws InterruptedException, IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "elf_shared_lib", tmp);
     workspace.setUp();
@@ -57,18 +55,18 @@ public class ElfSymbolTableScrubberStepTest {
             new ProjectFilesystem(tmp.getRoot()),
             tmp.getRoot().getFileSystem().getPath("libfoo.so"),
             ".dynsym",
-            /* allowMissing */ false);
+            /* versymSection */ Optional.empty(),
+            /* allowMissing */ false,
+            /* scrubUndefinedSymbols */ false);
     step.execute(TestExecutionContext.newInstance());
 
     // Verify that the symbol table values and sizes are zero.
     try (FileChannel channel =
-         FileChannel.open(
-             step.getFilesystem().resolve(step.getPath()),
-             StandardOpenOption.READ)) {
+        FileChannel.open(step.getFilesystem().resolve(step.getPath()), StandardOpenOption.READ)) {
       MappedByteBuffer buffer = channel.map(READ_ONLY, 0, channel.size());
       Elf elf = new Elf(buffer);
       ElfSection section =
-          elf.getSectionByName(SECTION).orElseThrow(AssertionError::new).getSecond();
+          elf.getSectionByName(SECTION).orElseThrow(AssertionError::new).getSection();
       ElfSymbolTable table = ElfSymbolTable.parse(elf.header.ei_class, section.body);
       Set<Long> addresses = new HashSet<>();
       table.entries.forEach(
@@ -78,17 +76,46 @@ public class ElfSymbolTableScrubberStepTest {
             assertThat(
                 entry.st_shndx,
                 Matchers.equalTo(
-                    entry.st_shndx != 0 ?
-                        ElfSymbolTableScrubberStep.STABLE_SECTION :
-                        entry.st_shndx));
+                    entry.st_shndx != 0
+                        ? ElfSymbolTableScrubberStep.STABLE_SECTION
+                        : entry.st_shndx));
             assertThat(
                 entry.st_size,
                 Matchers.equalTo(
-                    entry.st_info.st_type == ElfSymbolTable.Entry.Info.Type.STT_FUNC ?
-                        0 :
-                        entry.st_size));
+                    entry.st_info.st_type == ElfSymbolTable.Entry.Info.Type.STT_FUNC
+                        ? 0
+                        : entry.st_size));
           });
     }
   }
 
+  @Test
+  public void testScrubUndefined() throws InterruptedException, IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "elf_shared_lib", tmp);
+    workspace.setUp();
+    ElfSymbolTableScrubberStep step =
+        ElfSymbolTableScrubberStep.of(
+            new ProjectFilesystem(tmp.getRoot()),
+            tmp.getRoot().getFileSystem().getPath("libfoo.so"),
+            ".dynsym",
+            /* versymSection */ Optional.empty(),
+            /* allowMissing */ false,
+            /* scrubUndefinedSymbols */ true);
+    step.execute(TestExecutionContext.newInstance());
+
+    // Verify that the symbol table values and sizes are zero.
+    try (FileChannel channel =
+        FileChannel.open(step.getFilesystem().resolve(step.getPath()), StandardOpenOption.READ)) {
+      MappedByteBuffer buffer = channel.map(READ_ONLY, 0, channel.size());
+      Elf elf = new Elf(buffer);
+      ElfSection section = elf.getMandatorySectionByName("libfoo.so", SECTION).getSection();
+      ElfSymbolTable table = ElfSymbolTable.parse(elf.header.ei_class, section.body);
+      table
+          .entries
+          .stream()
+          .skip(1)
+          .forEach(entry -> assertThat(entry.st_shndx, Matchers.not(Matchers.equalTo(0))));
+    }
+  }
 }

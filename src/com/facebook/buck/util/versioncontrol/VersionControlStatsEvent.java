@@ -25,14 +25,14 @@ import com.google.common.base.Preconditions;
 public class VersionControlStatsEvent extends AbstractBuckEvent {
 
   @JsonView(JsonViews.MachineReadableLog.class)
-  private VersionControlStats versionControlStats;
+  private CommonSlowVersionControlStats versionControlStats;
 
-  public VersionControlStatsEvent(VersionControlStats versionControlStats) {
+  public VersionControlStatsEvent(CommonSlowVersionControlStats versionControlStats) {
     super(EventKey.unique());
     this.versionControlStats = Preconditions.checkNotNull(versionControlStats);
   }
 
-  public VersionControlStats getVersionControlStats() {
+  public CommonSlowVersionControlStats getVersionControlStats() {
     return versionControlStats;
   }
 

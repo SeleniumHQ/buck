@@ -20,24 +20,21 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestCellBuilder;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-
+import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.google.common.collect.ImmutableSortedSet;
+import java.util.function.BiFunction;
 import org.junit.Test;
-
-import java.util.Optional;
 
 public class WorkerToolDescriptionTest {
   @Test
@@ -59,32 +56,63 @@ public class WorkerToolDescriptionTest {
     assertThat(workerTool.getMaxWorkers(), equalTo(Integer.MAX_VALUE));
   }
 
-  private static WorkerTool createWorkerTool(Integer maxWorkers)
+  @Test
+  public void testHandlesExeWithoutOutput() throws NoSuchBuildTargetException {
+    createWorkerTool(1, WorkerToolDescriptionTest::wrapExeInCommandAlias);
+  }
+
+  private static WorkerTool createWorkerTool(int maxWorkers) throws NoSuchBuildTargetException {
+    return createWorkerTool(maxWorkers, (resolver, shBinary) -> shBinary.getBuildTarget());
+  }
+
+  private static BuildTarget wrapExeInCommandAlias(BuildRuleResolver resolver, BuildRule shBinary) {
+    try {
+      return new CommandAliasBuilder(BuildTargetFactory.newInstance("//:no_output"))
+          .setExe(shBinary.getBuildTarget())
+          .build(resolver)
+          .getBuildTarget();
+    } catch (NoSuchBuildTargetException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private static WorkerTool createWorkerTool(
+      int maxWorkers, BiFunction<BuildRuleResolver, BuildRule, BuildTarget> getExe)
       throws NoSuchBuildTargetException {
     TargetGraph targetGraph = TargetGraph.EMPTY;
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
 
-    BuildRule shBinaryRule = new ShBinaryBuilder(
-        BuildTargetFactory.newInstance("//:my_exe"))
-        .setMain(new FakeSourcePath("bin/exe"))
-        .build(resolver);
+    BuildRule shBinaryRule =
+        new ShBinaryBuilder(BuildTargetFactory.newInstance("//:my_exe"))
+            .setMain(new FakeSourcePath("bin/exe"))
+            .build(resolver);
 
-    WorkerToolDescription.Arg args = new WorkerToolDescription.Arg();
-    args.env = ImmutableMap.of();
-    args.exe = shBinaryRule.getBuildTarget();
-    args.args = Either.ofRight(ImmutableList.of());
-    args.maxWorkers = Optional.of(maxWorkers);
-    args.persistent = Optional.empty();
+    BuildTarget exe = getExe.apply(resolver, shBinaryRule);
+    WorkerToolDescriptionArg args =
+        WorkerToolDescriptionArg.builder()
+            .setName("target")
+            .setExe(exe)
+            .setMaxWorkers(maxWorkers)
+            .build();
 
-    Description<WorkerToolDescription.Arg> workerToolDescription = new WorkerToolDescription(
-        FakeBuckConfig.builder().build());
-    BuildRuleParams params = new FakeBuildRuleParamsBuilder("//arbitrary:target").build();
-    return (WorkerTool) workerToolDescription.createBuildRule(
-        targetGraph,
-        params,
-        resolver,
-        TestCellBuilder.createCellRoots(params.getProjectFilesystem()),
-        args);
+    WorkerToolDescription workerToolDescription =
+        new WorkerToolDescription(FakeBuckConfig.builder().build());
+    ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
+    BuildTarget buildTarget = BuildTargetFactory.newInstance("//arbitrary:target");
+    BuildRuleParams params =
+        new BuildRuleParams(
+            () -> ImmutableSortedSet.of(),
+            () -> ImmutableSortedSet.of(resolver.getRule(exe)),
+            ImmutableSortedSet.of());
+    return (WorkerTool)
+        workerToolDescription.createBuildRule(
+            targetGraph,
+            buildTarget,
+            projectFilesystem,
+            params,
+            resolver,
+            TestCellBuilder.createCellRoots(projectFilesystem),
+            args);
   }
 }

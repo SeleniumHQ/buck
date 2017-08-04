@@ -23,7 +23,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
-
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
@@ -35,23 +34,25 @@ import java.nio.file.attribute.BasicFileAttributes;
 /**
  * A {@link FileHashLoader} that only hashes the files' paths without reading their contents.
  *
- * If file's hash needs to be changed, for example to reflect changes to the file's contents,
- * the file's path can be specified in a set of modified files. Files specified in this set
- * will get new unique hashes based on their paths distinct from the hashes they would get if
- * they were omitted from the set.
+ * <p>If file's hash needs to be changed, for example to reflect changes to the file's contents, the
+ * file's path can be specified in a set of modified files. Files specified in this set will get new
+ * unique hashes based on their paths distinct from the hashes they would get if they were omitted
+ * from the set.
  */
 public class FilePathHashLoader implements FileHashLoader {
 
   private final Path defaultCellRoot;
   private final ImmutableSet<Path> assumeModifiedFiles;
+  private final boolean allowSymlinks;
 
   public FilePathHashLoader(
-      final Path defaultCellRoot,
-      ImmutableSet<Path> assumeModifiedFiles) throws IOException {
+      final Path defaultCellRoot, ImmutableSet<Path> assumeModifiedFiles, boolean allowSymlinks)
+      throws IOException {
     this.defaultCellRoot = defaultCellRoot;
+    this.allowSymlinks = allowSymlinks;
     ImmutableSet.Builder<Path> modifiedFilesBuilder = ImmutableSet.builder();
     for (Path path : assumeModifiedFiles) {
-      modifiedFilesBuilder.add(defaultCellRoot.resolve(path).toRealPath());
+      modifiedFilesBuilder.add(resolvePath(path));
     }
     this.assumeModifiedFiles = modifiedFilesBuilder.build();
   }
@@ -74,7 +75,7 @@ public class FilePathHashLoader implements FileHashLoader {
         });
     Hasher hasher = Hashing.sha1().newHasher();
     for (Path file : files.build()) {
-      file = defaultCellRoot.resolve(file).toRealPath();
+      file = resolvePath(file);
       boolean assumeModified = assumeModifiedFiles.contains(file);
       Path relativePath = MorePaths.relativize(defaultCellRoot, file);
 
@@ -97,4 +98,11 @@ public class FilePathHashLoader implements FileHashLoader {
     throw new UnsupportedOperationException("Not implemented");
   }
 
+  private Path resolvePath(Path path) throws IOException {
+    Path resolvedPath = defaultCellRoot.resolve(path);
+    if (!allowSymlinks) {
+      return resolvedPath;
+    }
+    return resolvedPath.toRealPath();
+  }
 }

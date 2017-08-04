@@ -16,21 +16,24 @@
 
 package com.facebook.buck.graphql;
 
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.NoopBuildRule;
+import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.google.common.collect.ImmutableSortedSet;
 
-public class GraphqlLibrary extends NoopBuildRule {
+public class GraphqlLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps {
 
-  @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> srcs;
+  @AddToRuleKey private final ImmutableSortedSet<SourcePath> srcs;
 
   public GraphqlLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams ruleParams,
       ImmutableSortedSet<SourcePath> srcs) {
-    super(ruleParams);
+    super(buildTarget, projectFilesystem, ruleParams);
     this.srcs = srcs;
   }
 

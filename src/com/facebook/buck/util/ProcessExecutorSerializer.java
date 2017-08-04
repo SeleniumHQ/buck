@@ -16,8 +16,10 @@
 package com.facebook.buck.util;
 
 import com.google.common.base.Preconditions;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableMap;
-
 import java.util.Map;
 
 public class ProcessExecutorSerializer {
@@ -27,6 +29,17 @@ public class ProcessExecutorSerializer {
   private static final String TYPE_CONTEXTUAL = "contextual";
   private static final String CONTEXT = "context";
   private static final String DELEGATE = "delegate";
+
+  private static final LoadingCache<Console, DefaultProcessExecutor> cachedDefaultProcessExecutor =
+      CacheBuilder.newBuilder()
+          .softValues()
+          .build(
+              new CacheLoader<Console, DefaultProcessExecutor>() {
+                @Override
+                public DefaultProcessExecutor load(Console key) throws Exception {
+                  return new DefaultProcessExecutor(key);
+                }
+              });
 
   private ProcessExecutorSerializer() {}
 
@@ -41,9 +54,7 @@ public class ProcessExecutorSerializer {
       builder.put(DELEGATE, serialize(contextualProcessExecutor.getDelegate()));
     } else {
       throw new RuntimeException(
-          String.format(
-              "Cannot serialize ProcessExecutor with class %s",
-              executor.getClass()));
+          String.format("Cannot serialize ProcessExecutor with class %s", executor.getClass()));
     }
     return builder.build();
   }
@@ -53,19 +64,16 @@ public class ProcessExecutorSerializer {
     String type = (String) data.get(TYPE);
     Preconditions.checkNotNull(type, "Cannot deserialize without `%s` field", TYPE);
     if (TYPE_DEFAULT.equals(type)) {
-      return new DefaultProcessExecutor(console);
+      return cachedDefaultProcessExecutor.getUnchecked(console);
     } else if (TYPE_CONTEXTUAL.equals(type)) {
       Map<String, Object> delegateData = (Map<String, Object>) data.get(DELEGATE);
       Preconditions.checkNotNull(
           delegateData,
           "Expected to find serialized data for delegate of the ContextualProcessExecutor");
       Map<String, String> context = (Map<String, String>) data.get(CONTEXT);
-      Preconditions.checkNotNull(
-          context,
-          "Expected to find context for ContextualProcessExecutor");
+      Preconditions.checkNotNull(context, "Expected to find context for ContextualProcessExecutor");
       return new ContextualProcessExecutor(
-          deserialize(delegateData, console),
-          ImmutableMap.copyOf(context));
+          deserialize(delegateData, console), ImmutableMap.copyOf(context));
     } else {
       throw new RuntimeException(
           String.format("Cannot serialize ProcessExecutor with type %s", type));

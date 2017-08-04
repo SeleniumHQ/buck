@@ -18,11 +18,14 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertNotNull;
 
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.Linker;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -34,35 +37,32 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.FileHashCache;
+import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.google.common.collect.ImmutableList;
-
 import org.junit.Test;
-
-
 
 public class PrebuiltCxxLibraryTest {
 
   @Test
   public void testGetNativeLinkWithDep() throws Exception {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    CxxPlatform platform = CxxLibraryBuilder.createDefaultPlatform();
+    CxxPlatform platform = CxxPlatformUtils.DEFAULT_PLATFORM;
 
     GenruleBuilder genSrcBuilder =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:gen_libx"))
             .setOut("gen_libx")
             .setCmd("something");
     BuildTarget target = BuildTargetFactory.newInstance("//:x");
-    PrebuiltCxxLibraryBuilder builder = new PrebuiltCxxLibraryBuilder(target)
-        .setLibName("x")
-        .setLibDir("$(location //:gen_libx)");
+    PrebuiltCxxLibraryBuilder builder =
+        new PrebuiltCxxLibraryBuilder(target).setLibName("x").setLibDir("$(location //:gen_libx)");
 
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(genSrcBuilder.build(), builder.build());
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     BuildRule genSrc = genSrcBuilder.build(resolver, filesystem, targetGraph);
     filesystem.writeContentsToPath(
@@ -70,14 +70,13 @@ public class PrebuiltCxxLibraryTest {
         pathResolver.getAbsolutePath(genSrc.getSourcePathToOutput()).resolve("libx.a"));
 
     PrebuiltCxxLibrary lib = (PrebuiltCxxLibrary) builder.build(resolver, filesystem, targetGraph);
-    lib.getNativeLinkableInput(
-        platform,
-        Linker.LinkableDepType.STATIC);
+    lib.getNativeLinkableInput(platform, Linker.LinkableDepType.STATIC);
 
     FileHashCache originalHashCache =
         new StackedFileHashCache(
             ImmutableList.of(
-                DefaultFileHashCache.createDefaultFileHashCache(filesystem)));
+                DefaultFileHashCache.createDefaultFileHashCache(
+                    filesystem, FileHashCacheMode.DEFAULT)));
     DefaultRuleKeyFactory factory =
         new DefaultRuleKeyFactory(0, originalHashCache, pathResolver, ruleFinder);
 

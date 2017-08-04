@@ -16,41 +16,57 @@
 
 package org.openqa.selenium.buck.mozilla;
 
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.google.common.io.Files;
+import org.immutables.value.Value;
+import java.nio.file.Path;
 
-public class MozillaXptDescription implements Description<MozillaXptDescription.Arg> {
+public class MozillaXptDescription implements Description<MozillaXptArg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<MozillaXptArg> getConstructorArgType() {
+    return MozillaXptArg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      MozillaXptArg args) throws NoSuchBuildTargetException {
+    Path sourcePath = DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver))
+        .getRelativePath(args.getSrc());
+    String name = Files.getNameWithoutExtension(sourcePath.toString()) + ".xpt";
+
     return new Xpt(
+        buildTarget,
+        projectFilesystem,
         params,
-        new SourcePathResolver(new SourcePathRuleFinder(resolver)),
-        args.src,
-        args.fallback);
+        name,
+        args.getSrc(),
+        args.getFallback());
   }
 
-  public static class Arg extends AbstractDescriptionArg {
-    public SourcePath fallback;
-    public SourcePath src;
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractMozillaXptArg extends CommonDescriptionArg {
+    SourcePath getFallback();
+    SourcePath getSrc();
   }
 }

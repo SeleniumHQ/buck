@@ -16,6 +16,7 @@
 
 package com.facebook.buck.versions;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Flavor;
@@ -25,20 +26,23 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
+import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.util.AbstractMap;
 import java.util.Map;
 import java.util.Optional;
+import org.immutables.value.Value;
 
-public class VersionRootBuilder extends AbstractNodeBuilder<
-    VersionRootBuilder.Arg,
-    VersionRootBuilder.VersionRootDescription,
-    BuildRule> {
+public class VersionRootBuilder
+    extends AbstractNodeBuilder<
+        VersionRootDescriptionArg.Builder, VersionRootDescriptionArg,
+        VersionRootBuilder.VersionRootDescription, BuildRule> {
 
   public VersionRootBuilder(BuildTarget target) {
     super(new VersionRootDescription(), target);
@@ -49,12 +53,12 @@ public class VersionRootBuilder extends AbstractNodeBuilder<
   }
 
   public VersionRootBuilder setVersionUniverse(String name) {
-    arg.versionUniverse = Optional.of(name);
+    getArgForPopulating().setVersionUniverse(name);
     return this;
   }
 
   public VersionRootBuilder setDeps(ImmutableSortedSet<BuildTarget> deps) {
-    arg.deps = deps;
+    getArgForPopulating().setDeps(deps);
     return this;
   }
 
@@ -72,7 +76,7 @@ public class VersionRootBuilder extends AbstractNodeBuilder<
 
   public VersionRootBuilder setVersionedDeps(
       ImmutableSortedMap<BuildTarget, Optional<Constraint>> deps) {
-    arg.versionedDeps = deps;
+    getArgForPopulating().setVersionedDeps(deps);
     return this;
   }
 
@@ -85,31 +89,35 @@ public class VersionRootBuilder extends AbstractNodeBuilder<
   public VersionRootBuilder setVersionedDeps(String target, Constraint constraint) {
     return setVersionedDeps(
         new AbstractMap.SimpleEntry<>(
-            BuildTargetFactory.newInstance(target),
-            Optional.of(constraint)));
+            BuildTargetFactory.newInstance(target), Optional.of(constraint)));
   }
 
-  public static class Arg {
-    public Optional<String> versionUniverse;
-    public ImmutableSortedSet<BuildTarget> deps = ImmutableSortedSet.of();
-    public ImmutableSortedMap<BuildTarget, Optional<Constraint>> versionedDeps =
-        ImmutableSortedMap.of();
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractVersionRootDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps {
+    Optional<String> getVersionUniverse();
+
+    @Value.NaturalOrder
+    ImmutableSortedMap<BuildTarget, Optional<Constraint>> getVersionedDeps();
   }
 
-  public static class VersionRootDescription implements VersionRoot<Arg> {
+  public static class VersionRootDescription implements VersionRoot<VersionRootDescriptionArg> {
 
     @Override
-    public Arg createUnpopulatedConstructorArg() {
-      return new Arg();
+    public Class<VersionRootDescriptionArg> getConstructorArgType() {
+      return VersionRootDescriptionArg.class;
     }
 
     @Override
-    public <A extends Arg> BuildRule createBuildRule(
+    public BuildRule createBuildRule(
         TargetGraph targetGraph,
+        BuildTarget buildTarget,
+        ProjectFilesystem projectFilesystem,
         BuildRuleParams params,
         BuildRuleResolver resolver,
         CellPathResolver cellRoots,
-        A args) throws NoSuchBuildTargetException {
+        VersionRootDescriptionArg args)
+        throws NoSuchBuildTargetException {
       throw new IllegalStateException();
     }
 
@@ -117,7 +125,5 @@ public class VersionRootBuilder extends AbstractNodeBuilder<
     public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
       return true;
     }
-
   }
-
 }

@@ -1,5 +1,7 @@
-standard_java_library(
+java_immutables_library(
     name = "gwt",
+    srcs = glob(["*.java"]),
+    visibility = ["PUBLIC"],
     deps = [
         "//src/com/facebook/buck/graph:graph",
         "//src/com/facebook/buck/io:io",
@@ -11,6 +13,7 @@ standard_java_library(
         "//src/com/facebook/buck/parser:rule_pattern",
         "//src/com/facebook/buck/rules:build_rule",
         "//src/com/facebook/buck/rules:interfaces",
+        "//src/com/facebook/buck/rules:source_path",
         "//src/com/facebook/buck/shell:steps",
         "//src/com/facebook/buck/step:step",
         "//src/com/facebook/buck/step/fs:fs",

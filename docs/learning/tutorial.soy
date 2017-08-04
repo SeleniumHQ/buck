@@ -28,13 +28,13 @@
 <h2>Path Setup</h2>
 
 <p>
-  Buck needs a way to reference this collection of resources, so we need to create a build file that defines an {call buck.android_resource /} rule:
+  Add Buck to your <code>$PATH</code> and set up <code><a href="{ROOT}command/buckd.html"></code>buckd</code></a>:
 </p>
 
 {literal}
 <pre>
-sudo ln -s ${lb}PWD{rb}/bin/buck /usr/bin/buck
-sudo ln -s ${lb}PWD{rb}/bin/buckd /usr/bin/buckd
+sudo ln -s ${PWD}/bin/buck /usr/bin/buck
+sudo ln -s ${PWD}/bin/buckd /usr/bin/buckd
 </pre>
 {/literal}
 
@@ -95,10 +95,6 @@ echo "android_library(
   name = 'activity',
   srcs = glob(['*.java']),
   visibility = [ 'PUBLIC' ],
-)
-
-project_config(
-  src_target = ':activity',
 )" > java/com/example/activity/BUCK
 </pre>{/literal}
 
@@ -140,10 +136,6 @@ echo "android_resource(
   visibility = [
     '//apps/myapp:',
   ],
-)
-
-project_config(
-  src_target = ':res',
 )" > res/com/example/activity/BUCK
 </pre>{/literal}
 
@@ -218,7 +210,12 @@ echo "&lt;?xml version='1.0' encoding='utf-8'?>
 echo "android_binary(
   name = 'app',
   manifest = 'AndroidManifest.xml',
-  target = 'Google Inc.:Google APIs:16',
+  manifest_entries = {
+    'version_code': 1,
+    'version_name': '1.0',
+    'min_sdk_version': 16,
+    'target_sdk_version': 23
+  },
   keystore = ':debug_keystore',
   deps = [
     '//java/com/example/activity:activity',
@@ -269,7 +266,7 @@ echo "[alias]
 <h2>Create an IntelliJ Project</h2>
 
 <p>
-  You likely want to develop your Android app using an IDE. Fortunately, Buck can generate an IntelliJ project from the <code><a href="rule/project_config.html">project_config()</code></a> rules you defined in your build files.
+  You likely want to develop your Android app using an IDE. Fortunately, Buck can generate an IntelliJ project from the build rules you defined in your build files.
 </p>
 
 <p>

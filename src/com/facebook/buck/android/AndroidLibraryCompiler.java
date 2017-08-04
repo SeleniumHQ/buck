@@ -19,6 +19,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.AndroidLibraryDescription.JvmLanguage;
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -26,25 +27,21 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.google.common.base.Function;
 import com.google.common.collect.ImmutableCollection;
-
 import java.nio.file.Path;
 
 /**
- * Jvm compiler abstraction for android.
- * Implementations of this class are used in {@link AndroidLibraryDescription} to provide
- * the actual compilation step.
- * This allows us to use different compilers for different {@link JvmLanguage}.
+ * Jvm compiler abstraction for android. Implementations of this class are used in {@link
+ * AndroidLibraryDescription} to provide the actual compilation step. This allows us to use
+ * different compilers for different {@link JvmLanguage}.
  */
 public abstract class AndroidLibraryCompiler
-    implements ImplicitDepsInferringDescription<AndroidLibraryDescription.Arg> {
+    implements ImplicitDepsInferringDescription<JvmLibraryArg> {
 
   public static final Function<BuildContext, Iterable<Path>> ANDROID_CLASSPATH_FROM_CONTEXT =
       context -> context.getAndroidPlatformTargetSupplier().get().getBootclasspathEntries();
 
   public abstract CompileToJarStepFactory compileToJar(
-      AndroidLibraryDescription.Arg args,
-      JavacOptions javacOptions,
-      BuildRuleResolver resolver);
+      JvmLibraryArg args, JavacOptions javacOptions, BuildRuleResolver resolver);
 
   public boolean trackClassUsage(JavacOptions javacOptions) {
     return javacOptions.trackClassUsage();
@@ -54,10 +51,7 @@ public abstract class AndroidLibraryCompiler
   public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      AndroidLibraryDescription.Arg constructorArg,
+      JvmLibraryArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
-      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-  }
+      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {}
 }
-
-

@@ -16,9 +16,11 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -31,13 +33,13 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 import java.util.Set;
 
 /**
  * {@link AndroidManifest} is a {@link BuildRule} that can generate an Android manifest from a
  * skeleton manifest and the library manifests from its dependencies.
+ *
  * <pre>
  * android_manifest(
  *   name = 'my_manifest',
@@ -49,8 +51,10 @@ import java.util.Set;
  *   ],
  * )
  * </pre>
- * This will produce a file under buck-out/gen that will be parameterized by the name of the
- * {@code android_manifest} rule. This can be used as follows:
+ *
+ * This will produce a file under buck-out/gen that will be parameterized by the name of the {@code
+ * android_manifest} rule. This can be used as follows:
+ *
  * <pre>
  * android_binary(
  *   name = 'my_app',
@@ -59,41 +63,47 @@ import java.util.Set;
  * )
  * </pre>
  */
-public class AndroidManifest extends AbstractBuildRule {
+public class AndroidManifest extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
-  @AddToRuleKey
-  private final SourcePath skeletonFile;
+  @AddToRuleKey private final SourcePath skeletonFile;
 
   /** These must be sorted so the rule key is stable. */
-  @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> manifestFiles;
+  @AddToRuleKey private final ImmutableSortedSet<SourcePath> manifestFiles;
 
   private final Path pathToOutputFile;
 
   protected AndroidManifest(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       SourcePath skeletonFile,
       Set<SourcePath> manifestFiles) {
-    super(params);
+    super(buildTarget, projectFilesystem, params);
     this.skeletonFile = skeletonFile;
     this.manifestFiles = ImmutableSortedSet.copyOf(manifestFiles);
-    BuildTarget buildTarget = params.getBuildTarget();
     this.pathToOutputFile =
         BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "AndroidManifest__%s__.xml");
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
 
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
     // Clear out the old file, if it exists.
-    commands.add(RmStep.of(getProjectFilesystem(), pathToOutputFile));
+    commands.add(
+        RmStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), pathToOutputFile)));
 
     // Make sure the directory for the output file exists.
-    commands.add(MkdirStep.of(getProjectFilesystem(), pathToOutputFile.getParent()));
+    commands.add(
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                pathToOutputFile.getParent())));
 
     commands.add(
         new GenerateManifestStep(

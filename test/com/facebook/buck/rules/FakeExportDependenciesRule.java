@@ -17,22 +17,19 @@
 package com.facebook.buck.rules;
 
 import com.google.common.collect.ImmutableSortedSet;
+import java.util.SortedSet;
 
 public class FakeExportDependenciesRule extends FakeBuildRule implements ExportDependencies {
 
   private final ImmutableSortedSet<BuildRule> exportedDeps;
 
-  public FakeExportDependenciesRule(
-      String target,
-      SourcePathResolver resolver,
-      BuildRule... deps) {
-    super(target, resolver, deps);
+  public FakeExportDependenciesRule(String target, BuildRule... deps) {
+    super(target, deps);
     this.exportedDeps = ImmutableSortedSet.copyOf(deps);
   }
 
   @Override
-  public ImmutableSortedSet<BuildRule> getExportedDeps() {
+  public SortedSet<BuildRule> getExportedDeps() {
     return exportedDeps;
   }
-
 }

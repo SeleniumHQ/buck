@@ -19,19 +19,17 @@ package com.facebook.buck.rules;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.step.DefaultStepRunner;
-import com.facebook.buck.util.cache.NullFileHashCache;
+import com.facebook.buck.testutil.DummyFileHashCache;
+import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.concurrent.ListeningMultiSemaphore;
 import com.facebook.buck.util.concurrent.ResourceAllocationFairness;
 import com.facebook.buck.util.concurrent.ResourceAmounts;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
-
 import java.util.Optional;
 
-/**
- * Handy way to create new {@link CachingBuildEngine} instances for test purposes.
- */
+/** Handy way to create new {@link CachingBuildEngine} instances for test purposes. */
 public class CachingBuildEngineFactory {
 
   private CachingBuildEngine.BuildMode buildMode = CachingBuildEngine.BuildMode.SHALLOW;
@@ -47,16 +45,25 @@ public class CachingBuildEngineFactory {
   private BuildRuleResolver buildRuleResolver;
   private ResourceAwareSchedulingInfo resourceAwareSchedulingInfo =
       ResourceAwareSchedulingInfo.NON_AWARE_SCHEDULING_INFO;
+  private boolean logBuildRuleFailuresInline = true;
+  private BuildInfoStoreManager buildInfoStoreManager;
+  private FileHashCacheMode fileHashCacheMode = FileHashCacheMode.DEFAULT;
 
-  public CachingBuildEngineFactory(BuildRuleResolver buildRuleResolver) {
-    this.cachingBuildEngineDelegate =
-        new LocalCachingBuildEngineDelegate(new NullFileHashCache());
+  public CachingBuildEngineFactory(
+      BuildRuleResolver buildRuleResolver, BuildInfoStoreManager buildInfoStoreManager) {
+    this.cachingBuildEngineDelegate = new LocalCachingBuildEngineDelegate(new DummyFileHashCache());
     this.executorService = toWeighted(MoreExecutors.newDirectExecutorService());
     this.buildRuleResolver = buildRuleResolver;
+    this.buildInfoStoreManager = buildInfoStoreManager;
   }
 
   public CachingBuildEngineFactory setBuildMode(CachingBuildEngine.BuildMode buildMode) {
     this.buildMode = buildMode;
+    return this;
+  }
+
+  public CachingBuildEngineFactory setFileHashCachMode(FileHashCacheMode fileHashCachMode) {
+    this.fileHashCacheMode = fileHashCachMode;
     return this;
   }
 
@@ -82,8 +89,7 @@ public class CachingBuildEngineFactory {
     return this;
   }
 
-  public CachingBuildEngineFactory setExecutorService(
-      ListeningExecutorService executorService) {
+  public CachingBuildEngineFactory setExecutorService(ListeningExecutorService executorService) {
     this.executorService = toWeighted(executorService);
     return this;
   }
@@ -96,6 +102,12 @@ public class CachingBuildEngineFactory {
 
   public CachingBuildEngineFactory setRuleKeyFactories(RuleKeyFactories ruleKeyFactories) {
     this.ruleKeyFactories = Optional.of(ruleKeyFactories);
+    return this;
+  }
+
+  public CachingBuildEngineFactory setLogBuildRuleFailuresInline(
+      boolean logBuildRuleFailuresInline) {
+    this.logBuildRuleFailuresInline = logBuildRuleFailuresInline;
     return this;
   }
 
@@ -112,10 +124,13 @@ public class CachingBuildEngineFactory {
           maxDepFileCacheEntries,
           artifactCacheSizeLimit,
           buildRuleResolver,
+          buildInfoStoreManager,
           ruleFinder,
-          new SourcePathResolver(ruleFinder),
+          DefaultSourcePathResolver.from(ruleFinder),
           ruleKeyFactories.get(),
-          resourceAwareSchedulingInfo);
+          resourceAwareSchedulingInfo,
+          logBuildRuleFailuresInline,
+          fileHashCacheMode);
     }
 
     return new CachingBuildEngine(
@@ -129,20 +144,22 @@ public class CachingBuildEngineFactory {
         maxDepFileCacheEntries,
         artifactCacheSizeLimit,
         buildRuleResolver,
+        buildInfoStoreManager,
         resourceAwareSchedulingInfo,
+        logBuildRuleFailuresInline,
         RuleKeyFactories.of(
             0,
             cachingBuildEngineDelegate.getFileHashCache(),
             buildRuleResolver,
             inputFileSizeLimit,
-            new DefaultRuleKeyCache<>()));
+            new DefaultRuleKeyCache<>()),
+        fileHashCacheMode);
   }
 
   private static WeightedListeningExecutorService toWeighted(ListeningExecutorService service) {
     return new WeightedListeningExecutorService(
         new ListeningMultiSemaphore(
-            ResourceAmounts.of(Integer.MAX_VALUE, 0, 0, 0),
-            ResourceAllocationFairness.FAIR),
+            ResourceAmounts.of(Integer.MAX_VALUE, 0, 0, 0), ResourceAllocationFairness.FAIR),
         /* defaultPermits */ ResourceAmounts.of(1, 0, 0, 0),
         service);
   }

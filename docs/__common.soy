@@ -223,9 +223,9 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
             'ndk_library',
             'prebuilt_jar',
             'prebuilt_native_library',
-            'project_config',
         ],
         'core': [
+            'command_alias',
             'export_file',
             'genrule',
             'remote_file',
@@ -283,10 +283,18 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
             'prebuilt_jar',
             'prebuilt_native_library',
         ],
+        'kotlin': [
+            'kotlin_library',
+            'kotlin_test',
+        ],
         'lua': [
             'cxx_lua_extension',
             'lua_binary',
             'lua_library',
+        ],
+        'ocaml': [
+            'ocaml_binary',
+            'ocaml_library',
         ],
         'python': [
             'prebuilt_python_library',
@@ -403,18 +411,6 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
     {call .navigationLink}
       {param currentnavid: $navid /}
       {param folder: 'concept' /}
-      {param page: 'buckversion' /}
-      {param text: '.buckversion' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'nobuckcheck' /}
-      {param text: '.nobuckcheck' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
       {param page: 'buckjavaargs' /}
       {param text: '.buckjavaargs' /}
     {/call}
@@ -505,8 +501,18 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
     {/call}
     {call .platformBuildRuleLink}
         {param currentnavid: $navid /}
+        {param platform: 'Kotlin' /}
+        {param rules: $platformRulesMap['kotlin'] /}
+    {/call}
+    {call .platformBuildRuleLink}
+        {param currentnavid: $navid /}
         {param platform: 'Lua' /}
         {param rules: $platformRulesMap['lua'] /}
+    {/call}
+    {call .platformBuildRuleLink}
+        {param currentnavid: $navid /}
+        {param platform: 'OCaml' /}
+        {param rules: $platformRulesMap['ocaml'] /}
     {/call}
     {call .platformBuildRuleLink}
         {param currentnavid: $navid /}
@@ -531,6 +537,8 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
         'allow_unsafe_import',
         'flatten_dicts',
         'glob',
+        'get_base_path',
+        'get_cell_name',
         'include_defs',
         'read_config',
         'subdir_glob',
@@ -562,7 +570,6 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
     {/call}
     {foreach $command in [
         'audit',
-        'autodeps',
         'build',
         'clean',
         'doctor',
@@ -958,6 +965,16 @@ docsearch({
 {/template}
 
 /***/
+{template .kotlin_library}
+{call .ruleLink}{param name : 'kotlin_library' /}{/call}
+{/template}
+
+/***/
+{template .kotlin_test}
+{call .ruleLink}{param name : 'kotlin_test' /}{/call}
+{/template}
+
+/***/
 {template .cxx_lua_extension}
 {call .ruleLink}{param name : 'cxx_lua_extension' /}{/call}
 {/template}
@@ -985,11 +1002,6 @@ docsearch({
 /***/
 {template .prebuilt_jar}
 {call .ruleLink}{param name : 'prebuilt_jar' /}{/call}
-{/template}
-
-/***/
-{template .project_config}
-{call .ruleLink}{param name : 'project_config' /}{/call}
 {/template}
 
 /***/

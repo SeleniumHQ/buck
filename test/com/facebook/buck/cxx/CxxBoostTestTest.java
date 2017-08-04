@@ -24,11 +24,11 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.test.TestResultSummary;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -39,59 +39,55 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
-import org.junit.Rule;
-import org.junit.Test;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Optional;
+import org.junit.Rule;
+import org.junit.Test;
 
 public class CxxBoostTestTest {
 
   private static final TypeReference<List<TestResultSummary>> SUMMARIES_REFERENCE =
       new TypeReference<List<TestResultSummary>>() {};
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
   public void testParseResults() throws Exception {
-    ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "boost_test", tmp);
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "boost_test", tmp);
     workspace.setUp();
 
     ImmutableList<String> samples =
-        ImmutableList.of(
-            "simple_success",
-            "simple_failure",
-            "simple_failure_with_output");
+        ImmutableList.of("simple_success", "simple_failure", "simple_failure_with_output");
 
     BuildTarget target = BuildTargetFactory.newInstance("//:test");
     BuildRuleResolver ruleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    ProjectFilesystem projectFilesystem = new ProjectFilesystem(tmp.getRoot());
+    BuildTarget linkTarget = BuildTargetFactory.newInstance("//:link");
     CxxBoostTest test =
         new CxxBoostTest(
-            new FakeBuildRuleParamsBuilder(target)
-                .setProjectFilesystem(new ProjectFilesystem(tmp.getRoot()))
-                .build(),
-            ruleFinder,
+            target,
+            projectFilesystem,
+            TestBuildRuleParams.create(),
             new CxxLink(
-                new FakeBuildRuleParamsBuilder(BuildTargetFactory.newInstance("//:link")).build(),
+                linkTarget,
+                new FakeProjectFilesystem(),
+                TestBuildRuleParams.create(),
                 CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(ruleResolver),
                 Paths.get("output"),
                 ImmutableList.of(),
                 Optional.empty(),
+                Optional.empty(),
                 /* cacheable */ true,
                 /* thinLto */ false),
-            new CommandTool.Builder()
-                .addArg(StringArg.of(""))
-                .build(),
+            new CommandTool.Builder().addArg(StringArg.of("")).build(),
             ImmutableMap.of(),
             Suppliers.ofInstance(ImmutableList.of()),
             ImmutableSortedSet.of(),
+            ImmutableSet.of(),
             Suppliers.ofInstance(ImmutableSortedSet.of()),
             ImmutableSet.of(),
             ImmutableSet.of(),
@@ -104,12 +100,10 @@ public class CxxBoostTestTest {
       Path results = workspace.resolve(Paths.get(sample)).resolve("results");
       Path summaries = workspace.resolve(Paths.get(sample)).resolve("summaries");
       List<TestResultSummary> expectedSummaries =
-          ObjectMappers.readValue(summaries.toFile(), SUMMARIES_REFERENCE);
+          ObjectMappers.readValue(summaries, SUMMARIES_REFERENCE);
       ImmutableList<TestResultSummary> actualSummaries =
           test.parseResults(exitCode, output, results);
       assertEquals(sample, expectedSummaries, actualSummaries);
     }
-
   }
-
 }

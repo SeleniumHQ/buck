@@ -16,8 +16,9 @@
 
 package com.facebook.buck.ocaml;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -27,50 +28,51 @@ import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-
 import java.util.stream.Stream;
 
-public class OcamlBinary extends AbstractBuildRule implements BinaryBuildRule, HasRuntimeDeps {
+public class OcamlBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements BinaryBuildRule, HasRuntimeDeps {
 
   private final BuildRule binary;
 
-  public OcamlBinary(BuildRuleParams params, BuildRule binary) {
-    super(params);
+  public OcamlBinary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      BuildRule binary) {
+    super(buildTarget, projectFilesystem, params);
     this.binary = binary;
   }
 
   @Override
   public Tool getExecutableCommand() {
     return new CommandTool.Builder()
-        .addArg(SourcePathArg.of(
-            Preconditions.checkNotNull(binary.getSourcePathToOutput())))
+        .addArg(SourcePathArg.of(Preconditions.checkNotNull(binary.getSourcePathToOutput())))
         .build();
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     return ImmutableList.of();
   }
 
   @Override
   public SourcePath getSourcePathToOutput() {
     return new ForwardingBuildTargetSourcePath(
-        getBuildTarget(),
-        Preconditions.checkNotNull(binary.getSourcePathToOutput()));
+        getBuildTarget(), Preconditions.checkNotNull(binary.getSourcePathToOutput()));
   }
 
   // Since this rule doesn't actual generate the binary it references, and is just a wrapper for
   // the real binary rule, mark that rule as a runtime dep.
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return Stream.of(binary.getBuildTarget());
   }
 }
-

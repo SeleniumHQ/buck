@@ -7,6 +7,7 @@ java_library(
         "PUBLIC",
     ],
     deps = [
+        "//src-gen:thrift",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
         "//src/com/facebook/buck/event:interfaces",
         "//src/com/facebook/buck/event/external:external_lib",
@@ -38,10 +39,6 @@ java_immutables_library(
         ["*.java"],
         excludes = CACHE_RATE_STATS_SRCS + BROADCAST_EVENT_LISTENER_SCRS,
     ),
-    immutable_types = [
-        "EventPair",
-        "ProxyBuckEvent",
-    ],
     tests = [
         "//test/com/facebook/buck/event/listener:listener",
         "//test/com/facebook/buck/event/listener/integration:integration",
@@ -54,6 +51,7 @@ java_immutables_library(
         "//src-gen:thrift",
         "//src/com/facebook/buck/android:steps",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
+        "//src/com/facebook/buck/artifact_cache:config",
         "//src/com/facebook/buck/build_type:build_type",
         "//src/com/facebook/buck/cli:config",
         "//src/com/facebook/buck/config:config",
@@ -70,6 +68,7 @@ java_immutables_library(
         "//src/com/facebook/buck/jvm/java:support",
         "//src/com/facebook/buck/jvm/java/tracing:tracing",
         "//src/com/facebook/buck/log:api",
+        "//src/com/facebook/buck/log:config",
         "//src/com/facebook/buck/log:log",
         "//src/com/facebook/buck/log/views:views",
         "//src/com/facebook/buck/model:build_id",
@@ -104,6 +103,7 @@ java_immutables_library(
         "//src/com/facebook/buck/util/network/hostname:hostname",
         "//src/com/facebook/buck/util/perf:perf",
         "//src/com/facebook/buck/util/unit:unit",
+        "//src/com/facebook/buck/util/versioncontrol:value_types",
         "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
         "//src/com/facebook/buck/util/versioncontrol:versioncontrol_generator",
         "//src/com/facebook/buck/versions:versions",

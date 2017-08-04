@@ -18,28 +18,24 @@ package com.facebook.buck.zip;
 
 import com.facebook.buck.timing.Clock;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Sets;
-
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipException;
-
 import javax.annotation.Nullable;
 
 /**
  * A drop-in replacement for (@link java.util.zip.ZipOutStream} that supports the ability to set a
  * compression level and allows multiple entries with the same name.
  *
- * <a href="https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html">
- *   https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html
- * </a>
- * <a href="http://www.pkware.com/documents/casestudies/APPNOTE.TXT">
- *   http://www.pkware.com/documents/casestudies/APPNOTE.TXT
- * </a>
+ * <p><a href="https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html">
+ * https://users.cs.jmu.edu/buchhofp/forensics/formats/pkzip.html </a> <a
+ * href="http://www.pkware.com/documents/casestudies/APPNOTE.TXT">
+ * http://www.pkware.com/documents/casestudies/APPNOTE.TXT </a>
  */
 class AppendingZipOutputStreamImpl implements CustomZipOutputStream.Impl {
 
@@ -50,12 +46,10 @@ class AppendingZipOutputStreamImpl implements CustomZipOutputStream.Impl {
   private List<EntryAccounting> entries = new LinkedList<>();
   @Nullable private EntryAccounting currentEntry = null;
 
-  private Set<String> seenNames = Sets.newHashSet();
+  private Set<String> seenNames = new HashSet<>();
 
   public AppendingZipOutputStreamImpl(
-      Clock clock,
-      OutputStream stream,
-      boolean throwExceptionsOnDuplicate) {
+      Clock clock, OutputStream stream, boolean throwExceptionsOnDuplicate) {
     this.delegate = stream;
     this.clock = clock;
     this.throwExceptionsOnDuplicate = throwExceptionsOnDuplicate;

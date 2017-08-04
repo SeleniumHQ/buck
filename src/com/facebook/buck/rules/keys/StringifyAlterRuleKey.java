@@ -17,16 +17,13 @@
 package com.facebook.buck.rules.keys;
 
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKeyFieldCategory;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Map;
@@ -37,11 +34,9 @@ class StringifyAlterRuleKey implements AlterRuleKey {
   private static final Logger LOG = Logger.get(StringifyAlterRuleKey.class);
 
   private final ValueExtractor valueExtractor;
-  private final RuleKeyFieldCategory category;
 
-  public StringifyAlterRuleKey(ValueExtractor valueExtractor, RuleKeyFieldCategory category) {
+  public StringifyAlterRuleKey(ValueExtractor valueExtractor) {
     this.valueExtractor = valueExtractor;
-    this.category = category;
   }
 
   @VisibleForTesting
@@ -72,18 +67,17 @@ class StringifyAlterRuleKey implements AlterRuleKey {
   }
 
   @Override
-  public void amendKey(RuleKeyObjectSink sink, BuildRule rule) {
-    Object val = valueExtractor.getValue(rule);
+  public void amendKey(RuleKeyObjectSink sink, Object addsToRuleKey) {
+    Object val = valueExtractor.getValue(addsToRuleKey);
     String stringVal = (val == null) ? null : String.valueOf(val);
-    sink.setReflectively(valueExtractor.getName(), stringVal, category);
+    sink.setReflectively(valueExtractor.getName(), stringVal);
 
     if (val != null) {
       Iterable<Path> absolutePaths = findAbsolutePaths(val);
       if (!Iterables.isEmpty(absolutePaths)) {
         LOG.warn(
             "Value %s contains absolute paths %s and it is included in a rule key.",
-            valueExtractor.getFullyQualifiedName(),
-            ImmutableSet.copyOf(absolutePaths));
+            valueExtractor.getFullyQualifiedName(), ImmutableSet.copyOf(absolutePaths));
       }
     }
   }

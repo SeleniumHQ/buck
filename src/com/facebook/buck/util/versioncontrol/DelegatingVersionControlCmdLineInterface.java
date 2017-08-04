@@ -17,26 +17,21 @@
 package com.facebook.buck.util.versioncontrol;
 
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.util.ProcessExecutorFactory;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-
 import java.nio.file.Path;
 import java.util.Optional;
-
 import javax.annotation.Nullable;
 
-public class DelegatingVersionControlCmdLineInterface
-    implements VersionControlCmdLineInterface {
+public class DelegatingVersionControlCmdLineInterface implements VersionControlCmdLineInterface {
   private static final Logger LOG = Logger.get(DelegatingVersionControlCmdLineInterface.class);
 
   private final Path projectRoot;
   private final ProcessExecutorFactory processExecutorFactory;
   private final String hgCmd;
   private final ImmutableMap<String, String> environment;
-  @Nullable
-  private VersionControlCmdLineInterface delegate;
+  @Nullable private VersionControlCmdLineInterface delegate;
 
   public DelegatingVersionControlCmdLineInterface(
       Path projectRoot,
@@ -54,11 +49,7 @@ public class DelegatingVersionControlCmdLineInterface
       return delegate;
     }
     HgCmdLineInterface hgCmdLineInterface =
-        new HgCmdLineInterface(
-            processExecutorFactory,
-            projectRoot,
-            hgCmd,
-            environment);
+        new HgCmdLineInterface(processExecutorFactory, projectRoot, hgCmd, environment);
 
     try {
       hgCmdLineInterface.currentRevisionId();
@@ -66,9 +57,11 @@ public class DelegatingVersionControlCmdLineInterface
       delegate = hgCmdLineInterface;
       return delegate;
     } catch (VersionControlCommandFailedException ex) {
-      LOG.warn("Mercurial is the only VCS supported for VCS stats generation, however " +
-          "current project (which has enabled VCS stats generation in its .buckconfig) " +
-          "does not appear to be a Mercurial repository: \n%s", ex);
+      LOG.warn(
+          "Mercurial is the only VCS supported for VCS stats generation, however "
+              + "current project (which has enabled VCS stats generation in its .buckconfig) "
+              + "does not appear to be a Mercurial repository: \n%s",
+          ex);
     }
 
     LOG.debug("Using NoOpCmdLineInterface.");
@@ -82,62 +75,13 @@ public class DelegatingVersionControlCmdLineInterface
   }
 
   @Override
-  public String revisionId(String name)
-      throws VersionControlCommandFailedException, InterruptedException {
-    return getDelegate().revisionId(name);
-  }
-
-  @Override
-  public Optional<String> revisionIdOrAbsent(String name) throws InterruptedException {
-    return getDelegate().revisionIdOrAbsent(name);
-  }
-
-  @Override
-  public String currentRevisionId()
-      throws VersionControlCommandFailedException, InterruptedException {
-    return getDelegate().currentRevisionId();
-  }
-
-  @Override
-  public String commonAncestor(
-      String revisionIdOne,
-      String revisionIdTwo)
-      throws VersionControlCommandFailedException, InterruptedException {
-    return getDelegate().commonAncestor(revisionIdOne, revisionIdTwo);
-  }
-
-  @Override
-  public Pair<String, Long> commonAncestorAndTS(
-      String revisionIdOne,
-      String revisionIdTwo) throws VersionControlCommandFailedException, InterruptedException {
-    return getDelegate().commonAncestorAndTS(revisionIdOne, revisionIdTwo);
-  }
-
-  @Override
-  public Optional<String> commonAncestorOrAbsent(
-      String revisionIdOne,
-      String revisionIdTwo) throws InterruptedException {
-    return getDelegate().commonAncestorOrAbsent(revisionIdOne, revisionIdTwo);
-  }
-
-  @Override
-  public Optional<Pair<String, Long>> commonAncestorAndTSOrAbsent(
-      String revisionIdOne, String revisionIdTwo) throws InterruptedException {
-    return getDelegate().commonAncestorAndTSOrAbsent(revisionIdOne, revisionIdTwo);
-  }
-
-  @Override
-  public String diffBetweenRevisions(
-      String baseRevision,
-      String tipRevision)
+  public String diffBetweenRevisions(String baseRevision, String tipRevision)
       throws VersionControlCommandFailedException, InterruptedException {
     return getDelegate().diffBetweenRevisions(baseRevision, tipRevision);
   }
 
   @Override
-  public Optional<String> diffBetweenRevisionsOrAbsent(
-      String baseRevision,
-      String tipRevision)
+  public Optional<String> diffBetweenRevisionsOrAbsent(String baseRevision, String tipRevision)
       throws InterruptedException {
     return getDelegate().diffBetweenRevisionsOrAbsent(baseRevision, tipRevision);
   }
@@ -149,15 +93,8 @@ public class DelegatingVersionControlCmdLineInterface
   }
 
   @Override
-  public long timestampSeconds(String revisionId)
-      throws VersionControlCommandFailedException, InterruptedException {
-    return getDelegate().timestampSeconds(revisionId);
-  }
-
-  @Override
-  public ImmutableMap<String, String> bookmarksRevisionsId(ImmutableSet<String> bookmarks)
+  public FastVersionControlStats fastVersionControlStats()
       throws InterruptedException, VersionControlCommandFailedException {
-    return getDelegate().bookmarksRevisionsId(bookmarks);
+    return getDelegate().fastVersionControlStats();
   }
-
 }

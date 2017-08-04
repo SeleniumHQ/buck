@@ -16,8 +16,10 @@
 
 package com.facebook.buck.python;
 
-import com.facebook.buck.cxx.CxxPlatform;
-import com.facebook.buck.cxx.Linker;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -39,17 +41,14 @@ import com.facebook.buck.util.RichStream;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Resources;
-
-import org.stringtemplate.v4.ST;
-
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.SortedSet;
 import java.util.stream.Stream;
+import org.stringtemplate.v4.ST;
 
 public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps {
 
@@ -63,27 +62,27 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
   // to re-run the tests if the input changes.
   //
   // We should upate the Python test rule to account for this.
-  private final SourcePathRuleFinder ruleFinder;
   private final SymlinkTree linkTree;
-  @AddToRuleKey
-  private final Tool python;
-  @AddToRuleKey
-  private final Supplier<String> script;
+  @AddToRuleKey private final Tool python;
+  @AddToRuleKey private final Supplier<String> script;
 
   private PythonInPlaceBinary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      Supplier<ImmutableSortedSet<BuildRule>> originalDeclareDeps,
+      Supplier<? extends SortedSet<BuildRule>> originalDeclareDeps,
       PythonPlatform pythonPlatform,
       String mainModule,
       PythonPackageComponents components,
       String pexExtension,
       ImmutableSet<String> preloadLibraries,
       boolean legacyOutputPath,
-      SourcePathRuleFinder ruleFinder,
       SymlinkTree linkTree,
       Tool python,
       Supplier<String> script) {
     super(
+        buildTarget,
+        projectFilesystem,
         params,
         originalDeclareDeps,
         pythonPlatform,
@@ -92,13 +91,14 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
         preloadLibraries,
         pexExtension,
         legacyOutputPath);
-    this.ruleFinder = ruleFinder;
     this.linkTree = linkTree;
     this.python = python;
     this.script = script;
   }
 
   public static PythonInPlaceBinary from(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver ruleResolver,
       CxxPlatform cxxPlatform,
@@ -108,14 +108,13 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
       String pexExtension,
       ImmutableSet<String> preloadLibraries,
       boolean legacyOutputPath,
-      SourcePathRuleFinder ruleFinder,
       SymlinkTree linkTree,
       Tool python) {
     return new PythonInPlaceBinary(
+        buildTarget,
+        projectFilesystem,
         // The actual steps of a in-place binary doesn't actually have any build-time deps.
-        params.copyReplacingDeclaredAndExtraDeps(
-            Suppliers.ofInstance(ImmutableSortedSet.of()),
-            Suppliers.ofInstance(ImmutableSortedSet.of())),
+        params.withoutDeclaredDeps().withoutExtraDeps(),
         params.getDeclaredDeps(),
         pythonPlatform,
         mainModule,
@@ -123,7 +122,6 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
         pexExtension,
         preloadLibraries,
         legacyOutputPath,
-        ruleFinder,
         linkTree,
         python,
         getScript(
@@ -132,13 +130,8 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
             cxxPlatform,
             mainModule,
             components,
-            params.getProjectFilesystem()
-                .resolve(
-                    getBinPath(
-                        params.getBuildTarget(),
-                        params.getProjectFilesystem(),
-                        pexExtension,
-                        legacyOutputPath))
+            projectFilesystem
+                .resolve(getBinPath(buildTarget, projectFilesystem, pexExtension, legacyOutputPath))
                 .getParent()
                 .relativize(linkTree.getRoot()),
             preloadLibraries));
@@ -169,45 +162,43 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
         Escaper.escapeAsPythonString(relativeLinkTreeRoot.toString());
     final Linker ld = cxxPlatform.getLd().resolve(resolver);
     return () -> {
-        ST st = new ST(getRunInplaceResource())
-            .add("PYTHON", pythonPlatform.getEnvironment().getPythonPath())
-            .add("MAIN_MODULE", Escaper.escapeAsPythonString(mainModule))
-            .add("MODULES_DIR", relativeLinkTreeRootStr);
+      ST st =
+          new ST(getRunInplaceResource())
+              .add("PYTHON", pythonPlatform.getEnvironment().getPythonPath())
+              .add("MAIN_MODULE", Escaper.escapeAsPythonString(mainModule))
+              .add("MODULES_DIR", relativeLinkTreeRootStr);
 
-        // Only add platform-specific values when the binary includes native libraries.
-        if (components.getNativeLibraries().isEmpty()) {
-          st.add("NATIVE_LIBS_ENV_VAR", "None");
-          st.add("NATIVE_LIBS_DIR", "None");
-        } else {
-          st.add(
-              "NATIVE_LIBS_ENV_VAR",
-              Escaper.escapeAsPythonString(ld.searchPathEnvVar()));
-          st.add("NATIVE_LIBS_DIR", relativeLinkTreeRootStr);
-        }
+      // Only add platform-specific values when the binary includes native libraries.
+      if (components.getNativeLibraries().isEmpty()) {
+        st.add("NATIVE_LIBS_ENV_VAR", "None");
+        st.add("NATIVE_LIBS_DIR", "None");
+      } else {
+        st.add("NATIVE_LIBS_ENV_VAR", Escaper.escapeAsPythonString(ld.searchPathEnvVar()));
+        st.add("NATIVE_LIBS_DIR", relativeLinkTreeRootStr);
+      }
 
-        if (preloadLibraries.isEmpty()) {
-          st.add("NATIVE_LIBS_PRELOAD_ENV_VAR", "None");
-          st.add("NATIVE_LIBS_PRELOAD", "None");
-        } else {
-          st.add(
-              "NATIVE_LIBS_PRELOAD_ENV_VAR",
-              Escaper.escapeAsPythonString(ld.preloadEnvVar()));
-          st.add(
-              "NATIVE_LIBS_PRELOAD",
-              Escaper.escapeAsPythonString(Joiner.on(':').join(preloadLibraries)));
-        }
-        return st.render();
-      };
+      if (preloadLibraries.isEmpty()) {
+        st.add("NATIVE_LIBS_PRELOAD_ENV_VAR", "None");
+        st.add("NATIVE_LIBS_PRELOAD", "None");
+      } else {
+        st.add("NATIVE_LIBS_PRELOAD_ENV_VAR", Escaper.escapeAsPythonString(ld.preloadEnvVar()));
+        st.add(
+            "NATIVE_LIBS_PRELOAD",
+            Escaper.escapeAsPythonString(Joiner.on(':').join(preloadLibraries)));
+      }
+      return st.render();
+    };
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     Path binPath = context.getSourcePathResolver().getRelativePath(getSourcePathToOutput());
     buildableContext.recordArtifact(binPath);
     return ImmutableList.of(
-        MkdirStep.of(getProjectFilesystem(), binPath.getParent()),
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), binPath.getParent())),
         new WriteFileStep(getProjectFilesystem(), script, binPath, /* executable */ true));
   }
 
@@ -223,11 +214,10 @@ public class PythonInPlaceBinary extends PythonBinary implements HasRuntimeDeps 
   }
 
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return RichStream.<BuildTarget>empty()
-        .concat(super.getRuntimeDeps())
+        .concat(super.getRuntimeDeps(ruleFinder))
         .concat(Stream.of(linkTree.getBuildTarget()))
         .concat(getComponents().getDeps(ruleFinder).stream().map(BuildRule::getBuildTarget));
   }
-
 }

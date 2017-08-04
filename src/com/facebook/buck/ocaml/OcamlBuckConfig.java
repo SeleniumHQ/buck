@@ -17,14 +17,13 @@
 package com.facebook.buck.ocaml;
 
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cxx.CompilerProvider;
-import com.facebook.buck.cxx.CxxPlatform;
-import com.facebook.buck.cxx.PreprocessorProvider;
+import com.facebook.buck.cxx.platform.CompilerProvider;
+import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.platform.PreprocessorProvider;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.Tool;
 import com.google.common.collect.ImmutableList;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
@@ -88,9 +87,7 @@ public class OcamlBuckConfig {
     return cxxPlatform.getCxx();
   }
 
-  /**
-   * @return all C/C++ platform flags used to preprocess, compiler, and assemble C sources.
-   */
+  /** @return all C/C++ platform flags used to preprocess, compiler, and assemble C sources. */
   public ImmutableList<String> getCFlags() {
     return ImmutableList.<String>builder()
         .addAll(cxxPlatform.getCppflags())
@@ -112,9 +109,9 @@ public class OcamlBuckConfig {
   }
 
   private Optional<Path> getExecutable(String section, String label, Path defaultValue) {
-    return new ExecutableFinder().getOptionalExecutable(
-        delegate.getPath(section, label).orElse(defaultValue),
-        delegate.getEnvironment());
+    return new ExecutableFinder()
+        .getOptionalExecutable(
+            delegate.getPath(section, label).orElse(defaultValue), delegate.getEnvironment());
   }
 
   private Optional<Tool> getTool(String section, String label, Path defaultValue) {

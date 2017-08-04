@@ -17,20 +17,25 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.MacroException;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommandTool;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
+import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.MacroArg;
+import com.facebook.buck.rules.args.ProxyArg;
 import com.facebook.buck.rules.macros.ClasspathMacroExpander;
 import com.facebook.buck.rules.macros.ExecutableMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
@@ -38,29 +43,30 @@ import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Function;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
-
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import org.immutables.value.Value;
 
-public class WorkerToolDescription implements Description<WorkerToolDescription.Arg>,
-    ImplicitDepsInferringDescription<WorkerToolDescription.Arg> {
+public class WorkerToolDescription
+    implements Description<WorkerToolDescriptionArg>,
+        ImplicitDepsInferringDescription<WorkerToolDescription.AbstractWorkerToolDescriptionArg> {
 
   private static final String CONFIG_SECTION = "worker";
   private static final String CONFIG_PERSISTENT_KEY = "persistent";
 
-  public static final MacroHandler MACRO_HANDLER = new MacroHandler(
-      ImmutableMap.<String, MacroExpander>builder()
-          .put("location", new LocationMacroExpander())
-          .put("classpath", new ClasspathMacroExpander())
-          .put("exe", new ExecutableMacroExpander())
-          .build());
+  public static final MacroHandler MACRO_HANDLER =
+      new MacroHandler(
+          ImmutableMap.<String, MacroExpander>builder()
+              .put("location", new LocationMacroExpander())
+              .put("classpath", new ClasspathMacroExpander())
+              .put("exe", new ExecutableMacroExpander())
+              .build());
 
   private final BuckConfig buckConfig;
 
@@ -69,86 +75,107 @@ public class WorkerToolDescription implements Description<WorkerToolDescription.
   }
 
   @Override
-  public WorkerToolDescription.Arg createUnpopulatedConstructorArg() {
-    return new WorkerToolDescription.Arg();
+  public Class<WorkerToolDescriptionArg> getConstructorArgType() {
+    return WorkerToolDescriptionArg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
-      final BuildRuleParams params,
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
       final BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      WorkerToolDescriptionArg args)
+      throws NoSuchBuildTargetException {
 
-    BuildRule rule = resolver.requireRule(args.exe);
-    if (!(rule instanceof BinaryBuildRule)) {
-      throw new HumanReadableException("The 'exe' argument of %s, %s, needs to correspond to a " +
-          "binary rule, such as sh_binary().",
-          params.getBuildTarget(),
-          args.exe.getFullyQualifiedName());
+    CommandTool.Builder builder;
+    if (args.getExe().isPresent()) {
+      BuildRule rule = resolver.requireRule(args.getExe().get());
+      if (!(rule instanceof BinaryBuildRule)) {
+        throw new HumanReadableException(
+            "The 'exe' argument of %s, %s, needs to correspond to a "
+                + "binary rule, such as sh_binary().",
+            buildTarget, args.getExe().get().getFullyQualifiedName());
+      }
+
+      builder = new CommandTool.Builder(((BinaryBuildRule) rule).getExecutableCommand());
+    } else {
+      builder = new CommandTool.Builder();
     }
+
+    builder.addInputs(
+        params
+            .getBuildDeps()
+            .stream()
+            .map(BuildRule::getSourcePathToOutput)
+            .filter(Objects::nonNull)
+            .collect(MoreCollectors.toImmutableList()));
 
     Function<String, com.facebook.buck.rules.args.Arg> toArg =
-        MacroArg.toMacroArgFunction(
-            MACRO_HANDLER,
-            params.getBuildTarget(),
-            cellRoots,
-            resolver);
-    final ImmutableList<com.facebook.buck.rules.args.Arg> workerToolArgs =
-        args.getStartupArgs().stream()
-            .map(toArg::apply)
-            .collect(MoreCollectors.toImmutableList());
+        MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver);
 
-    ImmutableMap<String, String> expandedEnv = ImmutableMap.copyOf(
-        FluentIterable.from(args.env.entrySet())
-            .transform(input -> {
-              try {
-                return Maps.immutableEntry(
-                    input.getKey(),
-                    MACRO_HANDLER.expand(
-                        params.getBuildTarget(),
-                        cellRoots,
-                        resolver,
-                        input.getValue()));
-              } catch (MacroException e) {
-                throw new HumanReadableException(
-                    e, "%s: %s", params.getBuildTarget(), e.getMessage());
+    if (args.getArgs().isLeft()) {
+      builder.addArg(
+          new ProxyArg(toArg.apply(args.getArgs().getLeft())) {
+            @Override
+            public void appendToCommandLine(
+                ImmutableCollection.Builder<String> builder, SourcePathResolver pathResolver) {
+              ImmutableList.Builder<String> subBuilder = ImmutableList.builder();
+              super.appendToCommandLine(subBuilder, pathResolver);
+              for (String arg : subBuilder.build()) {
+                for (String splitArg : arg.split("\\s+")) {
+                  builder.add(splitArg);
+                }
               }
-            }));
-
-    int maxWorkers;
-    if (args.maxWorkers.isPresent()) {
-      // negative or zero: unlimited number of worker processes
-      maxWorkers = args.maxWorkers.get() < 1 ? Integer.MAX_VALUE : args.maxWorkers.get();
+            }
+          });
     } else {
-      // default is 1 worker process (for backwards compatibility)
-      maxWorkers = 1;
+      for (String arg : args.getArgs().getRight()) {
+        builder.addArg(toArg.apply(arg));
+      }
+    }
+    for (Map.Entry<String, String> e : args.getEnv().entrySet()) {
+      builder.addEnv(e.getKey(), toArg.apply(e.getValue()));
     }
 
+    // negative or zero: unlimited number of worker processes
+    int maxWorkers = args.getMaxWorkers() < 1 ? Integer.MAX_VALUE : args.getMaxWorkers();
+
+    CommandTool tool = builder.build();
     return new DefaultWorkerTool(
-        params,
-        (BinaryBuildRule) rule,
-        workerToolArgs,
-        expandedEnv,
+        buildTarget,
+        projectFilesystem,
+        params.copyAppendingExtraDeps(tool.getDeps(new SourcePathRuleFinder(resolver))),
+        tool,
         maxWorkers,
-        args.persistent.orElse(
-            buckConfig.getBooleanValue(CONFIG_SECTION, CONFIG_PERSISTENT_KEY, false)));
+        args.getPersistent()
+            .orElse(buckConfig.getBooleanValue(CONFIG_SECTION, CONFIG_PERSISTENT_KEY, false)));
   }
 
   @Override
   public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      Arg constructorArg,
+      AbstractWorkerToolDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     try {
-      for (String arg : constructorArg.getStartupArgs()) {
+      if (constructorArg.getArgs().isLeft()) {
         MACRO_HANDLER.extractParseTimeDeps(
-            buildTarget, cellRoots, arg, extraDepsBuilder, targetGraphOnlyDepsBuilder);
+            buildTarget,
+            cellRoots,
+            constructorArg.getArgs().getLeft(),
+            extraDepsBuilder,
+            targetGraphOnlyDepsBuilder);
+      } else {
+        for (String arg : constructorArg.getArgs().getRight()) {
+          MACRO_HANDLER.extractParseTimeDeps(
+              buildTarget, cellRoots, arg, extraDepsBuilder, targetGraphOnlyDepsBuilder);
+        }
       }
-      for (Map.Entry<String, String> env : constructorArg.env.entrySet()) {
+      for (Map.Entry<String, String> env : constructorArg.getEnv().entrySet()) {
         MACRO_HANDLER.extractParseTimeDeps(
             buildTarget, cellRoots, env.getValue(), extraDepsBuilder, targetGraphOnlyDepsBuilder);
       }
@@ -157,20 +184,23 @@ public class WorkerToolDescription implements Description<WorkerToolDescription.
     }
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends AbstractDescriptionArg {
-    public ImmutableMap<String, String> env = ImmutableMap.of();
-    public Either<String, ImmutableList<String>> args = Either.ofRight(ImmutableList.of());
-    public BuildTarget exe;
-    public Optional<Integer> maxWorkers;
-    public Optional<Boolean> persistent;
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractWorkerToolDescriptionArg extends CommonDescriptionArg {
+    ImmutableMap<String, String> getEnv();
 
-    public ImmutableList<String> getStartupArgs() {
-      if (args.isLeft()) {
-        return ImmutableList.of(args.getLeft());
-      } else {
-        return args.getRight();
-      }
+    @Value.Default
+    default Either<String, ImmutableList<String>> getArgs() {
+      return Either.ofRight(ImmutableList.of());
     }
+
+    Optional<BuildTarget> getExe();
+
+    @Value.Default
+    default int getMaxWorkers() {
+      return 1;
+    }
+
+    Optional<Boolean> getPersistent();
   }
 }

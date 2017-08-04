@@ -25,31 +25,24 @@ import com.facebook.buck.testutil.integration.TestContext;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.trace.ChromeTraceParser;
 import com.google.common.collect.ImmutableSet;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-
+import java.io.IOException;
+import java.util.Map;
+import java.util.Optional;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
-import java.io.IOException;
-import java.util.Map;
-import java.util.Optional;
-
 public class ActionGraphCacheIntegrationTest {
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
-  @Rule
-  public TestWithBuckd testWithBuckd = new TestWithBuckd(tmp);
+  @Rule public TestWithBuckd testWithBuckd = new TestWithBuckd(tmp);
 
   private ProjectWorkspace workspace;
 
   @Before
   public void setUp() throws IOException {
-    workspace = TestDataHelper.createProjectWorkspaceForScenario(
-        this, "action_graph_cache", tmp);
+    workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "action_graph_cache", tmp);
     workspace.setUp();
   }
 
@@ -61,48 +54,55 @@ public class ActionGraphCacheIntegrationTest {
 
   @Test
   public void specifyingSkipActionGraphCacheDoesNotInvalidateTheActionGraphCache()
-      throws IOException {
+      throws InterruptedException, IOException {
     try (TestContext context = new TestContext()) {
-      workspace.runBuckdCommand(context, "build", "//:pretend_this_is_an_expensive_rule")
+      workspace
+          .runBuckdCommand(context, "build", "//:pretend_this_is_an_expensive_rule")
           .assertSuccess();
       assertEquals(
           "Should be a fresh daemon, so the ActionGraph cache should be empty.",
           ActionGraphCacheStatus.MISS_CACHE_EMPTY,
           getActionGraphCacheStatus());
 
-      workspace.runBuckdCommand(context, "build", "//:pretend_this_is_an_expensive_rule")
+      workspace
+          .runBuckdCommand(context, "build", "//:pretend_this_is_an_expensive_rule")
           .assertSuccess();
       assertEquals(
           "Rebuilding the rule should hit the cache.",
           ActionGraphCacheStatus.HIT,
           getActionGraphCacheStatus());
 
-      workspace.runBuckdCommand(context, "build", "//:pretend_this_is_a_cheap_rule")
+      workspace
+          .runBuckdCommand(context, "build", "//:pretend_this_is_a_cheap_rule")
           .assertSuccess();
       assertEquals(
           "Building a different rule as a non-oneoff should invalidate the cache.",
           ActionGraphCacheStatus.MISS_TARGET_GRAPH_MISMATCH,
           getActionGraphCacheStatus());
 
-      workspace.runBuckdCommand(context, "build", "//:pretend_this_is_an_expensive_rule")
+      workspace
+          .runBuckdCommand(context, "build", "//:pretend_this_is_an_expensive_rule")
           .assertSuccess();
       assertEquals(
           "Building a different rule as a non-oneoff should invalidate the cache again.",
           ActionGraphCacheStatus.MISS_TARGET_GRAPH_MISMATCH,
           getActionGraphCacheStatus());
 
-      workspace.runBuckdCommand(
-          context,
-          "build",
-          "--config",
-          "client.skip-action-graph-cache=true",
-          "//:pretend_this_is_a_cheap_rule").assertSuccess();
+      workspace
+          .runBuckdCommand(
+              context,
+              "build",
+              "--config",
+              "client.skip-action-graph-cache=true",
+              "//:pretend_this_is_a_cheap_rule")
+          .assertSuccess();
       assertEquals(
           "Building a different rule as a oneoff will still be a mismatch.",
           ActionGraphCacheStatus.MISS_TARGET_GRAPH_MISMATCH,
           getActionGraphCacheStatus());
 
-      workspace.runBuckdCommand(context, "build", "//:pretend_this_is_an_expensive_rule")
+      workspace
+          .runBuckdCommand(context, "build", "//:pretend_this_is_an_expensive_rule")
           .assertSuccess();
       assertEquals(
           "The ActionGraph for the expensive rule should still be in cache.",
@@ -111,36 +111,40 @@ public class ActionGraphCacheIntegrationTest {
     }
   }
 
+  @SuppressWarnings("unchecked")
   private static final ChromeTraceParser.ChromeTraceEventMatcher<ActionGraphCacheStatus>
-      ACTION_GRAPH_CACHE_STATUS_MATCHER = (json, name) -> {
-    if (!"action_graph_cache".equals(name)) {
-      return Optional.empty();
-    }
+      ACTION_GRAPH_CACHE_STATUS_MATCHER =
+          (json, name) -> {
+            if (!"action_graph_cache".equals(name)) {
+              return Optional.empty();
+            }
 
-    JsonElement argsEl = json.get("args");
-    if (argsEl == null ||
-        !argsEl.isJsonObject() ||
-        argsEl.getAsJsonObject().get("hit") == null ||
-        !argsEl.getAsJsonObject().get("hit").isJsonPrimitive()) {
-      return Optional.empty();
-    }
+            Object argsEl = json.get("args");
+            if (argsEl == null
+                || !(argsEl instanceof Map)
+                || ((Map<String, Object>) argsEl).get("hit") == null
+                || !((((Map<String, Object>) argsEl)).get("hit") instanceof String)) {
+              return Optional.empty();
+            }
 
-    JsonObject args = argsEl.getAsJsonObject();
-    boolean isHit = args.get("hit").getAsBoolean();
-    if (isHit) {
-      return Optional.of(ActionGraphCacheStatus.HIT);
-    } else {
-      boolean cacheWasEmpty = args.get("cacheWasEmpty").getAsBoolean();
-      return Optional.of(cacheWasEmpty
-          ? ActionGraphCacheStatus.MISS_CACHE_EMPTY
-          : ActionGraphCacheStatus.MISS_TARGET_GRAPH_MISMATCH);
-    }
-  };
+            Map<String, Object> args = (Map<String, Object>) argsEl;
+            boolean isHit = Boolean.valueOf((String) args.get("hit"));
+            if (isHit) {
+              return Optional.of(ActionGraphCacheStatus.HIT);
+            } else {
+              boolean cacheWasEmpty = Boolean.valueOf((String) args.get("cacheWasEmpty"));
+              return Optional.of(
+                  cacheWasEmpty
+                      ? ActionGraphCacheStatus.MISS_CACHE_EMPTY
+                      : ActionGraphCacheStatus.MISS_TARGET_GRAPH_MISMATCH);
+            }
+          };
 
-  private ActionGraphCacheStatus getActionGraphCacheStatus() throws IOException {
-    Map<ChromeTraceParser.ChromeTraceEventMatcher<?>, Object> results = workspace
-        .parseTraceFromMostRecentBuckInvocation(ImmutableSet.of(
-            ACTION_GRAPH_CACHE_STATUS_MATCHER));
+  private ActionGraphCacheStatus getActionGraphCacheStatus()
+      throws InterruptedException, IOException {
+    Map<ChromeTraceParser.ChromeTraceEventMatcher<?>, Object> results =
+        workspace.parseTraceFromMostRecentBuckInvocation(
+            ImmutableSet.of(ACTION_GRAPH_CACHE_STATUS_MATCHER));
     return ChromeTraceParser.getResultForMatcher(ACTION_GRAPH_CACHE_STATUS_MATCHER, results).get();
   }
 }

@@ -19,7 +19,7 @@ package com.facebook.buck.haskell;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.cxx.CxxPlatformUtils;
-import com.facebook.buck.cxx.Linker;
+import com.facebook.buck.cxx.platform.Linker;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -29,7 +29,6 @@ import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -40,8 +39,7 @@ public class HaskellBinaryDescriptionTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     String flag = "-compiler-flag";
     HaskellBinaryBuilder builder =
-        new HaskellBinaryBuilder(target)
-            .setCompilerFlags(ImmutableList.of(flag));
+        new HaskellBinaryBuilder(target).setCompilerFlags(ImmutableList.of(flag));
     BuildRuleResolver resolver =
         new BuildRuleResolver(
             TargetGraphFactory.newInstance(builder.build()),
@@ -49,9 +47,7 @@ public class HaskellBinaryDescriptionTest {
     builder.build(resolver);
     BuildTarget compileTarget =
         HaskellDescriptionUtils.getCompileBuildTarget(
-            target,
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            Linker.LinkableDepType.STATIC);
+            target, CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, false);
     HaskellCompileRule rule = resolver.getRuleWithType(compileTarget, HaskellCompileRule.class);
     assertThat(rule.getFlags(), Matchers.hasItem(flag));
   }
@@ -68,22 +64,13 @@ public class HaskellBinaryDescriptionTest {
             .setDepQuery(Query.of("filter(transitive, deps(//:dep))"));
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(
-            transitiveDepBuilder.build(),
-            depBuilder.build(),
-            builder.build());
+            transitiveDepBuilder.build(), depBuilder.build(), builder.build());
     BuildRuleResolver resolver =
-        new BuildRuleResolver(
-            targetGraph,
-            new DefaultTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     HaskellLibrary transitiveDep = transitiveDepBuilder.build(resolver, targetGraph);
     HaskellLibrary dep = depBuilder.build(resolver, targetGraph);
     HaskellBinary binary = (HaskellBinary) builder.build(resolver, targetGraph);
-    assertThat(
-        binary.getBinaryDeps(),
-        Matchers.hasItem(transitiveDep));
-    assertThat(
-        binary.getBinaryDeps(),
-        Matchers.not(Matchers.hasItem(dep)));
+    assertThat(binary.getBinaryDeps(), Matchers.hasItem(transitiveDep));
+    assertThat(binary.getBinaryDeps(), Matchers.not(Matchers.hasItem(dep)));
   }
-
 }

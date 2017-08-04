@@ -21,16 +21,18 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
 
 import com.facebook.buck.jvm.java.JavaBinary;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableSortedSet;
-
+import java.util.concurrent.atomic.AtomicInteger;
 import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
@@ -38,8 +40,7 @@ import org.junit.rules.ExpectedException;
 
 public class BuildRuleResolverTest {
 
-  @Rule
-  public ExpectedException expectedException = ExpectedException.none();
+  @Rule public ExpectedException expectedException = ExpectedException.none();
 
   @Test
   public void testBuildAndAddToIndexRejectsDuplicateBuildTarget() throws Exception {
@@ -55,8 +56,7 @@ public class BuildRuleResolverTest {
       fail("Should throw IllegalStateException.");
     } catch (IllegalStateException e) {
       assertEquals(
-          "A build rule for this target has already been created: " + target,
-          e.getMessage());
+          "A build rule for this target has already been created: " + target, e.getMessage());
     }
   }
 
@@ -67,36 +67,31 @@ public class BuildRuleResolverTest {
 
     // Create an iterable of some build rules.
     // We don't use the buildRuleResolver so they're not added automatically.
-    ImmutableSortedSet<BuildRule> buildRules = ImmutableSortedSet.of(
-            JavaLibraryBuilder
-                .createBuilder(BuildTargetFactory.newInstance("//foo:bar"))
+    ImmutableSortedSet<BuildRule> buildRules =
+        ImmutableSortedSet.of(
+            JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//foo:bar"))
                 .build(
                     new BuildRuleResolver(
-                        TargetGraph.EMPTY,
-                        new DefaultTargetNodeToBuildRuleTransformer())),
-            JavaLibraryBuilder
-                .createBuilder(BuildTargetFactory.newInstance("//foo:baz"))
+                        TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())),
+            JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//foo:baz"))
                 .build(
                     new BuildRuleResolver(
-                        TargetGraph.EMPTY,
-                        new DefaultTargetNodeToBuildRuleTransformer())));
+                        TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
 
     // Check that we get back the rules we added from the function.
     ImmutableSortedSet<BuildRule> added = buildRuleResolver.addAllToIndex(buildRules);
     assertEquals(buildRules, added);
 
     // Test that we actually added the rules.
-    ImmutableSortedSet<BuildRule> all = ImmutableSortedSet.copyOf(
-        buildRuleResolver.getBuildRules());
+    ImmutableSortedSet<BuildRule> all =
+        ImmutableSortedSet.copyOf(buildRuleResolver.getBuildRules());
     assertEquals(buildRules, all);
   }
 
   @Test
   public void testRequireNonExistingBuildRule() throws Exception {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    TargetNode<?, ?> library =
-        JavaLibraryBuilder.createBuilder(target)
-            .build();
+    TargetNode<?, ?> library = JavaLibraryBuilder.createBuilder(target).build();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(library);
     BuildRuleResolver resolver =
         new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
@@ -147,4 +142,35 @@ public class BuildRuleResolverTest {
     resolver.getRuleWithType(BuildTargetFactory.newInstance("//foo:bar"), JavaBinary.class);
   }
 
+  @Test
+  public void computeIfAbsentComputesOnlyIfAbsent() {
+    BuildRuleResolver resolver =
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildTarget target = BuildTargetFactory.newInstance("//:target");
+    AtomicInteger supplierInvoked = new AtomicInteger(0);
+    BuildRule buildRule =
+        new NoopBuildRuleWithDeclaredAndExtraDeps(
+            target, new FakeProjectFilesystem(), TestBuildRuleParams.create());
+    BuildRule returnedBuildRule =
+        resolver.computeIfAbsent(
+            target,
+            passedTarget -> {
+              assertEquals(passedTarget, target);
+              supplierInvoked.incrementAndGet();
+              return buildRule;
+            });
+    assertEquals("supplier was called once", supplierInvoked.get(), 1);
+    assertSame("returned the same build rule that was generated", returnedBuildRule, buildRule);
+    assertSame("the rule can be retrieved again", resolver.getRule(target), buildRule);
+    returnedBuildRule =
+        resolver.computeIfAbsent(
+            target,
+            passedTarget -> {
+              assertEquals(passedTarget, target);
+              supplierInvoked.incrementAndGet();
+              return buildRule;
+            });
+    assertEquals("supplier is not called again", supplierInvoked.get(), 1);
+    assertSame("recorded rule is still returned", returnedBuildRule, buildRule);
+  }
 }

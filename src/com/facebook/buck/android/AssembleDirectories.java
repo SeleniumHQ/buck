@@ -16,8 +16,11 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -29,31 +32,32 @@ import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-
 import java.nio.file.Path;
 
-public class AssembleDirectories extends AbstractBuildRule {
+public class AssembleDirectories extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   private final Path destinationDirectory;
-  @AddToRuleKey
-  private final ImmutableCollection<SourcePath> originalDirectories;
+  @AddToRuleKey private final ImmutableCollection<SourcePath> originalDirectories;
 
   public AssembleDirectories(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
       ImmutableCollection<SourcePath> directories) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
     this.originalDirectories = directories;
-    this.destinationDirectory = BuildTargets.getGenPath(
-        getProjectFilesystem(),
-        buildRuleParams.getBuildTarget(),
-        "__assembled_%s__");
+    this.destinationDirectory =
+        BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "__assembled_%s__");
   }
 
   @Override
-  public ImmutableList<Step> getBuildSteps(BuildContext context,
-      BuildableContext buildableContext) {
+  public ImmutableList<Step> getBuildSteps(
+      BuildContext context, BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), destinationDirectory));
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), destinationDirectory)));
     for (SourcePath directory : originalDirectories) {
       Path resolvedPath = context.getSourcePathResolver().getAbsolutePath(directory);
       steps.add(

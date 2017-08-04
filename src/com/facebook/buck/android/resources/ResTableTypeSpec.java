@@ -16,29 +16,23 @@
 
 package com.facebook.buck.android.resources;
 
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-
 import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * ResTableTypeSpec is a ResChunk specifying the flags for each resource of a given type. These
  * flags specify which types of configuration contain multiple values for a given resource. A
- * ResTableTypeSpec consists of:
- *   ResChunk_header
- *     u16 type
- *     u16 header_size
- *     u32 chunk_size
- *   u8  id
- *   u8  0x00
- *   u16 0x0000
- *   u32 entry_count
+ * ResTableTypeSpec consists of: ResChunk_header u16 type u16 header_size u32 chunk_size u8 id u8
+ * 0x00 u16 0x0000 u32 entry_count
  *
- * This is then followed by entry_count u32s giving the flags for each resource of this type.
+ * <p>This is then followed by entry_count u32s giving the flags for each resource of this type.
  *
- * In practice, this is then followed by a ResTableType for each configuration that has resources
+ * <p>In practice, this is then followed by a ResTableType for each configuration that has resources
  * of this type. For convenience, those are considered to be part of the ResTableTypeSpec.
  */
 public class ResTableTypeSpec extends ResChunk {
@@ -49,6 +43,18 @@ public class ResTableTypeSpec extends ResChunk {
   private final List<ResTableType> configs;
   private final int totalSize;
   private final ByteBuffer entryFlags;
+
+  public static ResTableTypeSpec slice(ResTableTypeSpec spec, int count) {
+    ImmutableList<ResTableType> configs =
+        spec.getConfigs()
+            .stream()
+            .map(config -> ResTableType.slice(config, count))
+            .filter(Objects::nonNull)
+            .collect(MoreCollectors.toImmutableList());
+
+    return new ResTableTypeSpec(
+        spec.id, count, copy(slice(spec.entryFlags, 0, 4 * count)), configs);
+  }
 
   @Override
   public void put(ByteBuffer output) {
@@ -86,10 +92,7 @@ public class ResTableTypeSpec extends ResChunk {
   }
 
   private ResTableTypeSpec(
-      int id,
-      int entryCount,
-      ByteBuffer entryFlags,
-      List<ResTableType> configs) {
+      int id, int entryCount, ByteBuffer entryFlags, List<ResTableType> configs) {
     super(CHUNK_RES_TABLE_TYPE_SPEC, HEADER_SIZE, HEADER_SIZE + 4 * entryCount);
     this.id = id;
     this.entryCount = entryCount;
@@ -101,7 +104,6 @@ public class ResTableTypeSpec extends ResChunk {
       configsSize += config.getChunkSize();
     }
     this.totalSize = getChunkSize() + configsSize;
-
   }
 
   private static List<ResTableType> getConfigsFromBuffer(ByteBuffer buf) {
@@ -141,13 +143,13 @@ public class ResTableTypeSpec extends ResChunk {
     out.format("    type %d configCount=%d entryCount=%d\n", id, configs.size(), entryCount);
     for (int i = 0; i < entryCount; i++) {
       out.format(
-        "      spec resource 0x7f%02x%04x %s:%s/%s: flags=0x%08x\n",
-        getResourceType(),
-        i,
-        resPackage.getPackageName(),
-        getResourceTypeName(resPackage),
-        getResourceName(resPackage, i),
-        entryFlags.getInt(i * 4));
+          "      spec resource 0x7f%02x%04x %s:%s/%s: flags=0x%08x\n",
+          getResourceType(),
+          i,
+          resPackage.getPackageName(),
+          getResourceTypeName(resPackage),
+          getResourceName(resPackage, i),
+          entryFlags.getInt(i * 4));
     }
     for (ResTableType type : configs) {
       type.dump(strings, resPackage, out);
@@ -160,5 +162,38 @@ public class ResTableTypeSpec extends ResChunk {
 
   public List<ResTableType> getConfigs() {
     return configs;
+  }
+
+  public void transformKeyReferences(RefTransformer visitor) {
+    configs.forEach(c -> c.transformKeyReferences(visitor));
+  }
+
+  public void visitKeyReferences(RefVisitor visitor) {
+    configs.forEach(c -> c.visitKeyReferences(visitor));
+  }
+
+  public void transformStringReferences(RefTransformer visitor) {
+    configs.forEach(c -> c.transformStringReferences(visitor));
+  }
+
+  public void visitStringReferences(RefVisitor visitor) {
+    configs.forEach(c -> c.visitStringReferences(visitor));
+  }
+
+  public void visitStringReferences(int[] ids, RefVisitor visitor) {
+    configs.forEach(c -> c.visitStringReferences(ids, visitor));
+  }
+
+  public void visitReferences(int[] ids, RefVisitor visitor) {
+    configs.forEach(c -> c.visitReferences(ids, visitor));
+  }
+
+  public void reassignIds(ReferenceMapper refMapping) {
+    refMapping.rewrite(getResourceType(), entryFlags.asIntBuffer());
+    configs.forEach(c -> c.reassignIds(refMapping));
+  }
+
+  public int getEntryCount() {
+    return entryCount;
   }
 }

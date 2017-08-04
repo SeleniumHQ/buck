@@ -44,7 +44,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
+import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -59,33 +59,38 @@ public class ExternalJavac implements Javac {
   public ExternalJavac(final Either<Path, SourcePath> pathToJavac) {
     this.pathToJavac = pathToJavac;
 
-    this.version = Suppliers.memoize(
-        () -> {
-          if (pathToJavac.isRight() && pathToJavac.getRight() instanceof BuildTargetSourcePath) {
-            return DEFAULT_VERSION;
-          }
-          ProcessExecutorParams params = ProcessExecutorParams.builder()
-              .setCommand(
-                  ImmutableList.of(
-                      pathToJavac.isLeft() ?
-                          pathToJavac.getLeft().toString() :
-                          ((PathSourcePath) pathToJavac.getRight()).getRelativePath().toString(),
-                      "-version"))
-              .build();
-          ProcessExecutor.Result result;
-          try {
-            result = createProcessExecutor().launchAndExecute(params);
-          } catch (InterruptedException | IOException e) {
-            throw new RuntimeException(e);
-          }
-          Optional<String> stderr = result.getStderr();
-          String output = stderr.orElse("").trim();
-          if (Strings.isNullOrEmpty(output)) {
-            return DEFAULT_VERSION;
-          } else {
-            return JavacVersion.of(output);
-          }
-        });
+    this.version =
+        Suppliers.memoize(
+            () -> {
+              if (pathToJavac.isRight()
+                  && pathToJavac.getRight() instanceof BuildTargetSourcePath) {
+                return DEFAULT_VERSION;
+              }
+              ProcessExecutorParams params =
+                  ProcessExecutorParams.builder()
+                      .setCommand(
+                          ImmutableList.of(
+                              pathToJavac.isLeft()
+                                  ? pathToJavac.getLeft().toString()
+                                  : ((PathSourcePath) pathToJavac.getRight())
+                                      .getRelativePath()
+                                      .toString(),
+                              "-version"))
+                      .build();
+              ProcessExecutor.Result result;
+              try {
+                result = createProcessExecutor().launchAndExecute(params);
+              } catch (InterruptedException | IOException e) {
+                throw new RuntimeException(e);
+              }
+              Optional<String> stderr = result.getStderr();
+              String output = stderr.orElse("").trim();
+              if (Strings.isNullOrEmpty(output)) {
+                return DEFAULT_VERSION;
+              } else {
+                return JavacVersion.of(output);
+              }
+            });
   }
 
   @Override
@@ -95,17 +100,17 @@ public class ExternalJavac implements Javac {
 
   @Override
   public ImmutableCollection<SourcePath> getInputs() {
-    return pathToJavac.isRight() ?
-        ImmutableSortedSet.of(pathToJavac.getRight()) :
-        ImmutableSortedSet.of();
+    return pathToJavac.isRight()
+        ? ImmutableSortedSet.of(pathToJavac.getRight())
+        : ImmutableSortedSet.of();
   }
 
   @Override
   public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
     return ImmutableList.of(
-        pathToJavac.isRight() ?
-            resolver.getAbsolutePath(pathToJavac.getRight()).toString() :
-            pathToJavac.getLeft().toString());
+        pathToJavac.isRight()
+            ? resolver.getAbsolutePath(pathToJavac.getRight()).toString()
+            : pathToJavac.getLeft().toString());
   }
 
   @Override
@@ -161,83 +166,105 @@ public class ExternalJavac implements Javac {
       return pathToJavac.getLeft().toString();
     }
     if (pathToJavac.getRight() instanceof BuildTargetSourcePath) {
-      return ((BuildTargetSourcePath<?>) pathToJavac.getRight()).getTarget().toString();
+      return ((BuildTargetSourcePath) pathToJavac.getRight()).getTarget().toString();
     }
     return ((PathSourcePath) pathToJavac.getRight()).getRelativePath().toString();
   }
 
   @Override
-  public int buildWithClasspath(
+  public Invocation newBuildInvocation(
       JavacExecutionContext context,
       BuildTarget invokingRule,
       ImmutableList<String> options,
-      ImmutableList<ResolvedJavacPluginProperties> annotationProcessors,
+      ImmutableList<JavacPluginJsr199Fields> pluginFields,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       Optional<Path> workingDirectory,
-      CompilationMode compilationMode) throws InterruptedException {
+      JavacCompilationMode compilationMode) {
+    return new Invocation() {
+      @Override
+      public int buildSourceAbiJar(Path sourceAbiJar) throws InterruptedException {
+        throw new UnsupportedOperationException("Cannot build source ABI jar with external javac.");
+      }
 
-    Preconditions.checkArgument(
-        compilationMode == CompilationMode.FULL,
-        "Cannot compile ABI jars with external javac");
-    ImmutableList.Builder<String> command = ImmutableList.builder();
-    command.add(
-        pathToJavac.isLeft() ?
-            pathToJavac.getLeft().toString() :
-            context.getAbsolutePathsForInputs().get(0).toString());
-    command.addAll(options);
+      @Override
+      public int buildClasses() throws InterruptedException {
+        Preconditions.checkArgument(
+            compilationMode == JavacCompilationMode.FULL,
+            "Cannot compile ABI jars with external javac");
+        ImmutableList.Builder<String> command = ImmutableList.builder();
+        command.add(
+            pathToJavac.isLeft()
+                ? pathToJavac.getLeft().toString()
+                : context.getAbsolutePathsForInputs().get(0).toString());
 
-    ImmutableList<Path> expandedSources;
-    try {
-      expandedSources = getExpandedSourcePaths(
-          context.getProjectFilesystem(),
-          invokingRule,
-          javaSourceFilePaths,
-          workingDirectory);
-    } catch (IOException e) {
-      throw new HumanReadableException(
-          "Unable to expand sources for %s into %s",
-          invokingRule,
-          workingDirectory);
-    }
-    try {
-      context.getProjectFilesystem().writeLinesToPath(
-          FluentIterable.from(expandedSources)
-              .transform(Object::toString)
-              .transform(ARGFILES_ESCAPER),
-          pathToSrcsList);
-      command.add("@" + pathToSrcsList);
-    } catch (IOException e) {
-      context.getEventSink().reportThrowable(
-          e,
-          "Cannot write list of .java files to compile to %s file! Terminating compilation.",
-          pathToSrcsList);
-      return 1;
-    }
+        ImmutableList<Path> expandedSources;
+        try {
+          expandedSources =
+              getExpandedSourcePaths(
+                  context.getProjectFilesystem(),
+                  invokingRule,
+                  javaSourceFilePaths,
+                  workingDirectory);
+        } catch (IOException e) {
+          throw new HumanReadableException(
+              "Unable to expand sources for %s into %s", invokingRule, workingDirectory);
+        }
 
-    // Run the command
-    int exitCode = -1;
-    try {
-      ProcessExecutorParams params = ProcessExecutorParams.builder()
-          .setCommand(command.build())
-          .setEnvironment(context.getEnvironment())
-          .setDirectory(context.getProjectFilesystem().getRootPath().toAbsolutePath())
-          .build();
-      ProcessExecutor.Result result = context.getProcessExecutor().launchAndExecute(params);
-      exitCode = result.getExitCode();
-    } catch (IOException e) {
-      e.printStackTrace(context.getStdErr());
-      return exitCode;
-    }
+        try {
+          FluentIterable<String> escapedPaths =
+              FluentIterable.from(expandedSources)
+                  .transform(Object::toString)
+                  .transform(ARGFILES_ESCAPER);
+          FluentIterable<String> escapedArgs =
+              FluentIterable.from(options).transform(ARGFILES_ESCAPER);
 
-    return exitCode;
+          context
+              .getProjectFilesystem()
+              .writeLinesToPath(Iterables.concat(escapedArgs, escapedPaths), pathToSrcsList);
+          command.add("@" + pathToSrcsList);
+        } catch (IOException e) {
+          context
+              .getEventSink()
+              .reportThrowable(
+                  e,
+                  "Cannot write list of args/sources to compile to %s file! Terminating compilation.",
+                  pathToSrcsList);
+          return 1;
+        }
+
+        // Run the command
+        int exitCode = -1;
+        try {
+          ProcessExecutorParams params =
+              ProcessExecutorParams.builder()
+                  .setCommand(command.build())
+                  .setEnvironment(context.getEnvironment())
+                  .setDirectory(context.getProjectFilesystem().getRootPath().toAbsolutePath())
+                  .build();
+          ProcessExecutor.Result result = context.getProcessExecutor().launchAndExecute(params);
+          exitCode = result.getExitCode();
+        } catch (IOException e) {
+          e.printStackTrace(context.getStdErr());
+          return exitCode;
+        }
+
+        return exitCode;
+      }
+
+      @Override
+      public void close() {
+        // Nothing to do
+      }
+    };
   }
 
   private ImmutableList<Path> getExpandedSourcePaths(
       ProjectFilesystem projectFilesystem,
       BuildTarget invokingRule,
       ImmutableSet<Path> javaSourceFilePaths,
-      Optional<Path> workingDirectory) throws IOException {
+      Optional<Path> workingDirectory)
+      throws InterruptedException, IOException {
 
     // Add sources file or sources list to command
     ImmutableList.Builder<Path> sources = ImmutableList.builder();
@@ -248,20 +275,18 @@ public class ExternalJavac implements Javac {
       } else if (pathString.endsWith(SRC_ZIP) || pathString.endsWith(SRC_JAR)) {
         if (!workingDirectory.isPresent()) {
           throw new HumanReadableException(
-              "Attempting to compile target %s which specified a .src.zip input %s but no " +
-                  "working directory was specified.",
-              invokingRule.toString(),
-              path);
+              "Attempting to compile target %s which specified a .src.zip input %s but no "
+                  + "working directory was specified.",
+              invokingRule.toString(), path);
         }
         // For a Zip of .java files, create a JavaFileObject for each .java entry.
-        ImmutableList<Path> zipPaths = Unzip.extractZipFile(
-            projectFilesystem.resolve(path),
-            projectFilesystem.resolve(workingDirectory.get()),
-            Unzip.ExistingFileMode.OVERWRITE);
+        ImmutableList<Path> zipPaths =
+            Unzip.extractZipFile(
+                projectFilesystem.resolve(path),
+                projectFilesystem.resolve(workingDirectory.get()),
+                Unzip.ExistingFileMode.OVERWRITE);
         sources.addAll(
-            zipPaths.stream()
-                .filter(input -> input.toString().endsWith(".java"))
-                .iterator());
+            zipPaths.stream().filter(input -> input.toString().endsWith(".java")).iterator());
       }
     }
     return sources.build();

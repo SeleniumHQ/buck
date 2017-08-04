@@ -17,19 +17,14 @@
 package com.facebook.buck.rules.coercer;
 
 /**
- * Exception type thrown from `ParamInfo` methods. May originate from `ParamInfo` code (e.g. for
- * an unexpected null error) or wrap lower level errors (e.g. `CoerceFailedException`) to attach
+ * Exception type thrown from `ParamInfo` methods. May originate from `ParamInfo` code (e.g. for an
+ * unexpected null error) or wrap lower level errors (e.g. `CoerceFailedException`) to attach
  * parameter specific information (e.g. parameter name).
  */
 @SuppressWarnings("serial")
 public class ParamInfoException extends Exception {
 
-  public ParamInfoException(String parameterName, String message) {
-    super(String.format("parameter '%s': %s", parameterName, message));
-  }
-
   public ParamInfoException(String parameterName, String message, Throwable throwable) {
     super(String.format("parameter '%s': %s", parameterName, message), throwable);
   }
-
 }

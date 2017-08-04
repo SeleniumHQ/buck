@@ -21,22 +21,22 @@ import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.log.LogConfigSetup;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-
+import java.io.IOException;
+import java.io.PrintStream;
+import java.util.Arrays;
+import java.util.Optional;
+import java.util.OptionalInt;
 import org.kohsuke.args4j.Option;
 import org.kohsuke.args4j.spi.SubCommand;
 import org.kohsuke.args4j.spi.SubCommands;
 
-import java.io.IOException;
-import java.io.PrintStream;
-import java.util.Optional;
-import java.util.OptionalInt;
-
 public abstract class AbstractContainerCommand implements Command {
 
   @Option(
-      name = "--help",
-      aliases = {"-h"},
-      usage = "Shows this screen and exits.")
+    name = "--help",
+    aliases = {"-h"},
+    usage = "Shows this screen and exits."
+  )
   @SuppressWarnings("PMD.UnusedPrivateField")
   private boolean helpScreen;
 
@@ -75,8 +75,7 @@ public abstract class AbstractContainerCommand implements Command {
   public void printUsage(PrintStream stream) {
     String prefix = getContainerCommandPrefix();
 
-    stream.println("buck build tool");
-
+    CommandHelper.printShortDescription(this, stream);
     stream.println("Usage:");
     stream.println("  " + prefix + " [<options>]");
     stream.println("  " + prefix + " <command> --help");
@@ -87,20 +86,19 @@ public abstract class AbstractContainerCommand implements Command {
 
     SubCommands subCommands;
     try {
-      subCommands = this
-          .getClass()
-          .getDeclaredField(getSubcommandsFieldName())
-          .getAnnotation(SubCommands.class);
+      subCommands =
+          this.getClass()
+              .getDeclaredField(getSubcommandsFieldName())
+              .getAnnotation(SubCommands.class);
     } catch (NoSuchFieldException e) {
       throw new RuntimeException(e);
     }
-    int lengthOfLongestCommand = 0;
-    for (SubCommand subCommand : subCommands.value()) {
-      String name = subCommand.name();
-      if (name.length() > lengthOfLongestCommand) {
-        lengthOfLongestCommand = name.length();
-      }
-    }
+
+    int lengthOfLongestCommand =
+        Arrays.stream(subCommands.value())
+            .map(subcmd -> subcmd.name().length())
+            .max(Integer::compare)
+            .orElse(0);
 
     for (SubCommand subCommand : subCommands.value()) {
       Command command;
@@ -126,17 +124,13 @@ public abstract class AbstractContainerCommand implements Command {
   @Override
   public CellConfig getConfigOverrides() {
     Optional<Command> cmd = getSubcommand();
-    return cmd.isPresent()
-        ? cmd.get().getConfigOverrides()
-        : CellConfig.of();
+    return cmd.isPresent() ? cmd.get().getConfigOverrides() : CellConfig.of();
   }
 
   @Override
   public LogConfigSetup getLogConfig() {
     Optional<Command> cmd = getSubcommand();
-    return cmd.isPresent()
-        ? cmd.get().getLogConfig()
-        : LogConfigSetup.DEFAULT_SETUP;
+    return cmd.isPresent() ? cmd.get().getLogConfig() : LogConfigSetup.DEFAULT_SETUP;
   }
 
   @Override

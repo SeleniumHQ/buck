@@ -16,43 +16,48 @@
 
 package org.openqa.selenium.buck.file;
 
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
-import com.facebook.buck.rules.AbstractDescriptionArg;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.HasSrcs;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
-import com.google.common.collect.ImmutableSortedSet;
-
+import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import org.immutables.value.Value;
 import java.util.Optional;
 
-public class FolderDescription implements Description<FolderDescription.Arg> {
+public class FolderDescription implements Description<FolderArg> {
 
   @Override
-  public Arg createUnpopulatedConstructorArg() {
-    return new Arg();
+  public Class<FolderArg> getConstructorArgType() {
+    return FolderArg.class;
   }
 
   @Override
-  public <A extends Arg> BuildRule createBuildRule(
+  public BuildRule createBuildRule(
       TargetGraph targetGraph,
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      A args) throws NoSuchBuildTargetException {
+      FolderArg args) throws NoSuchBuildTargetException {
     return new Folder(
+        buildTarget,
+        projectFilesystem,
         params,
-        args.out.orElse(params.getBuildTarget().getShortName()),
-        args.srcs);
+        args.getOut().orElse(buildTarget.getShortName()),
+        args.getSrcs());
   }
 
-  @SuppressFieldNotInitialized
-  public static class Arg extends AbstractDescriptionArg {
-    public Optional<String> out;
-    public ImmutableSortedSet<SourcePath> srcs;
+  @BuckStyleImmutable
+  @Value.Immutable
+  interface AbstractFolderArg extends CommonDescriptionArg, HasSrcs {
+    Optional<String> getOut();
   }
 }

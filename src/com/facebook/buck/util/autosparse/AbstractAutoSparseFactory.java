@@ -18,13 +18,12 @@ package com.facebook.buck.util.autosparse;
 
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.versioncontrol.HgCmdLineInterface;
+import com.facebook.buck.util.versioncontrol.VersionControlCommandFailedException;
 import com.google.common.annotations.VisibleForTesting;
-
 import java.lang.ref.WeakReference;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
-
 import javax.annotation.Nullable;
 
 public class AbstractAutoSparseFactory {
@@ -40,25 +39,40 @@ public class AbstractAutoSparseFactory {
 
   @Nullable
   public static synchronized AutoSparseState getAutoSparseState(
-      Path projectPath, HgCmdLineInterface hgCmdLine, AutoSparseConfig autoSparseConfig) {
+      Path projectPath,
+      Path buckOut,
+      HgCmdLineInterface hgCmdLine,
+      AutoSparseConfig autoSparseConfig)
+      throws InterruptedException {
     Path hgRoot = hgCmdLine.getHgRoot();
     if (hgRoot == null) {
       LOG.info("Failed to determine a mercurial root for %s", projectPath);
       return null;
     }
 
+    String hgRevisionId;
+    try {
+      hgRevisionId = hgCmdLine.currentRevisionId();
+    } catch (VersionControlCommandFailedException e) {
+      LOG.info("Failed to determine a revision id for %s", projectPath);
+      return null;
+    }
+
     if (perSCRoot.containsKey(hgRoot)) {
       AutoSparseState entry = perSCRoot.get(hgRoot).get();
-      if (entry != null) {
+      if (entry != null && entry.getRevisionId().equals(hgRevisionId)) {
+        entry.addBuckOut(projectPath.resolve(buckOut));
+        entry.updateConfig(autoSparseConfig);
         return entry;
       } else {
         perSCRoot.remove(hgRoot);
       }
     }
 
-    HgAutoSparseState newState = new HgAutoSparseState(
-        hgCmdLine, hgRoot, autoSparseConfig);
-    perSCRoot.put(hgRoot, new WeakReference<AutoSparseState>(newState));
+    HgAutoSparseState newState =
+        new HgAutoSparseState(hgCmdLine, hgRoot, hgRevisionId, autoSparseConfig);
+    perSCRoot.put(hgRoot, new WeakReference<>(newState));
+    newState.addBuckOut(projectPath.resolve(buckOut));
     return newState;
   }
 }

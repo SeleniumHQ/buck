@@ -21,10 +21,9 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.EventKey;
 import com.facebook.buck.event.LeafEvent;
 import com.facebook.buck.event.WorkAdvanceEvent;
+import com.facebook.buck.util.Scope;
 
-/**
- * Base class for events about build rules.
- */
+/** Base class for events about build rules. */
 public abstract class BuildRuleCacheEvent extends AbstractBuckEvent
     implements WorkAdvanceEvent, LeafEvent {
   private final BuildRule rule;
@@ -53,9 +52,7 @@ public abstract class BuildRuleCacheEvent extends AbstractBuckEvent
   }
 
   public static Scope startCacheCheckScope(
-      BuckEventBus eventBus,
-      BuildRule rule,
-      CacheStepType cacheType) {
+      BuckEventBus eventBus, BuildRule rule, CacheStepType cacheType) {
     CacheStepStarted started = new CacheStepStarted(rule, cacheType);
     eventBus.post(started);
     return () -> eventBus.post(finished(started));

@@ -2,11 +2,14 @@ package com.facebook.buck.jvm.java;
 
 import static com.facebook.buck.maven.AetherUtil.CLASSIFIER_SOURCES;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.maven.AetherUtil;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
@@ -23,7 +26,6 @@ import com.facebook.buck.zip.ZipStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -31,10 +33,10 @@ import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-
 import javax.annotation.Nullable;
 
-public class SourceJar extends AbstractBuildRule implements MavenPublishable {
+public class SourceJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements MavenPublishable {
 
   private final static Logger LOG = Logger.get(SourceJar.class);
 
@@ -53,13 +55,15 @@ public class SourceJar extends AbstractBuildRule implements MavenPublishable {
   private final Path scratchDir;
 
   public SourceJar(
+      BuildTarget target,
+      ProjectFilesystem filesystem,
       BuildRuleParams params,
       String javaVersion,
       ImmutableSet<SourcePath> sources,
       Optional<String> mavenCoords,
       Optional<SourcePath> mavenPomTemplate,
       ImmutableSortedSet<HasMavenCoordinates> mavenDeps) {
-    super(params);
+    super(target, filesystem, params);
     this.javaVersion = javaVersion;
 
     this.mavenCoords = mavenCoords.map(coord -> AetherUtil.addClassifier(coord, CLASSIFIER_SOURCES));
@@ -103,8 +107,16 @@ public class SourceJar extends AbstractBuildRule implements MavenPublishable {
       BuildableContext buildableContext) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), scratchDir));
-    steps.addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), output.getParent()));
+    steps.addAll(MakeCleanDirectoryStep.of(
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(),
+            getProjectFilesystem(),
+            scratchDir)));
+    steps.addAll(MakeCleanDirectoryStep.of(
+        BuildCellRelativePath.fromCellRelativePath(
+            context.getBuildCellRootPath(),
+            getProjectFilesystem(),
+            output.getParent())));
 
     JavaFileParser javaFileParser = JavaFileParser.createJavaFileParser(
         JavacOptions.builder().setSourceLevel(javaVersion).build());
@@ -142,7 +154,11 @@ public class SourceJar extends AbstractBuildRule implements MavenPublishable {
       Path destination = scratchDir.resolve(packageName).resolve(absolutePath.getFileName());
 
       if (directories.add(destination.getParent())) {
-        steps.add(MkdirStep.of(getProjectFilesystem(), destination.getParent()));
+        steps.add(MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(),
+                getProjectFilesystem(),
+                destination.getParent())));
       }
 
       steps.add(CopyStep.forFile(getProjectFilesystem(), absolutePath, destination));

@@ -17,22 +17,21 @@
 package com.facebook.buck.distributed;
 
 import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.config.Config;
 import com.facebook.buck.distributed.thrift.BuildJobStateBuckConfig;
 import com.facebook.buck.distributed.thrift.BuildJobStateCell;
 import com.facebook.buck.distributed.thrift.OrderedStringMapEntry;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.Cell;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Keeps track of {@link Cell}s encountered while serializing the distributed build state.
- */
+/** Keeps track of {@link Cell}s encountered while serializing the distributed build state. */
 public class DistBuildCellIndexer {
 
   public static final Integer ROOT_CELL_INDEX = 0;
@@ -40,13 +39,19 @@ public class DistBuildCellIndexer {
   final Cell rootCell;
   final Map<Path, Integer> index;
   final Map<Integer, BuildJobStateCell> state;
+  final Map<Integer, ProjectFilesystem> localFilesystemsByCellIndex;
 
   public DistBuildCellIndexer(Cell rootCell) {
     this.rootCell = rootCell;
     this.index = new HashMap<>();
     this.state = new HashMap<>();
+    this.localFilesystemsByCellIndex = new HashMap<>();
     // Make sure root cell is at index 0.
     Preconditions.checkState(ROOT_CELL_INDEX == this.getCellIndex(rootCell.getRoot()));
+  }
+
+  public Map<Integer, ProjectFilesystem> getLocalFilesystemsByCellIndex() {
+    return localFilesystemsByCellIndex;
   }
 
   public Map<Integer, BuildJobStateCell> getState() {
@@ -62,6 +67,7 @@ public class DistBuildCellIndexer {
 
       Cell cell = rootCell.getCellIgnoringVisibilityCheck(input);
       state.put(i, dumpCell(cell));
+      localFilesystemsByCellIndex.put(i, cell.getFilesystem());
     }
     return i;
   }
@@ -76,22 +82,25 @@ public class DistBuildCellIndexer {
 
   private BuildJobStateBuckConfig dumpConfig(BuckConfig buckConfig) {
     BuildJobStateBuckConfig jobState = new BuildJobStateBuckConfig();
+    Config serverSideConfigWithOptionalOverride =
+        new DistBuildConfig(buckConfig).getRemoteConfigWithOverride();
 
     jobState.setUserEnvironment(buckConfig.getEnvironment());
-    Map<String, List<OrderedStringMapEntry>> rawConfig = Maps.transformValues(
-        buckConfig.getRawConfigForDistBuild(),
-        input -> {
-          List<OrderedStringMapEntry> result = new ArrayList<>();
-          for (Map.Entry<String, String> entry : input.entrySet()) {
-            result.add(new OrderedStringMapEntry(entry.getKey(), entry.getValue()));
-          }
-          return result;
-        });
+    Map<String, List<OrderedStringMapEntry>> rawConfig =
+        Maps.transformValues(
+            serverSideConfigWithOptionalOverride.getRawConfigForDistBuild(),
+            input -> {
+              List<OrderedStringMapEntry> result = new ArrayList<>();
+              for (Map.Entry<String, String> entry : input.entrySet()) {
+                result.add(new OrderedStringMapEntry(entry.getKey(), entry.getValue()));
+              }
+              return result;
+            });
     jobState.setRawBuckConfig(rawConfig);
     jobState.setArchitecture(buckConfig.getArchitecture().name());
     jobState.setPlatform(buckConfig.getPlatform().name());
     jobState.setCellAliasToIndex(
-      Maps.transformValues(buckConfig.getCellPathResolver().getCellPaths(), this::getCellIndex));
+        Maps.transformValues(buckConfig.getCellPathResolver().getCellPaths(), this::getCellIndex));
 
     return jobState;
   }

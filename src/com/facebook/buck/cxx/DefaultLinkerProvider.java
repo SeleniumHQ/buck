@@ -16,6 +16,10 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.platform.GnuLinker;
+import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.platform.LinkerProvider;
+import com.facebook.buck.cxx.platform.WindowsLinker;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Tool;
@@ -23,7 +27,6 @@ import com.facebook.buck.rules.ToolProvider;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
-
 import javax.annotation.Nonnull;
 
 public class DefaultLinkerProvider implements LinkerProvider {
@@ -75,5 +78,4 @@ public class DefaultLinkerProvider implements LinkerProvider {
   public Iterable<BuildTarget> getParseTimeDeps() {
     return toolProvider.getParseTimeDeps();
   }
-
 }

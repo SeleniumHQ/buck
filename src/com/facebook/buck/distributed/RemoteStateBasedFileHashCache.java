@@ -24,15 +24,20 @@ import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.google.common.base.Function;
 import com.google.common.collect.Maps;
 import com.google.common.hash.HashCode;
-
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Optional;
 
 public class RemoteStateBasedFileHashCache implements ProjectFileHashCache {
   private static final Function<BuildJobStateFileHashEntry, HashCode>
       HASH_CODE_FROM_FILE_HASH_ENTRY =
-      input -> HashCode.fromString(input.getHashCode());
+          input -> {
+            if (input.getHashCode() == null) {
+              return null;
+            }
+            return HashCode.fromString(input.getHashCode());
+          };
 
   private final ProjectFileHashCache delegate;
   private final ProjectFilesystem filesystem;
@@ -40,8 +45,7 @@ public class RemoteStateBasedFileHashCache implements ProjectFileHashCache {
   private final Map<ArchiveMemberPath, HashCode> remoteArchiveHashes;
 
   public RemoteStateBasedFileHashCache(
-      ProjectFileHashCache delegate,
-      BuildJobStateFileHashes remoteFileHashes) {
+      ProjectFileHashCache delegate, BuildJobStateFileHashes remoteFileHashes) {
     this.delegate = delegate;
     this.filesystem = delegate.getFilesystem();
     this.remoteFileHashes =
@@ -70,10 +74,16 @@ public class RemoteStateBasedFileHashCache implements ProjectFileHashCache {
   }
 
   @Override
+  public Optional<HashCode> getIfPresent(Path path) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
   public HashCode get(ArchiveMemberPath archiveMemberRelPath) throws IOException {
-    HashCode hashCode = remoteArchiveHashes.get(
-        archiveMemberRelPath.withArchivePath(
-            filesystem.resolve(archiveMemberRelPath.getArchivePath())));
+    HashCode hashCode =
+        remoteArchiveHashes.get(
+            archiveMemberRelPath.withArchivePath(
+                filesystem.resolve(archiveMemberRelPath.getArchivePath())));
     if (hashCode != null) {
       return hashCode;
     }
@@ -83,15 +93,14 @@ public class RemoteStateBasedFileHashCache implements ProjectFileHashCache {
 
   @Override
   public boolean willGet(Path relPath) {
-    return remoteFileHashes.containsKey(filesystem.resolve(relPath)) ||
-        delegate.willGet(relPath);
+    return remoteFileHashes.containsKey(filesystem.resolve(relPath)) || delegate.willGet(relPath);
   }
 
   @Override
   public boolean willGet(ArchiveMemberPath relPath) {
     return remoteArchiveHashes.containsKey(
-        relPath.withArchivePath(filesystem.resolve(relPath.getArchivePath()))) ||
-        delegate.willGet(relPath);
+            relPath.withArchivePath(filesystem.resolve(relPath.getArchivePath())))
+        || delegate.willGet(relPath);
   }
 
   @Override
@@ -114,4 +123,8 @@ public class RemoteStateBasedFileHashCache implements ProjectFileHashCache {
     return filesystem;
   }
 
+  @Override
+  public boolean isIgnored(Path path) {
+    return delegate.isIgnored(path);
+  }
 }

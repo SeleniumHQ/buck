@@ -16,10 +16,12 @@
 
 package com.facebook.buck.python;
 
+import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Pair;
-import com.facebook.buck.rules.AbstractBuildRule;
+import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
@@ -30,7 +32,6 @@ import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.Label;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -48,45 +49,40 @@ import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.SortedSet;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
-public class PythonTest
-    extends AbstractBuildRule
+public class PythonTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements TestRule, HasRuntimeDeps, ExternalTestRunnerRule, BinaryBuildRule {
 
-  private final SourcePathRuleFinder ruleFinder;
-  private final Supplier<ImmutableSortedSet<BuildRule>> originalDeclaredDeps;
-  @AddToRuleKey
-  private final Supplier<ImmutableMap<String, String>> env;
-  @AddToRuleKey
-  private final PythonBinary binary;
-  private final ImmutableSet<Label> labels;
+  private final Supplier<? extends SortedSet<BuildRule>> originalDeclaredDeps;
+  @AddToRuleKey private final Supplier<ImmutableMap<String, String>> env;
+  @AddToRuleKey private final PythonBinary binary;
+  private final ImmutableSet<String> labels;
   private final Optional<Long> testRuleTimeoutMs;
   private final ImmutableSet<String> contacts;
   private final ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage;
 
   private PythonTest(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      SourcePathRuleFinder ruleFinder,
-      Supplier<ImmutableSortedSet<BuildRule>> originalDeclaredDeps,
+      Supplier<? extends SortedSet<BuildRule>> originalDeclaredDeps,
       Supplier<ImmutableMap<String, String>> env,
       PythonBinary binary,
-      ImmutableSet<Label> labels,
+      ImmutableSet<String> labels,
       ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage,
       Optional<Long> testRuleTimeoutMs,
       ImmutableSet<String> contacts) {
-    super(params);
-    this.ruleFinder = ruleFinder;
+    super(buildTarget, projectFilesystem, params);
     this.originalDeclaredDeps = originalDeclaredDeps;
     this.env = env;
     this.binary = binary;
@@ -97,19 +93,19 @@ public class PythonTest
   }
 
   public static PythonTest from(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      SourcePathRuleFinder ruleFinder,
       Supplier<ImmutableMap<String, String>> env,
       PythonBinary binary,
-      ImmutableSet<Label> labels,
+      ImmutableSet<String> labels,
       ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage,
       Optional<Long> testRuleTimeoutMs,
       ImmutableSet<String> contacts) {
     return new PythonTest(
-        params.copyReplacingDeclaredAndExtraDeps(
-            Suppliers.ofInstance(ImmutableSortedSet.of(binary)),
-            Suppliers.ofInstance(ImmutableSortedSet.of())),
-        ruleFinder,
+        buildTarget,
+        projectFilesystem,
+        params.withDeclaredDeps(ImmutableSortedSet.of(binary)).withoutExtraDeps(),
         params.getDeclaredDeps(),
         env,
         binary,
@@ -121,8 +117,7 @@ public class PythonTest
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
     return ImmutableList.of();
   }
 
@@ -135,18 +130,26 @@ public class PythonTest
   public ImmutableList<Step> runTests(
       ExecutionContext executionContext,
       TestRunningOptions options,
-      SourcePathResolver pathResolver,
+      BuildContext buildContext,
       TestReportingCallback testReportingCallback) {
     return new ImmutableList.Builder<Step>()
-        .addAll(MakeCleanDirectoryStep.of(getProjectFilesystem(), getPathToTestOutputDirectory()))
-        .add(new PythonRunTestsStep(
-            getProjectFilesystem().getRootPath(),
-            getBuildTarget().getFullyQualifiedName(),
-            binary.getExecutableCommand().getCommandPrefix(pathResolver),
-            getMergedEnv(pathResolver),
-            options.getTestSelectorList(),
-            testRuleTimeoutMs,
-            getProjectFilesystem().resolve(getPathToTestOutputResult())))
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    buildContext.getBuildCellRootPath(),
+                    getProjectFilesystem(),
+                    getPathToTestOutputDirectory())))
+        .add(
+            new PythonRunTestsStep(
+                getProjectFilesystem().getRootPath(),
+                getBuildTarget().getFullyQualifiedName(),
+                binary
+                    .getExecutableCommand()
+                    .getCommandPrefix(buildContext.getSourcePathResolver()),
+                getMergedEnv(buildContext.getSourcePathResolver()),
+                options.getTestSelectorList(),
+                testRuleTimeoutMs,
+                getProjectFilesystem().resolve(getPathToTestOutputResult())))
         .build();
   }
 
@@ -164,37 +167,28 @@ public class PythonTest
 
   @Override
   public Path getPathToTestOutputDirectory() {
-    return BuildTargets.getGenPath(
-        getProjectFilesystem(),
-        getBuildTarget(),
-        "__test_%s_output__");
+    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "__test_%s_output__");
   }
 
-  public Path getPathToTestOutputResult() {
+  private Path getPathToTestOutputResult() {
     return getPathToTestOutputDirectory().resolve("results.json");
   }
 
   @Override
-  public boolean hasTestResultFiles() {
-    return getProjectFilesystem().isFile(getPathToTestOutputResult());
-  }
-
-  @Override
-  public ImmutableSet<Label> getLabels() {
+  public ImmutableSet<String> getLabels() {
     return labels;
   }
 
   @Override
   public Callable<TestResults> interpretTestResults(
       final ExecutionContext executionContext,
+      SourcePathResolver pathResolver,
       boolean isUsingTestSelectors) {
     return () -> {
       Optional<String> resultsFileContents =
-          getProjectFilesystem().readFileIfItExists(
-              getPathToTestOutputResult());
-      TestResultSummary[] testResultSummaries = ObjectMappers.readValue(
-          resultsFileContents.get(),
-          TestResultSummary[].class);
+          getProjectFilesystem().readFileIfItExists(getPathToTestOutputResult());
+      TestResultSummary[] testResultSummaries =
+          ObjectMappers.readValue(resultsFileContents.get(), TestResultSummary[].class);
       return TestResults.of(
           getBuildTarget(),
           ImmutableList.of(
@@ -202,9 +196,7 @@ public class PythonTest
                   getBuildTarget().getFullyQualifiedName(),
                   ImmutableList.copyOf(testResultSummaries))),
           contacts,
-          labels.stream()
-              .map(Object::toString)
-              .collect(MoreCollectors.toImmutableSet()));
+          labels.stream().map(Object::toString).collect(MoreCollectors.toImmutableSet()));
     };
   }
 
@@ -213,16 +205,19 @@ public class PythonTest
     return false;
   }
 
-  // A python test rule is actually just a {@link NoopBuildRule} which contains a references to
+  // A python test rule is actually just a {@link NoopBuildRuleWithDeclaredAndExtraDeps} which contains a references to
   // a {@link PythonBinary} rule, which is the actual test binary.  Therefore, we *need* this
   // rule around to run this test, so model this via the {@link HasRuntimeDeps} interface.
   @Override
-  public Stream<BuildTarget> getRuntimeDeps() {
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return RichStream.<BuildTarget>empty()
         .concat(originalDeclaredDeps.get().stream().map(BuildRule::getBuildTarget))
-        .concat(binary.getRuntimeDeps())
+        .concat(binary.getRuntimeDeps(ruleFinder))
         .concat(
-            binary.getExecutableCommand().getDeps(ruleFinder).stream()
+            binary
+                .getExecutableCommand()
+                .getDeps(ruleFinder)
+                .stream()
                 .map(BuildRule::getBuildTarget));
   }
 
@@ -245,13 +240,14 @@ public class PythonTest
   public ExternalTestRunnerTestSpec getExternalTestRunnerSpec(
       ExecutionContext executionContext,
       TestRunningOptions testRunningOptions,
-      SourcePathResolver pathResolver) {
+      BuildContext buildContext) {
     return ExternalTestRunnerTestSpec.builder()
         .setTarget(getBuildTarget())
         .setType("pyunit")
         .setNeededCoverage(neededCoverage)
-        .addAllCommand(binary.getExecutableCommand().getCommandPrefix(pathResolver))
-        .putAllEnv(getMergedEnv(pathResolver))
+        .addAllCommand(
+            binary.getExecutableCommand().getCommandPrefix(buildContext.getSourcePathResolver()))
+        .putAllEnv(getMergedEnv(buildContext.getSourcePathResolver()))
         .addAllLabels(getLabels())
         .addAllContacts(getContacts())
         .build();

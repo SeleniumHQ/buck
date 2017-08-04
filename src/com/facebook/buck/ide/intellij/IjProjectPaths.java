@@ -16,23 +16,33 @@
 package com.facebook.buck.ide.intellij;
 
 import com.facebook.buck.io.MorePaths;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class IjProjectPaths {
+  private final Path projectRootPath;
+  private final Path ideaConfigDir;
+  private final Path librariesDir;
 
-  public static final Path IDEA_CONFIG_DIR = Paths.get(".idea");
-  public static final Path LIBRARIES_DIR = IDEA_CONFIG_DIR.resolve("libraries");
+  public IjProjectPaths(String projectRoot) {
+    this.projectRootPath = Paths.get(projectRoot);
+    this.ideaConfigDir = projectRootPath.resolve(".idea");
+    this.librariesDir = ideaConfigDir.resolve("libraries");
+  }
 
-  private IjProjectPaths() {
+  Path getIdeaConfigDir() {
+    return ideaConfigDir;
+  }
+
+  Path getLibrariesDir() {
+    return librariesDir;
   }
 
   /**
    * @param path path to folder.
    * @param moduleLocationBasePath path to the location of the .iml file.
-   * @return a path, relative to the module .iml file location describing a folder
-   * in IntelliJ format.
+   * @return a path, relative to the module .iml file location describing a folder in IntelliJ
+   *     format.
    */
   static String toModuleDirRelativeString(Path path, Path moduleLocationBasePath) {
     String moduleRelativePath = moduleLocationBasePath.relativize(path).toString();
@@ -43,12 +53,17 @@ public class IjProjectPaths {
     }
   }
 
-  static String toProjectDirRelativeString(Path projectRelativePath) {
-    String path = projectRelativePath.toString();
+  String toProjectDirRelativeString(Path repoRelativePath) {
+    return MorePaths.pathWithUnixSeparators(
+        projectRootPath.toAbsolutePath().relativize(repoRelativePath.toAbsolutePath()));
+  }
+
+  String toProjectDirRelativeUrl(Path repoRelativePath) {
+    String path = toProjectDirRelativeString(repoRelativePath);
     if (path.isEmpty()) {
       return "file://$PROJECT_DIR$";
     } else {
-      return "file://$PROJECT_DIR$/" + MorePaths.pathWithUnixSeparators(path);
+      return "file://$PROJECT_DIR$/" + path;
     }
   }
 }

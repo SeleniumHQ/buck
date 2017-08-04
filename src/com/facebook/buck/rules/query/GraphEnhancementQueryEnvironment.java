@@ -14,7 +14,6 @@
  * under the License.
  */
 
-
 package com.facebook.buck.rules.query;
 
 import com.facebook.buck.jvm.java.JavaLibrary;
@@ -23,6 +22,7 @@ import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
+import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.query.AttrFilterFunction;
 import com.facebook.buck.query.DepsFunction;
 import com.facebook.buck.query.FilterFunction;
@@ -38,13 +38,12 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.ListeningExecutorService;
-
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -53,10 +52,11 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * A query environment that can be used for graph-enhancement, including macro expansion or
- * dynamic dependency resolution.
+ * A query environment that can be used for graph-enhancement, including macro expansion or dynamic
+ * dependency resolution.
  *
- * The query environment supports the following functions
+ * <p>The query environment supports the following functions
+ *
  * <pre>
  *  attrfilter
  *  deps
@@ -69,17 +69,15 @@ import java.util.stream.Stream;
  *  union
  * </pre>
  *
- * This query environment will only parse literal targets or the special macro
- * '$declared_deps', so aliases and other patterns (such as ...) will throw an exception.
- * The $declared_deps macro will evaluate to the declared dependencies passed into the constructor.
+ * This query environment will only parse literal targets or the special macro '$declared_deps', so
+ * aliases and other patterns (such as ...) will throw an exception. The $declared_deps macro will
+ * evaluate to the declared dependencies passed into the constructor.
  */
 public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
 
-  private Optional<BuildRuleResolver> resolver;
-  private Optional<TargetGraph> targetGraph;
-  private CellPathResolver cellNames;
-  private final BuildTargetPatternParser<BuildTargetPattern> context;
-  private Set<BuildTarget> declaredDeps;
+  private final Optional<BuildRuleResolver> resolver;
+  private final Optional<TargetGraph> targetGraph;
+  private final QueryEnvironment.TargetEvaluator targetEvaluator;
 
   public GraphEnhancementQueryEnvironment(
       Optional<BuildRuleResolver> resolver,
@@ -89,51 +87,32 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
       Set<BuildTarget> declaredDeps) {
     this.resolver = resolver;
     this.targetGraph = targetGraph;
-    this.cellNames = cellNames;
-    this.context = context;
-    this.declaredDeps = declaredDeps;
+    this.targetEvaluator = new TargetEvaluator(cellNames, context, declaredDeps);
   }
 
   @Override
-  public ImmutableSet<QueryTarget> getTargetsMatchingPattern(
-      String pattern,
-      ListeningExecutorService executor) throws QueryException, InterruptedException {
-    if ("$declared_deps".equals(pattern) ||
-        "$declared".equals(pattern) ||
-        "first_order_deps()".equals(pattern)) {
-      return declaredDeps
-          .stream()
-          .map(QueryBuildTarget::of)
-          .collect(MoreCollectors.toImmutableSet());
-    }
-    try {
-      BuildTarget buildTarget = BuildTargetParser.INSTANCE.parse(pattern, context, cellNames);
-      return ImmutableSet.<QueryTarget>of(QueryBuildTarget.of(buildTarget));
-    } catch (BuildTargetParseException e) {
-      throw new QueryException(e.getMessage(), e);
-    }
+  public QueryEnvironment.TargetEvaluator getTargetEvaluator() {
+    return targetEvaluator;
   }
 
   @Override
-  public ImmutableSet<QueryTarget> getFwdDeps(Iterable<QueryTarget> targets)
-      throws QueryException, InterruptedException {
+  public ImmutableSet<QueryTarget> getFwdDeps(Iterable<QueryTarget> targets) throws QueryException {
     ImmutableSet.Builder<QueryTarget> builder = ImmutableSet.builder();
     for (QueryTarget target : targets) {
-      List<QueryBuildTarget> deps = getNode(target)
-          .getParseDeps()
-          .stream()
-          .map(QueryBuildTarget::of)
-          .collect(Collectors.toList());
+      List<QueryBuildTarget> deps =
+          getNode(target)
+              .getParseDeps()
+              .stream()
+              .map(QueryBuildTarget::of)
+              .collect(Collectors.toList());
       builder.addAll(deps);
     }
     return builder.build();
   }
 
   @Override
-  public void forEachFwdDep(
-      Iterable<QueryTarget> targets,
-      Consumer<? super QueryTarget> action)
-      throws QueryException, InterruptedException {
+  public void forEachFwdDep(Iterable<QueryTarget> targets, Consumer<? super QueryTarget> action)
+      throws QueryException {
     for (QueryTarget target : targets) {
       TargetNode<?, ?> node = getNode(target);
       for (BuildTarget dep : node.getDeclaredDeps()) {
@@ -149,67 +128,57 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
-  public Set<QueryTarget> getReverseDeps(Iterable<QueryTarget> targets)
-      throws QueryException, InterruptedException {
+  public Set<QueryTarget> getReverseDeps(Iterable<QueryTarget> targets) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public Set<QueryTarget> getInputs(QueryTarget target) throws QueryException {
+  public Set<QueryTarget> getInputs(QueryTarget target) {
     TargetNode<?, ?> node = getNode(target);
-    return node.getInputs().stream()
+    return node.getInputs()
+        .stream()
         .map(QueryFileTarget::of)
         .collect(MoreCollectors.toImmutableSet());
   }
 
   @Override
-  public Set<QueryTarget> getTransitiveClosure(Set<QueryTarget> targets)
-      throws QueryException, InterruptedException {
+  public Set<QueryTarget> getTransitiveClosure(Set<QueryTarget> targets) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void buildTransitiveClosure(
-      Set<QueryTarget> targetNodes,
-      int maxDepth,
-      ListeningExecutorService executor) throws InterruptedException, QueryException {
+  public void buildTransitiveClosure(Set<QueryTarget> targetNodes, int maxDepth) {
     // No-op, since the closure should have already been built during parsing
   }
 
   @Override
-  public String getTargetKind(QueryTarget target) throws InterruptedException, QueryException {
+  public String getTargetKind(QueryTarget target) {
     return Description.getBuildRuleType(getNode(target).getDescription()).getName();
   }
 
   @Override
-  public ImmutableSet<QueryTarget> getTestsForTarget(QueryTarget target)
-      throws InterruptedException, QueryException {
+  public ImmutableSet<QueryTarget> getTestsForTarget(QueryTarget target) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public ImmutableSet<QueryTarget> getBuildFiles(Set<QueryTarget> targets) throws QueryException {
+  public ImmutableSet<QueryTarget> getBuildFiles(Set<QueryTarget> targets) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public ImmutableSet<QueryTarget> getFileOwners(
-      ImmutableList<String> files,
-      ListeningExecutorService executor) throws InterruptedException, QueryException {
+  public ImmutableSet<QueryTarget> getFileOwners(ImmutableList<String> files) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public ImmutableSet<QueryTarget> getTargetsInAttribute(
-      QueryTarget target, String attribute) throws InterruptedException, QueryException {
+  public ImmutableSet<QueryTarget> getTargetsInAttribute(QueryTarget target, String attribute) {
     throw new UnsupportedOperationException();
   }
 
   @Override
   public ImmutableSet<Object> filterAttributeContents(
-      QueryTarget target,
-      String attribute,
-      Predicate<Object> predicate) throws InterruptedException, QueryException {
+      QueryTarget target, String attribute, Predicate<Object> predicate) {
     return QueryTargetAccessor.filterAttributeContents(getNode(target), attribute, predicate);
   }
 
@@ -217,31 +186,77 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
     Preconditions.checkState(target instanceof QueryBuildTarget);
     Preconditions.checkArgument(targetGraph.isPresent());
     BuildTarget buildTarget = ((QueryBuildTarget) target).getBuildTarget();
-    return targetGraph.get().getOptional(buildTarget).orElse(null);
+    return targetGraph.get().get(buildTarget);
   }
 
   public Stream<QueryTarget> getFirstOrderClasspath(Set<QueryTarget> targets) {
     Preconditions.checkArgument(resolver.isPresent());
-    return targets.stream()
-        .map(queryTarget -> {
-          Preconditions.checkArgument(queryTarget instanceof QueryBuildTarget);
-          return resolver.get().getRule(((QueryBuildTarget) queryTarget).getBuildTarget());
-        })
+    return targets
+        .stream()
+        .map(
+            queryTarget -> {
+              Preconditions.checkArgument(queryTarget instanceof QueryBuildTarget);
+              try {
+                return resolver
+                    .get()
+                    .requireRule(((QueryBuildTarget) queryTarget).getBuildTarget());
+              } catch (NoSuchBuildTargetException e) {
+                throw new HumanReadableException(e);
+              }
+            })
         .filter(rule -> rule instanceof JavaLibrary)
         .map(rule -> (JavaLibrary) rule)
         .flatMap(library -> library.getDepsForTransitiveClasspathEntries().stream())
         .map(dep -> QueryBuildTarget.of(dep.getBuildTarget()));
   }
 
+  public static final Iterable<QueryFunction> QUERY_FUNCTIONS =
+      ImmutableList.of(
+          new AttrFilterFunction(),
+          new ClasspathFunction(),
+          new DepsFunction(),
+          new DepsFunction.FirstOrderDepsFunction(),
+          new KindFunction(),
+          new FilterFunction());
+
   @Override
   public Iterable<QueryFunction> getFunctions() {
-    return ImmutableSet.of(
-        new AttrFilterFunction(),
-        new ClasspathFunction(),
-        new DepsFunction(),
-        new DepsFunction.FirstOrderDepsFunction(),
-        new KindFunction(),
-        new FilterFunction()
-    );
+    return QUERY_FUNCTIONS;
+  }
+
+  private static class TargetEvaluator implements QueryEnvironment.TargetEvaluator {
+    private final CellPathResolver cellNames;
+    private final BuildTargetPatternParser<BuildTargetPattern> context;
+    private final ImmutableSet<BuildTarget> declaredDeps;
+
+    private TargetEvaluator(
+        CellPathResolver cellNames,
+        BuildTargetPatternParser<BuildTargetPattern> context,
+        Set<BuildTarget> declaredDeps) {
+      this.cellNames = cellNames;
+      this.context = context;
+      this.declaredDeps = ImmutableSet.copyOf(declaredDeps);
+    }
+
+    @Override
+    public ImmutableSet<QueryTarget> evaluateTarget(String target) throws QueryException {
+      if ("$declared_deps".equals(target) || "$declared".equals(target)) {
+        return declaredDeps
+            .stream()
+            .map(QueryBuildTarget::of)
+            .collect(MoreCollectors.toImmutableSet());
+      }
+      try {
+        BuildTarget buildTarget = BuildTargetParser.INSTANCE.parse(target, context, cellNames);
+        return ImmutableSet.of(QueryBuildTarget.of(buildTarget));
+      } catch (BuildTargetParseException e) {
+        throw new QueryException(e, "Unable to parse pattern %s", target);
+      }
+    }
+
+    @Override
+    public Type getType() {
+      return Type.IMMEDIATE;
+    }
   }
 }

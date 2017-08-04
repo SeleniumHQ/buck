@@ -19,6 +19,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.cxx.platform.GccCompiler;
+import com.facebook.buck.cxx.platform.GccPreprocessor;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -26,9 +28,9 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildRuleParamsBuilder;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.HashedFileTool;
@@ -36,6 +38,7 @@ import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.step.Step;
@@ -47,79 +50,72 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-
-import org.hamcrest.Matchers;
-import org.junit.Test;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Optional;
+import org.hamcrest.Matchers;
+import org.junit.Test;
 
 public class CxxCompilationDatabaseTest {
 
   @Test
   public void testCompilationDatabase() throws Exception {
-    BuildTarget testBuildTarget = BuildTarget
-        .builder(BuildTargetFactory.newInstance("//foo:baz"))
-        .addAllFlavors(
-            ImmutableSet.of(CxxCompilationDatabase.COMPILATION_DATABASE))
-        .build();
+    BuildTarget testBuildTarget =
+        BuildTargetFactory.newInstance("//foo:baz")
+            .withAppendedFlavors(ImmutableSet.of(CxxCompilationDatabase.COMPILATION_DATABASE));
 
     final String root = "/Users/user/src";
     final Path fakeRoot = Paths.get(root);
     ProjectFilesystem filesystem = new FakeProjectFilesystem(fakeRoot);
 
-    BuildRuleParams testBuildRuleParams = new FakeBuildRuleParamsBuilder(testBuildTarget)
-        .setProjectFilesystem(filesystem)
-        .build();
-
     BuildRuleResolver testBuildRuleResolver =
         new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathResolver testSourcePathResolver =
-        new SourcePathResolver(new SourcePathRuleFinder(testBuildRuleResolver));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(testBuildRuleResolver);
+    SourcePathResolver testSourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
-    HeaderSymlinkTree privateSymlinkTree = CxxDescriptionEnhancer.createHeaderSymlinkTree(
-        testBuildRuleParams,
-        testBuildRuleResolver,
-        CxxPlatformUtils.DEFAULT_PLATFORM,
-        ImmutableMap.of(),
-        HeaderVisibility.PRIVATE,
-        true);
+    HeaderSymlinkTree privateSymlinkTree =
+        CxxDescriptionEnhancer.createHeaderSymlinkTree(
+            testBuildTarget,
+            filesystem,
+            testBuildRuleResolver,
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            ImmutableMap.of(),
+            HeaderVisibility.PRIVATE,
+            true);
     testBuildRuleResolver.addToIndex(privateSymlinkTree);
-    HeaderSymlinkTree exportedSymlinkTree = CxxDescriptionEnhancer.createHeaderSymlinkTree(
-        testBuildRuleParams,
-        testBuildRuleResolver,
-        CxxPlatformUtils.DEFAULT_PLATFORM,
-        ImmutableMap.of(),
-        HeaderVisibility.PUBLIC,
-        true);
+    HeaderSymlinkTree exportedSymlinkTree =
+        CxxDescriptionEnhancer.createHeaderSymlinkTree(
+            testBuildTarget,
+            filesystem,
+            testBuildRuleResolver,
+            CxxPlatformUtils.DEFAULT_PLATFORM,
+            ImmutableMap.of(),
+            HeaderVisibility.PUBLIC,
+            true);
     testBuildRuleResolver.addToIndex(exportedSymlinkTree);
 
-    BuildTarget compileTarget = BuildTarget
-        .builder(testBuildRuleParams.getBuildTarget().getUnflavoredBuildTarget())
-        .addFlavors(
-            InternalFlavor.of("compile-test.cpp"))
-        .build();
+    BuildTarget compileTarget = testBuildTarget.withFlavors(InternalFlavor.of("compile-test.cpp"));
 
-    PreprocessorFlags preprocessorFlags = PreprocessorFlags.builder()
-        .addIncludes(
-            CxxHeadersDir.of(
-                CxxPreprocessables.IncludeType.SYSTEM,
-                new FakeSourcePath("/foo/bar")),
-            CxxHeadersDir.of(
-                CxxPreprocessables.IncludeType.SYSTEM,
-                new FakeSourcePath("/test")))
-        .build();
+    PreprocessorFlags preprocessorFlags =
+        PreprocessorFlags.builder()
+            .addIncludes(
+                CxxHeadersDir.of(
+                    CxxPreprocessables.IncludeType.SYSTEM, new FakeSourcePath("/foo/bar")),
+                CxxHeadersDir.of(
+                    CxxPreprocessables.IncludeType.SYSTEM, new FakeSourcePath("/test")))
+            .build();
 
     ImmutableSortedSet.Builder<CxxPreprocessAndCompile> rules = ImmutableSortedSet.naturalOrder();
-    BuildRuleParams compileBuildRuleParams = new FakeBuildRuleParamsBuilder(compileTarget)
-        .setProjectFilesystem(filesystem)
-        .setDeclaredDeps(ImmutableSortedSet.of(privateSymlinkTree, exportedSymlinkTree))
-        .build();
-    rules.add(testBuildRuleResolver.addToIndex(
-        CxxPreprocessAndCompile.preprocessAndCompile(
-            compileBuildRuleParams,
+    BuildRuleParams compileBuildRuleParams =
+        TestBuildRuleParams.create()
+            .withDeclaredDeps(ImmutableSortedSet.of(privateSymlinkTree, exportedSymlinkTree));
+    rules.add(
+        testBuildRuleResolver.addToIndex(
+            CxxPreprocessAndCompile.preprocessAndCompile(
+                compileTarget,
+                filesystem,
+                compileBuildRuleParams,
                 new PreprocessorDelegate(
                     testSourcePathResolver,
                     CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
@@ -150,19 +146,17 @@ public class CxxCompilationDatabaseTest {
                 CxxSource.Type.CXX,
                 Optional.empty(),
                 CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-                CxxPlatformUtils.DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER,
                 Optional.empty())));
 
-    CxxCompilationDatabase compilationDatabase = CxxCompilationDatabase.createCompilationDatabase(
-        testBuildRuleParams,
-        rules.build());
+    CxxCompilationDatabase compilationDatabase =
+        CxxCompilationDatabase.createCompilationDatabase(
+            testBuildTarget, filesystem, rules.build());
     testBuildRuleResolver.addToIndex(compilationDatabase);
 
     assertThat(
-        compilationDatabase.getRuntimeDeps().collect(MoreCollectors.toImmutableSet()),
+        compilationDatabase.getRuntimeDeps(ruleFinder).collect(MoreCollectors.toImmutableSet()),
         Matchers.contains(
-            exportedSymlinkTree.getBuildTarget(),
-            privateSymlinkTree.getBuildTarget()));
+            exportedSymlinkTree.getBuildTarget(), privateSymlinkTree.getBuildTarget()));
 
     assertEquals(
         "getPathToOutput() should be a function of the build target.",
@@ -175,13 +169,11 @@ public class CxxCompilationDatabaseTest {
             new FakeBuildableContext());
     assertEquals(2, buildSteps.size());
     assertTrue(buildSteps.get(0) instanceof MkdirStep);
-    assertTrue(buildSteps.get(1) instanceof
-            CxxCompilationDatabase.GenerateCompilationCommandsJson);
+    assertTrue(buildSteps.get(1) instanceof CxxCompilationDatabase.GenerateCompilationCommandsJson);
 
     CxxCompilationDatabase.GenerateCompilationCommandsJson step =
         (CxxCompilationDatabase.GenerateCompilationCommandsJson) buildSteps.get(1);
-    Iterable<CxxCompilationDatabaseEntry> observedEntries =
-        step.createEntries();
+    Iterable<CxxCompilationDatabaseEntry> observedEntries = step.createEntries();
     Iterable<CxxCompilationDatabaseEntry> expectedEntries =
         ImmutableList.of(
             CxxCompilationDatabaseEntry.of(
@@ -204,5 +196,4 @@ public class CxxCompilationDatabaseTest {
                     "test.o")));
     MoreAsserts.assertIterablesEquals(expectedEntries, observedEntries);
   }
-
 }

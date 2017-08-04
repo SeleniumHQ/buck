@@ -18,6 +18,7 @@ package com.facebook.buck.apple;
 
 import com.dd.plist.NSDictionary;
 import com.dd.plist.NSObject;
+import com.dd.plist.PropertyListFormatException;
 import com.dd.plist.PropertyListParser;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.ProjectFilesystem.CopySourceMode;
@@ -31,19 +32,18 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
-
 import java.io.IOException;
 import java.nio.file.Path;
+import java.text.ParseException;
 import java.util.Optional;
+import javax.xml.parsers.ParserConfigurationException;
+import org.xml.sax.SAXException;
 
 /**
- * Class to handle:
- * 1. Identifying the best {@code .mobileprovision} file to use based on the bundle ID and
- *    expiration date.
- * 2. Copying that file to the bundle root.
- * 3. Merging the entitlements specified by the app in its {@code Entitlements.plist}
- *    with those provided in the {@code .mobileprovision} file and writing out a new temporary
- *    file used for code-signing.
+ * Class to handle: 1. Identifying the best {@code .mobileprovision} file to use based on the bundle
+ * ID and expiration date. 2. Copying that file to the bundle root. 3. Merging the entitlements
+ * specified by the app in its {@code Entitlements.plist} with those provided in the {@code
+ * .mobileprovision} file and writing out a new temporary file used for code-signing.
  */
 class ProvisioningProfileCopyStep implements Step {
   private static final String KEYCHAIN_ACCESS_GROUPS = "keychain-access-groups";
@@ -54,7 +54,6 @@ class ProvisioningProfileCopyStep implements Step {
   private static final String PROFILE_FILENAME = "provisioning-profile-file";
   private static final String TEAM_IDENTIFIER = "team-identifier";
   private static final String ENTITLEMENTS = "entitlements";
-
 
   private final ProjectFilesystem filesystem;
   private final ApplePlatform platform;
@@ -72,26 +71,22 @@ class ProvisioningProfileCopyStep implements Step {
   private static final Logger LOG = Logger.get(ProvisioningProfileCopyStep.class);
 
   /**
-   * @param infoPlist  Bundle relative path of the bundle's {@code Info.plist} file.
-   * @param provisioningProfileUUID  Optional. If specified, override the {@code .mobileprovision}
-   *                                 auto-detect and attempt to use {@code UUID.mobileprovision}.
-   * @param entitlementsPlist        Optional. If specified, use the metadata in this
-   *                                 {@code Entitlements.plist} file to determine app prefix.
-   * @param provisioningProfileStore  Known provisioning profiles to choose from.
-   * @param provisioningProfileDestination  Where to copy the {@code .mobileprovision} file,
-   *                                        normally the bundle root.
-   * @param signingEntitlementsTempPath     Where to copy the code signing entitlements file,
-   *                                        normally a scratch directory.
-   *
-   * @param dryRunResultsPath               If set, will output a plist into this path with the
-   *                                        results of this step.
-   *
-   *                                        If a suitable profile was found, this will contain
-   *                                        metadata on the provisioning profile selected.
-   *
-   *                                        If no suitable profile was found, this will contain
-   *                                        the bundle ID and entitlements needed in a profile
-   *                                        (in lieu of throwing an exception.)
+   * @param infoPlist Bundle relative path of the bundle's {@code Info.plist} file.
+   * @param provisioningProfileUUID Optional. If specified, override the {@code .mobileprovision}
+   *     auto-detect and attempt to use {@code UUID.mobileprovision}.
+   * @param entitlementsPlist Optional. If specified, use the metadata in this {@code
+   *     Entitlements.plist} file to determine app prefix.
+   * @param provisioningProfileStore Known provisioning profiles to choose from.
+   * @param provisioningProfileDestination Where to copy the {@code .mobileprovision} file, normally
+   *     the bundle root.
+   * @param signingEntitlementsTempPath Where to copy the code signing entitlements file, normally a
+   *     scratch directory.
+   * @param dryRunResultsPath If set, will output a plist into this path with the results of this
+   *     step.
+   *     <p>If a suitable profile was found, this will contain metadata on the provisioning profile
+   *     selected.
+   *     <p>If no suitable profile was found, this will contain the bundle ID and entitlements
+   *     needed in a profile (in lieu of throwing an exception.)
    */
   public ProvisioningProfileCopyStep(
       ProjectFilesystem filesystem,
@@ -117,17 +112,8 @@ class ProvisioningProfileCopyStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context) throws InterruptedException {
-
-    final String bundleID;
-    try {
-      bundleID = AppleInfoPlistParsing.getBundleIdFromPlistStream(
-          filesystem.getInputStreamForRelativePath(infoPlist)
-      ).get();
-    } catch (IOException e) {
-      throw new HumanReadableException("Unable to get bundle ID from info.plist: " + infoPlist);
-    }
-
+  public StepExecutionResult execute(ExecutionContext context)
+      throws IOException, InterruptedException {
     final Optional<ImmutableMap<String, NSObject>> entitlements;
     final String prefix;
     if (entitlementsPlist.isPresent()) {
@@ -136,12 +122,13 @@ class ProvisioningProfileCopyStep implements Step {
             (NSDictionary) PropertyListParser.parse(entitlementsPlist.get().toFile());
         entitlements = Optional.of(ImmutableMap.copyOf(entitlementsPlistDict.getHashMap()));
         prefix = ProvisioningProfileMetadata.prefixFromEntitlements(entitlements.get()).orElse("*");
-      } catch (IOException e) {
-        throw new HumanReadableException("Unable to find entitlement .plist: " +
-            entitlementsPlist.get());
-      } catch (Exception e) {
-        throw new HumanReadableException("Malformed entitlement .plist: " +
-            entitlementsPlist.get());
+      } catch (PropertyListFormatException
+          | ParseException
+          | ParserConfigurationException
+          | SAXException
+          | UnsupportedOperationException e) {
+        throw new HumanReadableException(
+            "Malformed entitlement .plist: " + entitlementsPlist.get());
       }
     } else {
       entitlements = ProvisioningProfileStore.MATCH_ANY_ENTITLEMENT;
@@ -155,43 +142,37 @@ class ProvisioningProfileCopyStep implements Step {
       identities = ProvisioningProfileStore.MATCH_ANY_IDENTITY;
     }
 
+    final String bundleID =
+        AppleInfoPlistParsing.getBundleIdFromPlistStream(
+                filesystem.getInputStreamForRelativePath(infoPlist))
+            .get();
     Optional<ProvisioningProfileMetadata> bestProfile =
-        provisioningProfileUUID.isPresent() ?
-            provisioningProfileStore.getProvisioningProfileByUUID(provisioningProfileUUID.get()) :
-            provisioningProfileStore.getBestProvisioningProfile(
-                bundleID,
-                platform,
-                entitlements,
-                identities);
-
+        provisioningProfileUUID.isPresent()
+            ? provisioningProfileStore.getProvisioningProfileByUUID(provisioningProfileUUID.get())
+            : provisioningProfileStore.getBestProvisioningProfile(
+                bundleID, platform, entitlements, identities);
 
     if (dryRunResultsPath.isPresent()) {
-      try {
-        NSDictionary dryRunResult = new NSDictionary();
-        dryRunResult.put(BUNDLE_ID, bundleID);
-        dryRunResult.put(ENTITLEMENTS, entitlements.orElse(ImmutableMap.of()));
-        if (bestProfile.isPresent()) {
-          dryRunResult.put(PROFILE_UUID, bestProfile.get().getUUID());
-          dryRunResult.put(PROFILE_FILENAME,
-              bestProfile.get().getProfilePath().getFileName().toString());
-          dryRunResult.put(TEAM_IDENTIFIER,
-              bestProfile.get().getEntitlements().get("com.apple.developer.team-identifier"));
-        }
-
-        filesystem.writeContentsToPath(dryRunResult.toXMLPropertyList(), dryRunResultsPath.get());
-      } catch (IOException e) {
-        context.logError(e,
-            "Failed when trying to write dry run results: %s",
-            getDescription(context));
-        return StepExecutionResult.ERROR;
+      NSDictionary dryRunResult = new NSDictionary();
+      dryRunResult.put(BUNDLE_ID, bundleID);
+      dryRunResult.put(ENTITLEMENTS, entitlements.orElse(ImmutableMap.of()));
+      if (bestProfile.isPresent()) {
+        dryRunResult.put(PROFILE_UUID, bestProfile.get().getUUID());
+        dryRunResult.put(
+            PROFILE_FILENAME, bestProfile.get().getProfilePath().getFileName().toString());
+        dryRunResult.put(
+            TEAM_IDENTIFIER,
+            bestProfile.get().getEntitlements().get("com.apple.developer.team-identifier"));
       }
+
+      filesystem.writeContentsToPath(dryRunResult.toXMLPropertyList(), dryRunResultsPath.get());
     }
 
     selectedProvisioningProfileFuture.set(bestProfile);
 
     if (!bestProfile.isPresent()) {
-      String message = "No valid non-expired provisioning profiles match for " +
-          prefix + "." + bundleID;
+      String message =
+          "No valid non-expired provisioning profiles match for " + prefix + "." + bundleID;
       if (dryRunResultsPath.isPresent()) {
         LOG.warn(message);
         return StepExecutionResult.SUCCESS;
@@ -203,38 +184,32 @@ class ProvisioningProfileCopyStep implements Step {
     Path provisioningProfileSource = bestProfile.get().getProfilePath();
 
     // Copy the actual .mobileprovision.
-    try {
-      filesystem.copy(
-          provisioningProfileSource,
-          provisioningProfileDestination,
-          CopySourceMode.FILE);
-    } catch (IOException e) {
-      context.logError(e, "Failed when trying to copy: %s", getDescription(context));
-      return StepExecutionResult.ERROR;
-    }
+    filesystem.copy(provisioningProfileSource, provisioningProfileDestination, CopySourceMode.FILE);
 
     // Merge the entitlements with the profile, and write out.
     if (entitlementsPlist.isPresent()) {
       return (new PlistProcessStep(
-          filesystem,
-          entitlementsPlist.get(),
-          Optional.empty(),
-          signingEntitlementsTempPath,
-          bestProfile.get().getMergeableEntitlements(),
-          ImmutableMap.of(),
-          PlistProcessStep.OutputFormat.XML)).execute(context);
+              filesystem,
+              entitlementsPlist.get(),
+              Optional.empty(),
+              signingEntitlementsTempPath,
+              bestProfile.get().getMergeableEntitlements(),
+              ImmutableMap.of(),
+              PlistProcessStep.OutputFormat.XML))
+          .execute(context);
     } else {
       // No entitlements.plist explicitly specified; write out the minimal entitlements needed.
       String appID = bestProfile.get().getAppID().getFirst() + "." + bundleID;
       NSDictionary entitlementsPlist = new NSDictionary();
       entitlementsPlist.putAll(bestProfile.get().getMergeableEntitlements());
       entitlementsPlist.put(APPLICATION_IDENTIFIER, appID);
-      entitlementsPlist.put(KEYCHAIN_ACCESS_GROUPS, new String[]{appID});
+      entitlementsPlist.put(KEYCHAIN_ACCESS_GROUPS, new String[] {appID});
       return (new WriteFileStep(
-          filesystem,
-          entitlementsPlist.toXMLPropertyList(),
-          signingEntitlementsTempPath,
-          /* executable */ false)).execute(context);
+              filesystem,
+              entitlementsPlist.toXMLPropertyList(),
+              signingEntitlementsTempPath,
+              /* executable */ false))
+          .execute(context);
     }
   }
 
@@ -245,15 +220,12 @@ class ProvisioningProfileCopyStep implements Step {
 
   @Override
   public String getDescription(ExecutionContext context) {
-    return String.format("provisioning-profile-copy %s",
-        provisioningProfileDestination);
+    return String.format("provisioning-profile-copy %s", provisioningProfileDestination);
   }
 
-  /**
-   * Returns a future that's populated once the rule is executed.
-   */
+  /** Returns a future that's populated once the rule is executed. */
   public ListenableFuture<Optional<ProvisioningProfileMetadata>>
-    getSelectedProvisioningProfileFuture() {
+      getSelectedProvisioningProfileFuture() {
     return selectedProvisioningProfileFuture;
   }
 }

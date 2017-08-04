@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx;
 
+import static org.hamcrest.Matchers.hasItemInArray;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.model.BuildTarget;
@@ -25,17 +26,17 @@ import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-
+import com.facebook.buck.util.environment.Platform;
+import java.nio.file.Path;
+import java.util.Optional;
 import org.hamcrest.Matchers;
+import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.Test;
 
-import java.util.Optional;
-
 public class CxxLinkIntegrationTest {
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
   public void inputBasedRuleKeyAvoidsRelinkingAfterChangeToUnusedHeader() throws Exception {
@@ -45,8 +46,8 @@ public class CxxLinkIntegrationTest {
 
     BuildTarget target = BuildTargetFactory.newInstance("//:binary_with_unused_header");
     String unusedHeaderName = "unused_header.h";
-    BuildTarget linkTarget = CxxDescriptionEnhancer.createCxxLinkTarget(target,
-        Optional.<LinkerMapMode>empty());
+    BuildTarget linkTarget =
+        CxxDescriptionEnhancer.createCxxLinkTarget(target, Optional.<LinkerMapMode>empty());
 
     // Run the build and verify that the C++ source was compiled.
     workspace.runBuckBuild(target.toString());
@@ -57,8 +58,7 @@ public class CxxLinkIntegrationTest {
 
     // Now modify the unused header.
     workspace.writeContentsToPath(
-        "static inline int newFunction() { return 20; }",
-        unusedHeaderName);
+        "static inline int newFunction() { return 20; }", unusedHeaderName);
 
     // Run the build again and verify that got a matching input-based rule key, and therefore
     // didn't recompile.
@@ -70,8 +70,27 @@ public class CxxLinkIntegrationTest {
 
     // Also, make sure the original rule keys are actually different.
     assertThat(
-        secondRunEntry.getRuleKey(),
-        Matchers.not(Matchers.equalTo(firstRunEntry.getRuleKey())));
+        secondRunEntry.getRuleKey(), Matchers.not(Matchers.equalTo(firstRunEntry.getRuleKey())));
   }
 
+  @Test
+  public void osoSymbolsAreScrubbedCorrectly() throws Exception {
+    Assume.assumeThat(Platform.detect(), Matchers.equalTo(Platform.MACOS));
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_link_oso_symbol_scrub", tmp);
+    workspace.setUp();
+    Path resultPath = workspace.getPath("result");
+    workspace.runBuckBuild("root_cell//:binary", "--out", resultPath.toString()).assertSuccess();
+    String output =
+        workspace.runCommand("dsymutil", "-s", resultPath.toString()).getStdout().toString();
+    String[] lines = output.split("\n");
+    assertThat(
+        "Path in root cell is relativized to ./",
+        lines,
+        hasItemInArray(Matchers.matchesPattern(".*N_OSO.*'\\./buck-out/.*")));
+    assertThat(
+        "Path in non-root cell is relativized relative to root cell",
+        lines,
+        hasItemInArray(Matchers.matchesPattern(".*N_OSO.*'\\.\\./other_cell/buck-out/.*")));
+  }
 }

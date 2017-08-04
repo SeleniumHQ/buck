@@ -18,6 +18,7 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -30,14 +31,11 @@ import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.FileHashCacheVerificationResult;
 import com.google.common.collect.ImmutableList;
-
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.Map;
 
-/**
- * Verify the contents of our FileHashCache.
- */
+/** Verify the contents of our FileHashCache. */
 public class VerifyCachesCommand extends AbstractCommand {
 
   private boolean verifyFileHashCache(PrintStream stdOut, FileHashCache cache) throws IOException {
@@ -64,18 +62,12 @@ public class VerifyCachesCommand extends AbstractCommand {
     ImmutableList<Map.Entry<BuildRule, RuleKey>> contents = recycler.getCachedBuildRules();
     RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(ruleKeySeed);
     BuildRuleResolver resolver =
-        new BuildRuleResolver(
-            TargetGraph.EMPTY,
-            new DefaultTargetNodeToBuildRuleTransformer());
+        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     contents.forEach(e -> resolver.addToIndex(e.getKey()));
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = new SourcePathResolver(ruleFinder);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     DefaultRuleKeyFactory defaultRuleKeyFactory =
-        new DefaultRuleKeyFactory(
-            fieldLoader,
-            fileHashCache,
-            pathResolver,
-            ruleFinder);
+        new DefaultRuleKeyFactory(fieldLoader, fileHashCache, pathResolver, ruleFinder);
     stdOut.println(String.format("Examining %d build rule keys.", contents.size()));
     ImmutableList<BuildRule> mismatches =
         RichStream.from(contents)
@@ -104,7 +96,8 @@ public class VerifyCachesCommand extends AbstractCommand {
     // Verify rule key caches.
     params.getConsole().getStdOut().println("Verifying rule key caches...");
     success &=
-        params.getDefaultRuleKeyFactoryCacheRecycler()
+        params
+            .getDefaultRuleKeyFactoryCacheRecycler()
             .map(
                 recycler ->
                     verifyRuleKeyCache(
@@ -126,5 +119,4 @@ public class VerifyCachesCommand extends AbstractCommand {
   public String getShortDescription() {
     return "Verify contents of internal Buck in-memory caches.";
   }
-
 }

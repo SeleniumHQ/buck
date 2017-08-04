@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java.autodeps;
 
+import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -26,7 +27,6 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableProperties;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
@@ -41,7 +41,6 @@ import com.facebook.buck.util.ObjectMappers;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Path;
@@ -58,8 +57,7 @@ final class JavaSymbolsRule implements BuildRule, InitializableFromDisk<Symbols>
 
   private final BuildTarget buildTarget;
 
-  @AddToRuleKey
-  private final SymbolsFinder symbolsFinder;
+  @AddToRuleKey private final SymbolsFinder symbolsFinder;
 
   private final ProjectFilesystem projectFilesystem;
   private final Path outputPath;
@@ -81,8 +79,7 @@ final class JavaSymbolsRule implements BuildRule, InitializableFromDisk<Symbols>
   }
 
   @Override
-  public Symbols initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo)
-      throws IOException {
+  public Symbols initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) throws IOException {
     List<String> lines = onDiskBuildInfo.getOutputFileContentsByLine(outputPath);
     Preconditions.checkArgument(lines.size() == 1, "Should be one line of JSON: %s", lines);
     return ObjectMappers.readValue(lines.get(0), Symbols.class);
@@ -96,17 +93,22 @@ final class JavaSymbolsRule implements BuildRule, InitializableFromDisk<Symbols>
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
-    Step mkdirStep = MkdirStep.of(getProjectFilesystem(), outputPath.getParent());
-    Step extractSymbolsStep = new AbstractExecutionStep("java-symbols") {
-      @Override
-      public StepExecutionResult execute(ExecutionContext context) throws IOException {
-        try (OutputStream output = getProjectFilesystem().newFileOutputStream(outputPath)) {
-          ObjectMappers.WRITER.writeValue(output, symbolsFinder.extractSymbols());
-        }
+    Step mkdirStep =
+        MkdirStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), outputPath.getParent()));
+    Step extractSymbolsStep =
+        new AbstractExecutionStep("java-symbols") {
+          @Override
+          public StepExecutionResult execute(ExecutionContext context)
+              throws IOException, InterruptedException {
+            try (OutputStream output = getProjectFilesystem().newFileOutputStream(outputPath)) {
+              ObjectMappers.WRITER.writeValue(output, symbolsFinder.extractSymbols());
+            }
 
-        return StepExecutionResult.SUCCESS;
-      }
-    };
+            return StepExecutionResult.SUCCESS;
+          }
+        };
 
     return ImmutableList.of(mkdirStep, extractSymbolsStep);
   }
@@ -124,11 +126,6 @@ final class JavaSymbolsRule implements BuildRule, InitializableFromDisk<Symbols>
   @Override
   public String getType() {
     return TYPE;
-  }
-
-  @Override
-  public BuildableProperties getProperties() {
-    return BuildableProperties.NONE;
   }
 
   @Override
@@ -165,5 +162,4 @@ final class JavaSymbolsRule implements BuildRule, InitializableFromDisk<Symbols>
   public boolean isCacheable() {
     return true;
   }
-
 }

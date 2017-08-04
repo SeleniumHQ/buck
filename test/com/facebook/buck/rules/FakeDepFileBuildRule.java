@@ -16,6 +16,7 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
@@ -23,17 +24,12 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-
 import java.nio.file.Path;
 import java.util.function.Predicate;
-
 import javax.annotation.Nullable;
 
-/**
- * A fake {@link BuildRule} that implements {@link SupportsDependencyFileRuleKey}.
- */
-public class FakeDepFileBuildRule
-    extends AbstractBuildRule
+/** A fake {@link BuildRule} that implements {@link SupportsDependencyFileRuleKey}. */
+public class FakeDepFileBuildRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements SupportsDependencyFileRuleKey {
 
   private Path outputPath;
@@ -46,14 +42,14 @@ public class FakeDepFileBuildRule
   }
 
   public FakeDepFileBuildRule(BuildTarget target) {
-    this(new FakeBuildRuleParamsBuilder(target)
-        .setProjectFilesystem(new FakeProjectFilesystem())
-        .build());
+    this(target, new FakeProjectFilesystem(), TestBuildRuleParams.create());
   }
 
   public FakeDepFileBuildRule(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams) {
-    super(buildRuleParams);
+    super(buildTarget, projectFilesystem, buildRuleParams);
   }
 
   public FakeDepFileBuildRule setOutputPath(Path outputPath) {
@@ -61,13 +57,11 @@ public class FakeDepFileBuildRule
     return this;
   }
 
-  public FakeDepFileBuildRule setCoveredByDepFilePredicate(
-      ImmutableSet<SourcePath> coveredPaths) {
+  public FakeDepFileBuildRule setCoveredByDepFilePredicate(ImmutableSet<SourcePath> coveredPaths) {
     return setCoveredByDepFilePredicate(coveredPaths::contains);
   }
 
-  public FakeDepFileBuildRule setCoveredByDepFilePredicate(
-      Predicate<SourcePath> coveredPredicate) {
+  public FakeDepFileBuildRule setCoveredByDepFilePredicate(Predicate<SourcePath> coveredPredicate) {
     this.coveredPredicate = coveredPredicate;
     return this;
   }
@@ -95,17 +89,18 @@ public class FakeDepFileBuildRule
   }
 
   @Override
-  public Predicate<SourcePath> getCoveredByDepFilePredicate() {
+  public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathResolver pathResolver) {
     return coveredPredicate;
   }
 
   @Override
-  public Predicate<SourcePath> getExistenceOfInterestPredicate() {
+  public Predicate<SourcePath> getExistenceOfInterestPredicate(SourcePathResolver pathResolver) {
     return interestingPredicate;
   }
 
   @Override
-  public ImmutableList<SourcePath> getInputsAfterBuildingLocally(BuildContext context) {
+  public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
+      BuildContext context, CellPathResolver cellPathResolver) {
     return actualInputPaths;
   }
 
