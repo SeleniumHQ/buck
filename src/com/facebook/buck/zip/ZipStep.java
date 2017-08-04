@@ -104,7 +104,7 @@ public class ZipStep implements Step {
     FileVisitor<Path> pathFileVisitor =
         new SimpleFileVisitor<Path>() {
           private boolean isSkipFile(Path file) {
-            return !paths.isEmpty() && !paths.contains(file);
+            return !paths.isEmpty() && !paths.contains(file) && !file.equals(pathToZipFile);
           }
 
           private String getEntryName(Path path) {
@@ -175,6 +175,10 @@ public class ZipStep implements Step {
 
       // Write the entries out using the iteration order of the tree map above.
       for (Pair<CustomZipEntry, Optional<Path>> entry : entries.values()) {
+        if ("".equals(entry.getFirst().getName())) {
+          // Cowardly refuse to write a file with no name to the archive.
+          continue;
+        }
         out.putNextEntry(entry.getFirst());
         if (entry.getSecond().isPresent()) {
           try (InputStream input = filesystem.newFileInputStream(entry.getSecond().get())) {

@@ -165,15 +165,6 @@ public class JavaLibraryDescription
           summary.getMavenDeps());
     }
 
-//    BuildRuleParams paramsWithMavenFlavor = null;
-//    if (flavors.contains(JavaLibrary.MAVEN_JAR)) {
-//      paramsWithMavenFlavor = params;
-//
-//      // Maven rules will depend upon their vanilla versions, so the latter have to be constructed
-//      // without the maven flavor to prevent output-path conflict
-//      params = params.withoutFlavor(JavaLibrary.MAVEN_JAR);
-//    }
-
     JavacOptions javacOptions =
         JavacOptionsFactory.create(defaultOptions, buildTarget, projectFilesystem, resolver, args);
 
