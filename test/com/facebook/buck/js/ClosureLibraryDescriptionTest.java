@@ -37,7 +37,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import org.junit.Before;
 import org.junit.Test;
 
-public class JsLibraryDescriptionTest {
+public class ClosureLibraryDescriptionTest {
 
   private static final String targetDirectory = "arbitrary/path";
   private JsTestScenario.Builder scenarioBuilder;

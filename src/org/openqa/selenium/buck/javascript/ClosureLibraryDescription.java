@@ -31,7 +31,7 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import org.immutables.value.Value;
 
-public class JsLibraryDescription implements Description<JsLibraryArg> {
+public class ClosureLibraryDescription implements Description<JsLibraryArg> {
 
   @Override
   public Class<JsLibraryArg> getConstructorArgType() {

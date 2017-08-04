@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-present Facebook, Inc.
+ * Copyright 2013-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -16,9 +16,6 @@
 
 package org.openqa.selenium.buck.javascript;
 
-
-import static java.lang.Boolean.FALSE;
-
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -30,6 +27,7 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
+import com.facebook.buck.rules.HasSrcs;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -38,24 +36,26 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import org.immutables.value.Value;
 import java.util.Optional;
+import java.util.SortedSet;
 
-public class JsFragmentDescription implements
-    Description<JsFragmentArg>,
-    ImplicitDepsInferringDescription<JsFragmentArg> {
+public class ClosureBinaryDescription implements
+    Description<JsBinaryArg>,
+    ImplicitDepsInferringDescription<JsBinaryArg> {
 
   private final JavascriptConfig config;
 
-  public JsFragmentDescription(JavascriptConfig config) {
+  public ClosureBinaryDescription(JavascriptConfig config) {
     this.config = config;
   }
 
   @Override
-  public Class<JsFragmentArg> getConstructorArgType() {
-    return JsFragmentArg.class;
+  public Class<JsBinaryArg> getConstructorArgType() {
+    return JsBinaryArg.class;
   }
 
   @Override
@@ -66,27 +66,28 @@ public class JsFragmentDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      JsFragmentArg args) throws NoSuchBuildTargetException {
+      JsBinaryArg args) throws NoSuchBuildTargetException {
     SourcePathRuleFinder finder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(finder);
-
-    return new JsFragment(
+    Supplier<? extends SortedSet<BuildRule>> declaredDeps = params.getDeclaredDeps();
+    return new JsBinary(
         buildTarget,
         projectFilesystem,
         params,
         config.getClosureCompiler(args.getCompiler(), pathResolver, finder),
-        params.getBuildDeps(),
-        args.getModule(),
-        args.getFunction(),
+        declaredDeps,
+        args.getSrcs(),
         args.getDefines(),
-        args.getPrettyPrint().orElse(FALSE));
+        args.getFlags(),
+        args.getExterns(),
+        args.getNoFormat());
   }
 
   @Override
   public void findDepsForTargetFromConstructorArgs(
       BuildTarget buildTarget,
       CellPathResolver cellRoots,
-      JsFragmentArg constructorArg,
+      JsBinaryArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     extraDepsBuilder.addAll(
@@ -98,14 +99,11 @@ public class JsFragmentDescription implements
 
   @BuckStyleImmutable
   @Value.Immutable
-  public interface AbstractJsFragmentArg extends HasDeclaredDeps {
-    String getFunction();
-    String getModule();
-    Optional<Boolean> getPrettyPrint();
-    @Value.Default
-    default ImmutableList<String> getDefines() {
-      return ImmutableList.of();
-    }
+  public interface AbstractJsBinaryArg extends HasSrcs, HasDeclaredDeps {
+    ImmutableList<String> getDefines();
+    ImmutableList<SourcePath> getExterns();
+    ImmutableList<String> getFlags();
+    Optional<Boolean> getNoFormat();
     Optional<SourcePath> getCompiler();
   }
 }
