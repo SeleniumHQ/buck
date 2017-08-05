@@ -16,6 +16,8 @@
 
 package com.facebook.buck.rules.keys;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import com.facebook.buck.hashing.FileHashLoader;
 import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.BuildRule;
@@ -29,7 +31,9 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashCode;
+import com.google.common.hash.Hashing;
 import java.io.IOException;
+import java.util.UUID;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -99,6 +103,9 @@ public class DefaultRuleKeyFactory implements RuleKeyFactoryWithDiagnostics<Rule
 
   @Override
   public RuleKey build(BuildRule buildRule) {
+    if ("org.openqa.selenium.buck.file.BuildStamp".equals(buildRule.getClass().getName())) {
+      return new RuleKey(Hashing.sha1().hashString(UUID.randomUUID().toString(), UTF_8));
+    }
     return ruleKeyCache.get(
         buildRule,
         rule ->

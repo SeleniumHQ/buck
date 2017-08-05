@@ -168,6 +168,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
+import org.openqa.selenium.buck.file.BuildStampDescription;
 import org.openqa.selenium.buck.file.FolderDescription;
 import org.openqa.selenium.buck.javascript.ClosureBinaryDescription;
 import org.openqa.selenium.buck.javascript.ClosureFragmentDescription;
@@ -716,6 +717,7 @@ public class KnownBuildRuleTypes {
     // Selenium-specific targets
     JavascriptConfig jsConfig = new JavascriptConfig(config);
 
+    builder.register(new BuildStampDescription());
     builder.register(new FolderDescription());
     builder.register(new ClosureBinaryDescription(jsConfig));
     builder.register(new ClosureFragmentDescription(jsConfig));
