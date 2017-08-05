@@ -46,6 +46,7 @@ import org.immutables.value.Value;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class JavaLibraryDescription
     implements Description<JavaLibraryDescriptionArg>,
@@ -168,10 +169,14 @@ public class JavaLibraryDescription
     JavacOptions javacOptions =
         JavacOptionsFactory.create(defaultOptions, buildTarget, projectFilesystem, resolver, args);
 
+    BuildTarget withoutMaven = BuildTarget.of(
+        buildTarget.getUnflavoredBuildTarget(),
+        flavors.stream().filter(flavor -> flavor.compareTo(JavaLibrary.MAVEN_JAR) != 0).collect(Collectors.toSet()));
+
     DefaultJavaLibraryBuilder defaultJavaLibraryBuilder =
         DefaultJavaLibrary.builder(
                 targetGraph,
-                buildTarget,
+                withoutMaven,
                 projectFilesystem,
                 params,
                 resolver,
