@@ -53,6 +53,7 @@ import com.facebook.buck.jvm.kotlin.FauxKotlinLibraryBuilder;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
@@ -398,6 +399,31 @@ public class DefaultIjModuleFactoryTest {
   }
 
   @Test
+  public void testScalaLibrary() {
+    IjModuleFactory factory = createIjModuleFactory();
+
+    TargetNode<?, ?> scalaLib =
+        FauxKotlinLibraryBuilder.createBuilder(
+                BuildTargetFactory.newInstance("//scala/com/example/base:base"))
+            .addSrc(Paths.get("scala/com/example/base/File.scala"))
+            .build();
+
+    Path moduleBasePath = Paths.get("scala/com/example/base");
+    IjModule module =
+        factory.createModule(moduleBasePath, ImmutableSet.of(scalaLib), Collections.emptySet());
+
+    assertEquals(moduleBasePath, module.getModuleBasePath());
+    assertFalse(module.getAndroidFacet().isPresent());
+    assertEquals(1, module.getFolders().size());
+    assertEquals(ImmutableSet.of(scalaLib.getBuildTarget()), module.getTargets());
+
+    IjFolder folder = module.getFolders().iterator().next();
+    assertEquals(Paths.get("scala/com/example/base"), folder.getPath());
+    assertFalse(folder instanceof TestFolder);
+    assertFalse(folder.getWantsPackagePrefix());
+  }
+
+  @Test
   public void testJavaLibraryInRoot() {
     IjModuleFactory factory = createIjModuleFactory();
 
@@ -617,7 +643,8 @@ public class DefaultIjModuleFactoryTest {
             .build();
 
     final BuildRuleResolver buildRuleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     final SourcePathResolver sourcePathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
     IjLibraryFactoryResolver ijLibraryFactoryResolver =

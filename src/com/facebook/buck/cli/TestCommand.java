@@ -30,6 +30,7 @@ import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildEngine;
 import com.facebook.buck.rules.BuildEvent;
+import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
@@ -53,6 +54,8 @@ import com.facebook.buck.step.TargetDevice;
 import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.test.CoverageReportFormat;
 import com.facebook.buck.test.TestRunningOptions;
+import com.facebook.buck.test.external.ExternalTestRunEvent;
+import com.facebook.buck.test.external.ExternalTestSpecCalculationEvent;
 import com.facebook.buck.util.ForwardingProcessListener;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.MoreCollectors;
@@ -71,7 +74,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.io.PrintStream;
-import java.nio.channels.Channels;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -82,8 +84,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 import javax.annotation.Nullable;
 import org.kohsuke.args4j.Option;
 
@@ -298,16 +300,11 @@ public class TestCommand extends BuildCommand {
           testRules,
           build.getExecutionContext(),
           getTestRunningOptions(params),
-          testPool.getExecutor(),
+          testPool.getListeningExecutorService(),
           buildEngine,
           new DefaultStepRunner(),
           buildContext,
           ruleFinder);
-    } catch (ExecutionException e) {
-      params
-          .getBuckEventBus()
-          .post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
-      return 1;
     }
   }
 
@@ -318,24 +315,42 @@ public class TestCommand extends BuildCommand {
       Iterable<TestRule> testRules,
       BuildContext buildContext)
       throws InterruptedException, IOException {
-    TestRunningOptions options = getTestRunningOptions(params);
-
-    // Walk the test rules, collecting all the specs.
-    List<ExternalTestRunnerTestSpec> specs = new ArrayList<>();
-    for (TestRule testRule : testRules) {
-      if (!(testRule instanceof ExternalTestRunnerRule)) {
-        params
-            .getBuckEventBus()
-            .post(
-                ConsoleEvent.severe(
-                    String.format(
-                        "Test %s does not support external test running",
-                        testRule.getBuildTarget())));
-        return 1;
-      }
-      ExternalTestRunnerRule rule = (ExternalTestRunnerRule) testRule;
-      specs.add(rule.getExternalTestRunnerSpec(build.getExecutionContext(), options, buildContext));
+    Optional<TestRule> nonExternalTestRunnerRule =
+        StreamSupport.stream(testRules.spliterator(), /* parallel */ true)
+            .filter(rule -> !(rule instanceof ExternalTestRunnerRule))
+            .findAny();
+    if (nonExternalTestRunnerRule.isPresent()) {
+      params
+          .getBuckEventBus()
+          .post(
+              ConsoleEvent.severe(
+                  String.format(
+                      "Test %s does not support external test running",
+                      nonExternalTestRunnerRule.get().getBuildTarget())));
+      return 1;
     }
+    TestRunningOptions options = getTestRunningOptions(params);
+    // Walk the test rules, collecting all the specs.
+    ImmutableList<ExternalTestRunnerTestSpec> specs =
+        StreamSupport.stream(
+                testRules.spliterator(),
+                params.getBuckConfig().isParallelExternalTestSpecComputationEnabled())
+            .map(ExternalTestRunnerRule.class::cast)
+            .map(
+                rule -> {
+                  try {
+                    params
+                        .getBuckEventBus()
+                        .post(ExternalTestSpecCalculationEvent.started(rule.getBuildTarget()));
+                    return rule.getExternalTestRunnerSpec(
+                        build.getExecutionContext(), options, buildContext);
+                  } finally {
+                    params
+                        .getBuckEventBus()
+                        .post(ExternalTestSpecCalculationEvent.finished(rule.getBuildTarget()));
+                  }
+                })
+            .collect(MoreCollectors.toImmutableList());
 
     // Serialize the specs to a file to pass into the test runner.
     Path infoFile =
@@ -363,13 +378,28 @@ public class TestCommand extends BuildCommand {
             .build();
     ForwardingProcessListener processListener =
         new ForwardingProcessListener(
-            Channels.newChannel(params.getConsole().getStdOut()),
-            Channels.newChannel(params.getConsole().getStdErr()));
+            params.getConsole().getStdOut(), params.getConsole().getStdErr());
+    final ImmutableSet<String> testTargets =
+        StreamSupport.stream(testRules.spliterator(), /* parallel */ false)
+            .map(BuildRule::getBuildTarget)
+            .map(Object::toString)
+            .collect(MoreCollectors.toImmutableSet());
     ListeningProcessExecutor.LaunchedProcess process =
         processExecutor.launchProcess(processExecutorParams, processListener);
+    int exitCode = -1;
     try {
-      return processExecutor.waitForProcess(process);
+      params
+          .getBuckEventBus()
+          .post(
+              ExternalTestRunEvent.started(
+                  options.isRunAllTests(),
+                  options.getTestSelectorList(),
+                  options.shouldExplainTestSelectorList(),
+                  testTargets));
+      exitCode = processExecutor.waitForProcess(process);
+      return exitCode;
     } finally {
+      params.getBuckEventBus().post(ExternalTestRunEvent.finished(testTargets, exitCode));
       processExecutor.destroyProcess(process, /* force */ false);
       processExecutor.waitForProcess(process);
     }
@@ -406,7 +436,7 @@ public class TestCommand extends BuildCommand {
                       params.getBuckEventBus(),
                       params.getCell(),
                       getEnableParserProfiling(),
-                      pool.getExecutor(),
+                      pool.getListeningExecutorService(),
                       ImmutableList.of(
                           TargetNodePredicateSpec.of(
                                   BuildFileSpec.fromRecursivePath(
@@ -427,7 +457,7 @@ public class TestCommand extends BuildCommand {
                       params.getBuckEventBus(),
                       params.getCell(),
                       getEnableParserProfiling(),
-                      pool.getExecutor(),
+                      pool.getListeningExecutorService(),
                       parseArgumentsAsTargetNodeSpecs(params.getBuckConfig(), getArguments()),
                       parserConfig.getDefaultFlavorsMode());
 
@@ -455,7 +485,7 @@ public class TestCommand extends BuildCommand {
                         params.getBuckEventBus(),
                         params.getCell(),
                         getEnableParserProfiling(),
-                        pool.getExecutor(),
+                        pool.getListeningExecutorService(),
                         allTargets);
             LOG.debug("Finished building new target graph with tests.");
             targetGraphAndBuildTargets = TargetGraphAndBuildTargets.of(targetGraph, allTargets);
@@ -498,23 +528,17 @@ public class TestCommand extends BuildCommand {
       MetadataChecker.checkAndCleanIfNeeded(params.getCell());
       CachingBuildEngineBuckConfig cachingBuildEngineBuckConfig =
           params.getBuckConfig().getView(CachingBuildEngineBuckConfig.class);
-      try (CommandThreadManager artifactFetchService =
-              getArtifactFetchService(params.getBuckConfig(), pool.getExecutor());
-          RuleKeyCacheScope<RuleKey> ruleKeyCacheScope =
-              getDefaultRuleKeyCacheScope(
-                  params,
-                  new RuleKeyCacheRecycler.SettingsAffectingCache(
-                      params.getBuckConfig().getKeySeed(),
-                      actionGraphAndResolver.getActionGraph()))) {
+      try (RuleKeyCacheScope<RuleKey> ruleKeyCacheScope =
+          getDefaultRuleKeyCacheScope(
+              params,
+              new RuleKeyCacheRecycler.SettingsAffectingCache(
+                  params.getBuckConfig().getKeySeed(), actionGraphAndResolver.getActionGraph()))) {
         LocalCachingBuildEngineDelegate localCachingBuildEngineDelegate =
             new LocalCachingBuildEngineDelegate(params.getFileHashCache());
         try (CachingBuildEngine cachingBuildEngine =
                 new CachingBuildEngine(
                     new LocalCachingBuildEngineDelegate(params.getFileHashCache()),
-                    pool.getExecutor(),
-                    artifactFetchService == null
-                        ? pool.getExecutor()
-                        : artifactFetchService.getExecutor(),
+                    pool.getWeightedListeningExecutorService(),
                     new DefaultStepRunner(),
                     getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
                     cachingBuildEngineBuckConfig.getBuildMetadataStorage(),

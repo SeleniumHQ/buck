@@ -31,7 +31,6 @@ import com.facebook.buck.jvm.java.SourceJar;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -85,8 +84,7 @@ public class KotlinLibraryDescription
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      KotlinLibraryDescriptionArg args)
-      throws NoSuchBuildTargetException {
+      KotlinLibraryDescriptionArg args) {
 
     ImmutableSortedSet<Flavor> flavors = buildTarget.getFlavors();
 

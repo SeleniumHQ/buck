@@ -16,8 +16,8 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.cxx.platform.DependencyTrackingMode;
-import com.facebook.buck.cxx.platform.HeaderVerification;
+import com.facebook.buck.cxx.toolchain.DependencyTrackingMode;
+import com.facebook.buck.cxx.toolchain.HeaderVerification;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.PerfEventId;
@@ -41,7 +41,7 @@ import java.util.Optional;
 import java.util.logging.Level;
 
 /** Specialized parser for .d Makefiles emitted by {@code gcc -MD}. */
-public class Depfiles {
+class Depfiles {
 
   private Depfiles() {}
 
@@ -284,7 +284,9 @@ public class Depfiles {
         if (!(headerVerification.isWhitelisted(header.toString()))) {
           String errorMessage =
               String.format(
-                  "%s: included an untracked header \"%s\"",
+                  "%s: included an untracked header \"%s\"\n\n"
+                      + "Please reference this header file from \"headers\" or \"exported_headers\" \n"
+                      + "in the appropriate build rule.",
                   inputPath, repoRelativePath.orElse(header));
           eventBus.post(
               ConsoleEvent.create(

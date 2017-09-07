@@ -2,7 +2,6 @@ package org.openqa.selenium.buck.file;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -28,7 +27,7 @@ public class BuildStampDescription implements Description<BuildStampArg> {
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      BuildStampArg args) throws NoSuchBuildTargetException {
+      BuildStampArg args) {
     return new BuildStamp(
         buildTarget,
         projectFilesystem,

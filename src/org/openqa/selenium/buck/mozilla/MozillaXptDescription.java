@@ -18,7 +18,6 @@ package org.openqa.selenium.buck.mozilla;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -49,7 +48,7 @@ public class MozillaXptDescription implements Description<MozillaXptArg> {
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      MozillaXptArg args) throws NoSuchBuildTargetException {
+      MozillaXptArg args) {
     Path sourcePath = DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver))
         .getRelativePath(args.getSrc());
     String name = Files.getNameWithoutExtension(sourcePath.toString()) + ".xpt";

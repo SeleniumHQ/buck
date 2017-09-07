@@ -19,7 +19,7 @@ package com.facebook.buck.haskell;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeThat;
 
-import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -95,7 +95,11 @@ public class HaskellLibraryIntegrationTest {
     workspace.runBuckBuild("//:first_order_a_pass#default," + getLinkFlavor()).assertSuccess();
     ProjectWorkspace.ProcessResult result =
         workspace.runBuckBuild("//:first_order_a_fail#default," + getLinkFlavor()).assertFailure();
-    assertThat(result.getStderr(), Matchers.containsString("It is a member of the hidden package"));
+    assertThat(
+        result.getStderr(),
+        Matchers.anyOf(
+            Matchers.containsString("It is a member of the hidden package"), // < GHC 8.1
+            Matchers.containsString("Could not find module"))); // > GHC 8.1
   }
 
   @Test

@@ -21,6 +21,9 @@ import com.google.common.base.Charsets;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Before;
@@ -29,6 +32,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 public class LocalFsContentsProviderTest {
+  private static final long FUTURE_GET_TIMEOUT_SECONDS = 2;
   private static final byte[] FILE_CONTENTS = "topspin".getBytes(Charsets.UTF_8);
 
   @Rule public TemporaryFolder tempDir = new TemporaryFolder();
@@ -41,32 +45,40 @@ public class LocalFsContentsProviderTest {
   public void setUp() {
     cacheRootDir = tempDir.getRoot().toPath();
     entry = new BuildJobStateFileHashEntry();
-    entry.setHashCode("1237987abc");
+    entry.setSha1("1237987abc");
     targetAbsPath = cacheRootDir.resolve("topspin.file.txt");
   }
 
   @Test
-  public void testGettingNonExistentFile() throws InterruptedException, IOException {
-    LocalFsContentsProvider provider = new LocalFsContentsProvider(cacheRootDir);
-    Assert.assertFalse(Files.isRegularFile(targetAbsPath));
-    provider.materializeFileContents(entry, targetAbsPath);
-    Assert.assertFalse(Files.isRegularFile(targetAbsPath));
+  public void testGettingNonExistentFile()
+      throws InterruptedException, IOException, ExecutionException, TimeoutException {
+    try (LocalFsContentsProvider provider = new LocalFsContentsProvider(cacheRootDir)) {
+      Assert.assertFalse(Files.isRegularFile(targetAbsPath));
+      provider
+          .materializeFileContentsAsync(entry, targetAbsPath)
+          .get(FUTURE_GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      Assert.assertFalse(Files.isRegularFile(targetAbsPath));
+    }
   }
 
   @Test
-  public void testGettingExistentFile() throws InterruptedException, IOException {
-    LocalFsContentsProvider provider = new LocalFsContentsProvider(cacheRootDir);
-    Assert.assertFalse(Files.isRegularFile(targetAbsPath));
+  public void testGettingExistentFile()
+      throws InterruptedException, IOException, ExecutionException, TimeoutException {
+    try (LocalFsContentsProvider provider = new LocalFsContentsProvider(cacheRootDir)) {
+      Assert.assertFalse(Files.isRegularFile(targetAbsPath));
 
-    Files.write(targetAbsPath, FILE_CONTENTS);
-    Assert.assertTrue(Files.isRegularFile(targetAbsPath));
-    provider.writeFileAndGetInputStream(entry, targetAbsPath);
-    Assert.assertTrue(Files.isRegularFile(targetAbsPath));
+      Files.write(targetAbsPath, FILE_CONTENTS);
+      Assert.assertTrue(Files.isRegularFile(targetAbsPath));
+      provider.writeFileAndGetInputStream(entry, targetAbsPath);
+      Assert.assertTrue(Files.isRegularFile(targetAbsPath));
 
-    Path anotherAbsPath = cacheRootDir.resolve("slicespin.file.txt");
-    Assert.assertFalse(Files.isRegularFile(anotherAbsPath));
-    provider.materializeFileContents(entry, anotherAbsPath);
-    Assert.assertTrue(Files.isRegularFile(anotherAbsPath));
-    Assert.assertThat(FILE_CONTENTS, Matchers.equalTo(Files.readAllBytes(anotherAbsPath)));
+      Path anotherAbsPath = cacheRootDir.resolve("slicespin.file.txt");
+      Assert.assertFalse(Files.isRegularFile(anotherAbsPath));
+      provider
+          .materializeFileContentsAsync(entry, anotherAbsPath)
+          .get(FUTURE_GET_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      Assert.assertTrue(Files.isRegularFile(anotherAbsPath));
+      Assert.assertThat(FILE_CONTENTS, Matchers.equalTo(Files.readAllBytes(anotherAbsPath)));
+    }
   }
 }

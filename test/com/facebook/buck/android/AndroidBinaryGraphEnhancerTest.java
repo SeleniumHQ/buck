@@ -31,7 +31,7 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.android.AndroidBinary.ExopackageMode;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.cli.FakeBuckConfig;
-import com.facebook.buck.cxx.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaClassHashes;
 import com.facebook.buck.jvm.java.JavaLibrary;
@@ -45,6 +45,7 @@ import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
@@ -105,7 +106,7 @@ public class AndroidBinaryGraphEnhancerTest {
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(javaDep1Node, javaDep2Node, javaLibNode);
     BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
 
     BuildRule javaDep1 = ruleResolver.requireRule(javaDep1BuildTarget);
@@ -120,9 +121,7 @@ public class AndroidBinaryGraphEnhancerTest {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildRuleParams originalParams =
         new BuildRuleParams(
-            Suppliers.ofInstance(originalDeps),
-            Suppliers.ofInstance(originalDeps),
-            ImmutableSortedSet.of());
+            Suppliers.ofInstance(originalDeps), ImmutableSortedSet::of, ImmutableSortedSet.of());
     AndroidBinaryGraphEnhancer graphEnhancer =
         new AndroidBinaryGraphEnhancer(
             apkTarget,
@@ -133,7 +132,7 @@ public class AndroidBinaryGraphEnhancerTest {
             TestCellPathResolver.get(filesystem),
             AndroidBinary.AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.DISABLED,
-            FilterResourcesStep.ResourceFilter.EMPTY_FILTER,
+            FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             Optional.empty(),
             /* locales */ ImmutableSet.of(),
@@ -147,6 +146,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* resourcesToExclude */ ImmutableSet.of(),
             /* skipCrunchPngs */ false,
             /* includesVectorDrawables */ false,
+            /* noAutoVersionResources */ false,
             DEFAULT_JAVA_CONFIG,
             DEFAULT_JAVAC,
             ANDROID_JAVAC_OPTIONS,
@@ -172,12 +172,10 @@ public class AndroidBinaryGraphEnhancerTest {
 
     BuildTarget aaptPackageResourcesTarget =
         BuildTargetFactory.newInstance("//java/com/example:apk#aapt_package");
-    BuildRuleParams aaptPackageResourcesParams = TestBuildRuleParams.create();
     AaptPackageResources aaptPackageResources =
         new AaptPackageResources(
             aaptPackageResourcesTarget,
             filesystem,
-            aaptPackageResourcesParams,
             ruleFinder,
             ruleResolver,
             /* manifest */ new FakeSourcePath("java/src/com/facebook/base/AndroidManifest.xml"),
@@ -251,7 +249,8 @@ public class AndroidBinaryGraphEnhancerTest {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleParams buildConfigParams = TestBuildRuleParams.create();
     BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     AndroidBuildConfigJavaLibrary buildConfigJavaLibrary =
         AndroidBuildConfigDescription.createBuildRule(
             buildConfigBuildTarget,
@@ -282,7 +281,7 @@ public class AndroidBinaryGraphEnhancerTest {
             TestCellPathResolver.get(new FakeProjectFilesystem()),
             AndroidBinary.AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS,
-            FilterResourcesStep.ResourceFilter.EMPTY_FILTER,
+            FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             Optional.empty(),
             /* locales */ ImmutableSet.of(),
@@ -296,6 +295,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* resourcesToExclude */ ImmutableSet.of(),
             /* skipCrunchPngs */ false,
             /* includesVectorDrawables */ false,
+            /* noAutoVersionResources */ false,
             DEFAULT_JAVA_CONFIG,
             DEFAULT_JAVAC,
             ANDROID_JAVAC_OPTIONS,
@@ -353,11 +353,6 @@ public class AndroidBinaryGraphEnhancerTest {
                 BuildConfigFields.Field.of("int", "EXOPACKAGE_FLAGS", "1"))),
         androidBuildConfig.getBuildConfigFields());
 
-    ImmutableSortedSet<BuildRule> finalDeps = result.getFinalDeps();
-    BuildRule computeExopackageDepsAbiRule =
-        findRuleOfType(ruleResolver, ComputeExopackageDepsAbi.class);
-    assertThat(finalDeps, Matchers.hasItem(computeExopackageDepsAbiRule));
-
     BuildRule resourcesFilterRule = findRuleOfType(ruleResolver, ResourcesFilter.class);
 
     BuildRule aaptPackageResourcesRule = findRuleOfType(ruleResolver, AaptPackageResources.class);
@@ -373,22 +368,7 @@ public class AndroidBinaryGraphEnhancerTest {
         aaptPackageResourcesRule);
 
     assertFalse(result.getPreDexMerge().isPresent());
-
-    MoreAsserts.assertDepends(
-        "ComputeExopackageDepsAbi must depend on ResourcesFilter",
-        computeExopackageDepsAbiRule,
-        resourcesFilterRule);
-    MoreAsserts.assertDepends(
-        "ComputeExopackageDepsAbi must depend on PackageStringAssets",
-        computeExopackageDepsAbiRule,
-        packageStringAssetsRule);
-    MoreAsserts.assertDepends(
-        "ComputeExopackageDepsAbi must depend on AaptPackageResources",
-        computeExopackageDepsAbiRule,
-        aaptPackageResourcesRule);
-
     assertTrue(result.getPackageStringAssets().isPresent());
-    assertTrue(result.getComputeExopackageDepsAbi().isPresent());
 
     verify(keystore);
   }
@@ -403,7 +383,7 @@ public class AndroidBinaryGraphEnhancerTest {
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(resourceNode);
     BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
 
     AndroidResource resource =
         (AndroidResource) ruleResolver.requireRule(resourceNode.getBuildTarget());
@@ -423,7 +403,7 @@ public class AndroidBinaryGraphEnhancerTest {
             TestCellPathResolver.get(new FakeProjectFilesystem()),
             AndroidBinary.AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS,
-            FilterResourcesStep.ResourceFilter.EMPTY_FILTER,
+            FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             Optional.empty(),
             /* locales */ ImmutableSet.of(),
@@ -437,6 +417,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* resourcesToExclude */ ImmutableSet.of(),
             /* skipCrunchPngs */ false,
             /* includesVectorDrawables */ false,
+            /* noAutoVersionResources */ false,
             DEFAULT_JAVA_CONFIG,
             DEFAULT_JAVAC,
             ANDROID_JAVAC_OPTIONS,
@@ -469,7 +450,8 @@ public class AndroidBinaryGraphEnhancerTest {
   @Test
   public void testPackageStringsDependsOnResourcesFilter() throws Exception {
     BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
 
     // set it up.
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
@@ -485,7 +467,7 @@ public class AndroidBinaryGraphEnhancerTest {
             TestCellPathResolver.get(new FakeProjectFilesystem()),
             AndroidBinary.AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS,
-            FilterResourcesStep.ResourceFilter.EMPTY_FILTER,
+            FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             Optional.empty(),
             /* locales */ ImmutableSet.of(),
@@ -499,6 +481,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* resourcesToExclude */ ImmutableSet.of(),
             /* skipCrunchPngs */ false,
             /* includesVectorDrawables */ false,
+            /* noAutoVersionResources */ false,
             DEFAULT_JAVA_CONFIG,
             DEFAULT_JAVAC,
             ANDROID_JAVAC_OPTIONS,
@@ -535,7 +518,8 @@ public class AndroidBinaryGraphEnhancerTest {
   @Test
   public void testResourceRulesDependOnRulesBehindResourceSourcePaths() throws Exception {
     BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
 
     FakeBuildRule resourcesDep =
@@ -576,7 +560,7 @@ public class AndroidBinaryGraphEnhancerTest {
             TestCellPathResolver.get(new FakeProjectFilesystem()),
             AndroidBinary.AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS,
-            FilterResourcesStep.ResourceFilter.EMPTY_FILTER,
+            FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             Optional.empty(),
             /* locales */ ImmutableSet.of(),
@@ -590,6 +574,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* resourcesToExclude */ ImmutableSet.of(),
             /* skipCrunchPngs */ false,
             /* includesVectorDrawables */ false,
+            /* noAutoVersionResources */ false,
             DEFAULT_JAVA_CONFIG,
             DEFAULT_JAVAC,
             ANDROID_JAVAC_OPTIONS,

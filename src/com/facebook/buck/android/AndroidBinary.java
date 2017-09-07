@@ -16,28 +16,30 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
+import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.android.redex.RedexOptions;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.HasClasspathEntries;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryClasspathProvider;
-import com.facebook.buck.jvm.java.JavaRuntimeLauncher;
 import com.facebook.buck.jvm.java.Keystore;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.ExopackageInfo;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.HasDeclaredAndExtraDeps;
 import com.facebook.buck.rules.HasInstallHelpers;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
@@ -71,8 +73,9 @@ import java.util.stream.Stream;
  * )
  * </pre>
  */
-public class AndroidBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
+public class AndroidBinary extends AbstractBuildRule
     implements SupportsInputBasedRuleKey,
+        HasDeclaredAndExtraDeps,
         HasClasspathEntries,
         HasRuntimeDeps,
         HasInstallableApk,
@@ -161,8 +164,11 @@ public class AndroidBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private final AndroidGraphEnhancementResult enhancementResult;
   private final ManifestEntries manifestEntries;
   private final boolean skipProguard;
-  private final JavaRuntimeLauncher javaRuntimeLauncher;
+  private final Tool javaRuntimeLauncher;
   private final boolean isCacheable;
+  private final Optional<SourcePath> appModularityResult;
+
+  private final BuildRuleParams buildRuleParams;
 
   @AddToRuleKey private final AndroidBinaryBuildable buildable;
 
@@ -199,10 +205,12 @@ public class AndroidBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
       boolean packageAssetLibraries,
       boolean compressAssetLibraries,
       ManifestEntries manifestEntries,
-      JavaRuntimeLauncher javaRuntimeLauncher,
+      Tool javaRuntimeLauncher,
       Optional<String> dxMaxHeapSize,
-      boolean isCacheable) {
-    super(buildTarget, projectFilesystem, params);
+      boolean isCacheable,
+      Optional<SourcePath> appModularityResult) {
+    super(buildTarget, projectFilesystem);
+    Preconditions.checkArgument(params.getExtraDeps().get().isEmpty());
     this.ruleFinder = ruleFinder;
     this.proguardJvmArgs = proguardJvmArgs;
     this.keystore = keystore;
@@ -220,6 +228,7 @@ public class AndroidBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.skipProguard = skipProguard;
     this.manifestEntries = manifestEntries;
     this.isCacheable = isCacheable;
+    this.appModularityResult = appModularityResult;
 
     if (ExopackageMode.enabledForSecondaryDexes(exopackageModes)) {
       Preconditions.checkArgument(
@@ -232,9 +241,6 @@ public class AndroidBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
               + "which is invalid.  (Only JAR is allowed.)",
           getBuildTarget(),
           dexSplitMode.getDexStore());
-      Preconditions.checkArgument(
-          enhancementResult.getComputeExopackageDepsAbi().isPresent(),
-          "computeExopackageDepsAbi must be set if exopackage is true.");
     }
 
     if (ExopackageMode.enabledForResources(exopackageModes)
@@ -285,10 +291,33 @@ public class AndroidBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
             dxMaxHeapSize,
             enhancementResult.getProguardConfigs(),
             resourceCompressionMode.isCompressResources(),
-            enhancementResult
-                .getComputeExopackageDepsAbi()
-                .map(ComputeExopackageDepsAbi::getAbiPath)
-                .orElse(null));
+            this.appModularityResult);
+    params =
+        params.withExtraDeps(
+            () ->
+                BuildableSupport.deriveDeps(this, ruleFinder)
+                    .collect(MoreCollectors.toImmutableSortedSet()));
+    this.buildRuleParams = params;
+  }
+
+  @Override
+  public SortedSet<BuildRule> getBuildDeps() {
+    return buildRuleParams.getBuildDeps();
+  }
+
+  @Override
+  public SortedSet<BuildRule> getDeclaredDeps() {
+    return buildRuleParams.getDeclaredDeps().get();
+  }
+
+  @Override
+  public SortedSet<BuildRule> deprecatedGetExtraDeps() {
+    return buildRuleParams.getExtraDeps().get();
+  }
+
+  @Override
+  public ImmutableSortedSet<BuildRule> getTargetGraphOnlyDeps() {
+    return buildRuleParams.getTargetGraphOnlyDeps();
   }
 
   public ImmutableSortedSet<JavaLibrary> getRulesToExcludeFromDex() {
@@ -335,7 +364,7 @@ public class AndroidBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     return manifestEntries;
   }
 
-  JavaRuntimeLauncher getJavaRuntimeLauncher() {
+  Tool getJavaRuntimeLauncher() {
     return javaRuntimeLauncher;
   }
 

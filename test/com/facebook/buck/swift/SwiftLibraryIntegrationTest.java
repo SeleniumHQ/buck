@@ -16,8 +16,12 @@
 
 package com.facebook.buck.swift;
 
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assume.assumeThat;
 
+import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
+import com.facebook.buck.apple.ApplePlatform;
 import com.facebook.buck.apple.FakeAppleRuleDescriptions;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLink;
@@ -30,6 +34,7 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
@@ -47,16 +52,18 @@ import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 public class SwiftLibraryIntegrationTest {
   @Rule public final TemporaryPaths tmpDir = new TemporaryPaths();
@@ -68,7 +75,8 @@ public class SwiftLibraryIntegrationTest {
   @Before
   public void setUp() {
     resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     ruleFinder = new SourcePathRuleFinder(resolver);
     pathResolver = DefaultSourcePathResolver.from(ruleFinder);
   }
@@ -190,6 +198,60 @@ public class SwiftLibraryIntegrationTest {
     assertThat(linkRule.getArgs(), Matchers.hasItem(objArg));
     assertThat(
         linkRule.getArgs(), Matchers.not(Matchers.hasItem(SourcePathArg.of(fileListSourcePath))));
+  }
+
+  @Test
+  public void testBridgingHeaderTracking() throws Exception {
+    assumeThat(
+        AppleNativeIntegrationTestUtils.isSwiftAvailable(ApplePlatform.IPHONESIMULATOR), is(true));
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "bridging_header_tracking", tmpDir);
+    workspace.setUp();
+    workspace.addBuckConfigLocalOption("cxx", "untracked_headers", "error");
+
+    BuildTarget target = workspace.newBuildTarget("//:BigLib#iphonesimulator-x86_64,static");
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand("build", target.getFullyQualifiedName());
+    result.assertSuccess();
+  }
+
+  @Test
+  public void testBridgingHeaderTrackingTransitive() throws Exception {
+    assumeThat(
+        AppleNativeIntegrationTestUtils.isSwiftAvailable(ApplePlatform.IPHONESIMULATOR), is(true));
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "bridging_header_tracking", tmpDir);
+    workspace.setUp();
+    workspace.addBuckConfigLocalOption("cxx", "untracked_headers", "error");
+
+    BuildTarget target =
+        workspace.newBuildTarget("//:BigLibTransitive#iphonesimulator-x86_64,static");
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand("build", target.getFullyQualifiedName());
+    result.assertSuccess();
+  }
+
+  @Test
+  public void testGlobalFlagsInRuleKey() throws Exception {
+    assumeThat(
+        AppleNativeIntegrationTestUtils.isSwiftAvailable(ApplePlatform.IPHONESIMULATOR), is(true));
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "helloworld", tmpDir);
+    workspace.setUp();
+
+    BuildTarget target =
+        workspace.newBuildTarget("//:hello#iphonesimulator-x86_64,swift-compile");
+    ProjectWorkspace.ProcessResult result =
+        workspace.runBuckCommand("build", target.getFullyQualifiedName());
+    result.assertSuccess();
+    workspace.getBuildLog().assertTargetBuiltLocally("//:hello#iphonesimulator-x86_64,swift-compile");
+
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+    workspace.getBuildLog().assertTargetHadMatchingRuleKey("//:hello#iphonesimulator-x86_64,swift-compile");
+
+    workspace.addBuckConfigLocalOption("swift", "compiler_flags", "-D DEBUG");
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+    workspace.getBuildLog().assertTargetBuiltLocally("//:hello#iphonesimulator-x86_64,swift-compile");
   }
 
   private SwiftLibraryDescriptionArg createDummySwiftArg() {

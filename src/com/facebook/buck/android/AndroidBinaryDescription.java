@@ -21,13 +21,13 @@ import static com.facebook.buck.android.AndroidBinaryResourcesGraphEnhancer.PACK
 import com.facebook.buck.android.AndroidBinary.ExopackageMode;
 import com.facebook.buck.android.AndroidBinary.PackageType;
 import com.facebook.buck.android.AndroidBinary.RelinkerMode;
-import com.facebook.buck.android.FilterResourcesStep.ResourceFilter;
+import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
 import com.facebook.buck.android.NdkCxxPlatforms.TargetCpuType;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.android.redex.RedexOptions;
 import com.facebook.buck.cli.BuckConfig;
-import com.facebook.buck.cxx.CxxBuckConfig;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.dalvik.ZipSplitter.DexSplitStrategy;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
@@ -43,7 +43,6 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.MacroException;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -117,7 +116,8 @@ public class AndroidBinaryDescription
       ImmutableSet.of(
           PACKAGE_STRING_ASSETS_FLAVOR,
           AndroidBinaryResourcesGraphEnhancer.AAPT2_LINK_FLAVOR,
-          AndroidBinaryGraphEnhancer.UNSTRIPPED_NATIVE_LIBRARIES_FLAVOR);
+          AndroidBinaryGraphEnhancer.UNSTRIPPED_NATIVE_LIBRARIES_FLAVOR,
+          AndroidBinaryResourcesGraphEnhancer.GENERATE_STRING_SOURCE_MAP_FLAVOR);
 
   private final JavaBuckConfig javaBuckConfig;
   private final JavaOptions javaOptions;
@@ -165,14 +165,15 @@ public class AndroidBinaryDescription
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      AndroidBinaryDescriptionArg args)
-      throws NoSuchBuildTargetException {
+      AndroidBinaryDescriptionArg args) {
     try (SimplePerfEvent.Scope ignored =
         SimplePerfEvent.scope(
             Optional.ofNullable(resolver.getEventBus()),
             PerfEventId.of("AndroidBinaryDescription"),
             "target",
             buildTarget.toString())) {
+      params = params.withoutExtraDeps();
+
       // All of our supported flavors are constructed as side-effects
       // of the main target.
       for (Flavor flavor : FLAVORS) {
@@ -271,6 +272,7 @@ public class AndroidBinaryDescription
               /* resourcesToExclude */ ImmutableSet.of(),
               args.isSkipCrunchPngs(),
               args.isIncludesVectorDrawables(),
+              args.isNoAutoVersionResources(),
               javaBuckConfig,
               JavacFactory.create(ruleFinder, javaBuckConfig, null),
               javacOptions,
@@ -313,29 +315,11 @@ public class AndroidBinaryDescription
               .filter(JavaLibrary.class)
               .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural()));
 
-      Optional<RedexOptions> redexOptions = getRedexOptions(buildTarget, resolver, cellRoots, args);
-
-      ImmutableSortedSet<BuildRule> redexExtraDeps =
-          redexOptions
-              .map(
-                  a ->
-                      a.getRedexExtraArgs()
-                          .stream()
-                          .flatMap(arg -> arg.getDeps(ruleFinder).stream())
-                          .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural())))
-              .orElse(ImmutableSortedSet.of());
-
       AndroidBinary androidBinary =
           new AndroidBinary(
               buildTarget,
               projectFilesystem,
-              params
-                  .withExtraDeps(result.getFinalDeps())
-                  .copyAppendingExtraDeps(
-                      ruleFinder.filterBuildRuleInputs(
-                          result.getPackageableCollection().getProguardConfigs()))
-                  .copyAppendingExtraDeps(rulesToExcludeFromDex)
-                  .copyAppendingExtraDeps(redexExtraDeps),
+              params,
               ruleFinder,
               proGuardConfig.getProguardJarOverride(),
               proGuardConfig.getProguardMaxHeapSize(),
@@ -349,7 +333,7 @@ public class AndroidBinaryDescription
               args.getOptimizationPasses(),
               args.getProguardConfig(),
               args.isSkipProguard(),
-              redexOptions,
+              getRedexOptions(buildTarget, resolver, cellRoots, args),
               args.getResourceCompression(),
               args.getCpuFilters(),
               resourceFilter,
@@ -367,7 +351,8 @@ public class AndroidBinaryDescription
               args.getManifestEntries(),
               javaOptions.getJavaRuntimeLauncher(),
               dxConfig.getDxMaxHeapSize(),
-              args.getIsCacheable());
+              args.getIsCacheable(),
+              args.getAndroidAppModularityResult());
       // The exo installer is always added to the index so that the action graph is the same
       // between build and install calls.
       new AndroidBinaryInstallGraphEnhancer(
@@ -575,6 +560,11 @@ public class AndroidBinaryDescription
       return false;
     }
 
+    @Value.Default
+    default boolean isNoAutoVersionResources() {
+      return false;
+    }
+
     List<String> getPrimaryDexPatterns();
 
     Optional<SourcePath> getPrimaryDexClassesFile();
@@ -591,6 +581,8 @@ public class AndroidBinaryDescription
     Optional<SourcePath> getSecondaryDexTailClassesFile();
 
     Set<BuildTarget> getApplicationModuleTargets();
+
+    Optional<SourcePath> getAndroidAppModularityResult();
 
     Map<String, List<BuildTarget>> getApplicationModuleConfigs();
 

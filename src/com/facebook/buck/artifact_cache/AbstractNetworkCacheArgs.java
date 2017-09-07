@@ -45,13 +45,11 @@ interface AbstractNetworkCacheArgs {
 
   BuckEventBus getBuckEventBus();
 
+  ListeningExecutorService getHttpFetchExecutorService();
+
   ListeningExecutorService getHttpWriteExecutorService();
 
   String getErrorTextTemplate();
 
   Optional<Long> getMaxStoreSizeBytes();
-
-  Optional<String> getThriftEndpointPath();
-
-  boolean distributedBuildModeEnabled();
 }

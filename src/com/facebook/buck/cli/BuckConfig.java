@@ -79,11 +79,10 @@ import java.util.regex.Pattern;
 /** Structured representation of data read from a {@code .buckconfig} file. */
 public class BuckConfig implements ConfigPathGetter {
 
-  public static final String BUCK_CONFIG_OVERRIDE_FILE_NAME = ".buckconfig.local";
-
   private static final String ALIAS_SECTION_HEADER = "alias";
   public static final String RESOURCES_SECTION_HEADER = "resources";
   public static final String RESOURCES_PER_RULE_SECTION_HEADER = "resources_per_rule";
+  private static final String TEST_SECTION_HEADER = "test";
 
   private static final Float DEFAULT_THREAD_CORE_RATIO = Float.valueOf(1.0F);
 
@@ -385,9 +384,10 @@ public class BuckConfig implements ConfigPathGetter {
       return Optional.of(
           new ConstantToolProvider(
               new HashedFileTool(
-                  checkPathExists(
-                      value.get(),
-                      String.format("Overridden %s:%s path not found: ", section, field)))));
+                  () ->
+                      checkPathExistsAndResolve(
+                          value.get(),
+                          String.format("Overridden %s:%s path not found: ", section, field)))));
     }
   }
 
@@ -476,6 +476,11 @@ public class BuckConfig implements ConfigPathGetter {
     return Long.parseLong(getValue("test", "timeout").orElse("0"));
   }
 
+  public boolean isParallelExternalTestSpecComputationEnabled() {
+    return getBooleanValue(
+        TEST_SECTION_HEADER, "parallel_external_test_spec_computation_enabled", false);
+  }
+
   private static final String LOG_SECTION = "log";
 
   public boolean isPublicAnnouncementsEnabled() {
@@ -501,6 +506,10 @@ public class BuckConfig implements ConfigPathGetter {
 
   public boolean isMachineReadableLoggerEnabled() {
     return getBooleanValue(LOG_SECTION, "machine_readable_logger_enabled", true);
+  }
+
+  public boolean isBuckConfigLocalWarningEnabled() {
+    return getBooleanValue(LOG_SECTION, "buckconfig_local_warning_enabled", true);
   }
 
   public ProjectTestsMode xcodeProjectTestsMode() {
@@ -743,6 +752,11 @@ public class BuckConfig implements ConfigPathGetter {
   /** @return the number of threads Buck should use. */
   public int getNumThreads() {
     return getNumThreads(getDefaultMaximumNumberOfThreads());
+  }
+
+  /** @return the number of threads to be used for the scheduled executor thread pool. */
+  public int getNumThreadsForSchedulerPool() {
+    return config.getLong("build", "scheduler_threads").orElse((long) 2).intValue();
   }
 
   private int getDefaultMaximumNumberOfThreads() {

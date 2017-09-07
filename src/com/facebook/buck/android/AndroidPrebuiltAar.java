@@ -17,7 +17,7 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.jvm.java.CompileToJarStepFactory;
+import com.facebook.buck.jvm.java.ConfiguredCompiler;
 import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JarBuildStepsFactory;
 import com.facebook.buck.jvm.java.PrebuiltJar;
@@ -53,9 +53,10 @@ public class AndroidPrebuiltAar extends AndroidLibrary
       SourcePath nativeLibsDirectory,
       PrebuiltJar prebuiltJar,
       UnzipAar unzipAar,
-      CompileToJarStepFactory compileStepFactory,
+      ConfiguredCompiler configuredCompiler,
       Iterable<PrebuiltJar> exportedDeps,
-      ZipArchiveDependencySupplier abiClasspath) {
+      ZipArchiveDependencySupplier abiClasspath,
+      boolean requiredForSourceAbi) {
     super(
         androidLibraryBuildTarget,
         projectFilesystem,
@@ -65,7 +66,7 @@ public class AndroidPrebuiltAar extends AndroidLibrary
         new JarBuildStepsFactory(
             projectFilesystem,
             ruleFinder,
-            compileStepFactory,
+            configuredCompiler,
             /* srcs */ ImmutableSortedSet.of(),
             /* resources */ ImmutableSortedSet.of(),
             /* resourcesRoot */ Optional.empty(),
@@ -75,7 +76,8 @@ public class AndroidPrebuiltAar extends AndroidLibrary
             /* trackClassUsage */ false,
             /* compileTimeClasspathDeps */ ImmutableSortedSet.of(
                 prebuiltJar.getSourcePathToOutput()),
-            RemoveClassesPatternsMatcher.EMPTY),
+            RemoveClassesPatternsMatcher.EMPTY,
+            requiredForSourceAbi),
         Optional.of(proguardConfig),
         /* declaredDeps */ androidLibraryParams.getDeclaredDeps().get(),
         /* exportedDeps */ ImmutableSortedSet.<BuildRule>naturalOrder()
@@ -88,7 +90,8 @@ public class AndroidPrebuiltAar extends AndroidLibrary
         Optional.of(
             new ExplicitBuildTargetSourcePath(
                 unzipAar.getBuildTarget(), unzipAar.getAndroidManifest())),
-        /* tests */ ImmutableSortedSet.of());
+        /* tests */ ImmutableSortedSet.of(),
+        /* requiredForSourceAbi */ requiredForSourceAbi);
     this.unzipAar = unzipAar;
     this.prebuiltJar = prebuiltJar;
     this.nativeLibsDirectory = nativeLibsDirectory;

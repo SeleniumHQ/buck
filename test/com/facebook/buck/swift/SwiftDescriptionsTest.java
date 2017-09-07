@@ -23,6 +23,7 @@ import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
@@ -39,13 +40,14 @@ public class SwiftDescriptionsTest {
   @Test
   public void testPopulateSwiftLibraryDescriptionArg() throws Exception {
     BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar");
 
     SwiftLibraryDescriptionArg.Builder outputBuilder =
-        SwiftLibraryDescriptionArg.builder().setName("bar");
+        SwiftLibraryDescriptionArg.builder().setName("bar").setVersion("3");
 
     CxxLibraryDescriptionArg.Builder args = CxxLibraryDescriptionArg.builder().setName("bar");
 
@@ -67,5 +69,6 @@ public class SwiftDescriptionsTest {
         pathResolver, outputBuilder, args.build(), buildTarget);
     output = outputBuilder.build();
     assertThat(output.getModuleName().get(), equalTo("baz"));
+    assertThat(output.getVersion().get(), equalTo("3"));
   }
 }

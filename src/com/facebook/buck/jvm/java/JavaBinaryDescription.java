@@ -16,13 +16,12 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.cxx.CxxPlatforms;
-import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -85,8 +84,7 @@ public class JavaBinaryDescription
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      JavaBinaryDescriptionArg args)
-      throws NoSuchBuildTargetException {
+      JavaBinaryDescriptionArg args) {
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     ImmutableMap<String, SourcePath> nativeLibraries =
@@ -114,6 +112,7 @@ public class JavaBinaryDescription
             args.getMainClass().orElse(null),
             args.getManifestFile().orElse(null),
             args.getMergeManifests().orElse(true),
+            args.getDisallowAllDuplicates().orElse(false),
             args.getMetaInfDirectory().orElse(null),
             args.getBlacklist(),
             transitiveClasspathDeps,
@@ -176,6 +175,8 @@ public class JavaBinaryDescription
     Optional<SourcePath> getManifestFile();
 
     Optional<Boolean> getMergeManifests();
+
+    Optional<Boolean> getDisallowAllDuplicates();
 
     Optional<Path> getMetaInfDirectory();
 

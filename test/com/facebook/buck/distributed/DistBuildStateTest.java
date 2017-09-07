@@ -22,6 +22,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
@@ -44,12 +45,14 @@ import com.facebook.buck.parser.ParserTargetNodeFactory;
 import com.facebook.buck.rules.ActionGraph;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -98,9 +101,16 @@ public class DistBuildStateTest {
 
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
 
-  private ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
-  private KnownBuildRuleTypesFactory knownBuildRuleTypesFactory =
-      new KnownBuildRuleTypesFactory(processExecutor, new FakeAndroidDirectoryResolver());
+  private KnownBuildRuleTypesFactory knownBuildRuleTypesFactory;
+  private SdkEnvironment sdkEnvironment;
+
+  private void setUp(BuckConfig buckConfig) {
+    ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
+    AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
+    sdkEnvironment = SdkEnvironment.create(buckConfig, processExecutor, androidDirectoryResolver);
+    knownBuildRuleTypesFactory =
+        new KnownBuildRuleTypesFactory(processExecutor, androidDirectoryResolver, sdkEnvironment);
+  }
 
   @Test
   public void canReconstructConfig() throws IOException, InterruptedException {
@@ -120,6 +130,7 @@ public class DistBuildStateTest {
             new DefaultCellPathResolver(filesystem.getRootPath(), config));
     Cell rootCellWhenSaving =
         new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(buckConfig).build();
+    setUp(buckConfig);
 
     BuildJobState dump =
         DistBuildState.dump(
@@ -136,7 +147,8 @@ public class DistBuildStateTest {
             FakeBuckConfig.builder().build(),
             dump,
             rootCellWhenLoading,
-            knownBuildRuleTypesFactory);
+            knownBuildRuleTypesFactory,
+            sdkEnvironment);
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
     assertThat(cells, Matchers.aMapWithSize(1));
     assertThat(cells.get(0).getBuckConfig(), Matchers.equalTo(buckConfig));
@@ -169,6 +181,7 @@ public class DistBuildStateTest {
             new DefaultCellPathResolver(filesystem.getRootPath(), config));
     Cell rootCellWhenSaving =
         new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(buckConfig).build();
+    setUp(buckConfig);
 
     Config serverConfig =
         ConfigBuilder.createFromText(
@@ -199,7 +212,8 @@ public class DistBuildStateTest {
             FakeBuckConfig.builder().build(),
             dump,
             rootCellWhenLoading,
-            knownBuildRuleTypesFactory);
+            knownBuildRuleTypesFactory,
+            sdkEnvironment);
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
 
     assertThat(cells, Matchers.aMapWithSize(1));
@@ -217,6 +231,7 @@ public class DistBuildStateTest {
     ProjectFilesystem projectFilesystem = cell.getFilesystem();
     projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getBuckOut());
     BuckConfig buckConfig = cell.getBuckConfig();
+    setUp(buckConfig);
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     ConstructorArgMarshaller constructorArgMarshaller =
         new ConstructorArgMarshaller(typeCoercerFactory);
@@ -255,7 +270,8 @@ public class DistBuildStateTest {
             FakeBuckConfig.builder().build(),
             dump,
             rootCellWhenLoading,
-            knownBuildRuleTypesFactory);
+            knownBuildRuleTypesFactory,
+            sdkEnvironment);
 
     ProjectFilesystem reconstructedCellFilesystem =
         distributedBuildState.getCells().get(0).getFilesystem();
@@ -307,6 +323,7 @@ public class DistBuildStateTest {
             new DefaultCellPathResolver(cell1Root, config));
     Cell rootCellWhenSaving =
         new TestCellBuilder().setFilesystem(cell1Filesystem).setBuckConfig(buckConfig).build();
+    setUp(buckConfig);
 
     BuildJobState dump =
         DistBuildState.dump(
@@ -334,7 +351,8 @@ public class DistBuildStateTest {
                 .build(),
             new DefaultCellPathResolver(cell1Root, localConfig));
     DistBuildState distributedBuildState =
-        DistBuildState.load(localBuckConfig, dump, rootCellWhenLoading, knownBuildRuleTypesFactory);
+        DistBuildState.load(
+            localBuckConfig, dump, rootCellWhenLoading, knownBuildRuleTypesFactory, sdkEnvironment);
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
     assertThat(cells, Matchers.aMapWithSize(2));
 
@@ -351,7 +369,8 @@ public class DistBuildStateTest {
   private DistBuildFileHashes emptyActionGraph() throws IOException, InterruptedException {
     ActionGraph actionGraph = new ActionGraph(ImmutableList.of());
     BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem projectFilesystem = createJavaOnlyFilesystem("/opt/buck");

@@ -25,7 +25,7 @@ import com.facebook.buck.ide.intellij.model.IjLibraryFactoryResolver;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
@@ -49,6 +49,7 @@ public class DefaultIjLibraryFactoryTest {
   private IjLibrary guavaLibrary;
   private TargetNode<?, ?> androidSupport;
   private FakeSourcePath androidSupportBinaryPath;
+  private FakeSourcePath androidSupportResClassPath;
   private IjLibrary androidSupportLibrary;
   private IjLibrary baseLibrary;
   private TargetNode<?, ?> base;
@@ -62,7 +63,7 @@ public class DefaultIjLibraryFactoryTest {
     sourcePathResolver =
         DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
-                new BuildRuleResolver(
+                new DefaultBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     guavaJarPath = Paths.get("third_party/java/guava.jar");
     guava =
@@ -85,6 +86,9 @@ public class DefaultIjLibraryFactoryTest {
             .build();
 
     androidSupportBinaryJarPath = new FakeSourcePath("buck_out/support.aar/classes.jar");
+    androidSupportResClassPath =
+        new FakeSourcePath(
+            "buck-out/bin/third_party/java/support/__unpack_support#aar_unzip__/res");
     baseOutputPath = new FakeSourcePath("buck-out/base.jar");
 
     libraryFactoryResolver =
@@ -128,6 +132,9 @@ public class DefaultIjLibraryFactoryTest {
         androidSupportLibrary.getBinaryJars());
     assertEquals(
         ImmutableSet.of(androidSupport.getBuildTarget()), androidSupportLibrary.getTargets());
+    assertEquals(
+        ImmutableSet.of(androidSupportResClassPath.getRelativePath()),
+        androidSupportLibrary.getClassPaths());
   }
 
   @Test

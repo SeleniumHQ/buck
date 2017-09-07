@@ -19,8 +19,11 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.cxx.platform.GccCompiler;
-import com.facebook.buck.cxx.platform.GccPreprocessor;
+import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.GccCompiler;
+import com.facebook.buck.cxx.toolchain.GccPreprocessor;
+import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
+import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -28,6 +31,7 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
@@ -70,7 +74,8 @@ public class CxxCompilationDatabaseTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem(fakeRoot);
 
     BuildRuleResolver testBuildRuleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(testBuildRuleResolver);
     SourcePathResolver testSourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
@@ -181,12 +186,12 @@ public class CxxCompilationDatabaseTest {
                 root + "/test.cpp",
                 ImmutableList.of(
                     "compiler",
+                    "-x",
+                    "c++",
                     "-isystem",
                     "/foo/bar",
                     "-isystem",
                     "/test",
-                    "-x",
-                    "c++",
                     "-c",
                     "-MD",
                     "-MF",

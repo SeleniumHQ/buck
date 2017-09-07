@@ -455,6 +455,18 @@ $ buck targets --resolve-alias app#src_jar
 
 {call buckconfig.entry}
   {param section: 'apple' /}
+  {param name: 'check_asset_catalog_duplicate_images' /}
+  {param example_value: 'false' /}
+  {param description}
+    All asset catalogs (.xcassets directories) get merged into a single directory per apple bundle.
+    This option prevents duplicate filenames across all the asset catalogs. Imagesets
+    containing images with identical names can overwrite one another, this is especially
+    problematic if two images share a name but are different.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'apple' /}
   {param name: '*_package_command' /}
   {param description}
     Specify a custom command to run for <code>apple_package()</code> rules. The syntax of this field
@@ -953,7 +965,7 @@ $ buck targets --resolve-alias app#src_jar
   {param example_value: '10kB' /}
   {param description}
     The maximum size for artifacts to be inlined ({call buckconfig.cache_mode /} must contain
-    {sp}<code>sqlite</code>).  The default size is 1kB.
+    {sp}<code>sqlite</code>).  The default size is 40B.
   {/param}
 {/call}
 
@@ -1352,7 +1364,7 @@ $ buck build //big:expensive-rule            # Action Graph is reused.</pre>
   {param example_value: '3' /}
   {param description}
     In case buck is unable to download a file, it will retry specified number of times before
-    giving up.
+    giving up. By default it's not set, so Buck is not going to retry failed downloads.
   {/param}
 {/call}
 
@@ -1401,8 +1413,8 @@ $ buck build //big:expensive-rule            # Action Graph is reused.</pre>
     The platform for the linker.  Normally this is autodetected based on the system, but it useful
     to set when cross compiling.  Valid values are:
     <ul>
-      <li><code>MACOS</code></li>
-      <li><code>LINUX</code></li>
+      <li><code>DARWIN</code></li>
+      <li><code>GNU</code></li>
       <li><code>WINDOWS</code></li>
     </ul>
   {/param}
@@ -1461,8 +1473,9 @@ $ buck build //big:expensive-rule            # Action Graph is reused.</pre>
     The platform for the archiver.  Normally this is autodetected based on the system, but it useful
     to set when cross compiling.  Valid values are:
     <ul>
-      <li><code>MACOS</code></li>
       <li><code>LINUX</code></li>
+      <li><code>MACOS</code></li>
+      <li><code>FREEBSD</code></li>
       <li><code>WINDOWS</code></li>
     </ul>
   {/param}
@@ -1564,11 +1577,11 @@ $ buck build //big:expensive-rule            # Action Graph is reused.</pre>
 {literal}
 cxx_library(
   name = 'gtest',
-  srcs = subdir_glob([
+  srcs = [
     'googletest/src/gtest-all.cc',
     'googlemock/src/gmock-all.cc',
     'googlemock/src/gmock_main.cc',
-  ]),
+  ],
   header_namespace = '',
   exported_headers = subdir_glob([
     ('googletest/include', '**/*.h'),
@@ -2069,6 +2082,17 @@ cxx_library(
   {param example_value: 'build-ij/classes' /}
   {param description}
     The output directory for IntelliJ's builds.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'intellij' /}
+  {param name: 'extra_compiler_output_modules_path' /}
+  {param example_value: 'buck-out/extra-intellij-output' /}
+  {param description}
+    This option specifies the location of additional modules for code generated outside of buck
+    graph. For example, it can be used to specify the location of R.java classes generated for
+    Android plugin to help Layout Preview with resolving references to resources.
   {/param}
 {/call}
 
@@ -2583,6 +2607,19 @@ your <code>.buckjavaargs</code> file</a>:
     The <code>PYTHONPATH</code> environment variable set for the python interpreter{sp}
     used by the parser to use.
     By default, this is unset.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'parser' /}
+  {param name: 'freeze_globals' /}
+  {param example_value: 'false' /}
+  {param description}
+    Indicates whether globals imported by {call buck.fn_load /} and{sp}
+    {call buck.fn_include_defs /} should be "frozen", which means they will be converted into
+    their read-only counterparts. This can be used to detect
+    accidental attempts to modify global variables causing non-determinism and hard to debug bugs.
+    By default, this is not enabled (<code>false</code>).
   {/param}
 {/call}
 
@@ -3131,6 +3168,17 @@ your <code>.buckjavaargs</code> file</a>:
         </li>
       </ul>
     </p>
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'test' /}
+  {param name: 'parallel_external_test_spec_computation_enabled' /}
+  {param example_value: 'false' /}
+  {param description}
+    Whether external test spec computation is allowed to happen in parallel. Enabling this option
+    can significantly speed up test execution when many test targets are requested. By default it
+    is disabled.
   {/param}
 {/call}
 

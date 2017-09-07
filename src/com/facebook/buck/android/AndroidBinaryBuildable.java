@@ -23,7 +23,6 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.AccumulateClassNamesStep;
 import com.facebook.buck.jvm.java.JavaLibrary;
-import com.facebook.buck.jvm.java.JavaRuntimeLauncher;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Pair;
@@ -33,6 +32,7 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.AbstractGenruleStep;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -82,7 +82,6 @@ import java.util.Set;
 import java.util.zip.Deflater;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
-import javax.annotation.Nullable;
 
 class AndroidBinaryBuildable implements AddsToRuleKey {
   /**
@@ -120,7 +119,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
   @AddToRuleKey private final boolean packageAssetLibraries;
   @AddToRuleKey private final boolean compressAssetLibraries;
   @AddToRuleKey private final boolean skipProguard;
-  @AddToRuleKey private final JavaRuntimeLauncher javaRuntimeLauncher;
+  @AddToRuleKey private final Tool javaRuntimeLauncher;
   @AddToRuleKey private final SourcePath androidManifestPath;
   @AddToRuleKey private final SourcePath resourcesApkPath;
   @AddToRuleKey private final ImmutableList<SourcePath> primaryApkAssetsZips;
@@ -152,9 +151,11 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
   @AddToRuleKey
   private final ImmutableSortedMap<APKModule, ImmutableSortedSet<APKModule>> apkModuleMap;
 
+  @AddToRuleKey private final Optional<SourcePath> appModularityResult;
+
   @AddToRuleKey
-  @Nullable
-  private final SourcePath abiPath;
+  private final Optional<ImmutableSortedMap<APKModule, ImmutableList<SourcePath>>>
+      moduleMappedClasspathEntriesForConsistency;
 
   // These should be the only things not added to the rulekey.
   private final ProjectFilesystem filesystem;
@@ -189,7 +190,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       boolean packageAssetLibraries,
       boolean compressAssetLibraries,
       boolean skipProguard,
-      JavaRuntimeLauncher javaRuntimeLauncher,
+      Tool javaRuntimeLauncher,
       SourcePath androidManifestPath,
       SourcePath resourcesApkPath,
       ImmutableList<SourcePath> primaryApkAssetsZips,
@@ -197,7 +198,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       Optional<String> dxMaxHeapSize,
       ImmutableList<SourcePath> proguardConfigs,
       boolean isCompressResources,
-      SourcePath abiPath) {
+      Optional<SourcePath> appModularityResult) {
     this.filesystem = filesystem;
     this.buildTarget = buildTarget;
 
@@ -312,8 +313,14 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
           Optional.of(
               convertToMapOfLists(packageableCollection.getModuleMappedClasspathEntriesToDex()));
     }
-
-    this.abiPath = abiPath;
+    this.appModularityResult = appModularityResult;
+    if (appModularityResult.isPresent()) {
+      this.moduleMappedClasspathEntriesForConsistency =
+          Optional.of(
+              convertToMapOfLists(packageableCollection.getModuleMappedClasspathEntriesToDex()));
+    } else {
+      this.moduleMappedClasspathEntriesForConsistency = Optional.empty();
+    }
   }
 
   private <K extends Comparable<?>, V> ImmutableSortedMap<K, ImmutableList<V>> convertToMapOfLists(
@@ -462,7 +469,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
             pathToKeystore,
             keystoreProperties,
             /* debugMode */ false,
-            javaRuntimeLauncher);
+            javaRuntimeLauncher.getCommandPrefix(resolver));
     steps.add(apkBuilderCommand);
 
     // The `ApkBuilderStep` delegates to android tools to build a ZIP with timestamps in it, making
@@ -706,6 +713,43 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       BuildableContext buildableContext,
       BuildContext buildContext,
       ImmutableList.Builder<Step> steps) {
+
+    Optional<Path> proguardFullConfigFile = Optional.empty();
+    Optional<Path> proguardMappingFile = Optional.empty();
+    if (packageType.isBuildWithObfuscation()) {
+      Path proguardConfigDir = getProguardTextFilesPath();
+      proguardFullConfigFile = Optional.of(proguardConfigDir.resolve("configuration.txt"));
+      proguardMappingFile = Optional.of(proguardConfigDir.resolve("mapping.txt"));
+    }
+
+    if (appModularityResult.isPresent()) {
+      ImmutableMultimap<APKModule, Path> additionalDexStoreToJarPathMap =
+          moduleMappedClasspathEntriesForConsistency
+              .get()
+              .entrySet()
+              .stream()
+              .flatMap(
+                  entry ->
+                      entry
+                          .getValue()
+                          .stream()
+                          .map(
+                              v ->
+                                  new AbstractMap.SimpleEntry<>(
+                                      entry.getKey(),
+                                      buildContext.getSourcePathResolver().getAbsolutePath(v))))
+              .collect(MoreCollectors.toImmutableMultimap(e -> e.getKey(), e -> e.getValue()));
+
+      steps.add(
+          AndroidModuleConsistencyStep.ensureModuleConsistency(
+              buildContext.getSourcePathResolver().getRelativePath(appModularityResult.get()),
+              additionalDexStoreToJarPathMap,
+              filesystem,
+              proguardFullConfigFile,
+              proguardMappingFile,
+              skipProguard));
+    }
+
     if (isPreDexed) {
       ImmutableSortedSet<Path> secondaryDexDirs;
       if (AndroidBinary.ExopackageMode.enabledForSecondaryDexes(exopackageModes)) {
@@ -972,7 +1016,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
     // Run ProGuard on the classpath entries.
     ProGuardObfuscateStep.create(
-        javaRuntimeLauncher,
+        javaRuntimeLauncher.getCommandPrefix(buildContext.getSourcePathResolver()),
         getProjectFilesystem(),
         proguardJarOverride.isPresent()
             ? Optional.of(
@@ -1043,7 +1087,6 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
         proguardFullConfigFile = Optional.of(proguardConfigDir.resolve("configuration.txt"));
         proguardMappingFile = Optional.of(proguardConfigDir.resolve("mapping.txt"));
       }
-
       // DexLibLoader expects that metadata.txt and secondary jar files are under this dir
       // in assets.
 

@@ -18,7 +18,6 @@ package org.openqa.selenium.buck.mozilla;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -46,7 +45,7 @@ public class MozillaExtensionDescription implements Description<MozillaExtension
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      MozillaExtensionArg args) throws NoSuchBuildTargetException {
+      MozillaExtensionArg args) {
     return new Xpi(
         buildTarget,
         projectFilesystem,

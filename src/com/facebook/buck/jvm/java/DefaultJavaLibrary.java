@@ -21,7 +21,6 @@ import com.facebook.buck.android.AndroidPackageableCollector;
 import com.facebook.buck.io.BuckPaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.ArchiveMemberSourcePath;
@@ -35,8 +34,10 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.ExportDependencies;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.OnDiskBuildInfo;
+import com.facebook.buck.rules.RulePipelineStateFactory;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SupportsPipelining;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
@@ -85,8 +86,10 @@ public class DefaultJavaLibrary extends AbstractBuildRuleWithDeclaredAndExtraDep
         ExportDependencies,
         InitializableFromDisk<JavaLibrary.Data>,
         AndroidPackageable,
+        MaybeRequiredForSourceAbi,
         SupportsInputBasedRuleKey,
         SupportsDependencyFileRuleKey,
+        SupportsPipelining<JavacPipelineState>,
         JavaLibraryWithTests {
 
   private static final Path METADATA_DIR = Paths.get("META-INF");
@@ -96,6 +99,7 @@ public class DefaultJavaLibrary extends AbstractBuildRuleWithDeclaredAndExtraDep
   private final JarContentsSupplier outputJarContentsSupplier;
   @Nullable private final BuildTarget abiJar;
   @AddToRuleKey private final Optional<SourcePath> proguardConfig;
+  @AddToRuleKey private final boolean requiredForSourceAbi;
 
   // It's very important that these deps are non-ABI rules, even if compiling against ABIs is turned
   // on. This is because various methods in this class perform dependency traversal that rely on
@@ -110,6 +114,8 @@ public class DefaultJavaLibrary extends AbstractBuildRuleWithDeclaredAndExtraDep
 
   private final BuildOutputInitializer<Data> buildOutputInitializer;
   private final ImmutableSortedSet<BuildTarget> tests;
+
+  @Nullable private CalculateAbiFromSource sourceAbi;
 
   public static DefaultJavaLibraryBuilder builder(
       TargetGraph targetGraph,
@@ -146,7 +152,8 @@ public class DefaultJavaLibrary extends AbstractBuildRuleWithDeclaredAndExtraDep
       ImmutableSortedSet<BuildRule> fullJarProvidedDeps,
       @Nullable BuildTarget abiJar,
       Optional<String> mavenCoords,
-      ImmutableSortedSet<BuildTarget> tests) {
+      ImmutableSortedSet<BuildTarget> tests,
+      boolean requiredForSourceAbi) {
     super(buildTarget, projectFilesystem, params);
     this.jarBuildStepsFactory = jarBuildStepsFactory;
 
@@ -171,6 +178,7 @@ public class DefaultJavaLibrary extends AbstractBuildRuleWithDeclaredAndExtraDep
     this.fullJarProvidedDeps = fullJarProvidedDeps;
     this.mavenCoords = mavenCoords;
     this.tests = tests;
+    this.requiredForSourceAbi = requiredForSourceAbi;
 
     this.outputJarContentsSupplier = new JarContentsSupplier(resolver, getSourcePathToOutput());
     this.abiJar = abiJar;
@@ -194,27 +202,25 @@ public class DefaultJavaLibrary extends AbstractBuildRuleWithDeclaredAndExtraDep
     this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
   }
 
-  public static Path getOutputJarDirPath(BuildTarget target, ProjectFilesystem filesystem) {
-    return BuildTargets.getGenPath(filesystem, target, "lib__%s__output");
+  @Override
+  public boolean getRequiredForSourceAbi() {
+    return requiredForSourceAbi;
+  }
+
+  public void setSourceAbi(CalculateAbiFromSource sourceAbi) {
+    this.sourceAbi = sourceAbi;
   }
 
   private Optional<SourcePath> sourcePathForOutputJar() {
     return Optional.ofNullable(jarBuildStepsFactory.getSourcePathToOutput(getBuildTarget()));
   }
 
-  static Path getOutputJarPath(BuildTarget target, ProjectFilesystem filesystem) {
+  public static Path getOutputJarPath(BuildTarget target, ProjectFilesystem filesystem) {
     return Paths.get(
         String.format(
             "%s/%s.jar",
-            getOutputJarDirPath(target, filesystem), target.getShortNameAndFlavorPostfix()));
-  }
-
-  /**
-   * @return directory path relative to the project root where .class files will be generated. The
-   *     return value does not end with a slash.
-   */
-  public static Path getClassesDir(BuildTarget target, ProjectFilesystem filesystem) {
-    return BuildTargets.getScratchPath(filesystem, target, "lib__%s__classes");
+            CompilerParameters.getOutputJarDirPath(target, filesystem),
+            target.getShortNameAndFlavorPostfix()));
   }
 
   @Override
@@ -279,7 +285,7 @@ public class DefaultJavaLibrary extends AbstractBuildRuleWithDeclaredAndExtraDep
 
   @Override
   public Optional<Path> getGeneratedSourcePath() {
-    return JavaLibraryRules.getAnnotationPath(getProjectFilesystem(), getBuildTarget());
+    return CompilerParameters.getAnnotationPath(getProjectFilesystem(), getBuildTarget());
   }
 
   @Override
@@ -388,5 +394,28 @@ public class DefaultJavaLibrary extends AbstractBuildRuleWithDeclaredAndExtraDep
       BuildContext context, CellPathResolver cellPathResolver) throws IOException {
     return jarBuildStepsFactory.getInputsAfterBuildingLocally(
         context, cellPathResolver, getBuildTarget());
+  }
+
+  @Override
+  public boolean useRulePipelining() {
+    return true;
+  }
+
+  @Override
+  public RulePipelineStateFactory<JavacPipelineState> getPipelineStateFactory() {
+    return jarBuildStepsFactory;
+  }
+
+  @Nullable
+  @Override
+  public SupportsPipelining<JavacPipelineState> getPreviousRuleInPipeline() {
+    return sourceAbi;
+  }
+
+  @Override
+  public ImmutableList<? extends Step> getPipelinedBuildSteps(
+      BuildContext context, BuildableContext buildableContext, JavacPipelineState state) {
+    // TODO: Reuse the javac
+    return getBuildSteps(context, buildableContext);
   }
 }

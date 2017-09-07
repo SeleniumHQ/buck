@@ -23,6 +23,7 @@ import com.facebook.buck.ide.intellij.model.IjLibrary;
 import com.facebook.buck.ide.intellij.model.IjLibraryFactory;
 import com.facebook.buck.ide.intellij.model.IjModule;
 import com.facebook.buck.ide.intellij.model.IjModuleFactory;
+import com.facebook.buck.ide.intellij.model.IjModuleType;
 import com.facebook.buck.ide.intellij.model.IjProjectConfig;
 import com.facebook.buck.ide.intellij.model.IjProjectElement;
 import com.facebook.buck.io.ProjectFilesystem;
@@ -37,8 +38,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -229,9 +230,10 @@ public final class IjModuleGraphFactory {
     ImmutableMap.Builder<IjProjectElement, ImmutableMap<IjProjectElement, DependencyType>>
         depsBuilder = ImmutableMap.builder();
     final Set<IjLibrary> referencedLibraries = new HashSet<>();
+    Optional<Path> extraCompileOutputRootPath = projectConfig.getExtraCompilerOutputModulesPath();
 
     for (final IjModule module : ImmutableSet.copyOf(rulesToModules.values())) {
-      Map<IjProjectElement, DependencyType> moduleDeps = new HashMap<>();
+      Map<IjProjectElement, DependencyType> moduleDeps = new LinkedHashMap<>();
 
       for (Map.Entry<BuildTarget, DependencyType> entry : module.getDependencies().entrySet()) {
         BuildTarget depBuildTarget = entry.getKey();
@@ -280,13 +282,13 @@ public final class IjModuleGraphFactory {
           }
         }
 
-        for (IjProjectElement depElement : depElements) {
-          Preconditions.checkState(!depElement.equals(module));
-          DependencyType.putWithMerge(moduleDeps, depElement, depType);
-        }
         for (IjProjectElement depElement : transitiveDepElements) {
           Preconditions.checkState(!depElement.equals(module));
           DependencyType.putWithMerge(moduleDeps, depElement, DependencyType.RUNTIME);
+        }
+        for (IjProjectElement depElement : depElements) {
+          Preconditions.checkState(!depElement.equals(module));
+          DependencyType.putWithMerge(moduleDeps, depElement, depType);
         }
       }
 
@@ -298,6 +300,14 @@ public final class IjModuleGraphFactory {
                 .setName("library_" + module.getName() + "_extra_classpath")
                 .build();
         moduleDeps.put(extraClassPathLibrary, DependencyType.PROD);
+      }
+
+      if (extraCompileOutputRootPath.isPresent()
+          && !module.getExtraModuleDependencies().isEmpty()) {
+        IjModule extraModule =
+            createExtraModuleForCompilerOutput(module, extraCompileOutputRootPath.get());
+        moduleDeps.put(extraModule, DependencyType.PROD);
+        depsBuilder.put(extraModule, ImmutableMap.of());
       }
 
       moduleDeps
@@ -313,6 +323,19 @@ public final class IjModuleGraphFactory {
     referencedLibraries.forEach(library -> depsBuilder.put(library, ImmutableMap.of()));
 
     return new IjModuleGraph(depsBuilder.build());
+  }
+
+  private static IjModule createExtraModuleForCompilerOutput(
+      IjModule module, Path extraCompileOutputRootPath) {
+    return IjModule.builder()
+        .setModuleBasePath(extraCompileOutputRootPath.resolve(module.getModuleBasePath()))
+        .setTargets(ImmutableSet.of())
+        .addAllFolders(ImmutableSet.of())
+        .putAllDependencies(ImmutableMap.of())
+        .setLanguageLevel(module.getLanguageLevel())
+        .setModuleType(IjModuleType.ANDROID_MODULE)
+        .setCompilerOutputPath(module.getExtraModuleDependencies().asList().get(0))
+        .build();
   }
 
   private static boolean isInRootCell(

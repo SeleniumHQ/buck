@@ -26,14 +26,15 @@ import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
 import com.facebook.buck.config.Config;
 import com.facebook.buck.config.Configs;
-import com.facebook.buck.cxx.CxxBuckConfig;
-import com.facebook.buck.cxx.DefaultCxxPlatforms;
-import com.facebook.buck.cxx.platform.CxxPlatform;
-import com.facebook.buck.cxx.platform.NativeLinkStrategy;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkStrategy;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.FakeExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
@@ -58,6 +59,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Optional;
@@ -100,15 +102,16 @@ public class LuaBinaryIntegrationTest {
     assumeThat(Platform.detect(), Matchers.not(Platform.WINDOWS));
 
     // Verify that a Lua interpreter is available on the system.
-    LuaBuckConfig fakeConfig =
-        new LuaBuckConfig(FakeBuckConfig.builder().build(), new ExecutableFinder());
-    Optional<Path> luaOptional = fakeConfig.getSystemLua();
+    ExecutableFinder finder = new ExecutableFinder();
+    Optional<Path> luaOptional =
+        finder.getOptionalExecutable(Paths.get("lua"), ImmutableMap.copyOf(System.getenv()));
     assumeTrue(luaOptional.isPresent());
     lua = luaOptional.get();
 
     // Try to detect if a Lua devel package is available, which is needed to C/C++ support.
     BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     CxxPlatform cxxPlatform =
         DefaultCxxPlatforms.build(
             Platform.detect(), new CxxBuckConfig(FakeBuckConfig.builder().build()));

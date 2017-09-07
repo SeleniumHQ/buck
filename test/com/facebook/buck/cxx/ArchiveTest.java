@@ -21,15 +21,17 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.cxx.platform.Archiver;
-import com.facebook.buck.cxx.platform.BsdArchiver;
-import com.facebook.buck.cxx.platform.GnuArchiver;
+import com.facebook.buck.cxx.toolchain.ArchiveContents;
+import com.facebook.buck.cxx.toolchain.Archiver;
+import com.facebook.buck.cxx.toolchain.BsdArchiver;
+import com.facebook.buck.cxx.toolchain.GnuArchiver;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
@@ -73,7 +75,7 @@ public class ArchiveTest {
   public void testThatInputChangesCauseRuleKeyChanges() {
     SourcePathRuleFinder ruleFinder =
         new SourcePathRuleFinder(
-            new BuildRuleResolver(
+            new DefaultBuildRuleResolver(
                 TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
@@ -101,7 +103,7 @@ public class ArchiveTest {
                     ImmutableList.of(),
                     DEFAULT_RANLIB,
                     ImmutableList.of(),
-                    Archive.Contents.NORMAL,
+                    ArchiveContents.NORMAL,
                     DEFAULT_OUTPUT,
                     DEFAULT_INPUTS,
                     /* cacheable */ true));
@@ -118,7 +120,7 @@ public class ArchiveTest {
                     ImmutableList.of(),
                     DEFAULT_RANLIB,
                     ImmutableList.of(),
-                    Archive.Contents.NORMAL,
+                    ArchiveContents.NORMAL,
                     DEFAULT_OUTPUT,
                     DEFAULT_INPUTS,
                     /* cacheable */ true));
@@ -136,7 +138,7 @@ public class ArchiveTest {
                     ImmutableList.of(),
                     DEFAULT_RANLIB,
                     ImmutableList.of(),
-                    Archive.Contents.NORMAL,
+                    ArchiveContents.NORMAL,
                     Paths.get("different"),
                     DEFAULT_INPUTS,
                     /* cacheable */ true));
@@ -154,7 +156,7 @@ public class ArchiveTest {
                     ImmutableList.of(),
                     DEFAULT_RANLIB,
                     ImmutableList.of(),
-                    Archive.Contents.NORMAL,
+                    ArchiveContents.NORMAL,
                     DEFAULT_OUTPUT,
                     ImmutableList.of(new FakeSourcePath("different")),
                     /* cacheable */ true));
@@ -172,7 +174,7 @@ public class ArchiveTest {
                     ImmutableList.of(),
                     DEFAULT_RANLIB,
                     ImmutableList.of(),
-                    Archive.Contents.NORMAL,
+                    ArchiveContents.NORMAL,
                     DEFAULT_OUTPUT,
                     DEFAULT_INPUTS,
                     /* cacheable */ true));
@@ -182,7 +184,8 @@ public class ArchiveTest {
   @Test
   public void flagsArePropagated() throws Exception {
     BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
@@ -196,7 +199,7 @@ public class ArchiveTest {
             ImmutableList.of("-foo"),
             DEFAULT_RANLIB,
             ImmutableList.of("-bar"),
-            Archive.Contents.NORMAL,
+            ArchiveContents.NORMAL,
             DEFAULT_OUTPUT,
             ImmutableList.of(new FakeSourcePath("simple.o")),
             /* cacheable */ true);
@@ -220,7 +223,8 @@ public class ArchiveTest {
   @Test
   public void testThatBuildTargetSourcePathDepsAndPathsArePropagated() throws Exception {
     BuildRuleResolver resolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
 
@@ -245,7 +249,7 @@ public class ArchiveTest {
             ImmutableList.of(),
             DEFAULT_RANLIB,
             ImmutableList.of(),
-            Archive.Contents.NORMAL,
+            ArchiveContents.NORMAL,
             DEFAULT_OUTPUT,
             ImmutableList.of(
                 new FakeSourcePath("simple.o"),

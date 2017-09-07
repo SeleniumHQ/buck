@@ -20,12 +20,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.artifact_cache.SingletonArtifactCacheFactory;
 import com.facebook.buck.event.BuckEventBusForTests;
-import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.parser.Parser;
@@ -34,12 +34,15 @@ import com.facebook.buck.rules.BuildInfoStoreManager;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.RelativeCellName;
+import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.testutil.FakeExecutor;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.FakeProcessExecutor;
+import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.versioncontrol.NoOpCmdLineInterface;
@@ -130,6 +133,11 @@ public class CleanCommandTest extends EasyMockSupport {
       throws InterruptedException, IOException {
     Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier =
         AndroidPlatformTarget.EXPLODING_ANDROID_PLATFORM_TARGET_SUPPLIER;
+    ProcessExecutor processExecutor = new FakeProcessExecutor();
+    AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
+    SdkEnvironment sdkEnvironment =
+        SdkEnvironment.create(buckConfig, processExecutor, androidDirectoryResolver);
+
     return CommandRunnerParams.builder()
         .setConsole(new TestConsole())
         .setBuildInfoStoreManager(new BuildInfoStoreManager())
@@ -149,14 +157,16 @@ public class CleanCommandTest extends EasyMockSupport {
         .setBuckConfig(buckConfig)
         .setFileHashCache(new StackedFileHashCache(ImmutableList.of()))
         .setExecutors(ImmutableMap.of())
+        .setScheduledExecutor(new FakeExecutor())
         .setBuildEnvironmentDescription(CommandRunnerParamsForTesting.BUILD_ENVIRONMENT_DESCRIPTION)
         .setVersionControlStatsGenerator(
             new VersionControlStatsGenerator(new NoOpCmdLineInterface(), Optional.empty()))
         .setVersionedTargetGraphCache(new VersionedTargetGraphCache())
-        .setActionGraphCache(new ActionGraphCache(new BroadcastEventListener()))
+        .setActionGraphCache(new ActionGraphCache())
         .setKnownBuildRuleTypesFactory(
             new KnownBuildRuleTypesFactory(
-                new FakeProcessExecutor(), new FakeAndroidDirectoryResolver()))
+                processExecutor, androidDirectoryResolver, sdkEnvironment))
+        .setSdkEnvironment(sdkEnvironment)
         .build();
   }
 }

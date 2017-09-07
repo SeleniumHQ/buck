@@ -18,16 +18,15 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.AndroidLibraryDescription.JvmLanguage;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.jvm.java.CompileToJarStepFactory;
+import com.facebook.buck.jvm.java.ConfiguredCompiler;
+import com.facebook.buck.jvm.java.ConfiguredCompilerFactory;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaLibraryBuilder;
-import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JarBuildStepsFactory;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -98,7 +97,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       @Nullable BuildTarget abiJar,
       Optional<String> mavenCoords,
       Optional<SourcePath> manifestFile,
-      ImmutableSortedSet<BuildTarget> tests) {
+      ImmutableSortedSet<BuildTarget> tests,
+      boolean requiredForSourceAbi) {
     super(
         buildTarget,
         projectFilesystem,
@@ -111,7 +111,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
         fullJarProvidedDeps,
         abiJar,
         mavenCoords,
-        tests);
+        tests,
+        requiredForSourceAbi);
     this.manifestFile = manifestFile;
   }
 
@@ -193,42 +194,47 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
     }
 
     protected class BuilderHelper extends DefaultJavaLibraryBuilder.BuilderHelper {
-      @Nullable private AndroidLibraryCompiler androidCompiler;
+      @Nullable private ConfiguredCompilerFactory androidCompiler;
       @Nullable private AndroidLibraryGraphEnhancer graphEnhancer;
 
       @Override
-      protected DefaultJavaLibrary build() throws NoSuchBuildTargetException {
-        return new AndroidLibrary(
-            initialBuildTarget,
-            projectFilesystem,
-            getFinalParams(),
-            sourcePathResolver,
-            getJarBuildStepsFactory(),
-            proguardConfig,
-            getFinalFullJarDeclaredDeps(),
-            fullJarExportedDeps,
-            fullJarProvidedDeps,
-            getAbiJar(),
-            mavenCoords,
-            androidManifest,
-            tests);
+      protected DefaultJavaLibrary build() {
+        AndroidLibrary result =
+            new AndroidLibrary(
+                libraryTarget,
+                projectFilesystem,
+                getFinalParams(),
+                sourcePathResolver,
+                getJarBuildStepsFactory(),
+                proguardConfig,
+                getFinalFullJarDeclaredDeps(),
+                fullJarExportedDeps,
+                fullJarProvidedDeps,
+                getAbiJar(),
+                mavenCoords,
+                androidManifest,
+                tests,
+                getRequiredForSourceAbi());
+
+        return result;
       }
 
       @Override
-      protected JarBuildStepsFactory buildJarBuildStepsFactory() throws NoSuchBuildTargetException {
+      protected JarBuildStepsFactory buildJarBuildStepsFactory() {
         return new JarBuildStepsFactory(
             projectFilesystem,
             ruleFinder,
-            getCompileStepFactory(),
+            getConfiguredCompiler(),
             srcs,
             resources,
             resourcesRoot,
             Optional.empty(), // ManifestFile for androidLibrary is something else
             postprocessClassesCommands,
             getAbiClasspath(),
-            getAndroidCompiler().trackClassUsage(Preconditions.checkNotNull(javacOptions)),
+            getAndroidCompiler().trackClassUsage(Preconditions.checkNotNull(getJavacOptions())),
             getFinalCompileTimeClasspathSourcePaths(),
-            classesToRemoveFromJar);
+            classesToRemoveFromJar,
+            getRequiredForSourceAbi());
       }
 
       protected DummyRDotJava buildDummyRDotJava() {
@@ -241,17 +247,12 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
 
       protected AndroidLibraryGraphEnhancer getGraphEnhancer() {
         if (graphEnhancer == null) {
-          BuildTarget buildTarget = initialBuildTarget;
-          if (HasJavaAbi.isAbiTarget(initialBuildTarget)) {
-            buildTarget = HasJavaAbi.getLibraryTarget(buildTarget);
-          }
-
           final Supplier<ImmutableList<BuildRule>> queriedDepsSupplier = buildQueriedDepsSupplier();
           final Supplier<ImmutableList<BuildRule>> exportedDepsSupplier =
               buildExportedDepsSupplier();
           graphEnhancer =
               new AndroidLibraryGraphEnhancer(
-                  buildTarget,
+                  libraryTarget,
                   projectFilesystem,
                   initialParams.withExtraDeps(
                       () ->
@@ -259,7 +260,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
                               Iterables.concat(
                                   queriedDepsSupplier.get(), exportedDepsSupplier.get()))),
                   getJavac(),
-                  javacOptions,
+                  getJavacOptions(),
                   DependencyMode.FIRST_ORDER,
                   /* forceFinalResourceIds */ false,
                   args.getResourceUnionPackage(),
@@ -297,12 +298,12 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       }
 
       @Override
-      protected CompileToJarStepFactory buildCompileStepFactory() {
+      protected ConfiguredCompiler buildConfiguredCompiler() {
         return getAndroidCompiler()
-            .compileToJar(args, Preconditions.checkNotNull(javacOptions), buildRuleResolver);
+            .configure(args, Preconditions.checkNotNull(getJavacOptions()), buildRuleResolver);
       }
 
-      protected AndroidLibraryCompiler getAndroidCompiler() {
+      protected ConfiguredCompilerFactory getAndroidCompiler() {
         if (androidCompiler == null) {
           androidCompiler = compilerFactory.getCompiler(language);
         }

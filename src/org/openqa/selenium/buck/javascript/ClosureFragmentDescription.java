@@ -21,7 +21,6 @@ import static java.lang.Boolean.FALSE;
 
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -66,7 +65,7 @@ public class ClosureFragmentDescription implements
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      JsFragmentArg args) throws NoSuchBuildTargetException {
+      JsFragmentArg args) {
     SourcePathRuleFinder finder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(finder);
 

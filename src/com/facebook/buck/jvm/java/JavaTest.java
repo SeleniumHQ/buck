@@ -43,6 +43,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -109,7 +110,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private final JavaLibrary compiledTestsLibrary;
 
   private final ImmutableSet<Either<SourcePath, Path>> additionalClasspathEntries;
-  @AddToRuleKey private final JavaRuntimeLauncher javaRuntimeLauncher;
+  @AddToRuleKey private final Tool javaRuntimeLauncher;
 
   @AddToRuleKey private final ImmutableList<String> vmArgs;
 
@@ -159,7 +160,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
       Set<String> labels,
       Set<String> contacts,
       TestType testType,
-      JavaRuntimeLauncher javaRuntimeLauncher,
+      Tool javaRuntimeLauncher,
       List<String> vmArgs,
       Map<String, String> nativeLibsEnvironment,
       Optional<Long> testRuleTimeoutMs,
@@ -264,7 +265,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
         testRuleTimeoutMs,
         testCaseTimeoutMs,
         Arg.stringify(env, pathResolver),
-        javaRuntimeLauncher,
+        javaRuntimeLauncher.getCommandPrefix(pathResolver),
         args);
   }
 

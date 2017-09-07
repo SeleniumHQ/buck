@@ -20,7 +20,6 @@ import com.facebook.buck.android.exopackage.AndroidDevice;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.jvm.java.JavaRuntimeLauncher;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
@@ -37,6 +36,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
+import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -76,7 +76,7 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
           System.getProperty(
               "buck.testrunner_classes", new File("build/testrunner/classes").getAbsolutePath()));
 
-  @AddToRuleKey private final JavaRuntimeLauncher javaRuntimeLauncher;
+  @AddToRuleKey private final Tool javaRuntimeLauncher;
 
   private final ImmutableSet<String> labels;
 
@@ -85,6 +85,10 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
   private final HasInstallableApk apk;
 
   private final Optional<Long> testRuleTimeoutMs;
+  private final PackagedResource ddmlibJar;
+  private final PackagedResource kxml2Jar;
+  private final PackagedResource guavaJar;
+  private final PackagedResource toolsCommonJar;
 
   protected AndroidInstrumentationTest(
       BuildTarget buildTarget,
@@ -93,14 +97,22 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
       HasInstallableApk apk,
       Set<String> labels,
       Set<String> contacts,
-      JavaRuntimeLauncher javaRuntimeLauncher,
-      Optional<Long> testRuleTimeoutMs) {
+      Tool javaRuntimeLauncher,
+      Optional<Long> testRuleTimeoutMs,
+      PackagedResource ddmlibJar,
+      PackagedResource kxml2Jar,
+      PackagedResource guavaJar,
+      PackagedResource toolsCommonJar) {
     super(buildTarget, projectFilesystem, params);
     this.apk = apk;
     this.javaRuntimeLauncher = javaRuntimeLauncher;
     this.labels = ImmutableSet.copyOf(labels);
     this.contacts = ImmutableSet.copyOf(contacts);
     this.testRuleTimeoutMs = testRuleTimeoutMs;
+    this.ddmlibJar = ddmlibJar;
+    this.kxml2Jar = kxml2Jar;
+    this.guavaJar = guavaJar;
+    this.toolsCommonJar = toolsCommonJar;
   }
 
   private static AndroidDevice getSingleDevice(AndroidDevicesHelper adbHelper)
@@ -218,10 +230,10 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
     String testRunner =
         tryToExtractInstrumentationTestRunnerFromManifest(pathResolver, apk.getApkInfo());
 
-    String ddmlib = getPathForResourceJar("ddmlib.jar");
-    String kxml2 = getPathForResourceJar("kxml2.jar");
-    String guava = getPathForResourceJar("guava.jar");
-    String toolsCommon = getPathForResourceJar("android-tools-common.jar");
+    String ddmlib = getPathForResourceJar(ddmlibJar);
+    String kxml2 = getPathForResourceJar(kxml2Jar);
+    String guava = getPathForResourceJar(guavaJar);
+    String toolsCommon = getPathForResourceJar(toolsCommonJar);
 
     AndroidInstrumentationTestJVMArgs jvmArgs =
         AndroidInstrumentationTestJVMArgs.builder()
@@ -241,15 +253,17 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
             .build();
 
     return new InstrumentationStep(
-        getProjectFilesystem(), javaRuntimeLauncher, jvmArgs, testRuleTimeoutMs);
+        getProjectFilesystem(),
+        javaRuntimeLauncher.getCommandPrefix(pathResolver),
+        jvmArgs,
+        testRuleTimeoutMs);
   }
 
-  private String getPathForResourceJar(String jarName) {
+  private String getPathForResourceJar(PackagedResource packagedResource) {
     return new PathSourcePath(
             this.getProjectFilesystem(),
-            AndroidInstrumentationTest.class + "/" + jarName,
-            new PackagedResource(
-                this.getProjectFilesystem(), AndroidInstrumentationTest.class, jarName))
+            AndroidInstrumentationTest.class + "/" + packagedResource.getFilenamePath(),
+            packagedResource)
         .getRelativePath()
         .toString();
   }

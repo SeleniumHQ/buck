@@ -215,7 +215,7 @@ public class InstallCommand extends BuildCommand {
       // Get the helper targets if present
       ImmutableSet<String> installHelperTargets;
       try {
-        installHelperTargets = getInstallHelperTargets(params, pool.getExecutor());
+        installHelperTargets = getInstallHelperTargets(params, pool.getListeningExecutorService());
       } catch (BuildTargetException | BuildFileParseException e) {
         params
             .getBuckEventBus()
@@ -224,7 +224,7 @@ public class InstallCommand extends BuildCommand {
       }
 
       // Build the targets
-      exitCode = super.run(params, pool.getExecutor(), installHelperTargets);
+      exitCode = super.run(params, pool, installHelperTargets);
       if (exitCode != 0) {
         return exitCode;
       }
@@ -496,7 +496,7 @@ public class InstallCommand extends BuildCommand {
       ProjectFilesystem projectFilesystem,
       ProcessExecutor processExecutor,
       SourcePathResolver pathResolver)
-      throws IOException, NoSuchBuildTargetException {
+      throws IOException {
     AppleConfig appleConfig = params.getBuckConfig().getView(AppleConfig.class);
 
     final Path helperPath;
@@ -610,7 +610,9 @@ public class InstallCommand extends BuildCommand {
         Optional<String> appleBundleId;
         try (InputStream bundlePlistStream =
             projectFilesystem.getInputStreamForRelativePath(appleBundle.getInfoPlistPath())) {
-          appleBundleId = AppleInfoPlistParsing.getBundleIdFromPlistStream(bundlePlistStream);
+          appleBundleId =
+              AppleInfoPlistParsing.getBundleIdFromPlistStream(
+                  appleBundle.getInfoPlistPath(), bundlePlistStream);
         }
         if (!appleBundleId.isPresent()) {
           params
@@ -852,7 +854,9 @@ public class InstallCommand extends BuildCommand {
     Optional<String> appleBundleId;
     try (InputStream bundlePlistStream =
         projectFilesystem.getInputStreamForRelativePath(appleBundle.getInfoPlistPath())) {
-      appleBundleId = AppleInfoPlistParsing.getBundleIdFromPlistStream(bundlePlistStream);
+      appleBundleId =
+          AppleInfoPlistParsing.getBundleIdFromPlistStream(
+              appleBundle.getInfoPlistPath(), bundlePlistStream);
     }
     if (!appleBundleId.isPresent()) {
       params

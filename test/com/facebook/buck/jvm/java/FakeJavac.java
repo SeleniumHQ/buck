@@ -29,7 +29,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Optional;
 
 /** Fake implementation of {@link Javac} for tests. */
 public class FakeJavac implements Javac {
@@ -71,8 +70,9 @@ public class FakeJavac implements Javac {
       ImmutableList<JavacPluginJsr199Fields> pluginFields,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
-      Optional<Path> workingDirectory,
-      JavacCompilationMode compilationMode) {
+      Path workingDirectory,
+      JavacCompilationMode compilationMode,
+      boolean requiredForSourceAbi) {
     return new Invocation() {
       @Override
       public int buildSourceAbiJar(Path sourceAbiJar) throws InterruptedException {

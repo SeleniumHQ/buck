@@ -24,6 +24,7 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -72,7 +73,7 @@ public class JavaBinaryTest {
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(guavaNode, libraryNode);
     BuildRuleResolver ruleResolver =
-        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
@@ -88,10 +89,11 @@ public class JavaBinaryTest {
                 target,
                 new FakeProjectFilesystem(),
                 params,
-                new ExternalJavaRuntimeLauncher("/foobar/java"),
+                JavaCompilationConstants.DEFAULT_JAVA_OPTIONS.getJavaRuntimeLauncher(),
                 "com.facebook.base.Main",
                 null,
                 /* merge manifests */ true,
+                false,
                 null,
                 /* blacklist */ ImmutableSet.of(),
                 ImmutableSet.of(),
@@ -106,7 +108,7 @@ public class JavaBinaryTest {
     String expectedClasspath =
         basePath + pathResolver.getRelativePath(javaBinary.getSourcePathToOutput());
 
-    List<String> expectedCommand = ImmutableList.of("/foobar/java", "-jar", expectedClasspath);
+    List<String> expectedCommand = ImmutableList.of("java", "-jar", expectedClasspath);
     assertEquals(expectedCommand, javaBinary.getExecutableCommand().getCommandPrefix(pathResolver));
 
     assertFalse(

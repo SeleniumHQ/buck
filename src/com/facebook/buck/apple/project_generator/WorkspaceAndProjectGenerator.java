@@ -25,9 +25,10 @@ import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescriptionArg;
 import com.facebook.buck.apple.xcode.XCScheme;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXTarget;
-import com.facebook.buck.cxx.CxxBuckConfig;
-import com.facebook.buck.cxx.platform.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.TopologicalSort;
 import com.facebook.buck.halide.HalideBuckConfig;
 import com.facebook.buck.log.Logger;
@@ -48,6 +49,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
@@ -78,6 +80,7 @@ public class WorkspaceAndProjectGenerator {
   private final Cell rootCell;
   private final TargetGraph projectGraph;
   private final AppleDependenciesCache dependenciesCache;
+  private final ProjectGenerationStateCache projGenerationStateCache;
   private final XcodeWorkspaceConfigDescriptionArg workspaceArguments;
   private final BuildTarget workspaceBuildTarget;
   private final FocusedModuleTargetMatcher focusModules;
@@ -117,6 +120,7 @@ public class WorkspaceAndProjectGenerator {
     this.rootCell = cell;
     this.projectGraph = projectGraph;
     this.dependenciesCache = new AppleDependenciesCache(projectGraph);
+    this.projGenerationStateCache = new ProjectGenerationStateCache();
     this.workspaceArguments = workspaceArguments;
     this.workspaceBuildTarget = workspaceBuildTarget;
     this.projectGeneratorOptions = ImmutableSet.copyOf(projectGeneratorOptions);
@@ -401,6 +405,7 @@ public class WorkspaceAndProjectGenerator {
             new ProjectGenerator(
                 projectGraph,
                 dependenciesCache,
+                projGenerationStateCache,
                 rules,
                 projectCell,
                 projectDirectory,
@@ -452,6 +457,7 @@ public class WorkspaceAndProjectGenerator {
         new ProjectGenerator(
             projectGraph,
             dependenciesCache,
+            projGenerationStateCache,
             targetsInRequiredProjects,
             rootCell,
             outputDirectory.getParent(),
@@ -666,10 +672,20 @@ public class WorkspaceAndProjectGenerator {
           if (!(node.getConstructorArg() instanceof HasTests)) {
             continue;
           }
-          for (BuildTarget explicitTestTarget : ((HasTests) node.getConstructorArg()).getTests()) {
-            if (!focusModules.isFocusedOn(explicitTestTarget)) {
-              continue;
-            }
+          ImmutableList<BuildTarget> focusedTests =
+              ((HasTests) node.getConstructorArg())
+                  .getTests()
+                  .stream()
+                  .filter(t -> focusModules.isFocusedOn(t))
+                  .collect(MoreCollectors.toImmutableList());
+          // Show a warning if the target is not focused but the tests are.
+          if (focusedTests.size() > 0 && !focusModules.isFocusedOn(node.getBuildTarget())) {
+            buckEventBus.post(
+                ConsoleEvent.warning(
+                    "Skipping tests of %s since it's not focused", node.getBuildTarget()));
+            continue;
+          }
+          for (BuildTarget explicitTestTarget : focusedTests) {
             Optional<TargetNode<?, ?>> explicitTestNode =
                 targetGraph.getOptional(explicitTestTarget);
             if (explicitTestNode.isPresent()) {

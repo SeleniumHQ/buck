@@ -20,14 +20,18 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
 import com.facebook.buck.cli.FakeBuckConfig;
-import com.facebook.buck.cxx.platform.CxxPlatform;
-import com.facebook.buck.cxx.platform.CxxToolProvider;
-import com.facebook.buck.cxx.platform.Preprocessor;
-import com.facebook.buck.cxx.platform.PreprocessorProvider;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.CxxToolProvider;
+import com.facebook.buck.cxx.toolchain.MungingDebugPathSanitizer;
+import com.facebook.buck.cxx.toolchain.Preprocessor;
+import com.facebook.buck.cxx.toolchain.PreprocessorProvider;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
@@ -92,7 +96,8 @@ public class PrecompiledHeaderFeatureTest {
     public void test() {
       final String headerFilename = "foo.h";
       BuildRuleResolver resolver =
-          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+          new DefaultBuildRuleResolver(
+              TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
       CxxPreprocessAndCompile rule =
           preconfiguredSourceRuleFactoryBuilder(resolver)
               .setCxxPlatform(getPlatform())
@@ -145,7 +150,8 @@ public class PrecompiledHeaderFeatureTest {
     @Test
     public void rejectPchParameterIfSourceTypeDoesntSupportPch() {
       BuildRuleResolver resolver =
-          new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+          new DefaultBuildRuleResolver(
+              TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
       CxxPlatform platform =
           PLATFORM_SUPPORTING_PCH.withCompilerDebugPathSanitizer(
               new MungingDebugPathSanitizer(
@@ -190,7 +196,7 @@ public class PrecompiledHeaderFeatureTest {
       class TestData {
         public CxxPrecompiledHeader generate(Path from) {
           BuildRuleResolver resolver =
-              new BuildRuleResolver(
+              new DefaultBuildRuleResolver(
                   TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
           CxxSourceRuleFactory factory =
               preconfiguredSourceRuleFactoryBuilder(resolver)
@@ -232,7 +238,7 @@ public class PrecompiledHeaderFeatureTest {
       class TestData {
         public CxxPrecompiledHeader generate(Iterable<String> flags) {
           BuildRuleResolver resolver =
-              new BuildRuleResolver(
+              new DefaultBuildRuleResolver(
                   TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
           CxxSourceRuleFactory factory =
               preconfiguredSourceRuleFactoryBuilder(resolver)
@@ -267,7 +273,7 @@ public class PrecompiledHeaderFeatureTest {
       class TestData {
         public CxxPrecompiledHeader generate(String flags) {
           BuildRuleResolver resolver =
-              new BuildRuleResolver(
+              new DefaultBuildRuleResolver(
                   TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
           CxxSourceRuleFactory factory =
               preconfiguredSourceRuleFactoryBuilder(resolver)

@@ -24,6 +24,7 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -54,7 +55,8 @@ public class JavacStepTest {
   public void successfulCompileDoesNotSendStdoutAndStderrToConsole() throws Exception {
     FakeJavac fakeJavac = new FakeJavac();
     BuildRuleResolver buildRuleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
@@ -66,19 +68,20 @@ public class JavacStepTest {
 
     JavacStep step =
         new JavacStep(
-            Paths.get("output"),
             NoOpClassUsageFileWriter.instance(),
-            Optional.empty(),
-            Optional.empty(),
-            ImmutableSortedSet.of(),
-            Paths.get("pathToSrcsList"),
-            ImmutableSortedSet.of(),
             fakeJavac,
             javacOptions,
             BuildTargetFactory.newInstance("//foo:bar"),
             sourcePathResolver,
             fakeFilesystem,
             classpathChecker,
+            CompilerParameters.builder()
+                .setOutputDirectory(Paths.get("output"))
+                .setGeneratedCodeDirectory(Paths.get("generated"))
+                .setWorkingDirectory(Paths.get("working"))
+                .setDepFilePath(Paths.get("depFile"))
+                .setPathToSourcesList(Paths.get("pathToSrcsList"))
+                .build(),
             Optional.empty(),
             null);
 
@@ -103,7 +106,8 @@ public class JavacStepTest {
   public void failedCompileSendsStdoutAndStderrToConsole() throws Exception {
     FakeJavac fakeJavac = new FakeJavac();
     BuildRuleResolver buildRuleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
@@ -115,19 +119,22 @@ public class JavacStepTest {
 
     JavacStep step =
         new JavacStep(
-            Paths.get("output"),
             NoOpClassUsageFileWriter.instance(),
-            Optional.empty(),
-            Optional.empty(),
-            ImmutableSortedSet.of(),
-            Paths.get("pathToSrcsList"),
-            ImmutableSortedSet.of(),
             fakeJavac,
             javacOptions,
             BuildTargetFactory.newInstance("//foo:bar"),
             sourcePathResolver,
             fakeFilesystem,
             classpathChecker,
+            CompilerParameters.builder()
+                .setOutputDirectory(Paths.get("output"))
+                .setGeneratedCodeDirectory(Paths.get("generated"))
+                .setWorkingDirectory(Paths.get("working"))
+                .setDepFilePath(Paths.get("depFile"))
+                .setSourceFilePaths(ImmutableSortedSet.of())
+                .setPathToSourcesList(Paths.get("pathToSrcsList"))
+                .setClasspathEntries(ImmutableSortedSet.of())
+                .build(),
             Optional.empty(),
             null);
 
@@ -153,7 +160,8 @@ public class JavacStepTest {
   public void existingBootclasspathDirSucceeds() throws Exception {
     FakeJavac fakeJavac = new FakeJavac();
     BuildRuleResolver buildRuleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
@@ -169,19 +177,22 @@ public class JavacStepTest {
 
     JavacStep step =
         new JavacStep(
-            Paths.get("output"),
             NoOpClassUsageFileWriter.instance(),
-            Optional.empty(),
-            Optional.empty(),
-            ImmutableSortedSet.of(),
-            Paths.get("pathToSrcsList"),
-            ImmutableSortedSet.of(),
             fakeJavac,
             javacOptions,
             BuildTargetFactory.newInstance("//foo:bar"),
             sourcePathResolver,
             fakeFilesystem,
             classpathChecker,
+            CompilerParameters.builder()
+                .setOutputDirectory(Paths.get("output"))
+                .setGeneratedCodeDirectory(Paths.get("generated"))
+                .setWorkingDirectory(Paths.get("working"))
+                .setDepFilePath(Paths.get("depFile"))
+                .setSourceFilePaths(ImmutableSortedSet.of())
+                .setPathToSourcesList(Paths.get("pathToSrcsList"))
+                .setClasspathEntries(ImmutableSortedSet.of())
+                .build(),
             Optional.empty(),
             null);
 
@@ -205,7 +216,8 @@ public class JavacStepTest {
   public void missingBootclasspathDirFailsWithError() throws Exception {
     FakeJavac fakeJavac = new FakeJavac();
     BuildRuleResolver buildRuleResolver =
-        new BuildRuleResolver(TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ProjectFilesystem fakeFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
@@ -221,19 +233,22 @@ public class JavacStepTest {
 
     JavacStep step =
         new JavacStep(
-            Paths.get("output"),
             NoOpClassUsageFileWriter.instance(),
-            Optional.empty(),
-            Optional.empty(),
-            ImmutableSortedSet.of(),
-            Paths.get("pathToSrcsList"),
-            ImmutableSortedSet.of(),
             fakeJavac,
             javacOptions,
             BuildTargetFactory.newInstance("//foo:bar"),
             sourcePathResolver,
             fakeFilesystem,
             classpathChecker,
+            CompilerParameters.builder()
+                .setOutputDirectory(Paths.get("output"))
+                .setGeneratedCodeDirectory(Paths.get("generated"))
+                .setWorkingDirectory(Paths.get("working"))
+                .setDepFilePath(Paths.get("depFile"))
+                .setSourceFilePaths(ImmutableSortedSet.of())
+                .setPathToSourcesList(Paths.get("pathToSrcsList"))
+                .setClasspathEntries(ImmutableSortedSet.of())
+                .build(),
             Optional.empty(),
             null);
 

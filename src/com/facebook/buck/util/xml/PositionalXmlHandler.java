@@ -35,7 +35,7 @@ import org.xml.sax.ext.Locator2;
 import org.xml.sax.helpers.DefaultHandler;
 
 /** Builds a DOM tree that maintains element line and column numbers in userData */
-class PositionalXmlHandler extends DefaultHandler {
+public class PositionalXmlHandler extends DefaultHandler {
   public static final String LOCATION_USER_DATA_KEY = "lineLocation";
 
   @Nullable private Document document;
@@ -111,7 +111,7 @@ class PositionalXmlHandler extends DefaultHandler {
       return null;
     }
 
-    return DocumentLocation.of(locator.getLineNumber(), locator.getColumnNumber());
+    return DocumentLocation.of(locator.getLineNumber() - 1, locator.getColumnNumber() - 1);
   }
 
   @Nullable

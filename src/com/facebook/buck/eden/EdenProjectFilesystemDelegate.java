@@ -16,9 +16,11 @@
 
 package com.facebook.buck.eden;
 
+import com.facebook.buck.config.Config;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.DefaultProjectFilesystemDelegate;
 import com.facebook.buck.io.ProjectFilesystemDelegate;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.eden.thrift.EdenError;
 import com.facebook.thrift.TException;
@@ -32,6 +34,15 @@ import java.util.Optional;
 
 public final class EdenProjectFilesystemDelegate implements ProjectFilesystemDelegate {
 
+  private static final Logger LOG = Logger.get(EdenProjectFilesystemDelegate.class);
+
+  /**
+   * Config option in the {@code [eden]} section of {@code .buckconfig} to disable going through
+   * Eden's Thrift API to get the SHA-1 of a file. This defaults to {@code false}. This should be
+   * tweaked during profiling to confirm that going through Eden's Thrift API is more efficient.
+   */
+  private static final String BUCKCONFIG_DISABLE_SHA1_FAST_PATH = "disable_sha1_fast_path";
+
   private final EdenMount mount;
 
   /** Delegate to forward requests to for files that are outside of the {@link #mount}. */
@@ -39,15 +50,33 @@ public final class EdenProjectFilesystemDelegate implements ProjectFilesystemDel
 
   private final ImmutableList<Path> bindMounts;
 
-  public EdenProjectFilesystemDelegate(EdenMount mount) {
-    this(mount, new DefaultProjectFilesystemDelegate(mount.getProjectRoot()));
+  private final boolean disableSha1FastPath;
+
+  public EdenProjectFilesystemDelegate(EdenMount mount, Config config) {
+    this(
+        mount,
+        new DefaultProjectFilesystemDelegate(mount.getProjectRoot()),
+        config.getBooleanValue("eden", BUCKCONFIG_DISABLE_SHA1_FAST_PATH, false));
   }
 
   @VisibleForTesting
   EdenProjectFilesystemDelegate(EdenMount mount, ProjectFilesystemDelegate delegate) {
+    this(mount, delegate, /* disableSha1FastPath */ false);
+  }
+
+  private EdenProjectFilesystemDelegate(
+      EdenMount mount, ProjectFilesystemDelegate delegate, boolean disableSha1FastPath) {
     this.mount = mount;
     this.delegate = delegate;
     this.bindMounts = mount.getBindMounts();
+    this.disableSha1FastPath = disableSha1FastPath;
+  }
+
+  @Override
+  public String getDetailsForLogging() {
+    return String.format(
+        "EdenProjectFilesystemDelegate{mount=%s; disableSha1FastPath=%s}",
+        mount.getProjectRoot(), disableSha1FastPath);
   }
 
   @Override
@@ -64,13 +93,16 @@ public final class EdenProjectFilesystemDelegate implements ProjectFilesystemDel
   private Sha1HashCode computeSha1(Path path, boolean retryWithRealPathIfEdenError)
       throws IOException {
     Preconditions.checkArgument(path.isAbsolute());
-    Optional<Path> entry = mount.getPathRelativeToProjectRoot(path);
+    if (disableSha1FastPath) {
+      return delegate.computeSha1(path);
+    }
 
+    Optional<Path> entry = mount.getPathRelativeToProjectRoot(path);
     if (entry.isPresent() && !isUnderBindMount(entry.get())) {
       try {
         return mount.getSha1(entry.get());
-      } catch (TException e) {
-        throw new IOException(e);
+      } catch (TException | IOException e) {
+        LOG.info(e, "Failed when fetching SHA-1 for %s", path);
       } catch (EdenError e) {
         if (retryWithRealPathIfEdenError) {
           // It's possible that an EdenError was thrown because entry.get() was a path to a symlink,
@@ -81,7 +113,6 @@ public final class EdenProjectFilesystemDelegate implements ProjectFilesystemDel
             return computeSha1(realPath, /* retryWithRealPathIfEdenError */ false);
           }
         }
-        throw new IOException(e);
       }
     }
 

@@ -18,11 +18,11 @@ package com.facebook.buck.haskell;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.cxx.CxxPlatformUtils;
-import com.facebook.buck.cxx.platform.Linker;
+import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.query.Query;
@@ -41,13 +41,13 @@ public class HaskellBinaryDescriptionTest {
     HaskellBinaryBuilder builder =
         new HaskellBinaryBuilder(target).setCompilerFlags(ImmutableList.of(flag));
     BuildRuleResolver resolver =
-        new BuildRuleResolver(
+        new DefaultBuildRuleResolver(
             TargetGraphFactory.newInstance(builder.build()),
             new DefaultTargetNodeToBuildRuleTransformer());
     builder.build(resolver);
     BuildTarget compileTarget =
         HaskellDescriptionUtils.getCompileBuildTarget(
-            target, CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, false);
+            target, HaskellTestUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, false);
     HaskellCompileRule rule = resolver.getRuleWithType(compileTarget, HaskellCompileRule.class);
     assertThat(rule.getFlags(), Matchers.hasItem(flag));
   }
@@ -66,7 +66,7 @@ public class HaskellBinaryDescriptionTest {
         TargetGraphFactory.newInstance(
             transitiveDepBuilder.build(), depBuilder.build(), builder.build());
     BuildRuleResolver resolver =
-        new BuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+        new DefaultBuildRuleResolver(targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
     HaskellLibrary transitiveDep = transitiveDepBuilder.build(resolver, targetGraph);
     HaskellLibrary dep = depBuilder.build(resolver, targetGraph);
     HaskellBinary binary = (HaskellBinary) builder.build(resolver, targetGraph);

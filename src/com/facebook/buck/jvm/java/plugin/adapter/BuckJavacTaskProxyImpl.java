@@ -22,12 +22,12 @@ import com.facebook.buck.jvm.java.plugin.api.CompilationUnitTreeProxy;
 import com.sun.source.util.JavacTask;
 import com.sun.source.util.TaskListener;
 import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
 import java.util.Locale;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
+import javax.annotation.processing.Messager;
 import javax.annotation.processing.Processor;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
@@ -60,21 +60,7 @@ public class BuckJavacTaskProxyImpl implements BuckJavacTaskProxy {
 
   @Override
   public Iterable<? extends TypeElement> enter() throws IOException {
-    try {
-      @SuppressWarnings("unchecked")
-      Iterable<? extends TypeElement> result =
-          (Iterable<? extends TypeElement>)
-              javacTask.getClass().getMethod("enter").invoke(javacTask);
-      return result;
-    } catch (IllegalAccessException | NoSuchMethodException e) {
-      throw new RuntimeException(e);
-    } catch (InvocationTargetException e) {
-      if (e.getCause() instanceof IOException) {
-        throw (IOException) e.getCause();
-      }
-
-      throw new RuntimeException(e);
-    }
+    return javacTask.enter();
   }
 
   @Override
@@ -123,6 +109,11 @@ public class BuckJavacTaskProxyImpl implements BuckJavacTaskProxy {
   @Override
   public Types getTypes() {
     return javacTask.getTypes();
+  }
+
+  @Override
+  public Messager getMessager() {
+    return new TreesMessager(javacTask.getTrees());
   }
 
   @Override

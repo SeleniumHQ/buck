@@ -20,7 +20,6 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -64,8 +63,7 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
       BuildRuleParams params,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      PrebuiltJarDescriptionArg args)
-      throws NoSuchBuildTargetException {
+      PrebuiltJarDescriptionArg args) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
     if (HasJavaAbi.isClassAbiTarget(buildTarget)) {
@@ -86,7 +84,8 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
             args.getGwtJar(),
             args.getJavadocUrl(),
             args.getMavenCoords(),
-            args.getProvided());
+            args.getProvided(),
+            args.getRequiredForSourceAbi());
 
     buildTarget.checkUnflavored();
     BuildTarget gwtTarget = buildTarget.withAppendedFlavors(JavaLibrary.GWT_MODULE_FLAVOR);
@@ -166,7 +165,8 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
 
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractPrebuiltJarDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps {
+  interface AbstractPrebuiltJarDescriptionArg
+      extends CommonDescriptionArg, HasDeclaredDeps, MaybeRequiredForSourceAbiArg {
     SourcePath getBinaryJar();
 
     Optional<SourcePath> getSourceJar();
@@ -180,6 +180,15 @@ public class PrebuiltJarDescription implements Description<PrebuiltJarDescriptio
     @Value.Default
     default boolean getProvided() {
       return false;
+    }
+
+    @Override
+    @Value.Default
+    default boolean getRequiredForSourceAbi() {
+      // Prebuilt jars are quick to build, and often contain third-party code, which in turn is
+      // often a source of annotations and constants. To ease migration to ABI generation from
+      // source without deps, we have them present during ABI gen by default.
+      return true;
     }
   }
 }

@@ -24,9 +24,11 @@ import com.facebook.buck.distributed.DistBuildMode;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildSlaveExecutor;
 import com.facebook.buck.distributed.DistBuildState;
+import com.facebook.buck.distributed.FileContentsProvider;
 import com.facebook.buck.distributed.FileMaterializationStatsTracker;
 import com.facebook.buck.distributed.FrontendService;
 import com.facebook.buck.distributed.MultiSourceContentsProvider;
+import com.facebook.buck.distributed.ServerContentsProvider;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.slb.ClientSideSlb;
@@ -34,9 +36,11 @@ import com.facebook.buck.slb.LoadBalancedService;
 import com.facebook.buck.slb.ThriftOverHttpServiceConfig;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.google.common.base.Preconditions;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.concurrent.ScheduledExecutorService;
 import okhttp3.OkHttpClient;
 
 public abstract class DistBuildFactory {
@@ -64,6 +68,27 @@ public abstract class DistBuildFactory {
             new LoadBalancedService(slb, client, params.getBuckEventBus())));
   }
 
+  public static FileContentsProvider createMultiSourceContentsProvider(
+      DistBuildService service,
+      DistBuildConfig distBuildConfig,
+      FileMaterializationStatsTracker fileMaterializationStatsTracker,
+      ScheduledExecutorService sourceFileMultiFetchScheduler,
+      ListeningExecutorService executorService,
+      Optional<Path> globalCacheDir)
+      throws IOException, InterruptedException {
+    return new MultiSourceContentsProvider(
+        new ServerContentsProvider(
+            service,
+            sourceFileMultiFetchScheduler,
+            executorService,
+            fileMaterializationStatsTracker,
+            distBuildConfig.getSourceFileMultiFetchBufferPeriodMs(),
+            distBuildConfig.getSourceFileMultiFetchMaxBufferSize()),
+        fileMaterializationStatsTracker,
+        executorService,
+        globalCacheDir);
+  }
+
   public static DistBuildSlaveExecutor createDistBuildExecutor(
       DistBuildState state,
       CommandRunnerParams params,
@@ -71,10 +96,10 @@ public abstract class DistBuildFactory {
       DistBuildService service,
       DistBuildMode mode,
       int coordinatorPort,
+      String coordinatorAddress,
       Optional<StampedeId> stampedeId,
-      Optional<Path> globalCacheDir,
-      FileMaterializationStatsTracker fileMaterializationStatsTracker)
-      throws InterruptedException, IOException {
+      FileContentsProvider fileContentsProvider,
+      DistBuildConfig distBuildConfig) {
     Preconditions.checkArgument(state.getCells().size() > 0);
 
     // Create a cache factory which uses a combination of the distributed build config,
@@ -96,15 +121,16 @@ public abstract class DistBuildFactory {
                 //TODO(alisdair,shivanker): Change this to state.getRootCell().getBuckConfig().getKeySeed()
                 .setCacheKeySeed(params.getBuckConfig().getKeySeed())
                 .setConsole(params.getConsole())
-                .setProvider(
-                    new MultiSourceContentsProvider(
-                        service, fileMaterializationStatsTracker, globalCacheDir))
+                .setProvider(fileContentsProvider)
                 .setExecutors(params.getExecutors())
                 .setDistBuildMode(mode)
-                .setCoordinatorPort(coordinatorPort)
+                .setRemoteCoordinatorPort(coordinatorPort)
+                .setRemoteCoordinatorAddress(coordinatorAddress)
                 .setStampedeId(stampedeId.orElse(new StampedeId().setId("LOCAL_FILE")))
                 .setVersionedTargetGraphCache(params.getVersionedTargetGraphCache())
                 .setBuildInfoStoreManager(params.getBuildInfoStoreManager())
+                .setDistBuildService(service)
+                .setDistBuildConfig(distBuildConfig)
                 .build());
     return executor;
   }
