@@ -509,7 +509,7 @@ public class BuckConfig implements ConfigPathGetter {
   }
 
   public boolean isBuckConfigLocalWarningEnabled() {
-    return getBooleanValue(LOG_SECTION, "buckconfig_local_warning_enabled", true);
+    return getBooleanValue(LOG_SECTION, "buckconfig_local_warning_enabled", false);
   }
 
   public ProjectTestsMode xcodeProjectTestsMode() {
@@ -1079,6 +1079,11 @@ public class BuckConfig implements ConfigPathGetter {
   public FileHashCacheMode getFileHashCacheMode() {
     return getEnum("build", "file_hash_cache_mode", FileHashCacheMode.class)
         .orElse(FileHashCacheMode.DEFAULT);
+  }
+
+  /** Whether to parallelize action graph creation. */
+  public boolean isActionGraphParallelizationEnabled() {
+    return getBooleanValue("build", "action_graph_parallelization_enabled", false);
   }
 
   public Config getConfig() {

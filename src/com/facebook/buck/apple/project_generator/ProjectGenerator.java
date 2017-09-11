@@ -105,12 +105,12 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasTests;
 import com.facebook.buck.rules.PathSourcePath;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -322,7 +322,7 @@ public class ProjectGenerator {
     this.defaultPathResolver =
         DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
-                new DefaultBuildRuleResolver(
+                new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY,
                     new DefaultTargetNodeToBuildRuleTransformer(),
                     buckEventBus)));
@@ -761,10 +761,10 @@ public class ProjectGenerator {
           node.castArg(PrebuiltAppleFrameworkDescriptionArg.class)
               .ifPresent(
                   prebuiltFramework -> {
-                    // Technically (see Apple Tech Notes 2435), static frameworks are lies. In case a static
-                    // framework is used, they can escape the incorrect project generation by marking its
-                    // preferred linkage static (what does preferred linkage even mean for a prebuilt thing?
-                    // none of this makes sense anyways).
+                    // Technically (see Apple Tech Notes 2435), static frameworks are lies. In case
+                    // a static framework is used, they can escape the incorrect project generation
+                    // by marking its preferred linkage static (what does preferred linkage even
+                    // mean for a prebuilt thing? none of this makes sense anyways).
                     if (prebuiltFramework.getConstructorArg().getPreferredLinkage()
                         != NativeLinkable.Linkage.STATIC) {
                       filteredRules.add(node);
@@ -896,7 +896,7 @@ public class ProjectGenerator {
         };
 
     BuildRuleResolver emptyBuildRuleResolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer(), buckEventBus);
     ImmutableList.Builder<String> result = new ImmutableList.Builder<>();
     for (StringWithMacros flag : flags) {
@@ -1017,9 +1017,9 @@ public class ProjectGenerator {
                 .castArg(AppleTestDescriptionArg.class)
                 .flatMap(
                     testNode -> {
-                      // only application tests share a runtime with their host application and need to
-                      // avoid linking dependencies already linked by the host.
-                      // we know this is an application test if it is not a UI test and has a bundle loader.
+                      // only application tests share a runtime with their host application and need
+                      // to avoid linking dependencies already linked by the host. we know this is
+                      // an application test if it is not a UI test and has a bundle loader.
                       return testNode.getConstructorArg().getIsUiTest()
                           ? Optional.empty()
                           : bundleLoaderNode;
@@ -1422,7 +1422,8 @@ public class ProjectGenerator {
   }
 
   private void addPBXTargetDependency(PBXNativeTarget pbxTarget, BuildTarget dependency) {
-    // Xcode appears to only support target dependencies if both targets are within the same project.
+    // Xcode appears to only support target dependencies if both targets are within the same
+    // project.
     // If the desired target dependency is not in the same project, then just ignore it.
     if (!isBuiltByCurrentProject(dependency)) {
       return;
@@ -1481,6 +1482,7 @@ public class ProjectGenerator {
                   .getConstructorArg()
                   .getFrameworks()
                   .stream()
+                  .filter(x -> !x.isSDKROOTFrameworkPath())
                   .map(
                       frameworkPath ->
                           FrameworkPath.getUnexpandedSearchPath(
@@ -2132,7 +2134,7 @@ public class ProjectGenerator {
                   .setDestination(PBXCopyFilesBuildPhase.Destination.XPC)
                   .setPath("$(CONTENTS_FOLDER_PATH)/XPCServices")
                   .build());
-          //$CASES-OMITTED$
+          // $CASES-OMITTED$
         default:
           return Optional.of(
               CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.PRODUCTS));

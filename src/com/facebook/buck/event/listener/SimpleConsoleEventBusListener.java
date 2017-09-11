@@ -176,8 +176,12 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     if (console.getVerbosity().isSilent()) {
       return;
     }
-    long currentMillis = clock.currentTimeMillis();
+
     ImmutableList.Builder<String> lines = ImmutableList.builder();
+
+    lines.add(getNetworkStatsLine(finished));
+
+    long currentMillis = clock.currentTimeMillis();
     long buildStartedTime = buildStarted != null ? buildStarted.getTimestamp() : Long.MAX_VALUE;
     long buildFinishedTime = buildFinished != null ? buildFinished.getTimestamp() : currentMillis;
     Collection<EventPair> processingEvents =
@@ -199,9 +203,9 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
       lines.add("WAITING FOR HTTP CACHE UPLOADS " + httpStatus);
     }
 
-    lines.add(getNetworkStatsLine(finished));
-
     showTopSlowBuildRules(lines);
+
+    lines.add(finished.getExitCode() == 0 ? "BUILD SUCCEEDED" : "BUILD FAILED");
 
     printLines(lines);
   }

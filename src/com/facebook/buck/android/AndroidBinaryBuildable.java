@@ -16,6 +16,9 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.android.apkmodule.APKModule;
+import com.facebook.buck.android.apkmodule.APKModuleGraph;
+import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.redex.ReDexStep;
 import com.facebook.buck.android.redex.RedexOptions;
 import com.facebook.buck.android.resources.ResourcesZipBuilder;
@@ -99,7 +102,6 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
   @AddToRuleKey private final SourcePath keystorePath;
   @AddToRuleKey private final SourcePath keystorePropertiesPath;
-  @AddToRuleKey private final AndroidBinary.PackageType packageType;
   @AddToRuleKey private final DexSplitMode dexSplitMode;
   @AddToRuleKey private final ProGuardObfuscateStep.SdkProguardType sdkProguardConfig;
   @AddToRuleKey private final Optional<Integer> optimizationPasses;
@@ -167,7 +169,6 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       ProjectFilesystem filesystem,
       SourcePath keystorePath,
       SourcePath keystorePropertiesPath,
-      AndroidBinary.PackageType packageType,
       DexSplitMode dexSplitMode,
       ProGuardObfuscateStep.SdkProguardType sdkProguardConfig,
       Optional<Integer> optimizationPasses,
@@ -204,7 +205,6 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
     this.keystorePath = keystorePath;
     this.keystorePropertiesPath = keystorePropertiesPath;
-    this.packageType = packageType;
     this.dexSplitMode = dexSplitMode;
     this.sdkProguardConfig = sdkProguardConfig;
     this.optimizationPasses = optimizationPasses;
@@ -298,7 +298,6 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
         enhancementResult.getPreDexMerge().map(PreDexMerge::getSourcePathToPrimaryDex);
     if (isPreDexed) {
       Preconditions.checkState(!preprocessJavaClassesBash.isPresent());
-      Preconditions.checkState(!packageType.isBuildWithObfuscation());
       this.classpathEntriesToDexSourcePaths = Optional.empty();
       this.moduleMappedClasspathEntriesToDex = Optional.empty();
     } else {
@@ -716,7 +715,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
     Optional<Path> proguardFullConfigFile = Optional.empty();
     Optional<Path> proguardMappingFile = Optional.empty();
-    if (packageType.isBuildWithObfuscation()) {
+    if (shouldProguard()) {
       Path proguardConfigDir = getProguardTextFilesPath();
       proguardFullConfigFile = Optional.of(proguardConfigDir.resolve("configuration.txt"));
       proguardMappingFile = Optional.of(proguardConfigDir.resolve("mapping.txt"));
@@ -889,7 +888,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
     }
 
     // Execute proguard if desired (transforms input classpaths).
-    if (packageType.isBuildWithObfuscation()) {
+    if (shouldProguard()) {
       classpathEntriesToDex =
           addProguardCommands(
               classpathEntriesToDex,
@@ -1082,7 +1081,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
     if (shouldSplitDex()) {
       Optional<Path> proguardFullConfigFile = Optional.empty();
       Optional<Path> proguardMappingFile = Optional.empty();
-      if (packageType.isBuildWithObfuscation()) {
+      if (shouldProguard()) {
         Path proguardConfigDir = getProguardTextFilesPath();
         proguardFullConfigFile = Optional.of(proguardConfigDir.resolve("configuration.txt"));
         proguardMappingFile = Optional.of(proguardConfigDir.resolve("mapping.txt"));
@@ -1281,7 +1280,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
     // being executed.  For example, aapt is internally threaded by default when preprocessing
     // images.
     EnumSet<DxStep.Option> dxOptions =
-        AndroidBinary.PackageType.RELEASE.equals(packageType)
+        shouldProguard()
             ? EnumSet.of(DxStep.Option.NO_LOCALS)
             : EnumSet.of(DxStep.Option.NO_OPTIMIZE);
     Path selectedPrimaryDexPath = primaryDexPath;
@@ -1324,6 +1323,11 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
               AndroidBinary.SECONDARY_DEX_SUBDIR);
       steps.add(intraDexReorderStep);
     }
+  }
+
+  private boolean shouldProguard() {
+    return proguardConfig.isPresent()
+        || !ProGuardObfuscateStep.SdkProguardType.NONE.equals(sdkProguardConfig);
   }
 
   boolean shouldSplitDex() {

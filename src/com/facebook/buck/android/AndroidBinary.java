@@ -18,6 +18,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
+import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.redex.RedexOptions;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.jvm.java.HasClasspathEntries;
@@ -94,11 +95,6 @@ public class AndroidBinary extends AbstractBuildRule
     RELEASE,
     TEST,
     ;
-
-    /** @return true if ProGuard should be used to obfuscate the output */
-    boolean isBuildWithObfuscation() {
-      return this == RELEASE;
-    }
   }
 
   enum ExopackageMode {
@@ -182,7 +178,6 @@ public class AndroidBinary extends AbstractBuildRule
       Optional<List<String>> proguardJvmArgs,
       Optional<String> proguardAgentPath,
       Keystore keystore,
-      PackageType packageType,
       DexSplitMode dexSplitMode,
       Set<BuildTarget> buildTargetsToExcludeFromDex,
       ProGuardObfuscateStep.SdkProguardType sdkProguardConfig,
@@ -260,7 +255,6 @@ public class AndroidBinary extends AbstractBuildRule
             getProjectFilesystem(),
             keystore.getPathToStore(),
             keystore.getPathToPropertiesFile(),
-            packageType,
             dexSplitMode,
             sdkProguardConfig,
             optimizationPasses,

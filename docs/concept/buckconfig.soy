@@ -455,13 +455,12 @@ $ buck targets --resolve-alias app#src_jar
 
 {call buckconfig.entry}
   {param section: 'apple' /}
-  {param name: 'check_asset_catalog_duplicate_images' /}
-  {param example_value: 'false' /}
+  {param name: 'asset_catalog_validation' /}
+  {param example_value: 'XCODE' /}
   {param description}
-    All asset catalogs (.xcassets directories) get merged into a single directory per apple bundle.
-    This option prevents duplicate filenames across all the asset catalogs. Imagesets
-    containing images with identical names can overwrite one another, this is especially
-    problematic if two images share a name but are different.
+    Buck can check errors in .xcassets' contents that can later cause silent failures, like having
+    multiple images with the same name or missing <code>Contents.json</code> files. To add extra
+    validation above what Xcode does, set this option to <code>STRICT</code>.
   {/param}
 {/call}
 
@@ -2620,6 +2619,18 @@ your <code>.buckjavaargs</code> file</a>:
     their read-only counterparts. This can be used to detect
     accidental attempts to modify global variables causing non-determinism and hard to debug bugs.
     By default, this is not enabled (<code>false</code>).
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'parser' /}
+  {param name: 'polyglot_parsing_enabled' /}
+  {param example_value: 'true' /}
+  {param description}
+    Indicates whether support for experimental polyglot parsing should be enabled. When enabled,
+    build file can have a <code># BUILD FILE SYNTAX: </code> followed by one of supported syntax
+    names (currently <code>PYTHON_DSL</code>code> and very experimental <code>SKYLARK</code>.
+    This experimental flag is disabled by default.
   {/param}
 {/call}
 

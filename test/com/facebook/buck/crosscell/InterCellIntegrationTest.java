@@ -46,9 +46,9 @@ import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -270,8 +270,53 @@ public class InterCellIntegrationTest {
         prepare("inter-cell/java/primary", "inter-cell/java/secondary");
     ProjectWorkspace primary = cells.getFirst();
 
-    primary.runBuckBuild("//:lib").assertSuccess();
+    primary.runBuckBuild("//:primary_lib").assertSuccess();
     primary.runBuckBuild("//:java-binary", "-v", "5").assertSuccess();
+  }
+
+  @Test
+  public void shouldBeAbleToCompileWithBootclasspathXCell() throws IOException {
+    Pair<ProjectWorkspace, ProjectWorkspace> cells =
+        prepare("inter-cell/java/primary", "inter-cell/java/secondary");
+    ProjectWorkspace primary = cells.getFirst();
+
+    String systemBootclasspath = System.getProperty("sun.boot.class.path");
+    ProjectWorkspace.ProcessResult result =
+        primary.runBuckBuild(
+            "//:java-binary",
+            "--config",
+            "java.source_level=7",
+            "--config",
+            "java.target_level=7",
+            "--config",
+            String.format("//java.bootclasspath-7=primary.jar:%s", systemBootclasspath),
+            "--config",
+            String.format("secondary//java.bootclasspath-7=secondary.jar:%s", systemBootclasspath),
+            "-v",
+            "5");
+    result.assertSuccess();
+
+    List<String> verboseLogs =
+        Splitter.on('\n').trimResults().omitEmptyStrings().splitToList(result.getStderr());
+    // Check the javac invocations for properly a resolved bootclasspath and that we aren't
+    // accidentally mixing bootclasspaths
+    assertThat(
+        verboseLogs,
+        Matchers.hasItem(
+            Matchers.allOf(
+                containsString("javac"),
+                containsString("-bootclasspath"),
+                containsString("/primary.jar"),
+                containsString("primary_lib"))));
+    assertThat(
+        verboseLogs,
+        Matchers.hasItem(
+            Matchers.allOf(
+                containsString("javac"),
+                containsString("-bootclasspath"),
+                containsString("/secondary.jar"),
+                containsString("secondary_lib"),
+                not(containsString("primary_lib")))));
   }
 
   @Test
@@ -583,7 +628,7 @@ public class InterCellIntegrationTest {
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
-                new DefaultBuildRuleResolver(
+                new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     Path tmpDir = tmp.newFolder("merging_tmp");
     SymbolGetter syms =
@@ -632,7 +677,7 @@ public class InterCellIntegrationTest {
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(
-                new DefaultBuildRuleResolver(
+                new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     Path tmpDir = tmp.newFolder("merging_tmp");
     SymbolGetter syms =

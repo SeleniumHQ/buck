@@ -41,6 +41,7 @@ import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Name;
+import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.ArrayType;
@@ -91,6 +92,10 @@ class PostEnterCanonicalizer {
               children == null || children.isEmpty() ? null : children.get(i)));
     }
     return result;
+  }
+
+  protected TypeMirror getCanonicalType(TreePath classNamePath) {
+    return getCanonicalType(getUnderlyingType(classNamePath), classNamePath);
   }
 
   public TypeMirror getCanonicalType(
@@ -209,14 +214,12 @@ class PostEnterCanonicalizer {
                   .map(
                       arg -> {
                         TreePath argPath = new TreePath(treePath, arg);
-                        return getCanonicalType(getUnderlyingType(argPath), argPath);
+                        return getCanonicalType(argPath);
                       })
                   .toArray(TypeMirror[]::new);
 
           TreePath baseTypeTreePath = new TreePath(treePath, parameterizedTypeTree.getType());
-          DeclaredType baseType =
-              (DeclaredType)
-                  getCanonicalType(getUnderlyingType(baseTypeTreePath), baseTypeTreePath);
+          DeclaredType baseType = (DeclaredType) getCanonicalType(baseTypeTreePath);
 
           TypeMirror enclosingType = baseType.getEnclosingType();
           if (enclosingType.getKind() == TypeKind.NONE) {
@@ -232,80 +235,67 @@ class PostEnterCanonicalizer {
         {
           WildcardTree wildcardTree = (WildcardTree) tree;
           TreePath boundTreePath = new TreePath(treePath, wildcardTree.getBound());
-          return types.getWildcardType(
-              null, getCanonicalType(getUnderlyingType(boundTreePath), boundTreePath));
+          return types.getWildcardType(null, getCanonicalType(boundTreePath));
         }
       case EXTENDS_WILDCARD:
         {
           WildcardTree wildcardTree = (WildcardTree) tree;
           TreePath boundTreePath = new TreePath(treePath, wildcardTree.getBound());
-          return types.getWildcardType(
-              getCanonicalType(getUnderlyingType(boundTreePath), boundTreePath), null);
+          return types.getWildcardType(getCanonicalType(boundTreePath), null);
         }
       case MEMBER_SELECT:
         {
           MemberSelectTree memberSelectTree = (MemberSelectTree) tree;
           Name identifier = memberSelectTree.getIdentifier();
-          TreePath baseTypeTreePath = new TreePath(treePath, memberSelectTree.getExpression());
           StandaloneTypeMirror baseType =
               (StandaloneTypeMirror)
-                  getCanonicalType(getUnderlyingType(baseTypeTreePath), baseTypeTreePath);
+                  getCanonicalType(new TreePath(treePath, memberSelectTree.getExpression()));
 
+          ArtificialQualifiedNameable baseElement;
           if (baseType.getKind() == TypeKind.PACKAGE) {
-            CharSequence fullyQualifiedName = TreeBackedTrees.treeToName(memberSelectTree);
+            baseElement = ((StandalonePackageType) baseType).asElement();
             if (isProbablyPackageName(identifier)) {
-              return types.getPackageType(elements.getOrCreatePackageElement(fullyQualifiedName));
-            } else {
-              StandalonePackageType packageType = (StandalonePackageType) baseType;
-              ArtificialPackageElement packageElement = packageType.asElement();
-              return types.getDeclaredType(
-                  elements.getOrCreateTypeElement(packageElement, fullyQualifiedName));
+              return types.getPackageType(
+                  elements.getOrCreatePackageElement((PackageElement) baseElement, identifier));
             }
           } else {
-            StandaloneDeclaredType baseDeclaredType = (StandaloneDeclaredType) baseType;
-            DeclaredType enclosingType;
-            if (baseDeclaredType.getEnclosingType().getKind() == TypeKind.NONE) {
-              enclosingType = null;
-            } else {
+            baseElement = (ArtificialQualifiedNameable) ((DeclaredType) baseType).asElement();
+          }
+
+          DeclaredType enclosingType = null;
+          if (baseType.getKind() == TypeKind.DECLARED
+              && !(baseType instanceof InferredDeclaredType)) {
+            DeclaredType baseDeclaredType = (DeclaredType) baseType;
+            if (!baseDeclaredType.getTypeArguments().isEmpty()
+                || baseDeclaredType.getEnclosingType().getKind() != TypeKind.NONE) {
               enclosingType = baseDeclaredType;
             }
-
-            if (baseDeclaredType instanceof InferredDeclaredType
-                || baseDeclaredType.getTypeArguments().isEmpty()) {
-              return types.getDeclaredType(
-                  enclosingType,
-                  elements.getOrCreateTypeElement(
-                      (ArtificialElement) baseDeclaredType.asElement(), identifier));
-            } else {
-              return types.getDeclaredType(
-                  baseDeclaredType,
-                  elements.getOrCreateTypeElement(
-                      (ArtificialElement) baseDeclaredType.asElement(), identifier));
-            }
           }
+
+          ArtificialTypeElement typeElement =
+              elements.getOrCreateTypeElement(baseElement, identifier);
+          return types.getDeclaredType(enclosingType, typeElement);
         }
       case IDENTIFIER:
         {
           // If it's imported, then it must be a class; look it up
           TreePath importedIdentifierPath = getImportedIdentifier(treePath);
           if (importedIdentifierPath != null) {
-            return getCanonicalType(
-                getUnderlyingType(importedIdentifierPath), importedIdentifierPath);
+            return getCanonicalType(importedIdentifierPath);
           }
 
           // Infer the type by heuristic
           IdentifierTree identifierTree = (IdentifierTree) tree;
           Name identifier = identifierTree.getName();
           if (isProbablyPackageName(identifier)) {
-            return types.getPackageType(elements.getOrCreatePackageElement(identifier));
+            return types.getPackageType(elements.getOrCreatePackageElement(null, identifier));
           }
-          return types.getDeclaredType(
-              elements.getOrCreateTypeElement(
-                  (ArtificialElement)
-                      elements.getCanonicalElement(
-                          Preconditions.checkNotNull(
-                              javacTrees.getElement(new TreePath(treePath.getCompilationUnit())))),
-                  identifier));
+          ArtificialPackageElement packageElement =
+              (ArtificialPackageElement)
+                  elements.getCanonicalElement(
+                      Preconditions.checkNotNull(
+                          javacTrees.getElement(new TreePath(treePath.getCompilationUnit()))));
+          return types.getDeclaredType(elements.getOrCreateTypeElement(packageElement, identifier));
         }
         // $CASES-OMITTED$
       default:
@@ -374,7 +364,7 @@ class PostEnterCanonicalizer {
                 TreePath classNamePath =
                     new TreePath(valueTreePath, ((MemberSelectTree) leaf).getExpression());
 
-                return getCanonicalType(getUnderlyingType(classNamePath), classNamePath);
+                return getCanonicalType(classNamePath);
               } else {
                 javacTrees.printMessage(
                     Diagnostic.Kind.ERROR,
@@ -417,7 +407,7 @@ class PostEnterCanonicalizer {
                   continue;
                 }
 
-                TreePath importTreePath = new TreePath(rootPath, compilationUnitTree);
+                TreePath importTreePath = new TreePath(rootPath, importTree);
                 TreePath importedIdentifierTreePath =
                     new TreePath(importTreePath, importedIdentifierTree);
                 result.put(importedIdentifierTree.getIdentifier(), importedIdentifierTreePath);

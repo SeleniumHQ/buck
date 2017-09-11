@@ -127,8 +127,8 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.lua.CxxLuaExtensionDescription;
 import com.facebook.buck.lua.LuaBinaryDescription;
 import com.facebook.buck.lua.LuaBuckConfig;
-import com.facebook.buck.lua.LuaConfig;
 import com.facebook.buck.lua.LuaLibraryDescription;
+import com.facebook.buck.lua.LuaPlatform;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.InternalFlavor;
@@ -372,7 +372,11 @@ public class KnownBuildRuleTypes {
 
     InferBuckConfig inferBuckConfig = new InferBuckConfig(config);
 
-    LuaConfig luaConfig = new LuaBuckConfig(config, executableFinder);
+    LuaBuckConfig luaBuckConfig = new LuaBuckConfig(config, executableFinder);
+    FlavorDomain<LuaPlatform> luaPlatforms =
+        FlavorDomain.from(
+            LuaPlatform.FLAVOR_DOMAIN_NAME, luaBuckConfig.getPlatforms(cxxPlatforms.getValues()));
+    LuaPlatform defaultLuaPlatform = luaPlatforms.getValue(defaultCxxPlatform.getFlavor());
 
     CxxBinaryDescription cxxBinaryDescription =
         new CxxBinaryDescription(
@@ -526,7 +530,7 @@ public class KnownBuildRuleTypes {
     builder.register(cxxBinaryDescription);
     builder.register(cxxLibraryDescription);
     builder.register(new CxxGenruleDescription(cxxPlatforms));
-    builder.register(new CxxLuaExtensionDescription(luaConfig, cxxBuckConfig, cxxPlatforms));
+    builder.register(new CxxLuaExtensionDescription(luaPlatforms, cxxBuckConfig));
     builder.register(
         new CxxPythonExtensionDescription(pythonPlatforms, cxxBuckConfig, cxxPlatforms));
     builder.register(
@@ -582,8 +586,7 @@ public class KnownBuildRuleTypes {
             defaultJavacOptions,
             defaultTestRuleTimeoutMs));
     builder.register(
-        new LuaBinaryDescription(
-            luaConfig, cxxBuckConfig, defaultCxxPlatform, cxxPlatforms, pythonPlatforms));
+        new LuaBinaryDescription(defaultLuaPlatform, luaPlatforms, cxxBuckConfig, pythonPlatforms));
     builder.register(new LuaLibraryDescription());
     builder.register(new NdkLibraryDescription(ndkVersion, ndkCxxPlatforms));
     OcamlBuckConfig ocamlBuckConfig = new OcamlBuckConfig(config, defaultCxxPlatform);
@@ -623,10 +626,15 @@ public class KnownBuildRuleTypes {
     builder.register(new RustLibraryDescription(rustBuckConfig, cxxPlatforms, defaultCxxPlatform));
     builder.register(new RustTestDescription(rustBuckConfig, cxxPlatforms, defaultCxxPlatform));
     builder.register(new PrebuiltRustLibraryDescription());
-    builder.register(new ScalaLibraryDescription(scalaConfig));
+    builder.register(new ScalaLibraryDescription(scalaConfig, javaConfig, defaultJavacOptions));
     builder.register(
         new ScalaTestDescription(
-            scalaConfig, defaultJavaOptionsForTests, defaultTestRuleTimeoutMs, defaultCxxPlatform));
+            scalaConfig,
+            javaConfig,
+            defaultJavacOptions,
+            defaultJavaOptionsForTests,
+            defaultTestRuleTimeoutMs,
+            defaultCxxPlatform));
     builder.register(new SceneKitAssetsDescription());
     builder.register(new ShBinaryDescription());
     builder.register(new ShTestDescription(defaultTestRuleTimeoutMs));

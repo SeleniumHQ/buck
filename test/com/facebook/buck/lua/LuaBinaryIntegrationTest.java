@@ -28,16 +28,17 @@ import com.facebook.buck.config.Config;
 import com.facebook.buck.config.Configs;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkStrategy;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.FakeExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildRuleResolver;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.ParameterizedTests;
@@ -110,7 +111,7 @@ public class LuaBinaryIntegrationTest {
 
     // Try to detect if a Lua devel package is available, which is needed to C/C++ support.
     BuildRuleResolver resolver =
-        new DefaultBuildRuleResolver(
+        new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     CxxPlatform cxxPlatform =
         DefaultCxxPlatforms.build(
@@ -151,9 +152,14 @@ public class LuaBinaryIntegrationTest {
                     "[cxx]",
                     "  sandbox_sources =" + sandboxSources)),
         ".buckconfig");
-    LuaBuckConfig config = getLuaBuckConfig();
-    assertThat(config.getStarterType(), Matchers.equalTo(Optional.of(starterType)));
-    assertThat(config.getNativeLinkStrategy(), Matchers.equalTo(nativeLinkStrategy));
+    LuaPlatform platform =
+        getLuaBuckConfig()
+            .getPlatforms(
+                ImmutableList.of(
+                    CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(DefaultCxxPlatforms.FLAVOR)))
+            .get(0);
+    assertThat(platform.getStarterType(), Matchers.equalTo(Optional.of(starterType)));
+    assertThat(platform.getNativeLinkStrategy(), Matchers.equalTo(nativeLinkStrategy));
   }
 
   @Test
