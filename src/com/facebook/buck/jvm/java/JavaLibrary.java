@@ -66,6 +66,8 @@ public interface JavaLibrary
    */
   Flavor MAVEN_JAR = InternalFlavor.of("maven");
 
+  Flavor UBER_JAR = InternalFlavor.of("uber");
+
   // TODO(natthu): This can probably be avoided by using a JavaPackageable interface similar to
   // AndroidPackageable.
   Set<BuildRule> getDepsForTransitiveClasspathEntries();

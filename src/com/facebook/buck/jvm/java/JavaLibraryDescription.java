@@ -57,6 +57,7 @@ public class JavaLibraryDescription
           Javadoc.DOC_JAR,
           JavaLibrary.SRC_JAR,
           JavaLibrary.MAVEN_JAR,
+          JavaLibrary.UBER_JAR,
           HasJavaAbi.CLASS_ABI_FLAVOR,
           HasJavaAbi.SOURCE_ABI_FLAVOR,
           HasJavaAbi.VERIFIED_SOURCE_ABI_FLAVOR);
@@ -94,7 +95,14 @@ public class JavaLibraryDescription
     // creating the action graph from the target graph.
 
     ImmutableSortedSet<Flavor> flavors = buildTarget.getFlavors();
-    JarShape shape = flavors.contains(JavaLibrary.MAVEN_JAR) ? JarShape.MAVEN : JarShape.SINGLE;
+    JarShape shape;
+    if (flavors.contains(JavaLibrary.MAVEN_JAR)) {
+      shape = JarShape.MAVEN;
+    } else if (flavors.contains(JavaLibrary.UBER_JAR)) {
+      shape = JarShape.UBER;
+    } else {
+      shape = JarShape.SINGLE;
+    }
 
     if (flavors.contains(Javadoc.DOC_JAR)) {
       BuildTarget unflavored = BuildTarget.of(buildTarget.getUnflavoredBuildTarget());

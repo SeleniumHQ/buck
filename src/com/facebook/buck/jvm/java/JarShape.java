@@ -79,6 +79,21 @@ public enum JarShape {
       return new Summary(ImmutableSortedSet.of(root), classpath, ImmutableSortedSet.of());
     }
   },
+  UBER {
+    @Override
+    public Summary gatherDeps(BuildRule root) {
+      if (!(root instanceof HasClasspathEntries)) {
+        throw new HumanReadableException(
+            "Jars can only be constructed from targets that have a classpath: %s",
+            root.getFullyQualifiedName());
+      }
+
+      ImmutableSet<JavaLibrary> classpath =
+          ((HasClasspathEntries) root).getTransitiveClasspathDeps();
+
+      return new Summary(classpath, classpath, ImmutableSortedSet.of());
+    }
+  }
   ;
 
   public abstract Summary gatherDeps(BuildRule root);
