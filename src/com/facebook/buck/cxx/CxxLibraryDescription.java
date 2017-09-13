@@ -22,6 +22,7 @@ import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
+import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.SharedLibraryInterfaceParams;
 import com.facebook.buck.cxx.toolchain.StripStyle;
@@ -230,46 +231,7 @@ public class CxxLibraryDescription
         sandboxTree);
   }
 
-  private static ImmutableSortedSet<SourcePath> requireObjects(
-      BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
-      BuildRuleResolver ruleResolver,
-      SourcePathResolver sourcePathResolver,
-      SourcePathRuleFinder ruleFinder,
-      CellPathResolver cellRoots,
-      CxxBuckConfig cxxBuckConfig,
-      CxxPlatform cxxPlatform,
-      CxxSourceRuleFactory.PicType pic,
-      CxxLibraryDescriptionArg args,
-      ImmutableSet<BuildRule> deps,
-      TransitiveCxxPreprocessorInputFunction transitivePreprocessorInputs,
-      Optional<CxxLibraryDescriptionDelegate> delegate) {
-    ImmutableSortedSet.Builder<SourcePath> builder = ImmutableSortedSet.naturalOrder();
-    ImmutableMap<CxxPreprocessAndCompile, SourcePath> cxxObjects =
-        requireCxxObjects(
-            buildTarget,
-            projectFilesystem,
-            ruleResolver,
-            sourcePathResolver,
-            ruleFinder,
-            cellRoots,
-            cxxBuckConfig,
-            cxxPlatform,
-            pic,
-            args,
-            deps,
-            transitivePreprocessorInputs);
-
-    builder.addAll(cxxObjects.values());
-
-    Optional<ImmutableSortedSet<SourcePath>> pluginObjectPaths =
-        delegate.flatMap(p -> p.getObjectFilePaths(buildTarget, ruleResolver));
-    pluginObjectPaths.ifPresent(paths -> builder.addAll(paths));
-
-    return builder.build();
-  }
-
-  private static ImmutableMap<CxxPreprocessAndCompile, SourcePath> requireCxxObjects(
+  private static ImmutableMap<CxxPreprocessAndCompile, SourcePath> requireObjects(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleResolver ruleResolver,
@@ -364,11 +326,10 @@ public class CxxLibraryDescription
       ImmutableList<StringWithMacros> exportedLinkerFlags,
       ImmutableSet<FrameworkPath> frameworks,
       ImmutableSet<FrameworkPath> libraries,
-      TransitiveCxxPreprocessorInputFunction transitiveCxxPreprocessorInputFunction,
-      Optional<CxxLibraryDescriptionDelegate> delegate) {
+      TransitiveCxxPreprocessorInputFunction transitiveCxxPreprocessorInputFunction) {
 
     // Create rules for compiling the PIC object files.
-    ImmutableSortedSet<SourcePath> objects =
+    ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects =
         requireObjects(
             buildTarget,
             projectFilesystem,
@@ -381,8 +342,7 @@ public class CxxLibraryDescription
             CxxSourceRuleFactory.PicType.PIC,
             arg,
             deps,
-            transitiveCxxPreprocessorInputFunction,
-            delegate);
+            transitiveCxxPreprocessorInputFunction);
 
     return NativeLinkableInput.builder()
         .addAllArgs(
@@ -394,7 +354,7 @@ public class CxxLibraryDescription
                         CxxDescriptionEnhancer.toStringWithMacrosArgs(
                             buildTarget, cellRoots, ruleResolver, cxxPlatform, f))
                 .toImmutableList())
-        .addAllArgs(SourcePathArg.from(objects))
+        .addAllArgs(SourcePathArg.from(objects.values()))
         .setFrameworks(frameworks)
         .setLibraries(libraries)
         .build();
@@ -425,15 +385,14 @@ public class CxxLibraryDescription
       Linker.LinkableDepType linkableDepType,
       Optional<SourcePath> bundleLoader,
       ImmutableSet<BuildTarget> blacklist,
-      TransitiveCxxPreprocessorInputFunction transitiveCxxPreprocessorInputFunction,
-      Optional<CxxLibraryDescriptionDelegate> delegate) {
+      TransitiveCxxPreprocessorInputFunction transitiveCxxPreprocessorInputFunction) {
     BuildTarget buildTargetWithoutLinkerMapMode =
         LinkerMapMode.removeLinkerMapModeFlavorInTarget(
             buildTargetMaybeWithLinkerMapMode,
             LinkerMapMode.FLAVOR_DOMAIN.getValue(buildTargetMaybeWithLinkerMapMode));
 
     // Create rules for compiling the PIC object files.
-    ImmutableSortedSet<SourcePath> objects =
+    ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects =
         requireObjects(
             buildTargetWithoutLinkerMapMode,
             projectFilesystem,
@@ -446,8 +405,7 @@ public class CxxLibraryDescription
             CxxSourceRuleFactory.PicType.PIC,
             args,
             deps,
-            transitiveCxxPreprocessorInputFunction,
-            delegate);
+            transitiveCxxPreprocessorInputFunction);
 
     // Setup the rules to link the shared library.
     BuildTarget sharedTarget =
@@ -494,7 +452,7 @@ public class CxxLibraryDescription
                                 cxxPlatform,
                                 f))
                     .toImmutableList())
-            .addAllArgs(SourcePathArg.from(objects))
+            .addAllArgs(SourcePathArg.from(objects.values()))
             .setFrameworks(frameworks)
             .setLibraries(libraries)
             .build(),
@@ -584,13 +542,12 @@ public class CxxLibraryDescription
       CxxLibraryDescriptionArg args,
       ImmutableSet<BuildRule> deps,
       CxxSourceRuleFactory.PicType pic,
-      TransitiveCxxPreprocessorInputFunction transitiveCxxPreprocessorInputFunction,
-      Optional<CxxLibraryDescriptionDelegate> delegate) {
+      TransitiveCxxPreprocessorInputFunction transitiveCxxPreprocessorInputFunction) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     // Create rules for compiling the object files.
-    ImmutableSortedSet<SourcePath> objects =
+    ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects =
         requireObjects(
             buildTarget,
             projectFilesystem,
@@ -603,8 +560,7 @@ public class CxxLibraryDescription
             pic,
             args,
             deps,
-            transitiveCxxPreprocessorInputFunction,
-            delegate);
+            transitiveCxxPreprocessorInputFunction);
 
     // Write a build rule to create the archive for this C/C++ library.
     BuildTarget staticTarget =
@@ -635,7 +591,7 @@ public class CxxLibraryDescription
         cxxPlatform,
         cxxBuckConfig.getArchiveContents(),
         staticLibraryPath,
-        ImmutableList.copyOf(objects),
+        ImmutableList.copyOf(objects.values()),
         /* cacheable */ true);
   }
 
@@ -653,8 +609,7 @@ public class CxxLibraryDescription
       Linker.LinkableDepType linkableDepType,
       Optional<SourcePath> bundleLoader,
       ImmutableSet<BuildTarget> blacklist,
-      TransitiveCxxPreprocessorInputFunction transitiveCxxPreprocessorInputFunction,
-      Optional<CxxLibraryDescriptionDelegate> delegate) {
+      TransitiveCxxPreprocessorInputFunction transitiveCxxPreprocessorInputFunction) {
     ImmutableList.Builder<StringWithMacros> linkerFlags = ImmutableList.builder();
 
     linkerFlags.addAll(
@@ -687,8 +642,7 @@ public class CxxLibraryDescription
         linkableDepType,
         bundleLoader,
         blacklist,
-        transitiveCxxPreprocessorInputFunction,
-        delegate);
+        transitiveCxxPreprocessorInputFunction);
   }
 
   private static BuildRule createSharedLibraryInterface(
@@ -742,8 +696,7 @@ public class CxxLibraryDescription
         Optional.empty(),
         ImmutableSet.of(),
         ImmutableSortedSet.of(),
-        TransitiveCxxPreprocessorInputFunction.fromLibraryRule(),
-        Optional.empty());
+        TransitiveCxxPreprocessorInputFunction.fromLibraryRule());
   }
 
   public BuildRule createBuildRule(
@@ -757,8 +710,7 @@ public class CxxLibraryDescription
       final Optional<SourcePath> bundleLoader,
       ImmutableSet<BuildTarget> blacklist,
       ImmutableSortedSet<BuildTarget> extraDeps,
-      TransitiveCxxPreprocessorInputFunction transitiveCxxPreprocessorInputFunction,
-      Optional<CxxLibraryDescriptionDelegate> delegate) {
+      TransitiveCxxPreprocessorInputFunction transitiveCxxPreprocessorInputFunction) {
 
     // See if we're building a particular "type" and "platform" of this library, and if so, extract
     // them from the flavors attached to the build target.
@@ -772,7 +724,7 @@ public class CxxLibraryDescription
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
       SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
       ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects =
-          requireCxxObjects(
+          requireObjects(
               buildTarget.withoutFlavors(CxxCompilationDatabase.COMPILATION_DATABASE),
               projectFilesystem,
               resolver,
@@ -844,8 +796,7 @@ public class CxxLibraryDescription
               linkableDepType.orElse(Linker.LinkableDepType.SHARED),
               Optional.empty(),
               blacklist,
-              transitiveCxxPreprocessorInputFunction,
-              delegate);
+              transitiveCxxPreprocessorInputFunction);
         case SHARED_INTERFACE:
           return createSharedLibraryInterface(
               untypedBuildTarget, projectFilesystem, resolver, platform.get());
@@ -863,8 +814,7 @@ public class CxxLibraryDescription
               linkableDepType.orElse(Linker.LinkableDepType.SHARED),
               bundleLoader,
               blacklist,
-              transitiveCxxPreprocessorInputFunction,
-              delegate);
+              transitiveCxxPreprocessorInputFunction);
         case STATIC:
           return createStaticLibraryBuildRule(
               untypedBuildTarget,
@@ -876,8 +826,7 @@ public class CxxLibraryDescription
               args,
               cxxDeps.get(resolver, platform.get()),
               CxxSourceRuleFactory.PicType.PDC,
-              transitiveCxxPreprocessorInputFunction,
-              delegate);
+              transitiveCxxPreprocessorInputFunction);
         case STATIC_PIC:
           return createStaticLibraryBuildRule(
               untypedBuildTarget,
@@ -889,8 +838,7 @@ public class CxxLibraryDescription
               args,
               cxxDeps.get(resolver, platform.get()),
               CxxSourceRuleFactory.PicType.PIC,
-              transitiveCxxPreprocessorInputFunction,
-              delegate);
+              transitiveCxxPreprocessorInputFunction);
         case SANDBOX_TREE:
           return CxxDescriptionEnhancer.createSandboxTreeBuildRule(
               resolver, args, platform.get(), untypedBuildTarget, projectFilesystem);
@@ -951,8 +899,7 @@ public class CxxLibraryDescription
                   cxxPlatform),
               args.getFrameworks(),
               args.getLibraries(),
-              transitiveCxxPreprocessorInputFunction,
-              delegate);
+              transitiveCxxPreprocessorInputFunction);
         },
         args.getSupportedPlatformsRegex(),
         args.getFrameworks(),
@@ -967,8 +914,7 @@ public class CxxLibraryDescription
         !buildTarget
             .getFlavors()
             .contains(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR),
-        args.isReexportAllHeaderDependencies(),
-        delegate);
+        args.isReexportAllHeaderDependencies());
   }
 
   public static Optional<Map.Entry<Flavor, Type>> getLibType(BuildTarget buildTarget) {

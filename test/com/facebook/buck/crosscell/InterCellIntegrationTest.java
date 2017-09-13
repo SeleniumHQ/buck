@@ -38,13 +38,13 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.json.BuildFileParseException;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
@@ -145,11 +145,8 @@ public class InterCellIntegrationTest {
     assumeThat(Platform.detect(), is(not(WINDOWS)));
 
     ProjectWorkspace primary = createWorkspace("inter-cell/multi-cell/primary");
-    primary.setUp();
     ProjectWorkspace secondary = createWorkspace("inter-cell/multi-cell/secondary");
-    secondary.setUp();
     ProjectWorkspace ternary = createWorkspace("inter-cell/multi-cell/ternary");
-    ternary.setUp();
     registerCell(secondary, "ternary", ternary);
     registerCell(primary, "secondary", secondary);
     registerCell(primary, "ternary", ternary);
