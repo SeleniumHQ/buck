@@ -40,26 +40,25 @@ import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
 
 public class QueryPathsMacroExpanderTest {
 
-  @Rule
-  public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
   private Map<MacroMatchResult, Object> cache;
   private FakeProjectFilesystem filesystem;
   private CellPathResolver cellNames;
 
   @Before
-  public void setup() {
+  public void setUp() {
     cache = new HashMapWithStats<>();
     filesystem = new FakeProjectFilesystem(tmp.getRoot());
     cellNames = TestCellBuilder.createCellRoots(filesystem);
@@ -67,18 +66,19 @@ public class QueryPathsMacroExpanderTest {
 
   @Test
   public void sourcePathsToOutputsGivenByDefault() throws MacroException {
-    TargetNode<?, ?> depNode = JavaLibraryBuilder.createBuilder(
-        BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:dep"),
-        filesystem)
-        .addSrc(Paths.get("Dep.java"))
-        .build();
+    TargetNode<?, ?> depNode =
+        JavaLibraryBuilder.createBuilder(
+                BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:dep"), filesystem)
+            .addSrc(Paths.get("Dep.java"))
+            .build();
 
-    TargetNode<?, ?> targetNode = JavaLibraryBuilder.createBuilder(
-        BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:target"),
-        filesystem)
-        .addSrc(Paths.get("Target.java"))
-        .addDep(depNode.getBuildTarget())
-        .build();
+    TargetNode<?, ?> targetNode =
+        JavaLibraryBuilder.createBuilder(
+                BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:target"),
+                filesystem)
+            .addSrc(Paths.get("Target.java"))
+            .addDep(depNode.getBuildTarget())
+            .build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(depNode, targetNode);
     BuildRuleResolver resolver =
@@ -91,35 +91,37 @@ public class QueryPathsMacroExpanderTest {
     // Run the query
     QueryPathsMacroExpander expander = new QueryPathsMacroExpander(Optional.of(targetGraph));
     MacroHandler handler = new MacroHandler(ImmutableMap.of("query", expander));
-    String expanded = handler.expand(
-        targetNode.getBuildTarget(),
-        cellNames,
-        resolver,
-        "$(query 'deps(//some:target)')",
-        cache);
+    String expanded =
+        handler.expand(
+            targetNode.getBuildTarget(),
+            cellNames,
+            resolver,
+            "$(query 'deps(//some:target)')",
+            cache);
 
     // Expand the expected results
-    DefaultSourcePathResolver pathResolver = DefaultSourcePathResolver.from(
-        new SourcePathRuleFinder(resolver));
+    DefaultSourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
 
-    String expected = Stream.of(depNode, targetNode)
-        .map(TargetNode::getBuildTarget)
-        .map(resolver::requireRule)
-        .map(BuildRule::getSourcePathToOutput)
-        .map(pathResolver::getAbsolutePath)
-        .map(Object::toString)
-        .collect(Collectors.joining(" "));
+    String expected =
+        Stream.of(depNode, targetNode)
+            .map(TargetNode::getBuildTarget)
+            .map(resolver::requireRule)
+            .map(BuildRule::getSourcePathToOutput)
+            .map(pathResolver::getAbsolutePath)
+            .map(Object::toString)
+            .collect(Collectors.joining(" "));
 
     assertEquals(expected, expanded);
   }
 
   @Test
   public void canReturnInputsToRulesViaInputQueryFunction() throws MacroException {
-    TargetNode<?, ?> node = JavaLibraryBuilder.createBuilder(
-        BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:dep"),
-        filesystem)
-        .addSrc(Paths.get("Dep.java"))
-        .build();
+    TargetNode<?, ?> node =
+        JavaLibraryBuilder.createBuilder(
+                BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:dep"), filesystem)
+            .addSrc(Paths.get("Dep.java"))
+            .build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(node);
 
@@ -142,28 +144,27 @@ public class QueryPathsMacroExpanderTest {
 
   @Test
   public void shouldDeclareDeps() {
-    TargetNode<?, ?> dep = JavaLibraryBuilder.createBuilder(
-        BuildTargetFactory.newInstance(filesystem.getRootPath(),"//some:dep"),
-        filesystem)
-        .addSrc(Paths.get("Dep.java"))
-        .build();
+    TargetNode<?, ?> dep =
+        JavaLibraryBuilder.createBuilder(
+                BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:dep"), filesystem)
+            .addSrc(Paths.get("Dep.java"))
+            .build();
 
-    TargetNode<?, ?> target = GenruleBuilder.newGenruleBuilder(
-        BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:target"),
-        filesystem)
-        .setOut("foo.txt")
-        .setCmd("$(query_paths 'inputs(:dep)')")
-        .build();
+    TargetNode<?, ?> target =
+        GenruleBuilder.newGenruleBuilder(
+                BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:target"),
+                filesystem)
+            .setOut("foo.txt")
+            .setCmd("$(query_paths 'inputs(:dep)')")
+            .build();
 
     TargetGraph graph = TargetGraphFactory.newInstance(dep, target);
 
     BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            graph, new DefaultTargetNodeToBuildRuleTransformer());
+        new SingleThreadedBuildRuleResolver(graph, new DefaultTargetNodeToBuildRuleTransformer());
     BuildRule rule = resolver.requireRule(target.getBuildTarget());
 
     assertEquals(
-        ImmutableSortedSet.of(resolver.requireRule(dep.getBuildTarget())),
-        rule.getBuildDeps());
+        ImmutableSortedSet.of(resolver.requireRule(dep.getBuildTarget())), rule.getBuildDeps());
   }
 }

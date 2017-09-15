@@ -1,3 +1,19 @@
+/*
+ * Copyright 2017-present Facebook, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may
+ * not use this file except in compliance with the License. You may obtain
+ * a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
+ */
+
 package com.facebook.buck.rules.macros;
 
 import com.facebook.buck.model.BuildTarget;
@@ -49,7 +65,8 @@ public class QueryPathsMacroExpander extends QueryMacroExpander<QueryPathsMacro>
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
       QueryPathsMacro input,
-      QueryResults precomputedWork) throws MacroException {
+      QueryResults precomputedWork)
+      throws MacroException {
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
 
@@ -60,7 +77,8 @@ public class QueryPathsMacroExpander extends QueryMacroExpander<QueryPathsMacro>
             queryTarget -> {
               // What we do depends on the input.
               if (QueryBuildTarget.class.isAssignableFrom(queryTarget.getClass())) {
-                BuildRule rule = resolver.getRule(((QueryBuildTarget) queryTarget).getBuildTarget());
+                BuildRule rule =
+                    resolver.getRule(((QueryBuildTarget) queryTarget).getBuildTarget());
                 return Optional.ofNullable(rule.getSourcePathToOutput())
                     .map(pathResolver::getAbsolutePath)
                     .orElse(null);
@@ -110,18 +128,17 @@ public class QueryPathsMacroExpander extends QueryMacroExpander<QueryPathsMacro>
       CellPathResolver cellNames,
       BuildRuleResolver resolver,
       QueryPathsMacro input,
-      QueryResults precomputedWork) throws MacroException {
+      QueryResults precomputedWork)
+      throws MacroException {
     // We need to know the targets referenced in the query. Since we allow them to expand to paths
     // mid-query, we do this check first.
     ImmutableSet.Builder<BuildTarget> builder = ImmutableSet.builder();
     extractParseTimeDeps(
-        target,
-        cellNames,
-        ImmutableList.of(input.getQuery().getQuery()),
-        builder,
-        builder);
+        target, cellNames, ImmutableList.of(input.getQuery().getQuery()), builder, builder);
 
-    precomputedWork.results.stream()
+    precomputedWork
+        .results
+        .stream()
         .filter(QueryBuildTarget.class::isInstance)
         .map(queryTarget -> ((QueryBuildTarget) queryTarget).getBuildTarget())
         .forEach(builder::add);

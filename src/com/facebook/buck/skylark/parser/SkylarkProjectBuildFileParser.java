@@ -32,8 +32,11 @@ import com.google.common.base.CaseFormat;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.devtools.build.lib.cmdline.Label;
+import com.google.devtools.build.lib.cmdline.PackageIdentifier;
 import com.google.devtools.build.lib.events.EventKind;
 import com.google.devtools.build.lib.events.PrintingEventHandler;
+import com.google.devtools.build.lib.syntax.BazelLibrary;
 import com.google.devtools.build.lib.syntax.BuildFileAST;
 import com.google.devtools.build.lib.syntax.BuiltinFunction;
 import com.google.devtools.build.lib.syntax.Environment;
@@ -43,7 +46,9 @@ import com.google.devtools.build.lib.syntax.FunctionSignature;
 import com.google.devtools.build.lib.syntax.Mutability;
 import com.google.devtools.build.lib.syntax.ParserInputSource;
 import com.google.devtools.build.lib.syntax.Runtime;
+import com.google.devtools.build.lib.syntax.SkylarkImport;
 import com.google.devtools.build.lib.vfs.FileSystem;
+import com.google.devtools.build.lib.vfs.PathFragment;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.EnumSet;
@@ -65,6 +70,9 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
   private static final ImmutableSet<String> IMPLICIT_ATTRIBUTES =
       ImmutableSet.of("visibility", "within_view");
   private static final String PACKAGE_NAME_GLOBAL = "PACKAGE_NAME";
+  // Dummy label used for resolving paths for other labels.
+  private static final Label EMPTY_LABEL =
+      Label.createUnvalidated(PackageIdentifier.EMPTY_PACKAGE_ID, "");
 
   private final FileSystem fileSystem;
   private final TypeCoercerFactory typeCoercerFactory;
@@ -128,19 +136,85 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
     com.google.devtools.build.lib.vfs.Path buildFilePath = fileSystem.getPath(buildFile.toString());
     BuildFileAST buildFileAst =
         BuildFileAST.parseBuildFile(ParserInputSource.create(buildFilePath), eventHandler);
-    ImmutableList.Builder<Map<String, Object>> builder = ImmutableList.builder();
+
+    ImmutableList.Builder<Map<String, Object>> rawRuleBuilder = ImmutableList.builder();
+    Environment.Frame buckGlobals = getBuckGlobals(rawRuleBuilder);
+    ImmutableMap<String, Environment.Extension> importMap =
+        buildImportMap(buildFileAst.getImports(), buckGlobals, eventHandler);
+
     try (Mutability mutability = Mutability.create("BUCK")) {
-      Environment env = Environment.builder(mutability).build();
+      Environment env =
+          Environment.builder(mutability)
+              .setImportedExtensions(importMap)
+              .setGlobals(buckGlobals)
+              .build();
       String basePath = getBasePath(buildFile);
       env.setupDynamic(PACKAGE_NAME_GLOBAL, basePath);
       env.setup("glob", Glob.create(buildFilePath.getParentDirectory()));
-      setupBuckRules(builder, env);
       boolean exec = buildFileAst.exec(env, eventHandler);
       if (!exec) {
         throw BuildFileParseException.createForUnknownParseError("Cannot parse build file");
       }
-      return builder.build();
+      return rawRuleBuilder.build();
     }
+  }
+
+  /**
+   * @return The map from skylark import string like {@code //pkg:build_rules.bzl} to an {@link
+   *     Environment.Extension}.
+   */
+  private ImmutableMap<String, Environment.Extension> buildImportMap(
+      bazel.shaded.com.google.common.collect.ImmutableList<SkylarkImport> skylarkImports,
+      Environment.Frame buckGlobals,
+      PrintingEventHandler eventHandler)
+      throws IOException, InterruptedException, BuildFileParseException {
+    ImmutableMap.Builder<String, Environment.Extension> extensionMapBuilder =
+        ImmutableMap.builder();
+    for (SkylarkImport skylarkImport : skylarkImports) {
+      try (Mutability mutability =
+          Mutability.create("importing " + skylarkImport.getImportString())) {
+        Environment extensionEnv = Environment.builder(mutability).setGlobals(buckGlobals).build();
+        com.google.devtools.build.lib.vfs.Path extensionPath = getImportPath(skylarkImport);
+        BuildFileAST extensionAst =
+            BuildFileAST.parseSkylarkFile(ParserInputSource.create(extensionPath), eventHandler);
+        boolean success = extensionAst.exec(extensionEnv, eventHandler);
+        if (!success) {
+          throw BuildFileParseException.createForUnknownParseError(
+              "Cannot parse extension file " + skylarkImport.getImportString());
+        }
+        Environment.Extension extension = new Environment.Extension(extensionEnv);
+        extensionMapBuilder.put(skylarkImport.getImportString(), extension);
+      }
+    }
+    return extensionMapBuilder.build();
+  }
+
+  /**
+   * @return The environment frame with configured buck globals. This includes built-in rules like
+   *     {@code java_library}.
+   */
+  private Environment.Frame getBuckGlobals(
+      ImmutableList.Builder<Map<String, Object>> rawRuleBuilder) {
+    Environment.Frame buckGlobals;
+    try (Mutability mutability = Mutability.create("global")) {
+      Environment globalEnv =
+          Environment.builder(mutability).setGlobals(BazelLibrary.GLOBALS).build();
+      setupBuckRules(rawRuleBuilder, globalEnv);
+      buckGlobals = globalEnv.getGlobals();
+    }
+    return buckGlobals;
+  }
+
+  /**
+   * @return The path to a Skylark extension. For example, for {@code load(//pkg:foo.bzl)} import it
+   *     would return {@code /path/to/repo/pkg/foo.bzl}. Current implementation does not support
+   *     imports from other cells, so {@link #EMPTY_LABEL} is used for resolving paths of imports.
+   *     TODO(ttsugrii): add support for imports from other cells.
+   */
+  private com.google.devtools.build.lib.vfs.Path getImportPath(SkylarkImport skylarkImport) {
+    PathFragment relativeExtensionPath = skylarkImport.getLabel(EMPTY_LABEL).toPathFragment();
+    return fileSystem.getPath(
+        options.getProjectRoot().resolve(relativeExtensionPath.toString()).toString());
   }
 
   /**
