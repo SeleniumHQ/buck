@@ -1,3 +1,7 @@
+# BUILD FILE SYNTAX: SKYLARK
+
+load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
+
 CONFIG_SRCS = [
     "BuckConfig.java",
     "ConfigPathGetter.java",
@@ -17,7 +21,6 @@ java_library(
         "//src/com/facebook/buck/event:interfaces",
         "//src/com/facebook/buck/event/external:external_lib",
         "//src/com/facebook/buck/graph:graph",
-        "//src/com/facebook/buck/io:BuckPaths",
         "//src/com/facebook/buck/io:ProjectFilesystemDelegate",
         "//src/com/facebook/buck/io:executable-finder",
         "//src/com/facebook/buck/io:io",
@@ -74,7 +77,6 @@ java_library(
     deps = [
         "//src/com/facebook/buck/cli:config",
         "//src/com/facebook/buck/config:config",
-        "//src/com/facebook/buck/io:BuckPaths",
         "//src/com/facebook/buck/io:io",
         "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/model:model",
@@ -146,7 +148,6 @@ java_immutables_library(
         "//src/com/facebook/buck/httpserver:httpserver",
         # Autdeps is not finding this dep, but it is needed for the bootstrapper
         "//src/com/facebook/buck/ide/intellij:intellij",
-        "//src/com/facebook/buck/io:BuckPaths",
         "//src/com/facebook/buck/io:more-paths",
         "//src/com/facebook/buck/io:ProjectFilesystemDelegate",
         "//src/com/facebook/buck/io:executable-finder",
@@ -198,7 +199,6 @@ java_immutables_library(
         "//src/com/facebook/buck/rules/macros:macros",
         "//src/com/facebook/buck/rules/macros:types",
         "//src/com/facebook/buck/rules/query:types",
-        "//src/com/facebook/buck/rules:action_graph_cache",
         "//src/com/facebook/buck/rules:build_event",
         "//src/com/facebook/buck/rules:build_rule",
         "//src/com/facebook/buck/rules:caching_build_engine_delegates",
@@ -209,7 +209,6 @@ java_immutables_library(
         "//src/com/facebook/buck/rules:rules",
         "//src/com/facebook/buck/rules:source_path",
         "//src/com/facebook/buck/rules:target_graph_hashing",
-        "//src/com/facebook/buck/rules:transformer",
         "//src/com/facebook/buck/rules:types",
         "//src/com/facebook/buck/shell:rules",
         "//src/com/facebook/buck/shell:steps",
@@ -254,13 +253,10 @@ java_immutables_library(
         "//src/com/facebook/buck/util:packaged_resource",
         "//src/com/facebook/buck/util:process_executor",
         "//src/com/facebook/buck/util:util",
-        "//src/com/facebook/buck/util:watchman",
+        "//src/com/facebook/buck/util/zip:zip",
         "//src/com/facebook/buck/versions:translator",
         "//src/com/facebook/buck/versions:types",
         "//src/com/facebook/buck/versions:versions",
-        "//src/com/facebook/buck/zip:constants",
-        "//src/com/facebook/buck/zip:stream",
-        "//src/com/facebook/buck/zip:unzip",
         "//src/com/facebook/buck/parser/exceptions:exceptions",
         "//src/com/facebook/buck/parser/api:api",
         "//third-party/java/aether:aether-api",
@@ -325,7 +321,6 @@ java_binary(
         "//src/com/facebook/buck/graph:graph",
         "//src/com/facebook/buck/halide:halide",
         "//src/com/facebook/buck/hashing:hashing",
-        "//src/com/facebook/buck/io:BuckPaths",
         "//src/com/facebook/buck/io:ProjectFilesystemDelegate",
         "//src/com/facebook/buck/io:executable-finder",
         "//src/com/facebook/buck/io:io",
@@ -357,7 +352,6 @@ java_binary(
         "//src/com/facebook/buck/python:config",
         "//src/com/facebook/buck/python:support",
         "//src/com/facebook/buck/query:query",
-        "//src/com/facebook/buck/rules:action_graph_cache",
         "//src/com/facebook/buck/rules:build_rule",
         "//src/com/facebook/buck/rules:caching_build_engine_delegates",
         "//src/com/facebook/buck/rules:interfaces",
@@ -409,8 +403,6 @@ java_binary(
         "//src/com/facebook/buck/worker:worker_job_params",
         "//src/com/facebook/buck/worker:worker_pool_factory",
         "//src/com/facebook/buck/worker:worker_process",
-        "//src/com/facebook/buck/zip:constants",
-        "//src/com/facebook/buck/zip:stream",
         "//third-party/java/aether:aether-api",
         "//third-party/java/android:ddmlib",
         "//third-party/java/android:tools-sdk-common",

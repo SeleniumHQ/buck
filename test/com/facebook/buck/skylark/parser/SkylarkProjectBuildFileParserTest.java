@@ -199,7 +199,8 @@ public class SkylarkProjectBuildFileParserTest {
     projectFilesystem.writeContentsToPath(
         "load('//src/test:build_rules.bzl', 'guava_jar')\n" + "guava_jar(name='foo')", buildFile);
     projectFilesystem.writeContentsToPath(
-        "def guava_jar(name):\n  prebuilt_jar(name=name, binary_jar='foo.jar')", extensionFile);
+        "def guava_jar(name):\n  native.prebuilt_jar(name=name, binary_jar='foo.jar')",
+        extensionFile);
     Map<String, Object> rule = getSingleRule(buildFile);
     assertThat(rule.get("name"), equalTo("foo"));
     assertThat(rule.get("binaryJar"), equalTo("foo.jar"));
@@ -219,6 +220,19 @@ public class SkylarkProjectBuildFileParserTest {
   }
 
   @Test
+  public void functionDefinitionsAreNotAllowedInBuildFiles() throws Exception {
+    Path directory = projectFilesystem.resolve("src").resolve("test");
+    Files.createDirectories(directory);
+    Path buildFile = directory.resolve("BUCK");
+    projectFilesystem.writeContentsToPath("def foo():\n  pass", buildFile);
+
+    thrown.expect(BuildFileParseException.class);
+    thrown.expectMessage("Cannot parse build file " + buildFile);
+
+    parser.getAll(buildFile, new AtomicLong());
+  }
+
+  @Test
   public void canUseBuiltInListFunctionInExtension() throws Exception {
     Path directory = projectFilesystem.resolve("src").resolve("test");
     Files.createDirectories(directory);
@@ -227,7 +241,7 @@ public class SkylarkProjectBuildFileParserTest {
     projectFilesystem.writeContentsToPath(
         "load('//src/test:build_rules.bzl', 'guava_jar')\n" + "guava_jar(name='foo')", buildFile);
     projectFilesystem.writeContentsToPath(
-        "def guava_jar(name):\n  prebuilt_jar(name=name, binary_jar='foo.jar', licenses=list(('l1', 'l2')))",
+        "def guava_jar(name):\n  native.prebuilt_jar(name=name, binary_jar='foo.jar', licenses=list(('l1', 'l2')))",
         extensionFile);
     Map<String, Object> rule = getSingleRule(buildFile);
     assertThat(

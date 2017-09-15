@@ -246,6 +246,7 @@ public class CxxLibraryDescription
       TransitiveCxxPreprocessorInputFunction transitivePreprocessorInputs,
       Optional<CxxLibraryDescriptionDelegate> delegate) {
 
+    // TODO(T21900747): Fix dependence on order of object paths
     ImmutableList.Builder<SourcePath> builder = ImmutableList.builder();
     ImmutableMap<CxxPreprocessAndCompile, SourcePath> cxxObjects =
         requireCxxObjects(
@@ -773,6 +774,8 @@ public class CxxLibraryDescription
       CxxPlatform cxxPlatform = platform.orElse(cxxPlatforms.getValue(defaultCxxFlavor));
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
       SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
+      // TODO(T21900763): We should be using `requireObjects` instead but those would not
+      // necessarily be `CxxPreprocessAndCompile` rules (e.g., Swift in `apple_library`).
       ImmutableMap<CxxPreprocessAndCompile, SourcePath> objects =
           requireCxxObjects(
               buildTarget.withoutFlavors(CxxCompilationDatabase.COMPILATION_DATABASE),

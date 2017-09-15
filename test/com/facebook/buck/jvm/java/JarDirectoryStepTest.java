@@ -32,12 +32,12 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.testutil.Zip;
+import com.facebook.buck.testutil.ZipArchive;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.zip.CustomZipOutputStream;
-import com.facebook.buck.zip.ZipConstants;
-import com.facebook.buck.zip.ZipOutputStreams;
+import com.facebook.buck.util.zip.CustomZipOutputStream;
+import com.facebook.buck.util.zip.ZipConstants;
+import com.facebook.buck.util.zip.ZipOutputStreams;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -246,8 +246,8 @@ public class JarDirectoryStepTest {
     ExecutionContext context = TestExecutionContext.newInstance();
     assertEquals(0, step.execute(context).getExitCode());
 
-    try (Zip zip = new Zip(output, false)) {
-      byte[] rawManifest = zip.readFully("META-INF/MANIFEST.MF");
+    try (ZipArchive zipArchive = new ZipArchive(output, false)) {
+      byte[] rawManifest = zipArchive.readFully("META-INF/MANIFEST.MF");
       manifest = new Manifest(new ByteArrayInputStream(rawManifest));
       String version = manifest.getMainAttributes().getValue(IMPLEMENTATION_VERSION);
 
@@ -580,7 +580,7 @@ public class JarDirectoryStepTest {
   }
 
   private Path createZip(Path zipFile, String... fileNames) throws IOException {
-    try (Zip zip = new Zip(zipFile, true)) {
+    try (ZipArchive zip = new ZipArchive(zipFile, true)) {
       for (String fileName : fileNames) {
         zip.add(fileName, "");
       }
@@ -611,7 +611,7 @@ public class JarDirectoryStepTest {
   }
 
   private Set<String> getFileNames(Path zipFile) throws IOException {
-    try (Zip zip = new Zip(zipFile, false)) {
+    try (ZipArchive zip = new ZipArchive(zipFile, false)) {
       return zip.getFileNames();
     }
   }

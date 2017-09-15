@@ -25,7 +25,7 @@ java_library(
 java_immutables_library(
     name = "source_path",
     srcs = [
-        "AbstractExopackageInfo.java",
+        "AbstractArchiveMemberSourcePath.java",
         "BuildTargetSourcePath.java",
         "DefaultBuildTargetSourcePath.java",
         "ExplicitBuildTargetSourcePath.java",
@@ -34,7 +34,6 @@ java_immutables_library(
         "SourcePathResolver.java",
     ],
     exported_deps = [
-        ":archive_member_source_path",
         ":source_path_interface",
     ],
     visibility = ["PUBLIC"],
@@ -44,24 +43,6 @@ java_immutables_library(
         "//src/com/facebook/buck/model:simple_types",
         "//src/com/facebook/buck/util:util",
         "//third-party/java/guava:guava",
-    ],
-)
-
-genrule(name = "foo",
-  out = "foo.txt",
-  cmd = "echo $(query_paths 'inputs(:source_path)') > $OUT",
-)
-
-java_immutables_library(
-    name = "archive_member_source_path",
-    srcs = [
-        "AbstractArchiveMemberSourcePath.java",
-    ],
-    visibility = [
-        "PUBLIC",
-    ],
-    deps = [
-        ":source_path_interface",
     ],
 )
 
@@ -163,10 +144,10 @@ java_immutables_library(
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/environment:platform",
         "//src/com/facebook/buck/versions:versions",
-        "//src/com/facebook/buck/zip:rules",
         "//src/org/openqa/selenium/buck/file:file",
         "//src/org/openqa/selenium/buck/javascript:javascript",
         "//src/org/openqa/selenium/buck/mozilla:mozilla",
+        "//src/com/facebook/buck/zip/rules:rules",
         "//third-party/java/bazel:skylark-lang",
     ],
 )
@@ -300,7 +281,6 @@ java_immutables_library(
         "//src/com/facebook/buck/android:utils",
         "//src/com/facebook/buck/event:interfaces",
         "//src/com/facebook/buck/graph:graph",
-        "//src/com/facebook/buck/io:BuckPaths",
         "//src/com/facebook/buck/io:executable-finder",
         "//src/com/facebook/buck/io:io",
         "//src/com/facebook/buck/io:more-paths",
@@ -323,27 +303,6 @@ java_immutables_library(
         "//third-party/java/jackson:jackson-annotations",
         "//third-party/java/jackson:jackson-databind",
         "//third-party/java/stringtemplate:stringtemplate",
-    ],
-)
-
-java_library(
-    name = "transformer",
-    srcs = [
-        "DefaultTargetNodeToBuildRuleTransformer.java",
-    ],
-    exported_deps = [
-        ":abstract_description_arg",
-        ":build_rule",
-    ],
-    visibility = ["PUBLIC"],
-    deps = [
-        ":interfaces",
-        ":rule_key",
-        "//src/com/facebook/buck/io:io",
-        "//src/com/facebook/buck/model:model",
-        "//src/com/facebook/buck/parser:rule_pattern",
-        "//src/com/facebook/buck/rules/query:query",
-        "//third-party/java/guava:guava",
     ],
 )
 
@@ -407,6 +366,7 @@ java_immutables_library(
         "AbstractCachingBuildEngineBuckConfig.java",
         "AbstractResourceAwareSchedulingInfo.java",
         "AbstractRuleScheduleInfo.java",
+        "ActionGraphCache.java",
         "BinaryWrapperRule.java",
         "BuildEngine.java",
         "BuildInfo.java",
@@ -423,6 +383,7 @@ java_immutables_library(
         "CachingBuildRuleBuilder.java",
         "DefaultBuildableContext.java",
         "DefaultOnDiskBuildInfo.java",
+        "DefaultTargetNodeToBuildRuleTransformer.java",
         "ExternalTestRunnerRule.java",
         "FilesystemBuildInfoStore.java",
         "HasInstallHelpers.java",
@@ -464,9 +425,9 @@ java_immutables_library(
         "//src/com/facebook/buck/event/external:external_lib",
         "//src/com/facebook/buck/graph:graph",
         "//src/com/facebook/buck/hashing:hashing",
-        "//src/com/facebook/buck/io:BuckPaths",
         "//src/com/facebook/buck/io:io",
         "//src/com/facebook/buck/io:more-paths",
+        "//src/com/facebook/buck/io:watchman",
         "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/log/views:views",
         "//src/com/facebook/buck/model:build_id",
@@ -476,6 +437,7 @@ java_immutables_library(
         "//src/com/facebook/buck/rules:source_path",
         "//src/com/facebook/buck/rules/coercer:interface",
         "//src/com/facebook/buck/rules/keys:keys",
+        "//src/com/facebook/buck/rules/query:query",
         "//src/com/facebook/buck/sqlite:sqlite",
         "//src/com/facebook/buck/step:step",
         "//src/com/facebook/buck/step/fs:fs",
@@ -490,8 +452,8 @@ java_immutables_library(
         "//src/com/facebook/buck/util/collect:collect",
         "//src/com/facebook/buck/util/concurrent:concurrent",
         "//src/com/facebook/buck/util/sha1:sha1",
+        "//src/com/facebook/buck/util/zip:zip",
         "//src/com/facebook/buck/versions:versions",
-        "//src/com/facebook/buck/zip:unzip",
         "//third-party/java/infer-annotations:infer-annotations",
         "//third-party/java/jackson:jackson-annotations",
         "//third-party/java/jackson:jackson-databind",
@@ -514,37 +476,6 @@ java_library(
         "//src/com/facebook/buck/rules:source_path",
         "//src/com/facebook/buck/rules/args:args",
         "//third-party/java/guava:guava",
-    ],
-)
-
-java_library(
-    name = "action_graph_cache",
-    srcs = [
-        "ActionGraphCache.java",
-    ],
-    tests = [
-        "//test/com/facebook/buck/rules:rules",
-    ],
-    visibility = ["PUBLIC"],
-    deps = [
-        ":rule_key",
-        ":source_path",
-        ":transformer",
-        "//src/com/facebook/buck/cli:config",
-        "//src/com/facebook/buck/event:event",
-        "//src/com/facebook/buck/event:interfaces",
-        "//src/com/facebook/buck/event/external:external_lib",
-        "//src/com/facebook/buck/event/listener:BroadcastEventListener",
-        "//src/com/facebook/buck/graph:graph",
-        "//src/com/facebook/buck/log:api",
-        "//src/com/facebook/buck/model:model",
-        "//src/com/facebook/buck/model:simple_types",
-        "//src/com/facebook/buck/parser:rule_pattern",
-        "//src/com/facebook/buck/rules/keys:keys",
-        "//src/com/facebook/buck/util:exceptions",
-        "//src/com/facebook/buck/util:watchman",
-        "//third-party/java/guava:guava",
-        "//third-party/java/jsr:jsr305",
     ],
 )
 
