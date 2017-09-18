@@ -158,7 +158,8 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
               buildFile, buildFilePath, buildFileAst, eventHandler, mutability, rawRuleBuilder);
       boolean exec = buildFileAst.exec(env, eventHandler);
       if (!exec) {
-        throw BuildFileParseException.createForUnknownParseError("Cannot parse build file");
+        throw BuildFileParseException.createForUnknownParseError(
+            "Cannot evaluate build file " + buildFile);
       }
       return rawRuleBuilder.build();
     }
@@ -210,15 +211,25 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
     for (SkylarkImport skylarkImport : skylarkImports) {
       try (Mutability mutability =
           Mutability.create("importing " + skylarkImport.getImportString())) {
-        Environment extensionEnv = Environment.builder(mutability).setGlobals(buckGlobals).build();
-        extensionEnv.setup("native", new NativeModule(buckRuleFunctions));
         com.google.devtools.build.lib.vfs.Path extensionPath = getImportPath(skylarkImport);
         BuildFileAST extensionAst =
             BuildFileAST.parseSkylarkFile(ParserInputSource.create(extensionPath), eventHandler);
+        if (extensionAst.containsErrors()) {
+          throw BuildFileParseException.createForUnknownParseError(
+              "Cannot parse extension file " + skylarkImport.getImportString());
+        }
+        Environment.Builder envBuilder = Environment.builder(mutability).setGlobals(buckGlobals);
+        if (!extensionAst.getImports().isEmpty()) {
+          envBuilder.setImportedExtensions(
+              buildImportMap(
+                  extensionAst.getImports(), buckGlobals, buckRuleFunctions, eventHandler));
+        }
+        Environment extensionEnv = envBuilder.build();
+        extensionEnv.setup("native", new NativeModule(buckRuleFunctions));
         boolean success = extensionAst.exec(extensionEnv, eventHandler);
         if (!success) {
           throw BuildFileParseException.createForUnknownParseError(
-              "Cannot parse extension file " + skylarkImport.getImportString());
+              "Cannot evaluate extension file " + skylarkImport.getImportString());
         }
         Environment.Extension extension = new Environment.Extension(extensionEnv);
         extensionMapBuilder.put(skylarkImport.getImportString(), extension);

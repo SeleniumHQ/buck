@@ -152,4 +152,14 @@ public class AndroidBinaryBuilder
     getArgForPopulating().setPostFilterResourcesCmd(command);
     return this;
   }
+
+  public AndroidBinaryBuilder setPreprocessJavaClassesBash(String command) {
+    getArgForPopulating().setPreprocessJavaClassesBash(command);
+    return this;
+  }
+
+  public AndroidBinaryBuilder setProguardConfig(SourcePath path) {
+    getArgForPopulating().setProguardConfig(path);
+    return this;
+  }
 }
