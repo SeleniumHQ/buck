@@ -401,7 +401,8 @@ public class KnownBuildRuleTypes {
             codeSignIdentityStore,
             provisioningProfileStore,
             appleConfig,
-            swiftBuckConfig);
+            swiftBuckConfig,
+            swiftPlatformsProvider.getSwiftCxxPlatforms());
     builder.register(appleLibraryDescription);
     PrebuiltAppleFrameworkDescription appleFrameworkDescription =
         new PrebuiltAppleFrameworkDescription(platformFlavorsToAppleCxxPlatforms);
