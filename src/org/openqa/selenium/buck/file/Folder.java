@@ -59,10 +59,7 @@ public class Folder extends ModernBuildRule<Folder> implements Buildable {
     super(target, filesystem, ruleFinder, Folder.class);
 
     this.folderName = Preconditions.checkNotNull(folderName);
-    this.output = new OutputPath(BuildTargets.getGenPath(
-        getProjectFilesystem(),
-        target,
-        String.format("%s/%%s.src.zip", target.getShortName())));
+    this.output = new OutputPath(String.format("%s.src.zip", target.getShortName()));
     this.srcs = srcs.stream().map(InputPath::new).collect(MoreCollectors.toImmutableSortedSet());
   }
 

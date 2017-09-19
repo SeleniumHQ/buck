@@ -76,12 +76,7 @@ public class Xpi extends ModernBuildRule<Xpi> implements Buildable {
     this.resources = resources.stream().map(InputPath::new).collect(MoreCollectors.toImmutableSortedSet());
     this.platforms = platforms.stream().map(InputPath::new).collect(MoreCollectors.toImmutableSortedSet());
 
-    this.output = new OutputPath(BuildTargets.getGenPath(
-        getProjectFilesystem(),
-        getBuildTarget(),
-        String.format("%%s/%s.xpi", getBuildTarget().getShortName())));
-
-
+    this.output = new OutputPath(String.format("%s.xpi", getBuildTarget().getShortName()));
   }
 
   @Override
