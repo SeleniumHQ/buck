@@ -19,146 +19,148 @@ package org.openqa.selenium.buck.mozilla;
 
 import static com.facebook.buck.util.zip.ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL;
 
-import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.event.EventDispatcher;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
+import com.facebook.buck.rules.modern.Buildable;
+import com.facebook.buck.rules.modern.InputDataRetriever;
+import com.facebook.buck.rules.modern.InputPath;
+import com.facebook.buck.rules.modern.InputPathResolver;
+import com.facebook.buck.rules.modern.ModernBuildRule;
+import com.facebook.buck.rules.modern.OutputPath;
+import com.facebook.buck.rules.modern.OutputPathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.zip.ZipStep;
+import com.facebook.buck.zip.rules.FileBundler;
 import com.facebook.buck.zip.rules.SrcZipAwareFileBundler;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import javax.annotation.Nullable;
 
-public class Xpi extends AbstractBuildRuleWithDeclaredAndExtraDeps {
+public class Xpi extends ModernBuildRule<Xpi> implements Buildable {
 
-  private final Path scratch;
-  private final Path output;
-  @AddToRuleKey
-  private final SourcePath chrome;
-  @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> components;
-  @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> content;
-  @AddToRuleKey
-  private final SourcePath install;
-  @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> resources;
-  @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> platforms;
+  private final OutputPath output;
+  private final InputPath chrome;
+  private final ImmutableSortedSet<InputPath> components;
+  private final ImmutableSortedSet<InputPath> content;
+  private final InputPath install;
+  private final ImmutableSortedSet<InputPath> resources;
+  private final ImmutableSortedSet<InputPath> platforms;
 
   public Xpi(
       BuildTarget target,
       ProjectFilesystem filesystem,
-      BuildRuleParams params,
+      SourcePathRuleFinder ruleFinder,
       SourcePath chrome,
       ImmutableSortedSet<SourcePath> components,
       ImmutableSortedSet<SourcePath> content,
       SourcePath install,
       ImmutableSortedSet<SourcePath> resources,
       ImmutableSortedSet<SourcePath> platforms) {
-    super(target, filesystem, params);
+    super(target, filesystem, ruleFinder, Xpi.class);
 
-    this.chrome = Preconditions.checkNotNull(chrome);
-    this.components = Preconditions.checkNotNull(components);
-    this.content = Preconditions.checkNotNull(content);
-    this.install = Preconditions.checkNotNull(install);
-    this.resources = Preconditions.checkNotNull(resources);
-    this.platforms = Preconditions.checkNotNull(platforms);
+    this.chrome = new InputPath(chrome);
+    this.components = components.stream().map(InputPath::new).collect(MoreCollectors.toImmutableSortedSet());
+    this.content = content.stream().map(InputPath::new).collect(MoreCollectors.toImmutableSortedSet());
+    this.install = new InputPath(install);
+    this.resources = resources.stream().map(InputPath::new).collect(MoreCollectors.toImmutableSortedSet());
+    this.platforms = platforms.stream().map(InputPath::new).collect(MoreCollectors.toImmutableSortedSet());
 
-    this.output = BuildTargets.getGenPath(
+    this.output = new OutputPath(BuildTargets.getGenPath(
         getProjectFilesystem(),
         getBuildTarget(),
-        String.format("%%s/%s.xpi", getBuildTarget().getShortName()));
+        String.format("%%s/%s.xpi", getBuildTarget().getShortName())));
 
-    this.scratch = BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-xpi");
+
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context,
-      BuildableContext buildableContext) {
+      EventDispatcher eventDispatcher,
+      ProjectFilesystem filesystem,
+      InputPathResolver inputPathResolver,
+      InputDataRetriever inputDataRetriever,
+      OutputPathResolver outputPathResolver,
+      BuildCellRelativePathFactory buildCellPathFactory) {
+    Path scratch = BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-xpi");
+
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.addAll(MakeCleanDirectoryStep.of(
-        BuildCellRelativePath.fromCellRelativePath(
-            context.getBuildCellRootPath(),
-            getProjectFilesystem(),
-            scratch)));
+    steps.addAll(MakeCleanDirectoryStep.of(buildCellPathFactory.from(scratch)));
 
     steps.add(
         CopyStep.forFile(
             getProjectFilesystem(),
-            context.getSourcePathResolver().getAbsolutePath(chrome),
+            inputPathResolver.resolvePath(chrome),
             scratch.resolve("chrome.manifest")));
     steps.add(
         CopyStep.forFile(
             getProjectFilesystem(),
-            context.getSourcePathResolver().getAbsolutePath(install),
+            inputPathResolver.resolvePath(install),
             scratch.resolve("install.rdf")));
 
-    SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
+    FileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
 
     Path contentDir = scratch.resolve("content");
-    steps.add(MkdirStep.of(
-        BuildCellRelativePath.fromCellRelativePath(
-            context.getBuildCellRootPath(),
-            getProjectFilesystem(),
-            contentDir)));
-    bundler.copy(getProjectFilesystem(), context, steps, contentDir, content);
+    steps.add(MkdirStep.of(buildCellPathFactory.from(contentDir)));
+    bundler.copy(
+        getProjectFilesystem(),
+        buildCellPathFactory,
+        steps,
+        contentDir,
+        content.stream().map(InputPath::getLimitedSourcePath).collect(MoreCollectors.toImmutableSortedSet()),
+        inputPathResolver.getLimitedSourcePathResolver());
 
     Path componentDir = scratch.resolve("components");
-    steps.add(MkdirStep.of(
-        BuildCellRelativePath.fromCellRelativePath(
-            context.getBuildCellRootPath(),
-            getProjectFilesystem(),
-            componentDir)));
-    bundler.copy(getProjectFilesystem(), context, steps, componentDir, components);
+    steps.add(MkdirStep.of(buildCellPathFactory.from(componentDir)));
+    bundler.copy(
+        getProjectFilesystem(),
+        buildCellPathFactory,
+        steps,
+        contentDir,
+        components.stream().map(InputPath::getLimitedSourcePath).collect(MoreCollectors.toImmutableSortedSet()),
+        inputPathResolver.getLimitedSourcePathResolver());
 
     Path platformDir = scratch.resolve("platform");
-    steps.add(MkdirStep.of(
-        BuildCellRelativePath.fromCellRelativePath(
-            context.getBuildCellRootPath(),
-            getProjectFilesystem(),
-            platformDir)));
-    bundler.copy(getProjectFilesystem(), context, steps, platformDir, platforms);
+    steps.add(MkdirStep.of(buildCellPathFactory.from(platformDir)));
+    bundler.copy(
+        getProjectFilesystem(),
+        buildCellPathFactory,
+        steps,
+        contentDir,
+        platforms.stream().map(InputPath::getLimitedSourcePath).collect(MoreCollectors.toImmutableSortedSet()),
+        inputPathResolver.getLimitedSourcePathResolver());
 
     Path resourceDir = scratch.resolve("resource");
-    steps.add(MkdirStep.of(
-        BuildCellRelativePath.fromCellRelativePath(
-            context.getBuildCellRootPath(),
-            getProjectFilesystem(),
-            resourceDir)));
-    bundler.copy(getProjectFilesystem(), context, steps, resourceDir, resources);
+    steps.add(MkdirStep.of(buildCellPathFactory.from(resourceDir)));
+    bundler.copy(
+        getProjectFilesystem(),
+        buildCellPathFactory,
+        steps,
+        contentDir,
+        resources.stream().map(InputPath::getLimitedSourcePath).collect(MoreCollectors.toImmutableSortedSet()),
+        inputPathResolver.getLimitedSourcePathResolver());
 
-    steps.addAll(MakeCleanDirectoryStep.of(
-        BuildCellRelativePath.fromCellRelativePath(
-            context.getBuildCellRootPath(),
-            getProjectFilesystem(),
-            output.getParent())));
+    Path out = outputPathResolver.resolvePath(output);
+    steps.addAll(MakeCleanDirectoryStep.of(buildCellPathFactory.from(out.getParent())));
     steps.add(
         new ZipStep(
             getProjectFilesystem(),
-            output.normalize().toAbsolutePath(),
+            out.normalize().toAbsolutePath(),
             ImmutableSet.of(),
             false,
             DEFAULT_COMPRESSION_LEVEL,
             scratch));
-
-    buildableContext.recordArtifact(output);
 
     return steps.build();
   }
@@ -166,6 +168,6 @@ public class Xpi extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   @Nullable
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new PathSourcePath(getProjectFilesystem(), output);
+    return getSourcePath(output);
   }
 }

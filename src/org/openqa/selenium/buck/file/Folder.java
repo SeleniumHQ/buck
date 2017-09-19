@@ -19,19 +19,23 @@ package org.openqa.selenium.buck.file;
 
 import static com.facebook.buck.util.zip.ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL;
 
-import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.event.EventDispatcher;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
+import com.facebook.buck.rules.modern.Buildable;
+import com.facebook.buck.rules.modern.InputDataRetriever;
+import com.facebook.buck.rules.modern.InputPath;
+import com.facebook.buck.rules.modern.InputPathResolver;
+import com.facebook.buck.rules.modern.ModernBuildRule;
+import com.facebook.buck.rules.modern.OutputPath;
+import com.facebook.buck.rules.modern.OutputPathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.zip.ZipStep;
 import com.facebook.buck.zip.rules.SrcZipAwareFileBundler;
 import com.google.common.base.Preconditions;
@@ -39,65 +43,66 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import javax.annotation.Nullable;
 
-public class Folder extends AbstractBuildRuleWithDeclaredAndExtraDeps {
-  @AddToRuleKey(stringify = true)
-  private final Path folderName;
-  private final Path output;
-  @AddToRuleKey
-  private final ImmutableSortedSet<SourcePath> srcs;
+public class Folder extends ModernBuildRule<Folder> implements Buildable {
+  private final String folderName;
+  private final OutputPath output;
+  private final ImmutableSortedSet<InputPath> srcs;
 
   protected Folder(
       BuildTarget target,
       ProjectFilesystem filesystem,
-      BuildRuleParams params,
+      SourcePathRuleFinder ruleFinder,
       String folderName,
       ImmutableSortedSet<SourcePath> srcs) {
-    super(target, filesystem, params);
+    super(target, filesystem, ruleFinder, Folder.class);
 
-    this.folderName = Preconditions.checkNotNull(Paths.get(folderName));
-    this.output = BuildTargets.getGenPath(
+    this.folderName = Preconditions.checkNotNull(folderName);
+    this.output = new OutputPath(BuildTargets.getGenPath(
         getProjectFilesystem(),
         target,
-        String.format("%s/%%s.src.zip", target.getShortName()));
-    this.srcs = Preconditions.checkNotNull(srcs);
+        String.format("%s/%%s.src.zip", target.getShortName())));
+    this.srcs = srcs.stream().map(InputPath::new).collect(MoreCollectors.toImmutableSortedSet());
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context, BuildableContext buildableContext) {
+      EventDispatcher eventDispatcher,
+      ProjectFilesystem filesystem,
+      InputPathResolver inputPathResolver,
+      InputDataRetriever inputDataRetriever,
+      OutputPathResolver outputPathResolver,
+      BuildCellRelativePathFactory buildCellPathFactory) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
-    steps.addAll(MakeCleanDirectoryStep.of(
-        BuildCellRelativePath.fromCellRelativePath(
-            context.getBuildCellRootPath(),
-            getProjectFilesystem(),
-            output.getParent())));
+    Path out = outputPathResolver.resolvePath(output);
+    steps.addAll(MakeCleanDirectoryStep.of(buildCellPathFactory.from(out.getParent())));
 
     Path scratch = BuildTargets.getScratchPath(
         getProjectFilesystem(),
         getBuildTarget(),
         "%s-scratch/" + folderName);
-    steps.addAll(MakeCleanDirectoryStep.of(
-        BuildCellRelativePath.fromCellRelativePath(
-            context.getBuildCellRootPath(),
-            getProjectFilesystem(),
-            scratch)));
+    steps.addAll(MakeCleanDirectoryStep.of(buildCellPathFactory.from(scratch)));
 
     SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
-    bundler.copy(getProjectFilesystem(), context, steps, scratch, srcs);
+    bundler.copy(
+        getProjectFilesystem(),
+        buildCellPathFactory,
+        steps,
+        scratch,
+        srcs.stream()
+            .map(InputPath::getLimitedSourcePath)
+            .collect(MoreCollectors.toImmutableSortedSet()),
+        inputPathResolver.getLimitedSourcePathResolver());
     steps.add(
         new ZipStep(
             getProjectFilesystem(),
-            output,
-            ImmutableSet.<Path>of(),
+            out,
+            ImmutableSet.of(),
             false,
             DEFAULT_COMPRESSION_LEVEL,
             scratch.getParent()));
-
-    buildableContext.recordArtifact(output);
 
     return steps.build();
   }
@@ -105,6 +110,6 @@ public class Folder extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   @Nullable
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new PathSourcePath(getProjectFilesystem(), output);
+    return getSourcePath(output);
   }
 }

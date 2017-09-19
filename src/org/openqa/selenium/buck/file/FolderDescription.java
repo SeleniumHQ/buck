@@ -25,6 +25,7 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasSrcs;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import org.immutables.value.Value;
@@ -49,7 +50,7 @@ public class FolderDescription implements Description<FolderArg> {
     return new Folder(
         buildTarget,
         projectFilesystem,
-        params,
+        new SourcePathRuleFinder(resolver),
         args.getOut().orElse(buildTarget.getShortName()),
         args.getSrcs());
   }

@@ -25,6 +25,7 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableSortedSet;
@@ -49,7 +50,7 @@ public class MozillaExtensionDescription implements Description<MozillaExtension
     return new Xpi(
         buildTarget,
         projectFilesystem,
-        params,
+        new SourcePathRuleFinder(resolver),
         args.getChrome(),
         args.getComponents(),
         args.getContent(),
