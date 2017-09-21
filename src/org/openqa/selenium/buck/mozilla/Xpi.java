@@ -122,7 +122,7 @@ public class Xpi extends ModernBuildRule<Xpi> implements Buildable {
         getProjectFilesystem(),
         buildCellPathFactory,
         steps,
-        contentDir,
+        componentDir,
         components.stream().map(InputPath::getLimitedSourcePath).collect(MoreCollectors.toImmutableSortedSet()),
         inputPathResolver.getLimitedSourcePathResolver());
 
@@ -132,7 +132,7 @@ public class Xpi extends ModernBuildRule<Xpi> implements Buildable {
         getProjectFilesystem(),
         buildCellPathFactory,
         steps,
-        contentDir,
+        platformDir,
         platforms.stream().map(InputPath::getLimitedSourcePath).collect(MoreCollectors.toImmutableSortedSet()),
         inputPathResolver.getLimitedSourcePathResolver());
 
@@ -142,7 +142,7 @@ public class Xpi extends ModernBuildRule<Xpi> implements Buildable {
         getProjectFilesystem(),
         buildCellPathFactory,
         steps,
-        contentDir,
+        resourceDir,
         resources.stream().map(InputPath::getLimitedSourcePath).collect(MoreCollectors.toImmutableSortedSet()),
         inputPathResolver.getLimitedSourcePathResolver());
 
