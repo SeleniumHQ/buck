@@ -31,7 +31,7 @@ import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.TestType;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.MacroException;
+import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -174,11 +174,9 @@ public class RobolectricTestDescription
                     cellRoots,
                     javaBuckConfig)
                 .setArgs(args)
-                .setConfiguredCompiler(
-                    compilerFactory
-                        .getCompiler(
-                            args.getLanguage().orElse(AndroidLibraryDescription.JvmLanguage.JAVA))
-                        .configure(args, Preconditions.checkNotNull(javacOptions), resolver))
+                .setConfiguredCompilerFactory(
+                    compilerFactory.getCompiler(
+                        args.getLanguage().orElse(AndroidLibraryDescription.JvmLanguage.JAVA)))
                 .setJavacOptions(javacOptions)
                 .setExtraClasspathFromContextFunction(AndroidClasspathFromContextFunction.INSTANCE)
                 .setTrackClassUsage(javacOptions.trackClassUsage())

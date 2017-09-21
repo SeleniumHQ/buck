@@ -1,6 +1,5 @@
 CXXRUNTIME_SRCS = [
     "AbstractNdkCxxPlatformCompiler.java",
-    "NdkCxxRuntime.java",
 ]
 
 java_immutables_library(
@@ -30,6 +29,7 @@ java_immutables_library(
     visibility = ["PUBLIC"],
     deps = [
         ":cxxruntime",
+        "//src/com/facebook/buck/android/toolchain:toolchain",
         "//src/com/facebook/buck/cli:config",
         "//src/com/facebook/buck/event:event",
         "//src/com/facebook/buck/event:interfaces",
@@ -160,6 +160,7 @@ java_immutables_library(
         "//src/com/facebook/buck/android/redex:options",
         "//src/com/facebook/buck/android/redex:redex",
         "//src/com/facebook/buck/android/resources:resources",
+        "//src/com/facebook/buck/android/toolchain:toolchain",
         "//src/com/facebook/buck/cli:config",
         "//src/com/facebook/buck/config:config",
         "//src/com/facebook/buck/cxx:rules",
@@ -184,9 +185,9 @@ java_immutables_library(
         "//src/com/facebook/buck/jvm/kotlin:kotlin",
         "//src/com/facebook/buck/jvm/scala:scala",
         "//src/com/facebook/buck/log:api",
-        "//src/com/facebook/buck/model:macros",
         "//src/com/facebook/buck/model:model",
         "//src/com/facebook/buck/model:simple_types",
+        "//src/com/facebook/buck/model/macros:macros",
         "//src/com/facebook/buck/parser:rule_pattern",
         "//src/com/facebook/buck/rules:build_rule",
         "//src/com/facebook/buck/rules:interfaces",
@@ -374,6 +375,7 @@ java_immutables_library(
         ":utils",
         "//src/com/facebook/buck/android/apkmodule:apkmodule",
         "//src/com/facebook/buck/android/packageable:packageable",
+        "//src/com/facebook/buck/android/toolchain:toolchain",
         "//src/com/facebook/buck/cli:config",
         "//src/com/facebook/buck/cxx:rules",
         "//src/com/facebook/buck/cxx/toolchain:toolchain",
@@ -392,8 +394,8 @@ java_immutables_library(
         "//src/com/facebook/buck/jvm/java:support",
         "//src/com/facebook/buck/jvm/java/classes:classes",
         "//src/com/facebook/buck/log:api",
-        "//src/com/facebook/buck/model:macros",
         "//src/com/facebook/buck/model:model",
+        "//src/com/facebook/buck/model/macros:macros",
         "//src/com/facebook/buck/parser:rule_pattern",
         "//src/com/facebook/buck/rules:build_rule",
         "//src/com/facebook/buck/rules:rules",

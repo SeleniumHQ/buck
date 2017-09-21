@@ -1,5 +1,5 @@
 /*
- * Copyright 2016-present Facebook, Inc.
+ * Copyright 2017-present Facebook, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may
  * not use this file except in compliance with the License. You may obtain
@@ -13,14 +13,15 @@
  * License for the specific language governing permissions and limitations
  * under the License.
  */
-package com.facebook.buck.cxx;
 
-import com.facebook.buck.rules.BuildRule;
-import com.google.common.collect.ImmutableSet;
+package com.facebook.buck.android.toolchain;
 
-/** Rule that can provide all binary dependencies. */
-public interface ProvidesLinkedBinaryDeps extends BuildRule {
-  ImmutableSet<BuildRule> getCompileDeps();
-
-  ImmutableSet<BuildRule> getStaticLibraryDeps();
+/** The CPU architectures to target. */
+public enum TargetCpuType {
+  ARM,
+  ARMV7,
+  ARM64,
+  X86,
+  X86_64,
+  MIPS,
 }

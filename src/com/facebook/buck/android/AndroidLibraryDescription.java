@@ -115,9 +115,7 @@ public class AndroidLibraryDescription
                     javaBuckConfig,
                     javacOptions,
                     args,
-                    compilerFactory)
-                .setArgs(args)
-                .setJavacOptions(javacOptions)
+                    compilerFactory.getCompiler(args.getLanguage().orElse(JvmLanguage.JAVA)))
                 .setTests(args.getTests());
 
     if (hasDummyRDotJavaFlavor) {

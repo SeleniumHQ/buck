@@ -26,12 +26,18 @@ import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import javax.annotation.Nullable;
 
 public class KotlinConfiguredCompilerFactory extends ConfiguredCompilerFactory {
 
   private final KotlinBuckConfig kotlinBuckConfig;
   private final JavaBuckConfig javaBuckConfig;
   private final ExtraClasspathFromContextFunction extraClasspathFromContextFunction;
+
+  public KotlinConfiguredCompilerFactory(
+      KotlinBuckConfig kotlinBuckConfig, JavaBuckConfig javaBuckConfig) {
+    this(kotlinBuckConfig, javaBuckConfig, ExtraClasspathFromContextFunction.EMPTY);
+  }
 
   public KotlinConfiguredCompilerFactory(
       KotlinBuckConfig kotlinBuckConfig,
@@ -50,7 +56,7 @@ public class KotlinConfiguredCompilerFactory extends ConfiguredCompilerFactory {
 
   @Override
   public ConfiguredCompiler configure(
-      JvmLibraryArg args, JavacOptions javacOptions, BuildRuleResolver resolver) {
+      @Nullable JvmLibraryArg args, JavacOptions javacOptions, BuildRuleResolver resolver) {
     return new KotlincToJarStepFactory(
         kotlinBuckConfig.getKotlinc(),
         ((KotlinLibraryDescription.CoreArg) args).getExtraKotlincArguments(),
@@ -59,7 +65,7 @@ public class KotlinConfiguredCompilerFactory extends ConfiguredCompilerFactory {
         javacOptions);
   }
 
-  private Javac getJavac(BuildRuleResolver resolver, JvmLibraryArg arg) {
+  private Javac getJavac(BuildRuleResolver resolver, @Nullable JvmLibraryArg arg) {
     return JavacFactory.create(new SourcePathRuleFinder(resolver), javaBuckConfig, arg);
   }
 }

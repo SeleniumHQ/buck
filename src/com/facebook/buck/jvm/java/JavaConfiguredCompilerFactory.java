@@ -18,10 +18,15 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import javax.annotation.Nullable;
 
 public class JavaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
   private final JavaBuckConfig javaBuckConfig;
   private final ExtraClasspathFromContextFunction extraClasspathFromContextFunction;
+
+  public JavaConfiguredCompilerFactory(JavaBuckConfig javaBuckConfig) {
+    this(javaBuckConfig, ExtraClasspathFromContextFunction.EMPTY);
+  }
 
   public JavaConfiguredCompilerFactory(
       JavaBuckConfig javaBuckConfig,
@@ -32,13 +37,13 @@ public class JavaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
 
   @Override
   public ConfiguredCompiler configure(
-      JvmLibraryArg arg, JavacOptions javacOptions, BuildRuleResolver resolver) {
+      @Nullable JvmLibraryArg arg, JavacOptions javacOptions, BuildRuleResolver resolver) {
 
     return new JavacToJarStepFactory(
         getJavac(resolver, arg), javacOptions, extraClasspathFromContextFunction);
   }
 
-  private Javac getJavac(BuildRuleResolver resolver, JvmLibraryArg arg) {
+  private Javac getJavac(BuildRuleResolver resolver, @Nullable JvmLibraryArg arg) {
     return JavacFactory.create(new SourcePathRuleFinder(resolver), javaBuckConfig, arg);
   }
 }
