@@ -16,11 +16,12 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.config.Config;
-import com.facebook.buck.config.ConfigBuilder;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
+import com.facebook.buck.util.config.Config;
+import com.facebook.buck.util.config.ConfigBuilder;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableMap;
@@ -32,7 +33,8 @@ public class BuckConfigTestUtils {
 
   public static BuckConfig createWithDefaultFilesystem(
       TemporaryPaths temporaryFolder, Reader reader) throws InterruptedException, IOException {
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(temporaryFolder.getRoot());
+    ProjectFilesystem projectFilesystem =
+        TestProjectFilesystems.createProjectFilesystem(temporaryFolder.getRoot());
     return createFromReader(
         reader,
         projectFilesystem,

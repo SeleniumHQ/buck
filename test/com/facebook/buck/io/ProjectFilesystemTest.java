@@ -24,11 +24,14 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.config.Config;
-import com.facebook.buck.config.ConfigBuilder;
 import com.facebook.buck.io.ProjectFilesystem.CopySourceMode;
+import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ZipInspector;
+import com.facebook.buck.util.config.Config;
+import com.facebook.buck.util.config.ConfigBuilder;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.zip.Unzip;
 import com.facebook.buck.util.zip.Zip;
@@ -83,7 +86,7 @@ public class ProjectFilesystemTest {
 
   @Before
   public void setUp() throws InterruptedException {
-    filesystem = new ProjectFilesystem(tmp.getRoot());
+    filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
   }
 
   @Test
@@ -326,7 +329,8 @@ public class ProjectFilesystemTest {
   @Test
   public void testWalkFileTreeWhenProjectRootIsWorkingDir()
       throws InterruptedException, IOException {
-    ProjectFilesystem projectFilesystem = new ProjectFilesystem(Paths.get(".").toAbsolutePath());
+    ProjectFilesystem projectFilesystem =
+        TestProjectFilesystems.createProjectFilesystem(Paths.get(".").toAbsolutePath());
     final ImmutableList.Builder<String> fileNames = ImmutableList.builder();
 
     Path pathRelativeToProjectRoot =
@@ -551,7 +555,7 @@ public class ProjectFilesystemTest {
     Config config =
         ConfigBuilder.createFromText("[project]", "ignore = .git, foo, bar/, baz//, a/b/c");
     Path rootPath = tmp.getRoot();
-    ProjectFilesystem filesystem = new ProjectFilesystem(rootPath, config);
+    ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(rootPath, config);
     ImmutableSet<Path> ignorePaths =
         FluentIterable.from(filesystem.getIgnorePaths())
             .filter(input -> input.getType() == PathOrGlobMatcher.Type.PATH)
@@ -578,7 +582,8 @@ public class ProjectFilesystemTest {
     Config config = ConfigBuilder.createFromText("[cache]", "dir = cache_dir");
     Path rootPath = tmp.getRoot();
     ImmutableSet<Path> ignorePaths =
-        FluentIterable.from(new ProjectFilesystem(rootPath, config).getIgnorePaths())
+        FluentIterable.from(
+                TestProjectFilesystems.createProjectFilesystem(rootPath, config).getIgnorePaths())
             .filter(input -> input.getType() == PathOrGlobMatcher.Type.PATH)
             .transform(PathOrGlobMatcher::getPath)
             .toSet();
@@ -593,7 +598,8 @@ public class ProjectFilesystemTest {
       throws InterruptedException, IOException {
     Config config = ConfigBuilder.createFromText("[project]", "ignore = **/*.orig");
 
-    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot(), config);
+    ProjectFilesystem filesystem =
+        TestProjectFilesystems.createProjectFilesystem(tmp.getRoot(), config);
     Files.createDirectories(tmp.getRoot().resolve("foo/bar"));
     filesystem.touch(Paths.get("foo/bar/cake.txt"));
     filesystem.touch(Paths.get("foo/bar/cake.txt.orig"));
@@ -621,10 +627,11 @@ public class ProjectFilesystemTest {
       throws InterruptedException, IOException {
     Config config = ConfigBuilder.createFromText("[project]", "ignore = **/*.orig");
     Path rootPath = tmp.getRoot();
+    ProjectFilesystemFactory projectFilesystemFactory = new DefaultProjectFilesystemFactory();
     assertThat(
         "Two ProjectFilesystems with same glob in ignore should be equal",
-        new ProjectFilesystem(rootPath, config),
-        equalTo(new ProjectFilesystem(rootPath, config)));
+        projectFilesystemFactory.createProjectFilesystem(rootPath, config),
+        equalTo(projectFilesystemFactory.createProjectFilesystem(rootPath, config)));
   }
 
   @Test
@@ -632,7 +639,9 @@ public class ProjectFilesystemTest {
     FileSystem vfs = Jimfs.newFileSystem(Configuration.unix());
     Path root = vfs.getPath("/root");
     Files.createDirectories(root);
-    assertEquals(vfs, new ProjectFilesystem(root).getPath("bar").getFileSystem());
-    assertEquals(vfs.getPath("bar"), new ProjectFilesystem(root).getPath("bar"));
+    ProjectFilesystem projectFilesystem =
+        new DefaultProjectFilesystemFactory().createProjectFilesystem(root);
+    assertEquals(vfs, projectFilesystem.getPath("bar").getFileSystem());
+    assertEquals(vfs.getPath("bar"), projectFilesystem.getPath("bar"));
   }
 }

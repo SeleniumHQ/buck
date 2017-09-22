@@ -31,8 +31,6 @@ import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.Main;
 import com.facebook.buck.cli.TestRunning;
 import com.facebook.buck.config.CellConfig;
-import com.facebook.buck.config.Config;
-import com.facebook.buck.config.Configs;
 import com.facebook.buck.io.BuckPaths;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.MoreFiles;
@@ -40,6 +38,8 @@ import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.WatchmanWatcher;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.jvm.java.JavaCompilationConstants;
 import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.model.BuildId;
@@ -59,6 +59,8 @@ import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.Threads;
+import com.facebook.buck.util.config.Config;
+import com.facebook.buck.util.config.Configs;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.CommandMode;
 import com.facebook.buck.util.environment.Platform;
@@ -295,7 +297,8 @@ public class ProjectWorkspace {
     if (projectFilesystemAndConfig == null) {
       Config config = Configs.createDefaultConfig(destPath);
       projectFilesystemAndConfig =
-          new ProjectFilesystemAndConfig(new ProjectFilesystem(destPath, config), config);
+          new ProjectFilesystemAndConfig(
+              TestProjectFilesystems.createProjectFilesystem(destPath, config), config);
     }
     return projectFilesystemAndConfig;
   }
@@ -723,7 +726,8 @@ public class ProjectWorkspace {
             buckConfig,
             CellConfig.of(),
             new KnownBuildRuleTypesFactory(processExecutor, directoryResolver, sdkEnvironment),
-            sdkEnvironment)
+            sdkEnvironment,
+            new DefaultProjectFilesystemFactory())
         .getCellByPath(filesystem.getRootPath());
   }
 

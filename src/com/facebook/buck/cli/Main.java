@@ -28,9 +28,6 @@ import com.facebook.buck.android.DefaultAndroidDirectoryResolver;
 import com.facebook.buck.artifact_cache.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
-import com.facebook.buck.config.Config;
-import com.facebook.buck.config.Configs;
-import com.facebook.buck.config.RawConfig;
 import com.facebook.buck.counters.CounterRegistry;
 import com.facebook.buck.counters.CounterRegistryImpl;
 import com.facebook.buck.event.BuckEventBus;
@@ -68,6 +65,8 @@ import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.WatchmanDiagnosticEventListener;
 import com.facebook.buck.io.WatchmanWatcher;
 import com.facebook.buck.io.WatchmanWatcherException;
+import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
+import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.ConsoleHandlerState;
@@ -121,6 +120,9 @@ import com.facebook.buck.util.cache.DefaultFileHashCache;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.StackedFileHashCache;
 import com.facebook.buck.util.concurrent.MostExecutors;
+import com.facebook.buck.util.config.Config;
+import com.facebook.buck.util.config.Configs;
+import com.facebook.buck.util.config.RawConfig;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.environment.CommandMode;
@@ -513,7 +515,11 @@ public final class Main {
           command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME);
     }
     Config config = Configs.createDefaultConfig(canonicalRootPath, rootCellConfigOverrides);
-    ProjectFilesystem filesystem = new ProjectFilesystem(canonicalRootPath, config);
+
+    ProjectFilesystemFactory projectFilesystemFactory = new DefaultProjectFilesystemFactory();
+    ProjectFilesystem filesystem =
+        projectFilesystemFactory.createProjectFilesystem(canonicalRootPath, config);
+
     DefaultCellPathResolver cellPathResolver =
         new DefaultCellPathResolver(filesystem.getRootPath(), config);
     BuckConfig buckConfig =
@@ -638,7 +644,8 @@ public final class Main {
                     buckConfig,
                     command.getConfigOverrides(),
                     factory,
-                    sdkEnvironment)
+                    sdkEnvironment,
+                    projectFilesystemFactory)
                 .getCellByPath(filesystem.getRootPath());
 
         Optional<Daemon> daemon =
@@ -670,8 +677,7 @@ public final class Main {
         // ImmutableSet<PathOrGlobMatcher> and BuckPaths for the ProjectFilesystem, whereas this one
         // uses the defaults.
         ProjectFilesystem rootCellProjectFilesystem =
-            ProjectFilesystem.createNewOrThrowHumanReadableException(
-                rootCell.getFilesystem().getRootPath());
+            projectFilesystemFactory.createOrThrow(rootCell.getFilesystem().getRootPath());
         if (daemon.isPresent()) {
           allCaches.addAll(getFileHashCachesFromDaemon(daemon.get()));
         } else {
@@ -708,7 +714,7 @@ public final class Main {
                 rootCellProjectFilesystem, rootCell.getBuckConfig().getFileHashCacheMode()));
         allCaches.addAll(
             DefaultFileHashCache.createOsRootDirectoriesCaches(
-                rootCell.getBuckConfig().getFileHashCacheMode()));
+                projectFilesystemFactory, rootCell.getBuckConfig().getFileHashCacheMode()));
 
         StackedFileHashCache fileHashCache = new StackedFileHashCache(allCaches.build());
 
@@ -1066,6 +1072,7 @@ public final class Main {
                         .setInvocationInfo(Optional.of(invocationInfo))
                         .setDefaultRuleKeyFactoryCacheRecycler(defaultRuleKeyFactoryCacheRecycler)
                         .setBuildInfoStoreManager(storeManager)
+                        .setProjectFilesystemFactory(projectFilesystemFactory)
                         .build());
           } catch (InterruptedException | ClosedByInterruptException e) {
             buildEventBus.post(CommandEvent.interrupted(startedEvent, INTERRUPTED_EXIT_CODE));

@@ -1,21 +1,3 @@
-DEFAULT_FILESYSTEM_DELEGATE_SRCS = [
-    "DefaultProjectFilesystemDelegate.java",
-]
-
-java_library(
-    name = "DefaultProjectFilesystemDelegate",
-    srcs = DEFAULT_FILESYSTEM_DELEGATE_SRCS,
-    visibility = [
-        "PUBLIC",
-    ],
-    deps = [
-        ":ProjectFilesystemDelegate",
-        "//src/com/facebook/buck/event:interfaces",
-        "//src/com/facebook/buck/util/sha1:sha1",
-        "//third-party/java/guava:guava",
-    ],
-)
-
 # This is its own rule that should have limited dependencies
 # because it is meant to have widespread utility.
 MORE_PATHS_SRCS = [
@@ -35,32 +17,6 @@ java_library(
         "//src/com/facebook/buck/util/environment:platform",
         "//third-party/java/guava:guava",
         "//third-party/java/jsr:jsr305",
-    ],
-)
-
-PROJECT_FILESYSTEM_DELEGATE_FACTORY_SRCS = [
-    "ProjectFilesystemDelegateFactory.java",
-]
-
-java_library(
-    name = "ProjectFilesystemDelegateFactory",
-    srcs = PROJECT_FILESYSTEM_DELEGATE_FACTORY_SRCS,
-    visibility = [
-        "PUBLIC",
-    ],
-    deps = [
-        ":DefaultProjectFilesystemDelegate",
-        ":ProjectFilesystemDelegate",
-        "//src/com/facebook/buck/config:config",
-        "//src/com/facebook/buck/eden:eden",
-        "//src/com/facebook/buck/log:api",
-        "//src/com/facebook/buck/util:process_executor",
-        "//src/com/facebook/buck/util/autosparse:autosparse",
-        "//src/com/facebook/buck/util/autosparse:autosparse_config",
-        "//src/com/facebook/buck/util/environment:platform",
-        "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
-        "//third-party/java/eden:eden-thrift-bindings",
-        "//third-party/java/guava:guava",
     ],
 )
 
@@ -155,10 +111,8 @@ java_immutables_library(
     srcs = glob(
         ["*.java"],
         excludes = (
-            DEFAULT_FILESYSTEM_DELEGATE_SRCS +
             FINDER_SRCS +
             MORE_PATHS_SRCS +
-            PROJECT_FILESYSTEM_DELEGATE_FACTORY_SRCS +
             PROJECT_FILESYSTEM_DELEGATE_SRCS +
             WATCHMAN_SRCS +
             TRANSPORT_SRCS
@@ -166,7 +120,6 @@ java_immutables_library(
     ),
     exported_deps = [
         ":ProjectFilesystemDelegate",
-        ":ProjectFilesystemDelegateFactory",
         ":more-paths",
     ],
     tests = [
@@ -174,13 +127,13 @@ java_immutables_library(
     ],
     visibility = ["PUBLIC"],
     deps = [
-        "//src/com/facebook/buck/config:config",
         "//src/com/facebook/buck/event:interfaces",
         "//src/com/facebook/buck/io/windowsfs:windowsfs",
         "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/util:constants",
         "//src/com/facebook/buck/util:exceptions",
         "//src/com/facebook/buck/util/concurrent:concurrent",
+        "//src/com/facebook/buck/util/config:config",
         "//src/com/facebook/buck/util/environment:platform",
         "//src/com/facebook/buck/util/sha1:sha1",
     ],

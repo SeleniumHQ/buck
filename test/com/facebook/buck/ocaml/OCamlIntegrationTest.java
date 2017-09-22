@@ -26,8 +26,6 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.cli.BuckConfig;
 import com.facebook.buck.cli.FakeBuckConfig;
-import com.facebook.buck.config.Config;
-import com.facebook.buck.config.Configs;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.CxxSourceRuleFactoryHelper;
@@ -38,6 +36,7 @@ import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.DefaultCellPathResolver;
@@ -46,6 +45,8 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.config.Config;
+import com.facebook.buck.util.config.Configs;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableMap;
@@ -69,7 +70,7 @@ public class OCamlIntegrationTest {
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "ocaml", tmp);
     workspace.setUp();
 
-    ProjectFilesystem filesystem = new ProjectFilesystem(tmp.getRoot());
+    ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
 
     Config rawConfig = Configs.createDefaultConfig(filesystem.getRootPath());
 

@@ -25,6 +25,8 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.io.MoreFiles;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -64,7 +66,7 @@ public class ZipStepTest {
 
   @Before
   public void setUp() throws InterruptedException {
-    filesystem = new ProjectFilesystem(tmp.getRoot());
+    filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
   }
 
   @Test
@@ -353,7 +355,11 @@ public class ZipStepTest {
     assertEquals(0, step.execute(TestExecutionContext.newInstance()).getExitCode());
 
     Path destination = tmp.newFolder("output");
-    Unzip.extractZipFile(outputZip, destination, Unzip.ExistingFileMode.OVERWRITE);
+    Unzip.extractZipFile(
+        new DefaultProjectFilesystemFactory(),
+        outputZip,
+        destination,
+        Unzip.ExistingFileMode.OVERWRITE);
     assertTrue(Files.isExecutable(destination.resolve("foo.sh")));
   }
 

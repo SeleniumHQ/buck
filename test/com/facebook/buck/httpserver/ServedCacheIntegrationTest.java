@@ -35,6 +35,8 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.BorrowablePath;
 import com.facebook.buck.io.LazyPath;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemDelegate;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.util.environment.Architecture;
@@ -78,7 +80,7 @@ public class ServedCacheIntegrationTest {
   @Before
   public void setUp() throws Exception {
     buckEventBus = BuckEventBusForTests.newInstance();
-    projectFilesystem = new ProjectFilesystem(tmpDir.getRoot());
+    projectFilesystem = TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot());
     projectFilesystem.writeContentsToPath(A_FILE_DATA, A_FILE_PATH);
 
     dirCache = createArtifactCache(createMockLocalDirCacheConfig());
@@ -177,7 +179,8 @@ public class ServedCacheIntegrationTest {
   @Test
   public void testExceptionDuringTheRead() throws Exception {
     ProjectFilesystem throwingStreamFilesystem =
-        new ProjectFilesystem(tmpDir.getRoot()) {
+        new ProjectFilesystem(
+            tmpDir.getRoot(), new DefaultProjectFilesystemDelegate(tmpDir.getRoot())) {
           private boolean throwingStreamServed = false;
 
           @Override
@@ -212,7 +215,8 @@ public class ServedCacheIntegrationTest {
   @Test
   public void testExceptionDuringTheReadRetryingFail() throws Exception {
     ProjectFilesystem throwingStreamFilesystem =
-        new ProjectFilesystem(tmpDir.getRoot()) {
+        new ProjectFilesystem(
+            tmpDir.getRoot(), new DefaultProjectFilesystemDelegate(tmpDir.getRoot())) {
           private int throwingStreamServedCount = 0;
 
           @Override
@@ -242,7 +246,8 @@ public class ServedCacheIntegrationTest {
   @Test
   public void testExceptionDuringTheReadRetryingSuccess() throws Exception {
     ProjectFilesystem throwingStreamFilesystem =
-        new ProjectFilesystem(tmpDir.getRoot()) {
+        new ProjectFilesystem(
+            tmpDir.getRoot(), new DefaultProjectFilesystemDelegate(tmpDir.getRoot())) {
           private int throwingStreamServedCount = 0;
 
           @Override

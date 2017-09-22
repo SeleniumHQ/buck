@@ -33,6 +33,7 @@ java_library(
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/cache:cache",
         "//src/com/facebook/buck/util/concurrent:concurrent",
+        "//src/com/facebook/buck/util/config:config",
         "//src/com/facebook/buck/util/environment:platform",
         "//src/com/facebook/buck/util/network/hostname:hostname",
         "//third-party/java/guava:guava",
@@ -83,6 +84,7 @@ java_immutables_library(
     ],
     deps = [
         "//src-gen:thrift",
+        "//src/com/facebook/buck/io/filesystem/impl:impl",
         "//src/com/facebook/buck/android/aapt:aapt",
         "//src/com/facebook/buck/android:config",
         "//src/com/facebook/buck/android/redex:options",

@@ -14,12 +14,13 @@
  * under the License.
  */
 
-package com.facebook.buck.io;
+package com.facebook.buck.io.filesystem.impl;
 
-import com.facebook.buck.config.Config;
 import com.facebook.buck.eden.EdenClientPool;
 import com.facebook.buck.eden.EdenMount;
 import com.facebook.buck.eden.EdenProjectFilesystemDelegate;
+import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.ProjectFilesystemDelegate;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.PrintStreamProcessExecutorFactory;
 import com.facebook.buck.util.autosparse.AbstractAutoSparseConfig;
@@ -27,6 +28,7 @@ import com.facebook.buck.util.autosparse.AbstractAutoSparseFactory;
 import com.facebook.buck.util.autosparse.AutoSparseConfig;
 import com.facebook.buck.util.autosparse.AutoSparseProjectFilesystemDelegate;
 import com.facebook.buck.util.autosparse.AutoSparseState;
+import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.versioncontrol.HgCmdLineInterface;
 import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
@@ -52,7 +54,10 @@ public final class ProjectFilesystemDelegateFactory {
       Optional<EdenMount> mount = EdenMount.createEdenMountForProjectRoot(root, pool.get());
       if (mount.isPresent()) {
         LOG.debug("Created eden mount for %s: %s", root, mount.get());
-        return new EdenProjectFilesystemDelegate(mount.get(), config);
+        return new EdenProjectFilesystemDelegate(
+            mount.get(),
+            new DefaultProjectFilesystemDelegate(mount.get().getProjectRoot()),
+            config);
       } else {
         LOG.error("Failed to find Eden client for %s.", root);
       }
@@ -71,7 +76,8 @@ public final class ProjectFilesystemDelegateFactory {
           AbstractAutoSparseFactory.getAutoSparseState(root, buckOut, hgCmdLine, autoSparseConfig);
       if (autoSparseState != null) {
         LOG.debug("Autosparse enabled, using AutoSparseProjectFilesystemDelegate");
-        return new AutoSparseProjectFilesystemDelegate(autoSparseState, root);
+        return new AutoSparseProjectFilesystemDelegate(
+            autoSparseState, new DefaultProjectFilesystemDelegate(root));
       }
     }
 

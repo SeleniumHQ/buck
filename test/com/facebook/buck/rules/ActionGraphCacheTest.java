@@ -19,12 +19,12 @@ package com.facebook.buck.rules;
 import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.anyOf;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasProperty;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.cli.ActionGraphParallelizationMode;
 import com.facebook.buck.event.ActionGraphEvent;
@@ -90,6 +90,7 @@ public class ActionGraphCacheTest {
     eventBus =
         BuckEventBusForTests.newInstance(new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1)));
 
+    trackedEvents.clear();
     eventBus.register(
         new Object() {
           @Subscribe
@@ -204,7 +205,10 @@ public class ActionGraphCacheTest {
         keySeed,
         ActionGraphParallelizationMode.DISABLED);
     assertEquals(1, countEventsOf(ActionGraphEvent.Cache.Miss.class));
+    trackedEvents.clear();
 
+    // Do a second fetch which should miss but indicate the target graphs were the same.
+    assertFalse(cache.isCacheEmpty());
     cache.getActionGraph(
         eventBus,
         CHECK_GRAPHS,
@@ -212,9 +216,23 @@ public class ActionGraphCacheTest {
         TargetGraphFactory.newInstance(nodeA, createTargetNode("B")),
         keySeed,
         ActionGraphParallelizationMode.DISABLED);
-
     assertEquals(1, countEventsOf(ActionGraphEvent.Cache.MissWithTargetGraphHashMatch.class));
-    assertEquals(2, countEventsOf(ActionGraphEvent.Cache.Miss.class));
+    assertEquals(1, countEventsOf(ActionGraphEvent.Cache.Miss.class));
+    trackedEvents.clear();
+
+    // Do a second fetch which should miss but indicate the target graphs were the same.
+    assertFalse(cache.isCacheEmpty());
+    cache.invalidateBasedOn(WatchmanOverflowEvent.of(tmpFilePath.getRoot(), "testing"));
+    cache.getActionGraph(
+        eventBus,
+        CHECK_GRAPHS,
+        /* skipActionGraphCache */ false,
+        TargetGraphFactory.newInstance(nodeA, createTargetNode("B")),
+        keySeed,
+        ActionGraphParallelizationMode.DISABLED);
+    assertEquals(1, countEventsOf(ActionGraphEvent.Cache.MissWithTargetGraphHashMatch.class));
+    assertEquals(1, countEventsOf(ActionGraphEvent.Cache.MissWithWatchmanOverflowEvent.class));
+    assertEquals(1, countEventsOf(ActionGraphEvent.Cache.Miss.class));
   }
 
   // If this breaks it probably means the ActionGraphCache checking also breaks.
@@ -248,7 +266,7 @@ public class ActionGraphCacheTest {
     ActionGraphCache cache = new ActionGraphCache();
     Path file = tmpFilePath.newFile("foo.txt");
 
-    // Fill the cache. An overflow event should invalidate the cache.
+    // Fill the cache.
     cache.getActionGraph(
         eventBus,
         NOT_CHECK_GRAPHS, /* skipActionGraphCache */
@@ -257,10 +275,11 @@ public class ActionGraphCacheTest {
         keySeed,
         ActionGraphParallelizationMode.DISABLED);
     assertFalse(cache.isCacheEmpty());
-    cache.invalidateBasedOn(WatchmanOverflowEvent.of(tmpFilePath.getRoot(), "testing"));
-    assertTrue(cache.isCacheEmpty());
+    trackedEvents.clear();
 
-    // Fill the cache. Add a file and ActionGraphCache should be invalidated.
+    // An overflow event should invalidate the cache and cause a miss.
+    assertFalse(cache.isCacheEmpty());
+    cache.invalidateBasedOn(WatchmanOverflowEvent.of(tmpFilePath.getRoot(), "testing"));
     cache.getActionGraph(
         eventBus,
         NOT_CHECK_GRAPHS, /* skipActionGraphCache */
@@ -268,12 +287,14 @@ public class ActionGraphCacheTest {
         targetGraph,
         keySeed,
         ActionGraphParallelizationMode.DISABLED);
+    assertEquals(countEventsOf(ActionGraphEvent.Cache.Miss.class), 1);
+    assertEquals(countEventsOf(ActionGraphEvent.Cache.MissWithWatchmanOverflowEvent.class), 1);
+    trackedEvents.clear();
+
+    // Add a file and ActionGraphCache should be invalidated.
     assertFalse(cache.isCacheEmpty());
     cache.invalidateBasedOn(
         WatchmanPathEvent.of(tmpFilePath.getRoot(), WatchmanPathEvent.Kind.CREATE, file));
-    assertTrue(cache.isCacheEmpty());
-
-    //Re-fill cache. Remove a file and ActionGraphCache should be invalidated.
     cache.getActionGraph(
         eventBus,
         NOT_CHECK_GRAPHS, /* skipActionGraphCache */
@@ -281,19 +302,26 @@ public class ActionGraphCacheTest {
         targetGraph,
         keySeed,
         ActionGraphParallelizationMode.DISABLED);
+    assertEquals(countEventsOf(ActionGraphEvent.Cache.Miss.class), 1);
+    assertEquals(countEventsOf(ActionGraphEvent.Cache.MissWithWatchmanPathEvent.class), 1);
+    trackedEvents.clear();
+
+    // Remove a file and ActionGraphCache should be invalidated.
     assertFalse(cache.isCacheEmpty());
     cache.invalidateBasedOn(
         WatchmanPathEvent.of(tmpFilePath.getRoot(), WatchmanPathEvent.Kind.DELETE, file));
-    assertTrue(cache.isCacheEmpty());
-
-    // Re-fill cache. Modify contents of a file, ActionGraphCache should NOT be invalidated.
     cache.getActionGraph(
         eventBus,
-        CHECK_GRAPHS, /* skipActionGraphCache */
+        NOT_CHECK_GRAPHS, /* skipActionGraphCache */
         false,
         targetGraph,
         keySeed,
         ActionGraphParallelizationMode.DISABLED);
+    assertEquals(countEventsOf(ActionGraphEvent.Cache.Miss.class), 1);
+    assertEquals(countEventsOf(ActionGraphEvent.Cache.MissWithWatchmanPathEvent.class), 1);
+    trackedEvents.clear();
+
+    // Modify contents of a file, ActionGraphCache should NOT be invalidated.
     assertFalse(cache.isCacheEmpty());
     cache.invalidateBasedOn(
         WatchmanPathEvent.of(tmpFilePath.getRoot(), WatchmanPathEvent.Kind.MODIFY, file));
@@ -304,57 +332,32 @@ public class ActionGraphCacheTest {
         targetGraph,
         keySeed,
         ActionGraphParallelizationMode.DISABLED);
-    assertFalse(cache.isCacheEmpty());
-
-    // We should have 4 cache misses and 1 hit from when you request the same graph after a file
-    // modification.
     assertEquals(countEventsOf(ActionGraphEvent.Cache.Hit.class), 1);
-    assertEquals(countEventsOf(ActionGraphEvent.Cache.Miss.class), 4);
+    trackedEvents.clear();
   }
 
   @Test
   public void actionGraphParallelizationStateIsLogged() throws Exception {
     List<ExperimentEvent> experimentEvents;
 
-    new ActionGraphCache()
-        .getActionGraph(
-            eventBus,
-            NOT_CHECK_GRAPHS, /* skipActionGraphCache */
-            false,
-            targetGraph,
-            keySeed,
-            ActionGraphParallelizationMode.DISABLED);
-    experimentEvents =
-        RichStream.from(trackedEvents.stream())
-            .filter(ExperimentEvent.class)
-            .collect(Collectors.toList());
-    assertThat(
-        experimentEvents,
-        contains(
-            allOf(
-                hasProperty("tag", equalTo("action_graph_parallelization")),
-                hasProperty("variant", equalTo("DISABLED")))));
-    trackedEvents.clear();
-
-    new ActionGraphCache()
-        .getActionGraph(
-            eventBus,
-            NOT_CHECK_GRAPHS, /* skipActionGraphCache */
-            false,
-            targetGraph,
-            keySeed,
-            ActionGraphParallelizationMode.ENABLED);
-    experimentEvents =
-        RichStream.from(trackedEvents.stream())
-            .filter(ExperimentEvent.class)
-            .collect(Collectors.toList());
-    assertThat(
-        experimentEvents,
-        contains(
-            allOf(
-                hasProperty("tag", equalTo("action_graph_parallelization")),
-                hasProperty("variant", equalTo("ENABLED")))));
-    trackedEvents.clear();
+    for (ActionGraphParallelizationMode mode :
+        ImmutableSet.of(
+            ActionGraphParallelizationMode.DISABLED, ActionGraphParallelizationMode.ENABLED)) {
+      new ActionGraphCache()
+          .getActionGraph(
+              eventBus,
+              NOT_CHECK_GRAPHS, /* skipActionGraphCache */
+              false,
+              targetGraph,
+              keySeed,
+              mode);
+      experimentEvents =
+          RichStream.from(trackedEvents.stream())
+              .filter(ExperimentEvent.class)
+              .collect(Collectors.toList());
+      assertThat(
+          "No experiment event is logged if not in experiment mode", experimentEvents, empty());
+    }
 
     new ActionGraphCache()
         .getActionGraph(

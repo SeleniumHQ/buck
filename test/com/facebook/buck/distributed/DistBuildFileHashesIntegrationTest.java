@@ -29,6 +29,8 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.io.MorePaths;
 import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
@@ -82,7 +84,8 @@ public class DistBuildFileHashesIntegrationTest {
     workspace.setUp();
 
     ProjectFilesystem rootFs =
-        new ProjectFilesystem(temporaryFolder.getRoot().toAbsolutePath().resolve("root_cell"));
+        TestProjectFilesystems.createProjectFilesystem(
+            temporaryFolder.getRoot().toAbsolutePath().resolve("root_cell"));
 
     Path absSymlinkFilePath = rootFs.resolve("../" + SYMLINK_FILE_NAME);
     Path symLinkPath = rootFs.resolve(SYMLINK_FILE_NAME);
@@ -145,9 +148,11 @@ public class DistBuildFileHashesIntegrationTest {
     workspace.setUp();
 
     ProjectFilesystem rootFs =
-        new ProjectFilesystem(temporaryFolder.getRoot().toAbsolutePath().resolve("root_cell"));
+        TestProjectFilesystems.createProjectFilesystem(
+            temporaryFolder.getRoot().toAbsolutePath().resolve("root_cell"));
     ProjectFilesystem secondaryFs =
-        new ProjectFilesystem(temporaryFolder.getRoot().toAbsolutePath().resolve("secondary_cell"));
+        TestProjectFilesystems.createProjectFilesystem(
+            temporaryFolder.getRoot().toAbsolutePath().resolve("secondary_cell"));
     BuckConfig rootCellConfig =
         FakeBuckConfig.builder()
             .setFilesystem(rootFs)
@@ -228,7 +233,9 @@ public class DistBuildFileHashesIntegrationTest {
           DefaultFileHashCache.createDefaultFileHashCache(
               cell.getFilesystem(), FileHashCacheMode.DEFAULT));
     }
-    allCaches.addAll(DefaultFileHashCache.createOsRootDirectoriesCaches(FileHashCacheMode.DEFAULT));
+    allCaches.addAll(
+        DefaultFileHashCache.createOsRootDirectoriesCaches(
+            new DefaultProjectFilesystemFactory(), FileHashCacheMode.DEFAULT));
     StackedFileHashCache stackedCache = new StackedFileHashCache(allCaches.build());
 
     return new DistBuildFileHashes(
