@@ -9,11 +9,11 @@ java_library(
     deps = [],
 )
 
+# TODO(cjhopman): Move HumanReadableException to exceptions/
 EXCEPTION_SRCS = [
     "ExceptionWithHumanReadableMessage.java",
     "HumanReadableException.java",
-    "RetryingException.java",
-]
+] + glob(["exceptions/*.java"])
 
 java_library(
     name = "exceptions",
@@ -22,7 +22,9 @@ java_library(
         "//test/com/facebook/buck/util:util",
     ],
     visibility = ["PUBLIC"],
-    deps = ["//third-party/java/jsr:jsr305"],
+    deps = [
+        "//third-party/java/jsr:jsr305",
+    ],
 )
 
 IO_SRCS = [
@@ -54,6 +56,8 @@ java_immutables_library(
         ":process_executor",
         ":util",
         "//src/com/facebook/buck/io:io",
+        "//src/com/facebook/buck/io/file:file",
+        "//src/com/facebook/buck/io/filesystem:filesystem",
         "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/util/environment:platform",
         "//third-party/java/nuprocess:nuprocess",
@@ -128,6 +132,9 @@ java_immutables_library(
                    PACKAGED_RESOURCE_SRCS + PROCESS_EXECUTOR_SRCS,
         includes = ["*.java"],
     ),
+    exported_deps = [
+        "//third-party/java/guava:guava",
+    ],
     tests = [
         "//test/com/facebook/buck/util:util",
     ],
@@ -136,6 +143,7 @@ java_immutables_library(
     ],
     deps = [
         ":exceptions",
+        "//src/com/facebook/buck/event:interfaces",
         "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/model:simple_types",
         "//src/com/facebook/buck/util/environment:platform",

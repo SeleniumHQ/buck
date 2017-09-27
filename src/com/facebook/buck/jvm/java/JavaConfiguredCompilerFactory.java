@@ -36,6 +36,16 @@ public class JavaConfiguredCompilerFactory extends ConfiguredCompilerFactory {
   }
 
   @Override
+  public boolean trackClassUsage(JavacOptions javacOptions) {
+    return javacOptions.trackClassUsage();
+  }
+
+  @Override
+  public boolean compileAgainstAbis() {
+    return javaBuckConfig.shouldCompileAgainstAbis();
+  }
+
+  @Override
   public ConfiguredCompiler configure(
       @Nullable JvmLibraryArg arg, JavacOptions javacOptions, BuildRuleResolver resolver) {
 

@@ -22,7 +22,7 @@ import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.event.DefaultBuckEventBus;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.jvm.java.JarDumper;
@@ -1110,7 +1110,7 @@ public class StubJarTest {
             "  // signature Ljava/util/List<Ljava/lang/String;>;",
             "  // declaration: java.util.List<java.lang.String>",
             "  Ljava/util/List; list",
-            "  @Lcom/example/buck/Foo$TypeAnnotation;() : FIELD, 0 // invisible",
+            "  @Lcom/example/buck/Foo$TypeAnnotation;() : FIELD, 0; // invisible",
             "",
             "  // access flags 0x1",
             "  public <init>()V",

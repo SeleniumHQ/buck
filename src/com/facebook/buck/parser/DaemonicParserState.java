@@ -16,7 +16,7 @@
 
 package com.facebook.buck.parser;
 
-import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.counters.Counter;
 import com.facebook.buck.counters.IntegerCounter;
 import com.facebook.buck.counters.TagSetCounter;
@@ -210,7 +210,7 @@ public class DaemonicParserState {
       for (Map<String, Object> rawNode : rawNodes) {
         if (rawNode.containsKey(INCLUDES_META_RULE)) {
           for (String path :
-              Preconditions.checkNotNull((List<String>) rawNode.get(INCLUDES_META_RULE))) {
+              Preconditions.checkNotNull((Iterable<String>) rawNode.get(INCLUDES_META_RULE))) {
             dependentsOfEveryNode.add(cell.getFilesystem().resolve(path));
           }
         } else if (rawNode.containsKey(CONFIGS_META_RULE)) {

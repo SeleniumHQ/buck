@@ -28,7 +28,7 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
@@ -226,24 +226,22 @@ public class HaskellLibraryDescription
       target = target.withoutFlavors(HaskellDescriptionUtils.PROF);
     }
 
-    Optional<Archive> archive = resolver.getRuleOptionalWithType(target, Archive.class);
-    if (archive.isPresent()) {
-      return archive.get();
-    }
-
-    return resolver.addToIndex(
-        createStaticLibrary(
+    return (Archive)
+        resolver.computeIfAbsent(
             target,
-            projectFilesystem,
-            baseParams,
-            resolver,
-            pathResolver,
-            ruleFinder,
-            platform,
-            args,
-            deps,
-            depType,
-            hsProfile));
+            target1 ->
+                createStaticLibrary(
+                    target1,
+                    projectFilesystem,
+                    baseParams,
+                    resolver,
+                    pathResolver,
+                    ruleFinder,
+                    platform,
+                    args,
+                    deps,
+                    depType,
+                    hsProfile));
   }
 
   private HaskellPackageRule createPackage(
@@ -430,24 +428,22 @@ public class HaskellLibraryDescription
       target = target.withAppendedFlavors(HaskellDescriptionUtils.PROF);
     }
 
-    Optional<HaskellPackageRule> packageRule =
-        resolver.getRuleOptionalWithType(target, HaskellPackageRule.class);
-    if (packageRule.isPresent()) {
-      return packageRule.get();
-    }
-    return resolver.addToIndex(
-        createPackage(
+    return (HaskellPackageRule)
+        resolver.computeIfAbsent(
             target,
-            projectFilesystem,
-            baseParams,
-            resolver,
-            pathResolver,
-            ruleFinder,
-            platform,
-            args,
-            deps,
-            depType,
-            hsProfile));
+            target1 ->
+                createPackage(
+                    target1,
+                    projectFilesystem,
+                    baseParams,
+                    resolver,
+                    pathResolver,
+                    ruleFinder,
+                    platform,
+                    args,
+                    deps,
+                    depType,
+                    hsProfile));
   }
 
   private HaskellHaddockLibRule requireHaddockLibrary(
@@ -579,26 +575,22 @@ public class HaskellLibraryDescription
         Sets.intersection(
                 baseTarget.getFlavors(), Sets.union(Type.FLAVOR_VALUES, platforms.getFlavors()))
             .isEmpty());
-    BuildTarget target =
-        baseTarget.withAppendedFlavors(Type.SHARED.getFlavor(), platform.getFlavor());
 
-    Optional<HaskellLinkRule> linkRule =
-        resolver.getRuleOptionalWithType(target, HaskellLinkRule.class);
-    if (linkRule.isPresent()) {
-      return linkRule.get();
-    }
-    return resolver.addToIndex(
-        createSharedLibrary(
-            target,
-            projectFilesystem,
-            baseParams,
-            resolver,
-            pathResolver,
-            ruleFinder,
-            platform,
-            args,
-            deps,
-            hsProfile));
+    return (HaskellLinkRule)
+        resolver.computeIfAbsent(
+            baseTarget.withAppendedFlavors(Type.SHARED.getFlavor(), platform.getFlavor()),
+            target ->
+                createSharedLibrary(
+                    target,
+                    projectFilesystem,
+                    baseParams,
+                    resolver,
+                    pathResolver,
+                    ruleFinder,
+                    platform,
+                    args,
+                    deps,
+                    hsProfile));
   }
 
   @Override

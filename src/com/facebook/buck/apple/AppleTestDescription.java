@@ -30,7 +30,7 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Either;
@@ -553,9 +553,10 @@ public class AppleTestDescription
       CxxLibraryDescription.CommonArg args) {
 
     ImmutableSet<BuildRule> deps = args.getCxxDeps().get(ruleResolver, cxxPlatform);
+    BuildTarget baseTarget = buildTarget.withFlavors();
     Optional<CxxPreprocessorInput> publicInput =
         CxxLibraryDescription.queryMetadataCxxPreprocessorInput(
-            ruleResolver, buildTarget, cxxPlatform, HeaderVisibility.PUBLIC);
+            ruleResolver, baseTarget, cxxPlatform, HeaderVisibility.PUBLIC);
     Collection<CxxPreprocessorInput> depsInputs =
         CxxPreprocessables.getTransitiveCxxPreprocessorInput(cxxPlatform, deps);
 

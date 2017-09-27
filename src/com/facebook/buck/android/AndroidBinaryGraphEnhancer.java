@@ -29,10 +29,12 @@ import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.android.toolchain.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.TargetCpuType;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
+import com.facebook.buck.jvm.java.JavaConfiguredCompilerFactory;
 import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.java.JavaLibraryDeps;
 import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.model.BuildTarget;
@@ -42,10 +44,8 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.rules.coercer.ManifestEntries;
@@ -69,6 +69,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.SortedSet;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class AndroidBinaryGraphEnhancer {
 
@@ -95,10 +96,8 @@ public class AndroidBinaryGraphEnhancer {
   private final boolean trimResourceIds;
   private final Optional<String> keepResourcePattern;
   private final Optional<BuildTarget> nativeLibraryMergeCodeGenerator;
-  private final TargetGraph targetGraph;
   private final BuildRuleResolver ruleResolver;
   private final SourcePathRuleFinder ruleFinder;
-  private final CellPathResolver cellRoots;
   private final PackageType packageType;
   private final boolean shouldPreDex;
   private final DexSplitMode dexSplitMode;
@@ -122,9 +121,7 @@ public class AndroidBinaryGraphEnhancer {
       BuildTarget originalBuildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams originalParams,
-      TargetGraph targetGraph,
       BuildRuleResolver ruleResolver,
-      CellPathResolver cellRoots,
       AndroidBinary.AaptMode aaptMode,
       ResourceCompressionMode resourceCompressionMode,
       ResourceFilter resourcesFilter,
@@ -170,10 +167,8 @@ public class AndroidBinaryGraphEnhancer {
     this.buildRuleParams = originalParams;
     this.originalBuildTarget = originalBuildTarget;
     this.originalDeps = originalParams.getBuildDeps();
-    this.targetGraph = targetGraph;
     this.ruleResolver = ruleResolver;
     this.ruleFinder = new SourcePathRuleFinder(ruleResolver);
-    this.cellRoots = cellRoots;
     this.packageType = packageType;
     this.shouldPreDex = shouldPreDex;
     this.dexSplitMode = dexSplitMode;
@@ -294,15 +289,15 @@ public class AndroidBinaryGraphEnhancer {
       BuildRuleParams paramsForCompileGenCode =
           buildRuleParams.withDeclaredDeps(ImmutableSortedSet.of(generateCodeForMergedLibraryMap));
       DefaultJavaLibrary compileMergedNativeLibMapGenCode =
-          DefaultJavaLibrary.builder(
-                  targetGraph,
+          DefaultJavaLibrary.rulesBuilder(
                   originalBuildTarget.withAppendedFlavors(
                       COMPILE_NATIVE_LIB_MERGE_MAP_GENERATED_CODE_FLAVOR),
                   projectFilesystem,
                   paramsForCompileGenCode,
                   ruleResolver,
-                  cellRoots,
-                  javaBuckConfig)
+                  new JavaConfiguredCompilerFactory(javaBuckConfig),
+                  javaBuckConfig,
+                  null)
               // Kind of a hack: override language level to 7 to allow string switch.
               // This can be removed once no one who uses this feature sets the level
               // to 6 in their .buckconfig.
@@ -310,7 +305,18 @@ public class AndroidBinaryGraphEnhancer {
               .setSrcs(
                   ImmutableSortedSet.of(generateCodeForMergedLibraryMap.getSourcePathToOutput()))
               .setSourceAbisAllowed(false)
-              .build();
+              .setDeps(
+                  new JavaLibraryDeps.Builder(ruleResolver)
+                      .addAllDepTargets(
+                          paramsForCompileGenCode
+                              .getDeclaredDeps()
+                              .get()
+                              .stream()
+                              .map(BuildRule::getBuildTarget)
+                              .collect(Collectors.toList()))
+                      .build())
+              .build()
+              .buildLibrary();
       ruleResolver.addToIndex(compileMergedNativeLibMapGenCode);
       additionalJavaLibrariesBuilder.add(compileMergedNativeLibMapGenCode);
     }
@@ -371,18 +377,29 @@ public class AndroidBinaryGraphEnhancer {
     BuildRuleParams paramsForCompileUberRDotJava =
         buildRuleParams.withDeclaredDeps(ImmutableSortedSet.of(trimUberRDotJava));
     JavaLibrary compileUberRDotJava =
-        DefaultJavaLibrary.builder(
-                targetGraph,
+        DefaultJavaLibrary.rulesBuilder(
                 originalBuildTarget.withAppendedFlavors(COMPILE_UBER_R_DOT_JAVA_FLAVOR),
                 projectFilesystem,
                 paramsForCompileUberRDotJava,
                 ruleResolver,
-                cellRoots,
-                javaBuckConfig)
+                new JavaConfiguredCompilerFactory(javaBuckConfig),
+                javaBuckConfig,
+                null)
             .setJavacOptions(javacOptions.withSourceLevel("7").withTargetLevel("7"))
             .setSrcs(ImmutableSortedSet.of(trimUberRDotJava.getSourcePathToOutput()))
             .setSourceAbisAllowed(false)
-            .build();
+            .setDeps(
+                new JavaLibraryDeps.Builder(ruleResolver)
+                    .addAllDepTargets(
+                        paramsForCompileUberRDotJava
+                            .getDeclaredDeps()
+                            .get()
+                            .stream()
+                            .map(BuildRule::getBuildTarget)
+                            .collect(Collectors.toList()))
+                    .build())
+            .build()
+            .buildLibrary();
     ruleResolver.addToIndex(compileUberRDotJava);
 
     // Create rule to dex uber R.java sources.

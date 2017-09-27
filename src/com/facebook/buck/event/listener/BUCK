@@ -47,6 +47,8 @@ java_immutables_library(
         "PUBLIC",
     ],
     deps = [
+        "//src/com/facebook/buck/io/file:file",
+        "//src/com/facebook/buck/io/filesystem:filesystem",
         ":CacheRateStatsKeeper",
         "//src-gen:thrift",
         "//src/com/facebook/buck/util/config:config",
@@ -54,7 +56,6 @@ java_immutables_library(
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
         "//src/com/facebook/buck/artifact_cache:config",
         "//src/com/facebook/buck/build_type:build_type",
-        "//src/com/facebook/buck/cli:config",
         "//src/com/facebook/buck/config:config",
         "//src/com/facebook/buck/counters:counters",
         "//src/com/facebook/buck/distributed:distributed",

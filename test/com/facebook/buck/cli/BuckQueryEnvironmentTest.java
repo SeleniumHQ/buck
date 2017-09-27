@@ -20,6 +20,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.listener.BroadcastEventListener;
@@ -133,6 +134,7 @@ public class BuckQueryEnvironmentTest {
             createQueryBuildTarget("//example", "five"),
             createQueryBuildTarget("//example", "six"),
             createQueryBuildTarget("//example", "application-test-lib"),
+            createQueryBuildTarget("//example", "test-lib-lib"),
             createQueryBuildTarget("//example", "one-tests"),
             createQueryBuildTarget("//example", "four-tests"),
             createQueryBuildTarget("//example", "four-application-tests"),

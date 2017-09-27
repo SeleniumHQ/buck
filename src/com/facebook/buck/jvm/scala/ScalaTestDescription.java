@@ -17,7 +17,8 @@
 package com.facebook.buck.jvm.scala;
 
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.java.DefaultJavaLibraryRules;
 import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibrary;
@@ -115,18 +116,17 @@ public class ScalaTestDescription
         JavacOptionsFactory.create(
             templateJavacOptions, buildTarget, projectFilesystem, resolver, args);
 
-    ScalaLibraryBuilder scalaLibraryBuilder =
-        new ScalaLibraryBuilder(
-                targetGraph,
+    DefaultJavaLibraryRules scalaLibraryBuilder =
+        ScalaLibraryBuilder.newInstance(
                 javaLibraryBuildTarget,
                 projectFilesystem,
                 params,
                 resolver,
-                cellRoots,
                 config,
-                javaBuckConfig)
+                javaBuckConfig,
+                args)
             .setJavacOptions(javacOptions)
-            .setArgs(args);
+            .build();
 
     if (HasJavaAbi.isAbiTarget(buildTarget)) {
       return scalaLibraryBuilder.buildAbi();
@@ -134,7 +134,7 @@ public class ScalaTestDescription
 
     Function<String, Arg> toMacroArgFunction =
         MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver);
-    JavaLibrary testsLibrary = resolver.addToIndex(scalaLibraryBuilder.build());
+    JavaLibrary testsLibrary = resolver.addToIndex(scalaLibraryBuilder.buildLibrary());
 
     return new JavaTest(
         buildTarget,

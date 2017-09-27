@@ -16,7 +16,7 @@
 
 package org.openqa.selenium.buck.javascript;
 
-import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.HashedFileTool;

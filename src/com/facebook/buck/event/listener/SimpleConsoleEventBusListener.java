@@ -25,6 +25,7 @@ import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRuleEvent;
@@ -75,6 +76,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
   private final ScheduledExecutorService renderScheduler;
   private final Set<RunningTarget> runningTasks = new HashSet<>();
   private final boolean hideSucceededRules;
+  private final Optional<BuildId> buildId;
 
   public SimpleConsoleEventBusListener(
       Console console,
@@ -84,11 +86,13 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
       int numberOfSlowRulesToShow,
       Locale locale,
       Path testLogPath,
-      ExecutionEnvironment executionEnvironment) {
+      ExecutionEnvironment executionEnvironment,
+      Optional<BuildId> buildId) {
     super(console, clock, locale, executionEnvironment, true, numberOfSlowRulesToShow);
     this.locale = locale;
     this.parseTime = new AtomicLong(0);
     this.hideSucceededRules = hideSucceededRules;
+    this.buildId = buildId;
 
     this.testFormatter =
         new TestResultFormatter(
@@ -125,6 +129,14 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     synchronized (runningTasks) {
       runningTasks.clear();  // We can only have one thing running, right?
     }
+
+    if (buildId.isPresent()) {
+      printLines(ImmutableList.<String>builder().add(getBuildLogLine(buildId.get())));
+    }
+  }
+
+  public static String getBuildLogLine(BuildId buildId) {
+    return "Build UUID: " + buildId.toString();
   }
 
   @Override
@@ -233,9 +245,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
 
   @Subscribe
   public void logEvent(ConsoleEvent event) {
-    if (console.getVerbosity().isSilent()
-        && !event.getLevel().equals(Level.SEVERE)) {
-
+    if (console.getVerbosity().isSilent() && !event.getLevel().equals(Level.SEVERE)) {
       return;
     }
     ImmutableList.Builder<String> lines = ImmutableList.builder();

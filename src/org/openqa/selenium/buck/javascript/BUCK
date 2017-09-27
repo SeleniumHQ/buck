@@ -2,7 +2,7 @@
 java_immutables_library(name = 'javascript',
   srcs = glob(['*.java']),
   deps = [
-    '//src/com/facebook/buck/cli:config',
+    '//src/com/facebook/buck/config:config',
     '//src/com/facebook/buck/graph:graph',
     '//src/com/facebook/buck/io:io',
     '//src/com/facebook/buck/model:model',

@@ -25,7 +25,7 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.rules.BuildRule;
@@ -180,7 +180,17 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public CxxPreprocessorInput getPrivateCxxPreprocessorInput(CxxPlatform cxxPlatform) {
-    return getCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PRIVATE);
+    CxxPreprocessorInput privateInput =
+        getCxxPreprocessorInput(cxxPlatform, HeaderVisibility.PRIVATE);
+    Optional<CxxPreprocessorInput> delegateInput =
+        delegate.flatMap(
+            p -> p.getPrivatePreprocessorInput(getBuildTarget(), ruleResolver, cxxPlatform));
+
+    if (delegateInput.isPresent()) {
+      return CxxPreprocessorInput.concat(ImmutableList.of(privateInput, delegateInput.get()));
+    }
+
+    return privateInput;
   }
 
   @Override

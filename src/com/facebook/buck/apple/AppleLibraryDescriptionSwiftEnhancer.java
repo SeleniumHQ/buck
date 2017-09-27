@@ -23,8 +23,9 @@ import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.HeaderSymlinkTreeWithHeaderMap;
 import com.facebook.buck.cxx.PreprocessorFlags;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.BuildRule;
@@ -40,6 +41,7 @@ import com.facebook.buck.swift.SwiftDescriptions;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.SwiftLibraryDescriptionArg;
 import com.facebook.buck.util.RichStream;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -90,6 +92,7 @@ public class AppleLibraryDescriptionSwiftEnhancer {
         target,
         paramsWithDeps,
         resolver,
+        rulePathFinder,
         cellRoots,
         filesystem,
         swiftArgs,
@@ -114,12 +117,12 @@ public class AppleLibraryDescriptionSwiftEnhancer {
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleResolver resolver,
-      CxxPlatform cxxPlatform) {
+      CxxPlatform cxxPlatform,
+      HeaderVisibility headerVisibility) {
     BuildTarget swiftCompileTarget = createBuildTargetForSwiftCompile(buildTarget, cxxPlatform);
     SwiftCompile compile = (SwiftCompile) resolver.requireRule(swiftCompileTarget);
 
-    Path objCImportPath =
-        Paths.get(compile.getModuleName(), compile.getObjCGeneratedHeaderFileName());
+    Path objCImportPath = getObjCGeneratedHeaderSourceIncludePath(headerVisibility, compile);
     SourcePath objCGeneratedPath = compile.getObjCGeneratedHeaderPath();
 
     ImmutableMap.Builder<Path, SourcePath> headerLinks = ImmutableMap.builder();
@@ -131,6 +134,36 @@ public class AppleLibraryDescriptionSwiftEnhancer {
             buildTarget, projectFilesystem, outputPath, headerLinks.build());
 
     return headerMapRule;
+  }
+
+  private static Path getObjCGeneratedHeaderSourceIncludePath(
+      HeaderVisibility headerVisibility, SwiftCompile compile) {
+    Path publicPath = Paths.get(compile.getModuleName(), compile.getObjCGeneratedHeaderFileName());
+    switch (headerVisibility) {
+      case PUBLIC:
+        return publicPath;
+      case PRIVATE:
+        return Paths.get(compile.getObjCGeneratedHeaderFileName());
+    }
+
+    return publicPath;
+  }
+
+  public static BuildTarget createBuildTargetForObjCGeneratedHeaderBuildRule(
+      BuildTarget buildTarget, HeaderVisibility headerVisibility, CxxPlatform cxxPlatform) {
+    AppleLibraryDescription.Type appleLibType = null;
+    switch (headerVisibility) {
+      case PUBLIC:
+        appleLibType = AppleLibraryDescription.Type.SWIFT_EXPORTED_OBJC_GENERATED_HEADER;
+        break;
+      case PRIVATE:
+        appleLibType = AppleLibraryDescription.Type.SWIFT_OBJC_GENERATED_HEADER;
+        break;
+    }
+
+    Preconditions.checkNotNull(appleLibType);
+
+    return buildTarget.withFlavors(appleLibType.getFlavor(), cxxPlatform.getFlavor());
   }
 
   public static BuildTarget createBuildTargetForSwiftCompile(

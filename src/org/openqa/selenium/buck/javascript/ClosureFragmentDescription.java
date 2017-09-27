@@ -19,7 +19,7 @@ package org.openqa.selenium.buck.javascript;
 
 import static java.lang.Boolean.FALSE;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;

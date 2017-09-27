@@ -22,7 +22,7 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
@@ -195,21 +195,14 @@ public class CxxPrecompiledHeaderTemplate extends NoopBuildRuleWithDeclaredAndEx
 
   public DependencyAggregation requireAggregatedDepsRule(
       BuildRuleResolver ruleResolver, SourcePathRuleFinder ruleFinder, CxxPlatform cxxPlatform) {
-    BuildTarget depAggTarget = createAggregatedDepsTarget(cxxPlatform);
-
-    Optional<DependencyAggregation> existingRule =
-        ruleResolver.getRuleOptionalWithType(depAggTarget, DependencyAggregation.class);
-    if (existingRule.isPresent()) {
-      return existingRule.get();
-    }
-
-    DependencyAggregation depAgg =
-        new DependencyAggregation(
-            depAggTarget,
-            getProjectFilesystem(),
-            getPreprocessDeps(ruleResolver, ruleFinder, cxxPlatform));
-    ruleResolver.addToIndex(depAgg);
-    return depAgg;
+    return (DependencyAggregation)
+        ruleResolver.computeIfAbsent(
+            createAggregatedDepsTarget(cxxPlatform),
+            depAggTarget ->
+                new DependencyAggregation(
+                    depAggTarget,
+                    getProjectFilesystem(),
+                    getPreprocessDeps(ruleResolver, ruleFinder, cxxPlatform)));
   }
 
   public PreprocessorDelegate buildPreprocessorDelegate(

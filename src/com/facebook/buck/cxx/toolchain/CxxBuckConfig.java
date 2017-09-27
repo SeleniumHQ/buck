@@ -16,7 +16,7 @@
 
 package com.facebook.buck.cxx.toolchain;
 
-import com.facebook.buck.cli.BuckConfig;
+import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.toolchain.linker.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.model.BuildTarget;
@@ -288,6 +288,10 @@ public class CxxBuckConfig {
 
     // Default.
     return SharedLibraryInterfaceParams.Type.DISABLED;
+  }
+
+  public boolean isDeprecatedPrebuiltCxxLibraryApiEnabled() {
+    return delegate.getBooleanValue(cxxSection, "enable_deprecated_prebuilt_cxx_library_api", true);
   }
 
   @Value.Immutable

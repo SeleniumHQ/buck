@@ -18,7 +18,7 @@ package com.facebook.buck.skylark.parser;
 
 import bazel.shaded.com.google.common.collect.ImmutableCollection;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.io.MorePaths;
+import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
@@ -29,12 +29,14 @@ import com.facebook.buck.rules.coercer.CoercedTypeCache;
 import com.facebook.buck.rules.coercer.ParamInfo;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.skylark.function.Glob;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import com.google.devtools.build.lib.cmdline.Label;
 import com.google.devtools.build.lib.cmdline.PackageIdentifier;
@@ -112,35 +114,58 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
   @Override
   public ImmutableList<Map<String, Object>> getAll(Path buildFile, AtomicLong processedBytes)
       throws BuildFileParseException, InterruptedException, IOException {
-    return getAllRulesAndMetaRules(buildFile, processedBytes);
+    return parseBuildFile(buildFile).rawRules;
   }
 
   @Override
   public ImmutableList<Map<String, Object>> getAllRulesAndMetaRules(
       Path buildFile, AtomicLong processedBytes)
       throws BuildFileParseException, InterruptedException, IOException {
+    // TODO(ttsugrii): add metadata rules
+    ParseResult parseResult = parseBuildFile(buildFile);
+    // TODO(ttsugrii): find a way to reuse the same constants across Python DSL and Skylark parsers
+    return ImmutableList.<Map<String, Object>>builder()
+        .addAll(parseResult.rawRules)
+        .add(
+            ImmutableMap.of(
+                "__includes",
+                parseResult
+                    .loadedPaths
+                    .stream()
+                    .map(Object::toString)
+                    .collect(MoreCollectors.toImmutableSortedSet())))
+        // TODO(ttsugrii): implement once configuration options are exposed via Skylark API
+        .add(ImmutableMap.of("__configs", ImmutableMap.of()))
+        // TODO(ttsugrii): implement once environment variables are exposed via Skylark API
+        .add(ImmutableMap.of("__env", ImmutableMap.of()))
+        .build();
+  }
+
+  /**
+   * Retrieves build files requested in {@code buildFile}.
+   *
+   * @param buildFile The build file to parse.
+   * @return The {@link ParseResult} with build rules defined in {@code buildFile}.
+   */
+  private ParseResult parseBuildFile(Path buildFile)
+      throws BuildFileParseException, InterruptedException, IOException {
+    ImmutableList<Map<String, Object>> rules = ImmutableList.of();
     ParseBuckFileEvent.Started startEvent = ParseBuckFileEvent.started(buildFile);
     buckEventBus.post(startEvent);
-    ImmutableList<Map<String, Object>> rules = ImmutableList.of();
+    ParseResult parseResult;
     try {
-      rules = parseBuildRules(buildFile);
-      LOG.verbose("Got rules: %s", rules);
-      LOG.verbose("Parsed %d rules from %s", rules.size(), buildFile);
+      parseResult = parseBuildRules(buildFile);
+      rules = parseResult.rawRules;
     } finally {
       // TODO(ttsugrii): think about reporting processed bytes and profiling support
       buckEventBus.post(ParseBuckFileEvent.finished(startEvent, rules, 0L, Optional.empty()));
     }
-    return rules;
+    return parseResult;
   }
 
-  /**
-   * Parses and returns build rules defined in {@code buildFile}.
-   *
-   * @param buildFile The build file to parse.
-   * @return The build rules defined in {@code buildFile}.
-   */
-  private ImmutableList<Map<String, Object>> parseBuildRules(Path buildFile)
-      throws BuildFileParseException, InterruptedException, IOException {
+  /** @return The parsed build rules defined in {@code buildFile}. */
+  private ParseResult parseBuildRules(Path buildFile)
+      throws IOException, BuildFileParseException, InterruptedException {
     // TODO(ttsugrii): consider using a less verbose event handler. Also fancy handler can be
     // configured for terminals that support it.
     PrintingEventHandler eventHandler = new PrintingEventHandler(EnumSet.allOf(EventKind.class));
@@ -161,7 +186,11 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
         throw BuildFileParseException.createForUnknownParseError(
             "Cannot evaluate build file " + buildFile);
       }
-      return parseContext.getRecordedRules();
+      parseContext.recordLoadedPath(buildFilePath);
+      ImmutableList<Map<String, Object>> rules = parseContext.getRecordedRules();
+      LOG.verbose("Got rules: %s", rules);
+      LOG.verbose("Parsed %d rules from %s", rules.size(), buildFile);
+      return new ParseResult(rules, parseContext.getLoadedpaths());
     }
   }
 
@@ -180,7 +209,8 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
     Environment.Frame buckGlobals = getBuckGlobals();
     ImmutableList<BuiltinFunction> buckRuleFunctions = getBuckRuleFunctions(parseContext);
     ImmutableMap<String, Environment.Extension> importMap =
-        buildImportMap(buildFileAst.getImports(), buckGlobals, buckRuleFunctions, eventHandler);
+        buildImportMap(
+            buildFileAst.getImports(), buckGlobals, buckRuleFunctions, parseContext, eventHandler);
     Environment env =
         Environment.builder(mutability)
             .setImportedExtensions(importMap)
@@ -204,6 +234,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
       bazel.shaded.com.google.common.collect.ImmutableList<SkylarkImport> skylarkImports,
       Environment.Frame buckGlobals,
       ImmutableList<BuiltinFunction> buckRuleFunctions,
+      ParseContext parseContext,
       PrintingEventHandler eventHandler)
       throws IOException, InterruptedException, BuildFileParseException {
     ImmutableMap.Builder<String, Environment.Extension> extensionMapBuilder =
@@ -222,7 +253,11 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
         if (!extensionAst.getImports().isEmpty()) {
           envBuilder.setImportedExtensions(
               buildImportMap(
-                  extensionAst.getImports(), buckGlobals, buckRuleFunctions, eventHandler));
+                  extensionAst.getImports(),
+                  buckGlobals,
+                  buckRuleFunctions,
+                  parseContext,
+                  eventHandler));
         }
         Environment extensionEnv = envBuilder.build();
         extensionEnv.setup("native", new NativeModule(buckRuleFunctions));
@@ -233,6 +268,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
         }
         Environment.Extension extension = new Environment.Extension(extensionEnv);
         extensionMapBuilder.put(skylarkImport.getImportString(), extension);
+        parseContext.recordLoadedPath(extensionPath);
       }
     }
     return extensionMapBuilder.build();
@@ -473,13 +509,22 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
    */
   private static class ParseContext {
     private final ImmutableList.Builder<Map<String, Object>> rawRuleBuilder;
+    private final ImmutableSortedSet.Builder<com.google.devtools.build.lib.vfs.Path>
+        loadedPathsBuilder;
 
     private ParseContext() {
       rawRuleBuilder = ImmutableList.builder();
+      loadedPathsBuilder = ImmutableSortedSet.naturalOrder();
     }
 
+    /** Records the parsed {@code rawRule}. */
     private void recordRule(Map<String, Object> rawRule) {
       rawRuleBuilder.add(rawRule);
+    }
+
+    /** Records usage of {@code path}. */
+    private void recordLoadedPath(com.google.devtools.build.lib.vfs.Path path) {
+      loadedPathsBuilder.add(path);
     }
 
     /**
@@ -488,6 +533,24 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
      */
     ImmutableList<Map<String, Object>> getRecordedRules() {
       return rawRuleBuilder.build();
+    }
+
+    /** @return The set of build files and extensions loaded while parsing requested build file. */
+    ImmutableSortedSet<com.google.devtools.build.lib.vfs.Path> getLoadedpaths() {
+      return loadedPathsBuilder.build();
+    }
+  }
+
+  /** Parse result containing build rules defined in build file and supporting metadata. */
+  private static class ParseResult {
+    private final ImmutableList<Map<String, Object>> rawRules;
+    private final ImmutableSortedSet<com.google.devtools.build.lib.vfs.Path> loadedPaths;
+
+    private ParseResult(
+        ImmutableList<Map<String, Object>> rawRules,
+        ImmutableSortedSet<com.google.devtools.build.lib.vfs.Path> loadedPaths) {
+      this.rawRules = rawRules;
+      this.loadedPaths = loadedPaths;
     }
   }
 }

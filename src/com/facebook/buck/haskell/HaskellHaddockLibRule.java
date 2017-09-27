@@ -17,7 +17,7 @@
 package com.facebook.buck.haskell;
 
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -285,7 +285,6 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
       return ImmutableList.<String>builder()
           .addAll(haddockTool.getCommandPrefix(resolver))
           .addAll(getTypeFlags())
-          .add("--no-tmp-comp-dir")
           .add("--no-warnings")
           .addAll(
               MoreIterables.zipAndConcat(

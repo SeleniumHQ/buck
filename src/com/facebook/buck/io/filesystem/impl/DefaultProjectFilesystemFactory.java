@@ -16,12 +16,13 @@
 
 package com.facebook.buck.io.filesystem.impl;
 
-import com.facebook.buck.io.BuckPaths;
-import com.facebook.buck.io.PathOrGlobMatcher;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.BuckPaths;
+import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.config.Config;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Function;
 import com.google.common.base.Strings;
 import com.google.common.collect.FluentIterable;
@@ -35,13 +36,15 @@ import javax.annotation.Nullable;
 
 public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory {
 
+  @VisibleForTesting public static final String BUCK_BUCKD_DIR_KEY = "buck.buckd_dir";
+
   // A non-exhaustive list of characters that might indicate that we're about to deal with a glob.
   private static final Pattern GLOB_CHARS = Pattern.compile("[\\*\\?\\{\\[]");
 
   @Override
   public ProjectFilesystem createProjectFilesystem(Path root, Config config)
       throws InterruptedException {
-    return new ProjectFilesystem(
+    return new DefaultProjectFilesystem(
         root.getFileSystem(),
         root,
         extractIgnorePaths(root, config, getConfiguredBuckPaths(root, config)),
@@ -68,12 +71,13 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
     final String projectKey = "project";
     final String ignoreKey = "ignore";
 
-    String buckdDirProperty = System.getProperty(ProjectFilesystem.BUCK_BUCKD_DIR_KEY, ".buckd");
+    String buckdDirProperty = System.getProperty(BUCK_BUCKD_DIR_KEY, ".buckd");
     if (!Strings.isNullOrEmpty(buckdDirProperty)) {
       builder.add(new PathOrGlobMatcher(root, buckdDirProperty));
     }
 
-    Path cacheDir = ProjectFilesystem.getCacheDir(root, config.getValue("cache", "dir"), buckPaths);
+    Path cacheDir =
+        DefaultProjectFilesystem.getCacheDir(root, config.getValue("cache", "dir"), buckPaths);
     builder.add(new PathOrGlobMatcher(cacheDir));
 
     builder.addAll(

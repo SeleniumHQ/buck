@@ -20,7 +20,7 @@ import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
@@ -123,24 +123,23 @@ public class JavaTestDescription
             getCxxPlatform(args));
     params = cxxLibraryEnhancement.updatedParams;
 
-    DefaultJavaLibraryBuilder defaultJavaLibraryBuilder =
-        DefaultJavaLibrary.builder(
-                targetGraph,
+    DefaultJavaLibraryRules defaultJavaLibraryRules =
+        DefaultJavaLibrary.rulesBuilder(
                 buildTarget.withAppendedFlavors(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR),
                 projectFilesystem,
                 params,
                 resolver,
-                cellRoots,
-                javaBuckConfig)
-            .setArgs(args)
+                new JavaConfiguredCompilerFactory(javaBuckConfig),
+                javaBuckConfig,
+                args)
             .setJavacOptions(javacOptions)
-            .setTrackClassUsage(javacOptions.trackClassUsage());
+            .build();
 
     if (HasJavaAbi.isAbiTarget(buildTarget)) {
-      return defaultJavaLibraryBuilder.buildAbi();
+      return defaultJavaLibraryRules.buildAbi();
     }
 
-    JavaLibrary testsLibrary = resolver.addToIndex(defaultJavaLibraryBuilder.build());
+    JavaLibrary testsLibrary = resolver.addToIndex(defaultJavaLibraryRules.buildLibrary());
 
     Function<String, Arg> toMacroArgFunction =
         MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver);

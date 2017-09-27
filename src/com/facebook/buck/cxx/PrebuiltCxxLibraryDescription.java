@@ -28,7 +28,7 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
@@ -127,7 +127,7 @@ public class PrebuiltCxxLibraryDescription
     return PrebuiltCxxLibraryDescriptionArg.class;
   }
 
-  private static PrebuiltCxxLibraryPaths getPaths(
+  private PrebuiltCxxLibraryPaths getPaths(
       BuildTarget target,
       AbstractPrebuiltCxxLibraryDescriptionArg args,
       Optional<String> versionSubDir) {
@@ -135,6 +135,13 @@ public class PrebuiltCxxLibraryDescription
       throw new HumanReadableException("%s: cannot use both old and new APIs", target);
     }
     if (args.isOldApiUsed()) {
+      if (!cxxBuckConfig.isDeprecatedPrebuiltCxxLibraryApiEnabled()) {
+        throw new HumanReadableException(
+            "%s(%s) uses the deprecated API, but `cxx.enable_deprecated_prebuilt_cxx_library_api` "
+                + "isn't set.  Please see the `prebuilt_cxx_library` documentation for details and "
+                + "examples on how to port to the new API.",
+            Description.getBuildRuleType(this).toString(), target);
+      }
       return DeprecatedPrebuiltCxxLibraryPaths.builder()
           .setTarget(target)
           .setVersionSubdir(versionSubDir)

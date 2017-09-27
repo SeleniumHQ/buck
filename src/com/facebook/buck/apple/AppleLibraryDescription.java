@@ -34,11 +34,13 @@ import com.facebook.buck.cxx.FrameworkDependencies;
 import com.facebook.buck.cxx.HasAppleDebugSymbolDeps;
 import com.facebook.buck.cxx.HeaderSymlinkTreeWithHeaderMap;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
+import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
@@ -123,7 +125,9 @@ public class AppleLibraryDescription
     MACH_O_BUNDLE(CxxDescriptionEnhancer.MACH_O_BUNDLE_FLAVOR),
     FRAMEWORK(AppleDescriptions.FRAMEWORK_FLAVOR),
     SWIFT_COMPILE(AppleDescriptions.SWIFT_COMPILE_FLAVOR),
-    SWIFT_OBJC_GENERATED_HEADER(AppleDescriptions.SWIFT_OBJC_GENERATED_HEADER_FLAVOR),
+    SWIFT_OBJC_GENERATED_HEADER(AppleDescriptions.SWIFT_OBJC_GENERATED_HEADER_SYMLINK_TREE_FLAVOR),
+    SWIFT_EXPORTED_OBJC_GENERATED_HEADER(
+        AppleDescriptions.SWIFT_EXPORTED_OBJC_GENERATED_HEADER_SYMLINK_TREE_FLAVOR),
     ;
 
     private final Flavor flavor;
@@ -140,9 +144,11 @@ public class AppleLibraryDescription
 
   enum MetadataType implements FlavorConvertible {
     APPLE_SWIFT_METADATA(InternalFlavor.of("swift-metadata")),
-    APPLE_SWIFT_OBJC_CXX_HEADERS(InternalFlavor.of("swift-objc-cxx-headers")),
+    APPLE_SWIFT_EXPORTED_OBJC_CXX_HEADERS(InternalFlavor.of("swift-objc-cxx-headers")),
+    APPLE_SWIFT_OBJC_CXX_HEADERS(InternalFlavor.of("swift-private-objc-cxx-headers")),
     APPLE_SWIFT_MODULE_CXX_HEADERS(InternalFlavor.of("swift-module-cxx-headers")),
     APPLE_SWIFT_PREPROCESSOR_INPUT(InternalFlavor.of("swift-preprocessor-input")),
+    APPLE_SWIFT_PRIVATE_PREPROCESSOR_INPUT(InternalFlavor.of("swift-private-preprocessor-input")),
     ;
 
     private final Flavor flavor;
@@ -240,7 +246,7 @@ public class AppleLibraryDescription
     Optional<Map.Entry<Flavor, Type>> maybeType = LIBRARY_TYPE.getFlavorAndValue(buildTarget);
     return maybeType.flatMap(
         type -> {
-          if (type.getValue().equals(Type.SWIFT_OBJC_GENERATED_HEADER)) {
+          if (type.getValue().equals(Type.SWIFT_EXPORTED_OBJC_GENERATED_HEADER)) {
             CxxPlatform cxxPlatform =
                 delegate
                     .getCxxPlatforms()
@@ -249,7 +255,25 @@ public class AppleLibraryDescription
 
             return Optional.of(
                 AppleLibraryDescriptionSwiftEnhancer.createObjCGeneratedHeaderBuildRule(
-                    buildTarget, projectFilesystem, resolver, cxxPlatform));
+                    buildTarget,
+                    projectFilesystem,
+                    resolver,
+                    cxxPlatform,
+                    HeaderVisibility.PUBLIC));
+          } else if (type.getValue().equals(Type.SWIFT_OBJC_GENERATED_HEADER)) {
+            CxxPlatform cxxPlatform =
+                delegate
+                    .getCxxPlatforms()
+                    .getValue(buildTarget)
+                    .orElseThrow(IllegalArgumentException::new);
+
+            return Optional.of(
+                AppleLibraryDescriptionSwiftEnhancer.createObjCGeneratedHeaderBuildRule(
+                    buildTarget,
+                    projectFilesystem,
+                    resolver,
+                    cxxPlatform,
+                    HeaderVisibility.PRIVATE));
           } else if (type.getValue().equals(Type.SWIFT_COMPILE)) {
             CxxPlatform cxxPlatform =
                 delegate
@@ -675,6 +699,19 @@ public class AppleLibraryDescription
             return Optional.of(metadata).map(metadataClass::cast);
           }
 
+        case APPLE_SWIFT_EXPORTED_OBJC_CXX_HEADERS:
+          {
+            BuildTarget swiftHeadersTarget =
+                baseTarget.withAppendedFlavors(
+                    Type.SWIFT_EXPORTED_OBJC_GENERATED_HEADER.getFlavor());
+            HeaderSymlinkTreeWithHeaderMap headersRule =
+                (HeaderSymlinkTreeWithHeaderMap) resolver.requireRule(swiftHeadersTarget);
+
+            CxxHeaders headers =
+                CxxSymlinkTreeHeaders.from(headersRule, CxxPreprocessables.IncludeType.LOCAL);
+            return Optional.of(headers).map(metadataClass::cast);
+          }
+
         case APPLE_SWIFT_OBJC_CXX_HEADERS:
           {
             BuildTarget swiftHeadersTarget =
@@ -708,12 +745,27 @@ public class AppleLibraryDescription
 
             BuildTarget objcHeadersTarget =
                 baseTarget.withAppendedFlavors(
-                    MetadataType.APPLE_SWIFT_OBJC_CXX_HEADERS.getFlavor());
+                    MetadataType.APPLE_SWIFT_EXPORTED_OBJC_CXX_HEADERS.getFlavor());
             Optional<CxxHeaders> objcHeaders =
                 resolver.requireMetadata(objcHeadersTarget, CxxHeaders.class);
 
             CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder();
             moduleHeaders.ifPresent(s -> builder.addIncludes(s));
+            objcHeaders.ifPresent(s -> builder.addIncludes(s));
+
+            CxxPreprocessorInput input = builder.build();
+            return Optional.of(input).map(metadataClass::cast);
+          }
+
+        case APPLE_SWIFT_PRIVATE_PREPROCESSOR_INPUT:
+          {
+            BuildTarget objcHeadersTarget =
+                baseTarget.withAppendedFlavors(
+                    MetadataType.APPLE_SWIFT_OBJC_CXX_HEADERS.getFlavor());
+            Optional<CxxHeaders> objcHeaders =
+                resolver.requireMetadata(objcHeadersTarget, CxxHeaders.class);
+
+            CxxPreprocessorInput.Builder builder = CxxPreprocessorInput.builder();
             objcHeaders.ifPresent(s -> builder.addIncludes(s));
 
             CxxPreprocessorInput input = builder.build();
@@ -806,14 +858,21 @@ public class AppleLibraryDescription
   }
 
   public static Optional<CxxPreprocessorInput> queryMetadataCxxSwiftPreprocessorInput(
-      BuildRuleResolver resolver, BuildTarget baseTarget, CxxPlatform platform) {
+      BuildRuleResolver resolver,
+      BuildTarget baseTarget,
+      CxxPlatform platform,
+      boolean publicInput) {
     if (!targetContainsSwift(baseTarget, resolver)) {
       return Optional.empty();
     }
 
+    MetadataType metadataType =
+        publicInput
+            ? MetadataType.APPLE_SWIFT_PREPROCESSOR_INPUT
+            : MetadataType.APPLE_SWIFT_PRIVATE_PREPROCESSOR_INPUT;
+
     return resolver.requireMetadata(
-        baseTarget.withAppendedFlavors(
-            MetadataType.APPLE_SWIFT_PREPROCESSOR_INPUT.getFlavor(), platform.getFlavor()),
+        baseTarget.withAppendedFlavors(metadataType.getFlavor(), platform.getFlavor()),
         CxxPreprocessorInput.class);
   }
 
@@ -824,7 +883,35 @@ public class AppleLibraryDescription
       return Optional.empty();
     }
 
-    return queryMetadataCxxSwiftPreprocessorInput(resolver, target, platform);
+    return queryMetadataCxxSwiftPreprocessorInput(resolver, target, platform, true);
+  }
+
+  @Override
+  public Optional<CxxPreprocessorInput> getPrivatePreprocessorInput(
+      BuildTarget target, BuildRuleResolver resolver, CxxPlatform platform) {
+    if (!targetContainsSwift(target, resolver)) {
+      return Optional.empty();
+    }
+
+    return queryMetadataCxxSwiftPreprocessorInput(resolver, target, platform, false);
+  }
+
+  @Override
+  public Optional<HeaderSymlinkTree> getPrivateHeaderSymlinkTree(
+      BuildTarget buildTarget, BuildRuleResolver ruleResolver, CxxPlatform cxxPlatform) {
+    if (!targetContainsSwift(buildTarget, ruleResolver)) {
+      return Optional.empty();
+    }
+
+    BuildTarget ruleTarget =
+        AppleLibraryDescriptionSwiftEnhancer.createBuildTargetForObjCGeneratedHeaderBuildRule(
+            buildTarget, HeaderVisibility.PRIVATE, cxxPlatform);
+    BuildRule headerRule = ruleResolver.requireRule(ruleTarget);
+    if (headerRule instanceof HeaderSymlinkTree) {
+      return Optional.of((HeaderSymlinkTree) headerRule);
+    }
+
+    return Optional.empty();
   }
 
   @Override

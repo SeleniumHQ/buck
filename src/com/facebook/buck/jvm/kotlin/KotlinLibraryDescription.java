@@ -16,9 +16,9 @@
 
 package com.facebook.buck.jvm.kotlin;
 
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
-import com.facebook.buck.jvm.java.DefaultJavaLibraryBuilder;
+import com.facebook.buck.jvm.java.DefaultJavaLibraryRules;
 import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.HasSources;
 import com.facebook.buck.jvm.java.JarShape;
@@ -124,18 +124,17 @@ public class KotlinLibraryDescription
     JavacOptions javacOptions =
         JavacOptionsFactory.create(defaultOptions, buildTarget, projectFilesystem, resolver, args);
 
-    DefaultJavaLibraryBuilder defaultKotlinLibraryBuilder =
-        new KotlinLibraryBuilder(
-                targetGraph,
+    DefaultJavaLibraryRules defaultKotlinLibraryBuilder =
+        KotlinLibraryBuilder.newInstance(
                 buildTarget,
                 projectFilesystem,
                 params,
                 resolver,
-                cellRoots,
                 kotlinBuckConfig,
-                javaBuckConfig)
+                javaBuckConfig,
+                args)
             .setJavacOptions(javacOptions)
-            .setArgs(args);
+            .build();
 
     // We know that the flavour we're being asked to create is valid, since the check is done when
     // creating the action graph from the target graph.
@@ -143,7 +142,7 @@ public class KotlinLibraryDescription
       return defaultKotlinLibraryBuilder.buildAbi();
     }
 
-    DefaultJavaLibrary defaultKotlinLibrary = defaultKotlinLibraryBuilder.build();
+    DefaultJavaLibrary defaultKotlinLibrary = defaultKotlinLibraryBuilder.buildLibrary();
 
     if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
       return defaultKotlinLibrary;

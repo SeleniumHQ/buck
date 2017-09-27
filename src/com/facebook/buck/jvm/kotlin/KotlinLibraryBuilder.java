@@ -16,35 +16,31 @@
 
 package com.facebook.buck.jvm.kotlin;
 
-import com.facebook.buck.io.ProjectFilesystem;
-import com.facebook.buck.jvm.java.DefaultJavaLibraryBuilder;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.java.DefaultJavaLibraryRules;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.TargetGraph;
 
-public class KotlinLibraryBuilder extends DefaultJavaLibraryBuilder {
-  KotlinLibraryBuilder(
-      TargetGraph targetGraph,
+final class KotlinLibraryBuilder {
+  private KotlinLibraryBuilder() {}
+
+  public static DefaultJavaLibraryRules.Builder newInstance(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver buildRuleResolver,
-      CellPathResolver cellRoots,
       KotlinBuckConfig kotlinBuckConfig,
-      JavaBuckConfig javaBuckConfig) {
-    super(
-        targetGraph,
+      JavaBuckConfig javaBuckConfig,
+      KotlinLibraryDescription.CoreArg args) {
+    return new DefaultJavaLibraryRules.Builder(
         buildTarget,
         projectFilesystem,
         params,
         buildRuleResolver,
-        cellRoots,
-        javaBuckConfig);
-    setCompileAgainstAbis(false);
-    setConfiguredCompilerFactory(
-        new KotlinConfiguredCompilerFactory(kotlinBuckConfig, javaBuckConfig));
+        new KotlinConfiguredCompilerFactory(kotlinBuckConfig, javaBuckConfig),
+        javaBuckConfig,
+        args);
   }
 }

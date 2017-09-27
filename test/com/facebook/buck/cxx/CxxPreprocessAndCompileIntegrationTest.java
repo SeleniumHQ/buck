@@ -27,11 +27,11 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
 import com.facebook.buck.apple.ApplePlatform;
-import com.facebook.buck.cli.FakeBuckConfig;
+import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.io.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -42,7 +42,6 @@ import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
@@ -589,20 +588,15 @@ public class CxxPreprocessAndCompileIntegrationTest {
 
   @Test
   public void errorVerifyHeaders() throws IOException {
-    ProjectWorkspace.ProcessResult result = null;
-    HumanReadableException caughtException = null;
-    try {
-      result =
-          workspace.runBuckBuild(
-              "-c",
-              "cxx.untracked_headers=error",
-              "-c",
-              "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
-              "//:untracked_header");
-      result.assertFailure();
-    } catch (HumanReadableException e) {
-      caughtException = e;
-    }
+    ProjectWorkspace.ProcessResult result;
+    result =
+        workspace.runBuckBuild(
+            "-c",
+            "cxx.untracked_headers=error",
+            "-c",
+            "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
+            "//:untracked_header");
+    result.assertFailure();
     if (sandboxSource) {
       assertThat(
           result.getStderr(),
@@ -613,7 +607,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
               containsString("untracked_header.h: No such file or directory")));
     } else {
       assertThat(
-          caughtException.getHumanReadableErrorMessage(),
+          result.getStderr(),
           containsString(
               "untracked_header.cpp: included an untracked header \"untracked_header.h\""));
     }
