@@ -23,6 +23,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
@@ -98,7 +99,7 @@ public class ClosureBinaryDescription implements
 
   @BuckStyleImmutable
   @Value.Immutable
-  public interface AbstractJsBinaryArg extends HasSrcs, HasDeclaredDeps {
+  public interface AbstractJsBinaryArg extends CommonDescriptionArg, HasSrcs, HasDeclaredDeps {
     ImmutableList<String> getDefines();
     ImmutableList<SourcePath> getExterns();
     ImmutableList<String> getFlags();

@@ -26,6 +26,7 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
+import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
@@ -97,7 +98,7 @@ public class ClosureFragmentDescription implements
 
   @BuckStyleImmutable
   @Value.Immutable
-  public interface AbstractJsFragmentArg extends HasDeclaredDeps {
+  public interface AbstractJsFragmentArg extends CommonDescriptionArg, HasDeclaredDeps {
     String getFunction();
     String getModule();
     Optional<Boolean> getPrettyPrint();
