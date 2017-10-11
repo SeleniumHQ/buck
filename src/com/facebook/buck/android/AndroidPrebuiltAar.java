@@ -18,6 +18,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.java.AbiGenerationMode;
 import com.facebook.buck.jvm.java.ConfiguredCompiler;
 import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.JarBuildStepsFactory;
@@ -81,7 +82,8 @@ public class AndroidPrebuiltAar extends AndroidLibrary
             /* compileTimeClasspathDeps */ ImmutableSortedSet.of(
                 prebuiltJar.getSourcePathToOutput()),
             RemoveClassesPatternsMatcher.EMPTY,
-            requiredForSourceAbi),
+            AbiGenerationMode.CLASS,
+            /* sourceOnlyAbiRuleInfo */ null),
         Optional.of(proguardConfig),
         /* firstOrderPackageableDeps */ androidLibraryParams.getDeclaredDeps().get(),
         /* exportedDeps */ ImmutableSortedSet.<BuildRule>naturalOrder()
@@ -92,7 +94,7 @@ public class AndroidPrebuiltAar extends AndroidLibrary
         HasJavaAbi.getClassAbiJar(androidLibraryBuildTarget),
         /* mavenCoords */ Optional.empty(),
         Optional.of(
-            new ExplicitBuildTargetSourcePath(
+            ExplicitBuildTargetSourcePath.of(
                 unzipAar.getBuildTarget(), unzipAar.getAndroidManifest())),
         /* tests */ ImmutableSortedSet.of(),
         /* requiredForSourceAbi */ requiredForSourceAbi);
@@ -108,13 +110,13 @@ public class AndroidPrebuiltAar extends AndroidLibrary
 
   @Override
   public SourcePath getPathToTextSymbolsFile() {
-    return new ExplicitBuildTargetSourcePath(
+    return ExplicitBuildTargetSourcePath.of(
         unzipAar.getBuildTarget(), unzipAar.getTextSymbolsFile());
   }
 
   @Override
   public SourcePath getPathToRDotJavaPackageFile() {
-    return new ExplicitBuildTargetSourcePath(
+    return ExplicitBuildTargetSourcePath.of(
         unzipAar.getBuildTarget(), unzipAar.getPathToRDotJavaPackageFile());
   }
 

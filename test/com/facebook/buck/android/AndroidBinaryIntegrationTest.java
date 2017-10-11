@@ -133,6 +133,21 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
   }
 
   @Test
+  public void testProguardBuild() throws IOException {
+    String target = "//apps/multidex:app_with_proguard";
+    workspace.runBuckCommand("build", target).assertSuccess();
+
+    ZipInspector zipInspector = new ZipInspector(workspace.buildAndReturnOutput(target));
+
+    zipInspector.assertFileExists("assets/secondary-program-dex-jars/metadata.txt");
+    zipInspector.assertFileExists("assets/secondary-program-dex-jars/secondary-1.dex.jar");
+    zipInspector.assertFileDoesNotExist("classes2.dex");
+
+    zipInspector.assertFileExists("classes.dex");
+    zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
+  }
+
+  @Test
   public void testAppHasAssets() throws IOException {
     Path apkPath = workspace.buildAndReturnOutput(SIMPLE_TARGET);
 
@@ -224,6 +239,20 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     Path output = workspace.buildAndReturnOutput("//apps/sample:app_with_ndk_library");
     ZipInspector zipInspector = new ZipInspector(output);
     zipInspector.assertFileExists("lib/armeabi/libfakenative.so");
+  }
+
+  @Test
+  public void testPrebuiltNativeLibraryIsIncluded() throws IOException {
+    Path output = workspace.buildAndReturnOutput("//apps/sample:app_with_prebuilt_native_libs");
+    ZipInspector zipInspector = new ZipInspector(output);
+    zipInspector.assertFileExists("lib/armeabi/libprebuilt.so");
+  }
+
+  @Test
+  public void testPrebuiltNativeLibraryAsAssetIsIncluded() throws IOException {
+    Path output = workspace.buildAndReturnOutput("//apps/sample:app_with_prebuilt_native_libs");
+    ZipInspector zipInspector = new ZipInspector(output);
+    zipInspector.assertFileExists("assets/lib/armeabi/libprebuilt_asset.so");
   }
 
   @Test

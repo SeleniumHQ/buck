@@ -122,7 +122,7 @@ public class JvmLibraryArgInterpreterTest {
     JvmLibraryArg arg =
         ExampleJvmLibraryArg.builder()
             .setName("foo")
-            .setJavacJar(new FakeSourcePath("does-not-exist"))
+            .setJavacJar(FakeSourcePath.of("does-not-exist"))
             .build();
 
     assertEquals(arg.getJavacJar(), arg.getJavacSpec().getJavacJarPath());
@@ -133,7 +133,7 @@ public class JvmLibraryArgInterpreterTest {
     JvmLibraryArg arg =
         ExampleJvmLibraryArg.builder()
             .setName("foo")
-            .setJavacJar(new FakeSourcePath("does-not-exist"))
+            .setJavacJar(FakeSourcePath.of("does-not-exist"))
             .setCompilerClassName("compiler")
             .build();
 
@@ -144,29 +144,6 @@ public class JvmLibraryArgInterpreterTest {
   public void testNoJavacSpecIfNoJavacArg() {
     JvmLibraryArg arg = ExampleJvmLibraryArg.builder().setName("foo").build();
     assertNull(arg.getJavacSpec());
-  }
-
-  @Test
-  public void sourceAbiGenerationCanBeDisabledPerTarget() {
-    JvmLibraryArg arg =
-        ExampleJvmLibraryArg.builder().setName("foo").setGenerateAbiFromSource(false).build();
-    defaults = defaults.withCompilationMode(JavacCompilationMode.FULL_ENFORCING_REFERENCES);
-
-    JavacOptions options = createJavacOptions(arg);
-
-    assertEquals(options.getCompilationMode(), JavacCompilationMode.FULL);
-  }
-
-  @Test
-  public void sourceAbiGenerationCannotBeEnabledPerTargetIfTheFeatureIsDisabled() {
-    assertEquals(defaults.getCompilationMode(), JavacCompilationMode.FULL);
-
-    JvmLibraryArg arg =
-        ExampleJvmLibraryArg.builder().setName("foo").setGenerateAbiFromSource(true).build();
-
-    JavacOptions options = createJavacOptions(arg);
-
-    assertEquals(options.getCompilationMode(), JavacCompilationMode.FULL);
   }
 
   private JavacOptions createJavacOptions(JvmLibraryArg arg) {

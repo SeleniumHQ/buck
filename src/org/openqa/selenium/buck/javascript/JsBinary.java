@@ -189,7 +189,7 @@ public class JsBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps implemen
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new PathSourcePath(getProjectFilesystem(), output);
+    return PathSourcePath.of(getProjectFilesystem(), output);
   }
 
   @Override

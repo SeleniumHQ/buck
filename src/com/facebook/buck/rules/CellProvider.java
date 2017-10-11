@@ -16,7 +16,6 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.CellConfig;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
@@ -94,7 +93,7 @@ public final class CellProvider {
       ProjectFilesystemFactory projectFilesystemFactory) {
 
     DefaultCellPathResolver rootCellCellPathResolver =
-        new DefaultCellPathResolver(rootFilesystem.getRootPath(), rootConfig.getConfig());
+        DefaultCellPathResolver.of(rootFilesystem.getRootPath(), rootConfig.getConfig());
 
     ImmutableMap<RelativeCellName, Path> cellPathMapping =
         rootCellCellPathResolver.getPathMapping();

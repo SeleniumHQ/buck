@@ -47,6 +47,7 @@ import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.testutil.FakeExecutor;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.DefaultClock;
+import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
@@ -95,8 +96,9 @@ public class CommandRunnerParamsForTesting {
       throws IOException, InterruptedException {
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     ProcessExecutor processExecutor = new FakeProcessExecutor();
+    TestToolchainProvider toolchainProvider = new TestToolchainProvider();
     SdkEnvironment sdkEnvironment =
-        SdkEnvironment.create(config, processExecutor, androidDirectoryResolver);
+        SdkEnvironment.create(config, processExecutor, toolchainProvider);
 
     return CommandRunnerParams.builder()
         .setConsole(console)
@@ -134,10 +136,10 @@ public class CommandRunnerParamsForTesting {
         .setInvocationInfo(Optional.empty())
         .setActionGraphCache(new ActionGraphCache())
         .setKnownBuildRuleTypesFactory(
-            new KnownBuildRuleTypesFactory(
-                processExecutor, androidDirectoryResolver, sdkEnvironment))
+            new KnownBuildRuleTypesFactory(processExecutor, sdkEnvironment, toolchainProvider))
         .setSdkEnvironment(sdkEnvironment)
         .setProjectFilesystemFactory(new DefaultProjectFilesystemFactory())
+        .setToolchainProvider(toolchainProvider)
         .build();
   }
 

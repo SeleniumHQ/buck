@@ -34,7 +34,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -80,7 +79,7 @@ public class HaskellCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDep
 
   @AddToRuleKey private final ImmutableList<String> flags;
 
-  private final PreprocessorFlags ppFlags;
+  @AddToRuleKey private final PreprocessorFlags ppFlags;
   private final CxxPlatform cxxPlatform;
 
   @AddToRuleKey private boolean pic;
@@ -198,12 +197,6 @@ public class HaskellCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDep
         packages,
         sources,
         preprocessor);
-  }
-
-  @Override
-  public void appendToRuleKey(RuleKeyObjectSink sink) {
-    ppFlags.appendToRuleKey(sink);
-    sink.setReflectively("headers", ppFlags.getIncludes());
   }
 
   private Path getObjectDir() {
@@ -377,7 +370,7 @@ public class HaskellCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDep
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getInterfaceDir());
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getInterfaceDir());
   }
 
   private String getObjectSuffix() {
@@ -404,7 +397,7 @@ public class HaskellCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDep
     ImmutableList.Builder<SourcePath> objects = ImmutableList.builder();
     for (String module : sources.getModuleNames()) {
       objects.add(
-          new ExplicitBuildTargetSourcePath(
+          ExplicitBuildTargetSourcePath.of(
               getBuildTarget(),
               getObjectDir().resolve(module.replace('.', File.separatorChar) + suffix)));
     }
@@ -416,11 +409,11 @@ public class HaskellCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDep
   }
 
   public SourcePath getInterfaces() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getInterfaceDir());
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getInterfaceDir());
   }
 
   public SourcePath getObjectsDir() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getObjectDir());
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getObjectDir());
   }
 
   @VisibleForTesting

@@ -18,16 +18,14 @@ package com.facebook.buck.rules;
 
 import static com.facebook.buck.io.Watchman.NULL_WATCHMAN;
 
-import com.facebook.buck.android.AndroidDirectoryResolver;
-import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.CellConfig;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import java.io.IOException;
@@ -37,7 +35,6 @@ public class TestCellBuilder {
 
   private ProjectFilesystem filesystem;
   private BuckConfig buckConfig;
-  private AndroidDirectoryResolver androidDirectoryResolver;
   private Watchman watchman = NULL_WATCHMAN;
   private CellConfig cellConfig;
   private KnownBuildRuleTypesFactory knownBuildRuleTypesFactory;
@@ -45,7 +42,6 @@ public class TestCellBuilder {
 
   public TestCellBuilder() throws InterruptedException, IOException {
     filesystem = new FakeProjectFilesystem();
-    androidDirectoryResolver = new FakeAndroidDirectoryResolver();
     cellConfig = CellConfig.of();
   }
 
@@ -88,14 +84,16 @@ public class TestCellBuilder {
             ? FakeBuckConfig.builder().setFilesystem(filesystem).build()
             : buckConfig;
 
+    TestToolchainProvider toolchainProvider = new TestToolchainProvider();
+
     SdkEnvironment sdkEnvironment =
         this.sdkEnvironment == null
-            ? SdkEnvironment.create(config, executor, androidDirectoryResolver)
+            ? SdkEnvironment.create(config, executor, toolchainProvider)
             : this.sdkEnvironment;
 
     KnownBuildRuleTypesFactory typesFactory =
         knownBuildRuleTypesFactory == null
-            ? new KnownBuildRuleTypesFactory(executor, androidDirectoryResolver, sdkEnvironment)
+            ? new KnownBuildRuleTypesFactory(executor, sdkEnvironment, toolchainProvider)
             : knownBuildRuleTypesFactory;
 
     return CellProvider.createForLocalBuild(

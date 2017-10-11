@@ -64,6 +64,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Charsets;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -77,6 +78,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Multimaps;
+import com.google.common.hash.Hashing;
+import com.google.common.io.BaseEncoding;
 import com.google.common.io.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -489,7 +492,8 @@ public class CxxDescriptionEnhancer {
       ImmutableSet<FrameworkPath> frameworks,
       Iterable<CxxPreprocessorInput> cxxPreprocessorInputFromDeps,
       ImmutableList<String> includeDirs,
-      Optional<SymlinkTree> symlinkTree) {
+      Optional<SymlinkTree> symlinkTree,
+      ImmutableSortedSet<SourcePath> rawHeaders) {
 
     // Add the private includes of any rules which this rule depends on, and which list this rule as
     // a test.
@@ -539,6 +543,10 @@ public class CxxDescriptionEnhancer {
       }
     }
 
+    if (!rawHeaders.isEmpty()) {
+      builder.addIncludes(CxxRawHeaders.of(rawHeaders));
+    }
+
     builder.addAllIncludes(allIncludes.build()).addAllFrameworks(frameworks);
 
     CxxPreprocessorInput localPreprocessorInput = builder.build();
@@ -579,8 +587,28 @@ public class CxxDescriptionEnhancer {
       BuildTarget target,
       Flavor platform,
       CxxSourceRuleFactory.PicType pic,
-      String extension) {
-    return getStaticLibraryPath(filesystem, target, platform, pic, extension, "");
+      String extension,
+      boolean uniqueLibraryNameEnabled) {
+    return getStaticLibraryPath(
+        filesystem, target, platform, pic, extension, "", uniqueLibraryNameEnabled);
+  }
+
+  public static String getStaticLibraryBasename(
+      BuildTarget target, String suffix, boolean uniqueLibraryNameEnabled) {
+    String postfix = "";
+    if (uniqueLibraryNameEnabled) {
+      String hashedPath =
+          BaseEncoding.base64Url()
+              .omitPadding()
+              .encode(
+                  Hashing.sha1()
+                      .hashString(
+                          target.getUnflavoredBuildTarget().getFullyQualifiedName(), Charsets.UTF_8)
+                      .asBytes())
+              .substring(0, 10);
+      postfix = "-" + hashedPath;
+    }
+    return target.getShortName() + postfix + suffix;
   }
 
   public static Path getStaticLibraryPath(
@@ -589,8 +617,12 @@ public class CxxDescriptionEnhancer {
       Flavor platform,
       CxxSourceRuleFactory.PicType pic,
       String extension,
-      String suffix) {
-    String name = String.format("lib%s%s.%s", target.getShortName(), suffix, extension);
+      String suffix,
+      boolean uniqueLibraryNameEnabled) {
+    String name =
+        String.format(
+            "lib%s.%s",
+            getStaticLibraryBasename(target, suffix, uniqueLibraryNameEnabled), extension);
     return BuildTargets.getGenPath(
             filesystem, createStaticLibraryBuildTarget(target, platform, pic), "%s")
         .resolve(name);
@@ -752,7 +784,8 @@ public class CxxDescriptionEnhancer {
         args.getPlatformLinkerFlags(),
         args.getCxxRuntimeType(),
         args.getIncludeDirs(),
-        Optional.empty());
+        Optional.empty(),
+        args.getRawHeaders());
   }
 
   public static CxxLinkAndCompileRules createBuildRulesForCxxBinary(
@@ -784,7 +817,8 @@ public class CxxDescriptionEnhancer {
       PatternMatchedCollection<ImmutableList<StringWithMacros>> platformLinkerFlags,
       Optional<Linker.CxxRuntimeType> cxxRuntimeType,
       ImmutableList<String> includeDirs,
-      Optional<Boolean> xcodePrivateHeadersSymlinks) {
+      Optional<Boolean> xcodePrivateHeadersSymlinks,
+      ImmutableSortedSet<SourcePath> rawHeaders) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     //    TODO(beefon): should be:
@@ -840,7 +874,8 @@ public class CxxDescriptionEnhancer {
                     .filter(CxxPreprocessorDep.class::isInstance)
                     .toImmutableList()),
             includeDirs,
-            sandboxTree);
+            sandboxTree,
+            rawHeaders);
 
     ImmutableListMultimap.Builder<CxxSource.Type, Arg> allCompilerFlagsBuilder =
         ImmutableListMultimap.builder();

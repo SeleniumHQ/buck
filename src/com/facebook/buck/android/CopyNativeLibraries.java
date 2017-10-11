@@ -27,14 +27,15 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -42,6 +43,7 @@ import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.annotations.VisibleForTesting;
@@ -50,9 +52,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
@@ -70,46 +70,41 @@ import org.immutables.value.Value;
  * shared objects collected and stores this metadata in a text file, to be used later by {@link
  * ExopackageInstaller}.
  */
-public class CopyNativeLibraries extends AbstractBuildRule {
-
-  private final ImmutableSet<SourcePath> nativeLibDirectories;
+public class CopyNativeLibraries extends AbstractBuildRule implements SupportsInputBasedRuleKey {
   @AddToRuleKey private final ImmutableSet<TargetCpuType> cpuFilters;
+  @AddToRuleKey private final ImmutableSet<SourcePath> nativeLibDirectories;
+  @AddToRuleKey private final ImmutableSet<SourcePath> nativeLibAssetDirectories;
   @AddToRuleKey private final ImmutableSet<StrippedObjectDescription> stripLibRules;
   @AddToRuleKey private final ImmutableSet<StrippedObjectDescription> stripLibAssetRules;
+  @AddToRuleKey private final String moduleName;
 
-  private final String moduleName;
   private final Supplier<SortedSet<BuildRule>> depsSupplier;
 
   protected CopyNativeLibraries(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       SourcePathRuleFinder ruleFinder,
-      ImmutableSortedSet<BuildRule> nativeLibsRules,
+      ImmutableSet<StrippedObjectDescription> strippedLibs,
+      ImmutableSet<StrippedObjectDescription> strippedLibsAssets,
       ImmutableSet<SourcePath> nativeLibDirectories,
-      ImmutableMap<StripLinkable, StrippedObjectDescription> strippedLibsMap,
-      ImmutableMap<StripLinkable, StrippedObjectDescription> strippedLibsAssetsMap,
+      ImmutableSet<SourcePath> nativeLibAssetDirectories,
       ImmutableSet<TargetCpuType> cpuFilters,
       String moduleName) {
     super(buildTarget, projectFilesystem);
+    Preconditions.checkArgument(
+        !nativeLibDirectories.isEmpty() || !strippedLibs.isEmpty() || !strippedLibsAssets.isEmpty(),
+        "There should be at least one native library to copy.");
     this.nativeLibDirectories = nativeLibDirectories;
-    this.stripLibRules = ImmutableSet.copyOf(strippedLibsMap.values());
-    this.stripLibAssetRules = ImmutableSet.copyOf(strippedLibsAssetsMap.values());
+    this.nativeLibAssetDirectories = nativeLibAssetDirectories;
+    this.stripLibRules = strippedLibs;
+    this.stripLibAssetRules = strippedLibsAssets;
     this.cpuFilters = cpuFilters;
     this.moduleName = moduleName;
     this.depsSupplier =
         Suppliers.memoize(
             () ->
-                ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .addAll(nativeLibsRules)
-                    .addAll(ruleFinder.filterBuildRuleInputs(nativeLibDirectories))
-                    .addAll(strippedLibsMap.keySet())
-                    .addAll(strippedLibsAssetsMap.keySet())
-                    .build());
-    Preconditions.checkArgument(
-        !nativeLibDirectories.isEmpty()
-            || !stripLibRules.isEmpty()
-            || !stripLibAssetRules.isEmpty(),
-        "There should be at least one native library to copy.");
+                BuildableSupport.deriveDeps(this, ruleFinder)
+                    .collect(MoreCollectors.toImmutableSortedSet()));
   }
 
   @Override
@@ -117,40 +112,41 @@ public class CopyNativeLibraries extends AbstractBuildRule {
     return depsSupplier.get();
   }
 
-  public Path getPathToNativeLibsDir() {
+  // TODO(cjhopman): This should be private and only exposed as a SourcePath.
+  Path getPathToNativeLibsDir() {
     return getBinPath().resolve("libs");
   }
 
-  public SourcePath getSourcePathToNativeLibsDir() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getPathToNativeLibsDir());
+  SourcePath getSourcePathToNativeLibsDir() {
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getPathToNativeLibsDir());
   }
 
-  public Path getPathToNativeLibsAssetsDir() {
+  private Path getPathToNativeLibsAssetsDir() {
     return getBinPath().resolve("assetLibs");
   }
 
-  public SourcePath getSourcePathToNativeLibsAssetsDir() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getPathToNativeLibsAssetsDir());
+  SourcePath getSourcePathToNativeLibsAssetsDir() {
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getPathToNativeLibsAssetsDir());
   }
 
   /**
    * Returns the path that is the immediate parent of {@link #getPathToNativeLibsAssetsDir()} and
    * {@link #getPathToNativeLibsDir()}.
    */
-  public Path getPathToAllLibsDir() {
+  private Path getPathToAllLibsDir() {
     return getBinPath();
   }
 
-  public SourcePath getSourcePathToAllLibsDir() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getPathToAllLibsDir());
+  SourcePath getSourcePathToAllLibsDir() {
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getPathToAllLibsDir());
   }
 
-  public Path getPathToMetadataTxt() {
+  private Path getPathToMetadataTxt() {
     return getBinPath().resolve("metadata.txt");
   }
 
-  public SourcePath getSourcePathToMetadataTxt() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getPathToMetadataTxt());
+  SourcePath getSourcePathToMetadataTxt() {
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getPathToMetadataTxt());
   }
 
   private Path getBinPath() {
@@ -235,6 +231,16 @@ public class CopyNativeLibraries extends AbstractBuildRule {
           steps);
     }
 
+    for (SourcePath nativeLibDir : nativeLibAssetDirectories.asList().reverse()) {
+      copyNativeLibrary(
+          context,
+          getProjectFilesystem(),
+          context.getSourcePathResolver().getAbsolutePath(nativeLibDir),
+          pathToNativeLibsAssets,
+          cpuFilters,
+          steps);
+    }
+
     addStepsForCopyingStrippedNativeLibrariesOrAssets(
         context, getProjectFilesystem(), stripLibRules, pathToNativeLibs, steps);
 
@@ -252,7 +258,7 @@ public class CopyNativeLibraries extends AbstractBuildRule {
     return steps.build();
   }
 
-  public static Step createMetadataStep(
+  static Step createMetadataStep(
       ProjectFilesystem filesystem, Path pathToMetadataTxt, Path pathToAllLibsDir) {
     return new AbstractExecutionStep("hash_native_libs") {
       @Override
@@ -276,7 +282,7 @@ public class CopyNativeLibraries extends AbstractBuildRule {
     return null;
   }
 
-  public static void copyNativeLibrary(
+  static void copyNativeLibrary(
       BuildContext context,
       final ProjectFilesystem filesystem,
       Path sourceDir,
@@ -398,20 +404,16 @@ public class CopyNativeLibraries extends AbstractBuildRule {
 
   @Value.Immutable
   @BuckStyleImmutable
-  abstract static class AbstractStrippedObjectDescription implements RuleKeyAppendable {
+  abstract static class AbstractStrippedObjectDescription implements AddsToRuleKey {
+    @AddToRuleKey
     public abstract SourcePath getSourcePath();
 
+    @AddToRuleKey
     public abstract String getStrippedObjectName();
 
+    @AddToRuleKey
     public abstract TargetCpuType getTargetCpuType();
 
     public abstract APKModule getApkModule();
-
-    @Override
-    public void appendToRuleKey(RuleKeyObjectSink sink) {
-      sink.setReflectively("sourcePath", getSourcePath())
-          .setReflectively("strippedObjectName", getStrippedObjectName())
-          .setReflectively("targetCpuType", getTargetCpuType());
-    }
   }
 }

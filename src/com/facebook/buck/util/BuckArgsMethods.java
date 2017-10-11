@@ -27,24 +27,26 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 /** Utility class for methods related to args handling. */
 public class BuckArgsMethods {
+
+  private static final ImmutableSet<String> FLAG_FILE_OPTIONS = ImmutableSet.of("--flagfile");
+  private static final String PASS_THROUGH_DELIMITER = "--";
 
   private BuckArgsMethods() {
     // Utility class.
   }
 
-  private static Stream<String> getArgsFromTextFile(Path argsPath) throws IOException {
-    return Files.readAllLines(argsPath, Charsets.UTF_8).stream();
+  private static Iterable<String> getArgsFromTextFile(Path argsPath) throws IOException {
+    return Files.readAllLines(argsPath, Charsets.UTF_8);
   }
 
-  private static Stream<String> getArgsFromPythonFile(Path argsPath, String suffix)
+  private static Iterable<String> getArgsFromPythonFile(Path argsPath, String suffix)
       throws IOException {
     Process proc =
         Runtime.getRuntime()
@@ -54,11 +56,11 @@ public class BuckArgsMethods {
         OutputStream output = proc.getOutputStream();
         BufferedReader reader =
             new BufferedReader(new InputStreamReader(input, Charsets.UTF_8)); ) {
-      return reader.lines().collect(Collectors.toList()).stream();
+      return reader.lines().collect(Collectors.toList());
     }
   }
 
-  private static Stream<String> getArgsFromPath(Path argsPath, Optional<String> flavors)
+  private static Iterable<String> getArgsFromPath(Path argsPath, Optional<String> flavors)
       throws IOException {
     if (!argsPath.toAbsolutePath().toString().endsWith(".py")) {
       if (flavors.isPresent()) {
@@ -72,42 +74,62 @@ public class BuckArgsMethods {
   }
 
   /**
-   * Expland AT-file syntax in a way that matches what args4j does. We have this because we'd like
-   * to correctly log the arguments coming from the AT-files and there is no way to get the expanded
+   * Expand AT-file syntax in a way that matches what args4j does. We have this because we'd like to
+   * correctly log the arguments coming from the AT-files and there is no way to get the expanded
    * args array from args4j.
+   *
+   * <p>In addition to files passed using a regular {@code @} syntax, this method also extracts
+   * command line arguments from AT-file syntax files passed via {@code --flagfile} command line
+   * option.
    *
    * @param args original args array
    * @param projectRoot path against which any {@code @args} path arguments will be resolved.
    * @return args array with AT-files expanded.
    */
   public static ImmutableList<String> expandAtFiles(Iterable<String> args, Path projectRoot) {
-    return StreamSupport.stream(args.spliterator(), /* parallel */ false)
-        .flatMap(
-            arg -> {
-              if (arg.startsWith("@")) {
-                String[] parts = arg.split("#", 2);
-                String unresolvedArgsPath = parts[0].substring(1);
-                Path argsPath = projectRoot.resolve(Paths.get(unresolvedArgsPath));
-                Optional<String> flavors =
-                    parts.length == 2 ? Optional.of(parts[1]) : Optional.empty();
+    Iterator<String> argsIterator = args.iterator();
+    ImmutableList.Builder<String> argumentsBuilder = ImmutableList.builder();
+    while (argsIterator.hasNext()) {
+      String arg = argsIterator.next();
+      if (PASS_THROUGH_DELIMITER.equals(arg)) {
+        // all flags after -- should be passed through without any preprocessing
+        argumentsBuilder.add(arg);
+        argumentsBuilder.addAll(argsIterator);
+        break;
+      }
+      if (FLAG_FILE_OPTIONS.contains(arg)) {
+        if (!argsIterator.hasNext()) {
+          throw new HumanReadableException(arg + " should be followed by a path.");
+        }
+        argumentsBuilder.addAll(expandFile(argsIterator.next(), projectRoot));
+      } else if (arg.startsWith("@")) {
+        argumentsBuilder.addAll(expandFile(arg.substring(1), projectRoot));
+      } else {
+        argumentsBuilder.add(arg);
+      }
+    }
+    return argumentsBuilder.build();
+  }
 
-                if (!Files.exists(argsPath)) {
-                  throw new HumanReadableException(
-                      "The file "
-                          + unresolvedArgsPath
-                          + " can't be found. Please make sure the path exists relatively to the "
-                          + "current folder.");
-                }
-                try {
-                  return getArgsFromPath(argsPath, flavors);
-                } catch (IOException e) {
-                  throw new HumanReadableException(e, "Could not read options from " + arg);
-                }
-              } else {
-                return ImmutableList.of(arg).stream();
-              }
-            })
-        .collect(MoreCollectors.toImmutableList());
+  /** Extracts command line options from a file identified by {@code arg} with AT-file syntax. */
+  private static Iterable<? extends String> expandFile(String arg, Path projectRoot) {
+    String[] parts = arg.split("#", 2);
+    String unresolvedArgsPath = parts[0];
+    Path argsPath = projectRoot.resolve(Paths.get(unresolvedArgsPath));
+
+    if (!Files.exists(argsPath)) {
+      throw new HumanReadableException(
+          "The file "
+              + unresolvedArgsPath
+              + " can't be found. Please make sure the path exists relatively to the "
+              + "current folder.");
+    }
+    Optional<String> flavors = parts.length == 2 ? Optional.of(parts[1]) : Optional.empty();
+    try {
+      return getArgsFromPath(argsPath, flavors);
+    } catch (IOException e) {
+      throw new HumanReadableException(e, "Could not read options from " + arg);
+    }
   }
 
   /**

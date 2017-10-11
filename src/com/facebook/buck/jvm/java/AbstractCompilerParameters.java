@@ -17,6 +17,7 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.SourcePath;
@@ -57,6 +58,11 @@ abstract class AbstractCompilerParameters {
   public abstract Path getAbiJarPath();
 
   @Value.Default
+  public AbiGenerationMode getAbiGenerationMode() {
+    return AbiGenerationMode.CLASS;
+  }
+
+  @Value.Default
   public boolean shouldTrackClassUsage() {
     return false;
   }
@@ -66,10 +72,8 @@ abstract class AbstractCompilerParameters {
     return false;
   }
 
-  @Value.Default
-  public boolean ruleIsRequiredForSourceAbi() {
-    return false;
-  }
+  @Nullable
+  public abstract SourceOnlyAbiRuleInfo getSourceOnlyAbiRuleInfo();
 
   public static Path getClassesDir(BuildTarget target, ProjectFilesystem filesystem) {
     return BuildTargets.getScratchPath(filesystem, target, "lib__%s__classes");

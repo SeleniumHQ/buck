@@ -76,7 +76,7 @@ public class HalideLibraryDescriptionTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     HalideLibraryBuilder compilerBuilder = new HalideLibraryBuilder(compilerTarget);
     compilerBuilder.setSrcs(
-        ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("main.cpp"))));
+        ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("main.cpp"))));
     HalideLibraryBuilder libBuilder = new HalideLibraryBuilder(libTarget);
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(compilerBuilder.build(), libBuilder.build());
@@ -103,7 +103,7 @@ public class HalideLibraryDescriptionTest {
         Matchers.equalTo(
             ImmutableMap.<Path, SourcePath>of(
                 Paths.get(headerName),
-                new ExplicitBuildTargetSourcePath(flavoredLibTarget, headerPath))));
+                ExplicitBuildTargetSourcePath.of(flavoredLibTarget, headerPath))));
 
     // Check that the library rule has the correct native linkable input.
     NativeLinkableInput input =
@@ -167,7 +167,7 @@ public class HalideLibraryDescriptionTest {
             .withFlavors(HalideLibraryDescription.HALIDE_COMPILE_FLAVOR);
     HalideLibraryBuilder compileBuilder = new HalideLibraryBuilder(compileTarget);
     compileBuilder.setSrcs(
-        ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("main.cpp"))));
+        ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("main.cpp"))));
 
     // First, make sure the compile step doesn't include the extra flags.
     TargetGraph targetGraph = TargetGraphFactory.newInstance(compileBuilder.build());
@@ -213,7 +213,7 @@ public class HalideLibraryDescriptionTest {
             .withFlavors(HalideLibraryDescription.HALIDE_COMPILE_FLAVOR);
     HalideLibraryBuilder compileBuilder = new HalideLibraryBuilder(compileTarget);
     compileBuilder.setSrcs(
-        ImmutableSortedSet.of(SourceWithFlags.of(new FakeSourcePath("main.cpp"))));
+        ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("main.cpp"))));
 
     // First, make sure the compile step passes the rulename "default-halide-name"
     // for the function output name.

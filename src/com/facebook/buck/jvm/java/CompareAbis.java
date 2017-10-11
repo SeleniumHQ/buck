@@ -92,7 +92,7 @@ public class CompareAbis extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @Nullable
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), outputPath);
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), outputPath);
   }
 
   @Override
@@ -109,5 +109,10 @@ public class CompareAbis extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @Override
   public ImmutableSortedSet<SourcePath> getJarContents() {
     return outputPathContentsSupplier.get();
+  }
+
+  @Override
+  public boolean jarContains(String path) {
+    return outputPathContentsSupplier.jarContains(path);
   }
 }

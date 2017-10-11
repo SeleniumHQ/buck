@@ -78,11 +78,11 @@ public class PreprocessorFlagsTest {
             {
               "frameworkPaths",
               defaultFlags.withFrameworkPaths(
-                  FrameworkPath.ofSourcePath(new FakeSourcePath("different"))),
+                  FrameworkPath.ofSourcePath(FakeSourcePath.of("different"))),
               true,
             },
             {
-              "prefixHeader", defaultFlags.withPrefixHeader(new FakeSourcePath("different")), true,
+              "prefixHeader", defaultFlags.withPrefixHeader(FakeSourcePath.of("different")), true,
             }
           });
     }
@@ -113,13 +113,13 @@ public class PreprocessorFlagsTest {
       builder =
           new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
               .newBuilderForTesting(fakeBuildRule);
-      defaultFlags.appendToRuleKey(builder);
+      builder.setReflectively("flags", defaultFlags);
       RuleKey defaultRuleKey = builder.build(RuleKey::new);
 
       builder =
           new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
               .newBuilderForTesting(fakeBuildRule);
-      alteredFlags.appendToRuleKey(builder);
+      builder.setReflectively("flags", alteredFlags);
       RuleKey alteredRuleKey = builder.build(RuleKey::new);
 
       if (shouldDiffer) {
@@ -166,7 +166,8 @@ public class PreprocessorFlagsTest {
           DefaultRuleKeyFactory.Builder<HashCode> builder =
               new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
                   .newBuilderForTesting(fakeBuildRule);
-          PreprocessorFlags.builder().setOtherFlags(flags).build().appendToRuleKey(builder);
+          builder.setReflectively(
+              "flags", PreprocessorFlags.builder().setOtherFlags(flags).build());
           return builder.build(RuleKey::new);
         }
       }

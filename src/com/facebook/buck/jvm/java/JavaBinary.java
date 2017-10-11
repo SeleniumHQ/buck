@@ -97,7 +97,7 @@ public class JavaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.disallowAllDuplicates = disallowAllDuplicates;
     this.metaInfDirectory =
         metaInfDirectory != null
-            ? new PathSourcePath(getProjectFilesystem(), metaInfDirectory)
+            ? PathSourcePath.of(getProjectFilesystem(), metaInfDirectory)
             : null;
     this.blacklist = blacklist;
     blacklistPatternsMatcher = new PatternsMatcher(blacklist);
@@ -198,7 +198,7 @@ public class JavaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(
+    return ExplicitBuildTargetSourcePath.of(
         getBuildTarget(),
         Paths.get(
             String.format(

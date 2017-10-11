@@ -98,8 +98,12 @@ public class JsUtil {
 
   static SourcePath relativeToOutputRoot(
       BuildTarget buildTarget, ProjectFilesystem projectFilesystem, String subpath) {
-    return new ExplicitBuildTargetSourcePath(
+    return ExplicitBuildTargetSourcePath.of(
         buildTarget,
         BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s").resolve(subpath));
+  }
+
+  public static String getSourcemapPath(JsBundleOutputs jsBundleOutputs) {
+    return String.format("map/%s.map", jsBundleOutputs.getBundleName());
   }
 }

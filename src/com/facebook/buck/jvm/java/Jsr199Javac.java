@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Joiner;
@@ -23,6 +24,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
+import javax.annotation.Nullable;
 import javax.tools.JavaCompiler;
 
 /** Command used to compile java libraries with a variety of ways to handle dependencies. */
@@ -74,8 +76,8 @@ public abstract class Jsr199Javac implements Javac {
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       Path workingDirectory,
-      JavacCompilationMode compilationMode,
-      boolean requiredForSourceAbi) {
+      AbiGenerationMode abiGenerationMode,
+      @Nullable SourceOnlyAbiRuleInfo ruleInfo) {
     return new Jsr199JavacInvocation(
         this::createCompiler,
         context,
@@ -84,7 +86,7 @@ public abstract class Jsr199Javac implements Javac {
         pluginFields,
         javaSourceFilePaths,
         pathToSrcsList,
-        compilationMode,
-        requiredForSourceAbi);
+        abiGenerationMode,
+        ruleInfo);
   }
 }

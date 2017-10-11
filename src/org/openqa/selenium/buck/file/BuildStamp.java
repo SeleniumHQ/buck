@@ -91,7 +91,7 @@ public class BuildStamp extends AbstractBuildRule {
   @Nullable
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), out);
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), out);
   }
 
   public enum Kind {

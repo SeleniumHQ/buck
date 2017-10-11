@@ -17,6 +17,7 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.AddsToRuleKey;
@@ -65,7 +66,8 @@ public class JarBuildStepsFactory
   private final ImmutableSortedSet<SourcePath> compileTimeClasspathSourcePaths;
   @AddToRuleKey private final RemoveClassesPatternsMatcher classesToRemoveFromJar;
 
-  @AddToRuleKey private final boolean ruleRequiredForSourceAbi;
+  @AddToRuleKey private final AbiGenerationMode abiGenerationMode;
+  @Nullable private final SourceOnlyAbiRuleInfo ruleInfo;
 
   public JarBuildStepsFactory(
       ProjectFilesystem projectFilesystem,
@@ -80,7 +82,8 @@ public class JarBuildStepsFactory
       boolean trackClassUsage,
       ImmutableSortedSet<SourcePath> compileTimeClasspathSourcePaths,
       RemoveClassesPatternsMatcher classesToRemoveFromJar,
-      boolean ruleRequiredForSourceAbi) {
+      AbiGenerationMode abiGenerationMode,
+      @Nullable SourceOnlyAbiRuleInfo ruleInfo) {
     this.projectFilesystem = projectFilesystem;
     this.ruleFinder = ruleFinder;
     this.configuredCompiler = configuredCompiler;
@@ -93,7 +96,8 @@ public class JarBuildStepsFactory
     this.trackClassUsage = trackClassUsage;
     this.compileTimeClasspathSourcePaths = compileTimeClasspathSourcePaths;
     this.classesToRemoveFromJar = classesToRemoveFromJar;
-    this.ruleRequiredForSourceAbi = ruleRequiredForSourceAbi;
+    this.abiGenerationMode = abiGenerationMode;
+    this.ruleInfo = ruleInfo;
   }
 
   public boolean producesJar() {
@@ -111,7 +115,7 @@ public class JarBuildStepsFactory
   @Nullable
   public SourcePath getSourcePathToOutput(BuildTarget buildTarget) {
     return getOutputJarPath(buildTarget)
-        .map(path -> new ExplicitBuildTargetSourcePath(buildTarget, path))
+        .map(path -> ExplicitBuildTargetSourcePath.of(buildTarget, path))
         .orElse(null);
   }
 
@@ -143,7 +147,8 @@ public class JarBuildStepsFactory
             .setStandardPaths(buildTarget, projectFilesystem)
             .setShouldTrackClassUsage(false)
             .setShouldGenerateAbiJar(true)
-            .setRuleIsRequiredForSourceAbi(ruleRequiredForSourceAbi)
+            .setAbiGenerationMode(abiGenerationMode)
+            .setSourceOnlyAbiRuleInfo(ruleInfo)
             .build();
 
     ResourcesParameters resourcesParameters = getResourcesParameters();
@@ -179,7 +184,8 @@ public class JarBuildStepsFactory
             .setSourceFileSourcePaths(srcs, projectFilesystem, context.getSourcePathResolver())
             .setStandardPaths(buildTarget, projectFilesystem)
             .setShouldTrackClassUsage(trackClassUsage)
-            .setRuleIsRequiredForSourceAbi(ruleRequiredForSourceAbi)
+            .setAbiGenerationMode(abiGenerationMode)
+            .setSourceOnlyAbiRuleInfo(ruleInfo)
             .build();
 
     ResourcesParameters resourcesParameters = getResourcesParameters();
@@ -271,7 +277,7 @@ public class JarBuildStepsFactory
       if (rule instanceof HasJavaAbi) {
         if (((HasJavaAbi) rule).getAbiJar().isPresent()) {
           BuildTarget buildTarget = ((HasJavaAbi) rule).getAbiJar().get();
-          pathToSourcePathMapBuilder.put(path, new DefaultBuildTargetSourcePath(buildTarget));
+          pathToSourcePathMapBuilder.put(path, DefaultBuildTargetSourcePath.of(buildTarget));
         }
       } else if (rule instanceof CalculateAbi) {
         pathToSourcePathMapBuilder.put(path, sourcePath);

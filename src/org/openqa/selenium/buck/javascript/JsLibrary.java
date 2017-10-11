@@ -149,7 +149,7 @@ public class JsLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps impleme
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new PathSourcePath(getProjectFilesystem(), output);
+    return PathSourcePath.of(getProjectFilesystem(), output);
   }
 
   @Override

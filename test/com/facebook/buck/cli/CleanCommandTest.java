@@ -20,9 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.AndroidPlatformTarget;
-import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.artifact_cache.SingletonArtifactCacheFactory;
 import com.facebook.buck.config.BuckConfig;
@@ -44,6 +42,7 @@ import com.facebook.buck.testutil.FakeExecutor;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.DefaultClock;
+import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
@@ -137,9 +136,9 @@ public class CleanCommandTest extends EasyMockSupport {
     Supplier<AndroidPlatformTarget> androidPlatformTargetSupplier =
         AndroidPlatformTarget.EXPLODING_ANDROID_PLATFORM_TARGET_SUPPLIER;
     ProcessExecutor processExecutor = new FakeProcessExecutor();
-    AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
+    TestToolchainProvider toolchainProvider = new TestToolchainProvider();
     SdkEnvironment sdkEnvironment =
-        SdkEnvironment.create(buckConfig, processExecutor, androidDirectoryResolver);
+        SdkEnvironment.create(buckConfig, processExecutor, toolchainProvider);
 
     return CommandRunnerParams.builder()
         .setConsole(new TestConsole())
@@ -167,10 +166,10 @@ public class CleanCommandTest extends EasyMockSupport {
         .setVersionedTargetGraphCache(new VersionedTargetGraphCache())
         .setActionGraphCache(new ActionGraphCache())
         .setKnownBuildRuleTypesFactory(
-            new KnownBuildRuleTypesFactory(
-                processExecutor, androidDirectoryResolver, sdkEnvironment))
+            new KnownBuildRuleTypesFactory(processExecutor, sdkEnvironment, toolchainProvider))
         .setSdkEnvironment(sdkEnvironment)
         .setProjectFilesystemFactory(new DefaultProjectFilesystemFactory())
+        .setToolchainProvider(toolchainProvider)
         .build();
   }
 }

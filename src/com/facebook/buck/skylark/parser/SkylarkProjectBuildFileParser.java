@@ -33,6 +33,7 @@ import com.facebook.buck.util.MoreCollectors;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -50,6 +51,7 @@ import com.google.devtools.build.lib.syntax.BuildFileAST;
 import com.google.devtools.build.lib.syntax.BuiltinFunction;
 import com.google.devtools.build.lib.syntax.ClassObject;
 import com.google.devtools.build.lib.syntax.Environment;
+import com.google.devtools.build.lib.syntax.EvalException;
 import com.google.devtools.build.lib.syntax.FuncallExpression;
 import com.google.devtools.build.lib.syntax.FunctionSignature;
 import com.google.devtools.build.lib.syntax.Mutability;
@@ -67,19 +69,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
  * Parser for build files written using Skylark syntax.
  *
- * <p>NOTE: This parser is work in progress and does not support many functions provided by Python
- * DSL parser like {@code read_config} and {@code include_defs} (currently implemented as a noop),
- * so DO NOT USE it production.
+ * <p>NOTE: This parser is a work in progress and does not support many functions provided by Python
+ * DSL parser like {@code read_config} and {@code include_defs}, so DO NOT USE it production.
  */
 public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
 
   private static final Logger LOG = Logger.get(SkylarkProjectBuildFileParser.class);
 
+  // internal variable exposed to rules that is used to track parse events. This allows us to
+  // remove parse state from rules and as such makes rules reusable across parse invocations
+  private static final String PARSE_CONTEXT = "$parse_context";
   private static final ImmutableSet<String> IMPLICIT_ATTRIBUTES =
       ImmutableSet.of("visibility", "within_view");
   private static final String PACKAGE_NAME_GLOBAL = "PACKAGE_NAME";
@@ -91,24 +96,43 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
   private final TypeCoercerFactory typeCoercerFactory;
   private final ProjectBuildFileParserOptions options;
   private final BuckEventBus buckEventBus;
+  private final PrintingEventHandler eventHandler;
+  private final Supplier<ImmutableList<BuiltinFunction>> buckRuleFunctionsSupplier;
+  private final Supplier<NativeModule> nativeModuleSupplier;
+  private final Supplier<Environment.Frame> buckGlobalsSupplier;
 
   private SkylarkProjectBuildFileParser(
-      final ProjectBuildFileParserOptions options,
+      ProjectBuildFileParserOptions options,
       BuckEventBus buckEventBus,
       FileSystem fileSystem,
-      TypeCoercerFactory typeCoercerFactory) {
+      TypeCoercerFactory typeCoercerFactory,
+      PrintingEventHandler eventHandler) {
     this.options = options;
     this.buckEventBus = buckEventBus;
     this.fileSystem = fileSystem;
     this.typeCoercerFactory = typeCoercerFactory;
+    this.eventHandler = eventHandler;
+    // since Skylark parser is currently disabled by default, avoid creating functions in case
+    // it's never used
+    // TODO(ttsugrii): replace suppliers with eager loading once Skylark parser is on by default
+    this.buckRuleFunctionsSupplier = Suppliers.memoize(this::getBuckRuleFunctions)::get;
+    this.nativeModuleSupplier =
+        Suppliers.memoize(() -> new NativeModule(buckRuleFunctionsSupplier.get()))::get;
+    this.buckGlobalsSupplier = Suppliers.memoize(this::getBuckGlobals)::get;
   }
 
+  /** Create an instance of Skylark project build file parser using provided options. */
   public static SkylarkProjectBuildFileParser using(
-      final ProjectBuildFileParserOptions options,
+      ProjectBuildFileParserOptions options,
       BuckEventBus buckEventBus,
       FileSystem fileSystem,
       TypeCoercerFactory typeCoercerFactory) {
-    return new SkylarkProjectBuildFileParser(options, buckEventBus, fileSystem, typeCoercerFactory);
+    return new SkylarkProjectBuildFileParser(
+        options,
+        buckEventBus,
+        fileSystem,
+        typeCoercerFactory,
+        new PrintingEventHandler(EnumSet.allOf(EventKind.class)));
   }
 
   @Override
@@ -168,7 +192,6 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
       throws IOException, BuildFileParseException, InterruptedException {
     // TODO(ttsugrii): consider using a less verbose event handler. Also fancy handler can be
     // configured for terminals that support it.
-    PrintingEventHandler eventHandler = new PrintingEventHandler(EnumSet.allOf(EventKind.class));
     com.google.devtools.build.lib.vfs.Path buildFilePath = fileSystem.getPath(buildFile.toString());
     BuildFileAST buildFileAst =
         BuildFileAST.parseBuildFile(ParserInputSource.create(buildFilePath), eventHandler);
@@ -180,7 +203,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
     try (Mutability mutability = Mutability.create("parsing " + buildFile)) {
       Environment env =
           createBuildFileEvaluationEnvironment(
-              buildFile, buildFilePath, buildFileAst, eventHandler, mutability, parseContext);
+              buildFile, buildFilePath, buildFileAst, mutability, parseContext);
       boolean exec = buildFileAst.exec(env, eventHandler);
       if (!exec) {
         throw BuildFileParseException.createForUnknownParseError(
@@ -202,27 +225,21 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
       Path buildFile,
       com.google.devtools.build.lib.vfs.Path buildFilePath,
       BuildFileAST buildFileAst,
-      PrintingEventHandler eventHandler,
       Mutability mutability,
       ParseContext parseContext)
       throws IOException, InterruptedException, BuildFileParseException {
-    Environment.Frame buckGlobals = getBuckGlobals();
-    ImmutableList<BuiltinFunction> buckRuleFunctions = getBuckRuleFunctions(parseContext);
     ImmutableMap<String, Environment.Extension> importMap =
-        buildImportMap(
-            buildFileAst.getImports(), buckGlobals, buckRuleFunctions, parseContext, eventHandler);
+        buildImportMap(buildFileAst.getImports(), parseContext);
     Environment env =
         Environment.builder(mutability)
             .setImportedExtensions(importMap)
-            .setGlobals(buckGlobals)
+            .setGlobals(buckGlobalsSupplier.get())
             .setPhase(Environment.Phase.LOADING)
             .build();
     String basePath = getBasePath(buildFile);
     env.setupDynamic(PACKAGE_NAME_GLOBAL, basePath);
+    env.setupDynamic(PARSE_CONTEXT, parseContext);
     env.setup("glob", Glob.create(buildFilePath.getParentDirectory()));
-    for (BuiltinFunction buckRuleFunction : buckRuleFunctions) {
-      env.setup(buckRuleFunction.getName(), buckRuleFunction);
-    }
     return env;
   }
 
@@ -232,10 +249,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
    */
   private ImmutableMap<String, Environment.Extension> buildImportMap(
       bazel.shaded.com.google.common.collect.ImmutableList<SkylarkImport> skylarkImports,
-      Environment.Frame buckGlobals,
-      ImmutableList<BuiltinFunction> buckRuleFunctions,
-      ParseContext parseContext,
-      PrintingEventHandler eventHandler)
+      ParseContext parseContext)
       throws IOException, InterruptedException, BuildFileParseException {
     ImmutableMap.Builder<String, Environment.Extension> extensionMapBuilder =
         ImmutableMap.builder();
@@ -249,18 +263,13 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
           throw BuildFileParseException.createForUnknownParseError(
               "Cannot parse extension file " + skylarkImport.getImportString());
         }
-        Environment.Builder envBuilder = Environment.builder(mutability).setGlobals(buckGlobals);
+        Environment.Builder envBuilder =
+            Environment.builder(mutability).setGlobals(buckGlobalsSupplier.get());
         if (!extensionAst.getImports().isEmpty()) {
-          envBuilder.setImportedExtensions(
-              buildImportMap(
-                  extensionAst.getImports(),
-                  buckGlobals,
-                  buckRuleFunctions,
-                  parseContext,
-                  eventHandler));
+          envBuilder.setImportedExtensions(buildImportMap(extensionAst.getImports(), parseContext));
         }
         Environment extensionEnv = envBuilder.build();
-        extensionEnv.setup("native", new NativeModule(buckRuleFunctions));
+        extensionEnv.setup("native", nativeModuleSupplier.get());
         boolean success = extensionAst.exec(extensionEnv, eventHandler);
         if (!success) {
           throw BuildFileParseException.createForUnknownParseError(
@@ -283,6 +292,10 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
     try (Mutability mutability = Mutability.create("global")) {
       Environment globalEnv =
           Environment.builder(mutability).setGlobals(BazelLibrary.GLOBALS).build();
+
+      for (BuiltinFunction buckRuleFunction : buckRuleFunctionsSupplier.get()) {
+        globalEnv.setup(buckRuleFunction.getName(), buckRuleFunction);
+      }
       buckGlobals = globalEnv.getGlobals();
     }
     return buckGlobals;
@@ -327,10 +340,10 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
   /**
    * @return The list of functions supporting all native Buck functions like {@code java_library}.
    */
-  private ImmutableList<BuiltinFunction> getBuckRuleFunctions(ParseContext parseContext) {
+  private ImmutableList<BuiltinFunction> getBuckRuleFunctions() {
     ImmutableList.Builder<BuiltinFunction> ruleFunctionsBuilder = ImmutableList.builder();
     for (Description<?> description : options.getDescriptions()) {
-      ruleFunctionsBuilder.add(newRuleDefinition(description, parseContext));
+      ruleFunctionsBuilder.add(newRuleDefinition(description));
     }
     return ruleFunctionsBuilder.build();
   }
@@ -342,17 +355,16 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
    * capture passed attribute values in a map and adds them to the {@code ruleRegistry}.
    *
    * @param ruleClass The name of the rule to to define.
-   * @param parseContext The parse context tracking useful information like recorded rules.
    * @return Skylark function to handle the Buck rule.
    */
-  private BuiltinFunction newRuleDefinition(Description<?> ruleClass, ParseContext parseContext) {
+  private BuiltinFunction newRuleDefinition(Description<?> ruleClass) {
     String name = Description.getBuildRuleType(ruleClass).getName();
     return new BuiltinFunction(
         name, FunctionSignature.KWARGS, BuiltinFunction.USE_AST_ENV, /*isRule=*/ true) {
 
       @SuppressWarnings({"unused"})
       public Runtime.NoneType invoke(
-          Map<String, Object> kwargs, FuncallExpression ast, Environment env) {
+          Map<String, Object> kwargs, FuncallExpression ast, Environment env) throws EvalException {
         ImmutableMap.Builder<String, Object> builder =
             ImmutableMap.<String, Object>builder()
                 .put("buck.base_path", env.lookup(PACKAGE_NAME_GLOBAL))
@@ -362,6 +374,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
                 typeCoercerFactory, ruleClass.getConstructorArgType());
         populateAttributes(kwargs, builder, allParamInfo);
         throwOnMissingRequiredAttribute(kwargs, allParamInfo);
+        ParseContext parseContext = getParseContext(env, ast);
         parseContext.recordRule(builder.build());
         return Runtime.NONE;
       }
@@ -552,5 +565,20 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
       this.rawRules = rawRules;
       this.loadedPaths = loadedPaths;
     }
+  }
+
+  /** Get the {@link ParseContext} by looking up in the environment. */
+  private static ParseContext getParseContext(Environment env, FuncallExpression ast)
+      throws EvalException {
+    @Nullable ParseContext value = (ParseContext) env.lookup(PARSE_CONTEXT);
+    if (value == null) {
+      // if PARSE_CONTEXT is missing, we're not called from a build file. This happens if someone
+      // uses native.some_func() in the wrong place.
+      throw new EvalException(
+          ast.getLocation(),
+          "The native module cannot be accessed from here. "
+              + "Wrap the function in a macro and call it from a BUCK file");
+    }
+    return value;
   }
 }

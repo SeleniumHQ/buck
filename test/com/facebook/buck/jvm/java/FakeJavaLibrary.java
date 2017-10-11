@@ -83,13 +83,18 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(
+    return ExplicitBuildTargetSourcePath.of(
         getBuildTarget(),
         BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.jar"));
   }
 
   @Override
   public ImmutableSortedSet<SourcePath> getJarContents() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean jarContains(String path) {
     throw new UnsupportedOperationException();
   }
 
@@ -112,7 +117,7 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
     Preconditions.checkNotNull(srcs);
     this.srcs =
         FluentIterable.from(srcs)
-            .transform(p -> (SourcePath) new PathSourcePath(new FakeProjectFilesystem(), p))
+            .transform(p -> (SourcePath) PathSourcePath.of(new FakeProjectFilesystem(), p))
             .toSortedSet(Ordering.natural());
     return this;
   }

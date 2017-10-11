@@ -76,9 +76,9 @@ public class JavaLibrarySymbolsFinderTest {
             .addAll(
                 Stream.of("Example1.java", "Example2.java")
                     .map(Paths::get)
-                    .map(p -> new PathSourcePath(projectFilesystem, p))
+                    .map(p -> PathSourcePath.of(projectFilesystem, p))
                     .iterator())
-            .add(new DefaultBuildTargetSourcePath(BuildTargetFactory.newInstance("//foo:bar")))
+            .add(DefaultBuildTargetSourcePath.of(BuildTargetFactory.newInstance("//foo:bar")))
             .build();
 
     JavaLibrarySymbolsFinder finder =
@@ -98,11 +98,11 @@ public class JavaLibrarySymbolsFinderTest {
         TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
 
     Function<String, SourcePath> convert =
-        src -> new PathSourcePath(projectFilesystem, Paths.get(src));
+        src -> PathSourcePath.of(projectFilesystem, Paths.get(src));
     SourcePath example1 = convert.apply("Example1.java");
     SourcePath example2 = convert.apply("Example2.java");
     final BuildTarget fakeBuildTarget = BuildTargetFactory.newInstance("//foo:GenEx.java");
-    SourcePath generated = new DefaultBuildTargetSourcePath(fakeBuildTarget);
+    SourcePath generated = DefaultBuildTargetSourcePath.of(fakeBuildTarget);
 
     JavaLibrarySymbolsFinder example1Finder =
         new JavaLibrarySymbolsFinder(ImmutableSortedSet.of(example1), javaFileParser);

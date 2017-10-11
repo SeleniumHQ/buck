@@ -20,6 +20,7 @@ import static com.facebook.buck.distributed.DistBuildClientStatsTracker.DistBuil
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
+import com.facebook.buck.cli.output.Mode;
 import com.facebook.buck.command.Build;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.distributed.BuckVersionUtil;
@@ -43,6 +44,7 @@ import com.facebook.buck.distributed.thrift.RuleKeyLogEntry;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.listener.DistBuildClientEventListener;
+import com.facebook.buck.io.file.MoreFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.log.Logger;
@@ -257,6 +259,16 @@ public class BuildCommand extends AbstractCommand {
 
   public boolean isDebugEnabled() {
     return false;
+  }
+
+  protected Mode getOutputMode() {
+    if (this.showFullOutput) {
+      return Mode.FULL;
+    } else if (this.showOutput) {
+      return Mode.SIMPLE;
+    } else {
+      return Mode.NONE;
+    }
   }
 
   public BuildCommand() {
@@ -521,6 +533,9 @@ public class BuildCommand extends AbstractCommand {
 
   private int processSuccessfulBuild(CommandRunnerParams params, ActionAndTargetGraphs graphs)
       throws IOException {
+    if (params.getBuckConfig().createBuildOutputSymLinksEnabled()) {
+      symLinkBuildResults(params, graphs.actionGraph);
+    }
     if (showOutput || showFullOutput || showJsonOutput || showFullJsonOutput || showRuleKey) {
       showOutputs(params, graphs.actionGraph);
     }
@@ -553,6 +568,36 @@ public class BuildCommand extends AbstractCommand {
       }
     }
     return 0;
+  }
+
+  private void symLinkBuildResults(
+      CommandRunnerParams params, ActionGraphAndResolver actionGraphAndResolver)
+      throws IOException {
+    // Clean up last buck-out/last.
+    Path lastOutputDirPath =
+        params.getCell().getFilesystem().getBuckPaths().getLastOutputDir().toAbsolutePath();
+    MoreFiles.deleteRecursivelyIfExists(lastOutputDirPath);
+    Files.createDirectories(lastOutputDirPath);
+
+    SourcePathRuleFinder ruleFinder =
+        new SourcePathRuleFinder(actionGraphAndResolver.getResolver());
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+
+    for (BuildTarget buildTarget : buildTargets) {
+      BuildRule rule = actionGraphAndResolver.getResolver().requireRule(buildTarget);
+      Optional<Path> outputPath =
+          TargetsCommand.getUserFacingOutputPath(
+              pathResolver, rule, params.getBuckConfig().getBuckOutCompatLink());
+      if (outputPath.isPresent()) {
+        Path absolutePath = outputPath.get();
+        Path destPath = lastOutputDirPath.relativize(absolutePath);
+        Path linkPath = lastOutputDirPath.resolve(absolutePath.getFileName());
+        // Don't overwrite existing symlink in case there are duplicate names.
+        if (!Files.exists(linkPath)) {
+          Files.createSymbolicLink(linkPath, destPath);
+        }
+      }
+    }
   }
 
   private Pair<BuildJobState, DistBuildCellIndexer> computeDistBuildState(

@@ -19,6 +19,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.java.AbiGenerationMode;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.ExtraClasspathFromContextFunction;
 import com.facebook.buck.jvm.java.HasJavaAbi;
@@ -47,7 +48,6 @@ import java.util.Optional;
  */
 class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements AndroidPackageable {
 
-  private static final boolean REQUIRED_FOR_SOURCE_ABI = false;
   private final AndroidBuildConfig androidBuildConfig;
 
   AndroidBuildConfigJavaLibrary(
@@ -81,7 +81,8 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
             /* compileTimeClasspathDeps */ ImmutableSortedSet.of(
                 androidBuildConfig.getSourcePathToOutput()),
             /* classesToRemoveFromJar */ RemoveClassesPatternsMatcher.EMPTY,
-            /* ruleRequiredForSourceAbi */ REQUIRED_FOR_SOURCE_ABI),
+            AbiGenerationMode.CLASS,
+            /* sourceOnlyAbiRuleInfo */ null),
         /* proguardConfig */ Optional.empty(),
         /* firstOrderPackageableDeps */ params.getDeclaredDeps().get(),
         /* exportedDeps */ ImmutableSortedSet.of(),
@@ -89,7 +90,7 @@ class AndroidBuildConfigJavaLibrary extends DefaultJavaLibrary implements Androi
         HasJavaAbi.getClassAbiJar(buildTarget),
         /* mavenCoords */ Optional.empty(),
         /* tests */ ImmutableSortedSet.of(),
-        /* requiredForSourceAbi */ REQUIRED_FOR_SOURCE_ABI);
+        /* requiredForSourceOnlyAbi */ false);
     this.androidBuildConfig = androidBuildConfig;
     Preconditions.checkState(
         params.getBuildDeps().contains(androidBuildConfig),

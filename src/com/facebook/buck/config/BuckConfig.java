@@ -24,26 +24,17 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
-import com.facebook.buck.rules.BinaryBuildRuleToolProvider;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.ConstantToolProvider;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKeyDiagnosticsMode;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.Tool;
-import com.facebook.buck.rules.ToolProvider;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.PatternAndMessage;
 import com.facebook.buck.util.cache.FileHashCacheMode;
-import com.facebook.buck.util.concurrent.ResourceAllocationFairness;
-import com.facebook.buck.util.concurrent.ResourceAmounts;
-import com.facebook.buck.util.concurrent.ResourceAmountsEstimator;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
@@ -51,7 +42,6 @@ import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.facebook.infer.annotation.PropagatesNullable;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
@@ -78,8 +68,6 @@ import java.util.regex.Pattern;
 public class BuckConfig implements ConfigPathGetter {
 
   private static final String ALIAS_SECTION_HEADER = "alias";
-  public static final String RESOURCES_SECTION_HEADER = "resources";
-  public static final String RESOURCES_PER_RULE_SECTION_HEADER = "resources_per_rule";
   private static final String TEST_SECTION_HEADER = "test";
 
   private static final Float DEFAULT_THREAD_CORE_RATIO = Float.valueOf(1.0F);
@@ -323,7 +311,7 @@ public class BuckConfig implements ConfigPathGetter {
   /** @return the parsed BuildTarget in the given section and field. */
   public BuildTarget getRequiredBuildTarget(String section, String field) {
     Optional<BuildTarget> target = getBuildTarget(section, field);
-    return required(section, field, target);
+    return getOrThrow(section, field, target);
   }
 
   public <T extends Enum<T>> Optional<T> getEnum(String section, String field, Class<T> clazz) {
@@ -341,10 +329,10 @@ public class BuckConfig implements ConfigPathGetter {
     }
     try {
       BuildTarget target = getBuildTargetForFullyQualifiedTarget(value.get());
-      return Optional.of(new DefaultBuildTargetSourcePath(target));
+      return Optional.of(DefaultBuildTargetSourcePath.of(target));
     } catch (BuildTargetParseException e) {
       return Optional.of(
-          new PathSourcePath(
+          PathSourcePath.of(
               projectFilesystem,
               checkPathExists(
                   value.get(),
@@ -357,49 +345,12 @@ public class BuckConfig implements ConfigPathGetter {
     if (path == null) {
       return null;
     }
-    return new PathSourcePath(
+    return PathSourcePath.of(
         projectFilesystem,
         checkPathExists(
             path.toString(),
             String.format(
                 "Failed to transform Path %s to Source Path because path was not found.", path)));
-  }
-
-  /**
-   * @return a {@link Tool} identified by a @{link BuildTarget} or {@link Path} reference by the
-   *     given section:field, if set.
-   */
-  public Optional<ToolProvider> getToolProvider(String section, String field) {
-    Optional<String> value = getValue(section, field);
-    if (!value.isPresent()) {
-      return Optional.empty();
-    }
-    Optional<BuildTarget> target = getMaybeBuildTarget(section, field);
-    if (target.isPresent()) {
-      return Optional.of(
-          new BinaryBuildRuleToolProvider(target.get(), String.format("[%s] %s", section, field)));
-    } else {
-      return Optional.of(
-          new ConstantToolProvider(
-              new HashedFileTool(
-                  () ->
-                      checkPathExistsAndResolve(
-                          value.get(),
-                          String.format("Overridden %s:%s path not found: ", section, field)))));
-    }
-  }
-
-  public Optional<Tool> getTool(String section, String field, BuildRuleResolver resolver) {
-    Optional<ToolProvider> provider = getToolProvider(section, field);
-    if (!provider.isPresent()) {
-      return Optional.empty();
-    }
-    return Optional.of(provider.get().resolve(resolver));
-  }
-
-  public Tool getRequiredTool(String section, String field, BuildRuleResolver resolver) {
-    Optional<Tool> path = getTool(section, field, resolver);
-    return required(section, field, path);
   }
 
   /**
@@ -664,7 +615,7 @@ public class BuckConfig implements ConfigPathGetter {
     return config.getMap(section, field);
   }
 
-  private <T> T required(String section, String field, Optional<T> value) {
+  public <T> T getOrThrow(String section, String field, Optional<T> value) {
     if (!value.isPresent()) {
       throw new HumanReadableException(
           String.format(".buckconfig: %s:%s must be set", section, field));
@@ -728,7 +679,7 @@ public class BuckConfig implements ConfigPathGetter {
 
   public Path getRequiredPath(String section, String field) {
     Optional<Path> path = getPath(section, field);
-    return required(section, field, path);
+    return getOrThrow(section, field, path);
   }
 
   public String getClientId() {
@@ -757,7 +708,7 @@ public class BuckConfig implements ConfigPathGetter {
     return config.getLong("build", "scheduler_threads").orElse((long) 2).intValue();
   }
 
-  private int getDefaultMaximumNumberOfThreads() {
+  public int getDefaultMaximumNumberOfThreads() {
     return getDefaultMaximumNumberOfThreads(Runtime.getRuntime().availableProcessors());
   }
 
@@ -965,90 +916,10 @@ public class BuckConfig implements ConfigPathGetter {
     return getBooleanValue("project", "buck_out_compat_link", false);
   }
 
-  public ResourceAllocationFairness getResourceAllocationFairness() {
-    return config
-        .getEnum(
-            RESOURCES_SECTION_HEADER,
-            "resource_allocation_fairness",
-            ResourceAllocationFairness.class)
-        .orElse(ResourceAllocationFairness.FAIR);
-  }
-
-  public boolean isResourceAwareSchedulingEnabled() {
-    return config.getBooleanValue(
-        RESOURCES_SECTION_HEADER, "resource_aware_scheduling_enabled", false);
-  }
-
   public boolean isGrayscaleImageProcessingEnabled() {
-    return config.getBooleanValue(RESOURCES_SECTION_HEADER, "resource_grayscale_enabled", false);
+    // TODO(tyurins): move to android section
+    return config.getBooleanValue("resources", "resource_grayscale_enabled", false);
   }
-
-  public ImmutableMap<String, ResourceAmounts> getResourceAmountsPerRuleType() {
-    ImmutableMap.Builder<String, ResourceAmounts> result = ImmutableMap.builder();
-    ImmutableMap<String, String> entries = getEntriesForSection(RESOURCES_PER_RULE_SECTION_HEADER);
-    for (String ruleName : entries.keySet()) {
-      ImmutableList<String> configAmounts =
-          getListWithoutComments(RESOURCES_PER_RULE_SECTION_HEADER, ruleName);
-      Preconditions.checkArgument(
-          configAmounts.size() == ResourceAmounts.RESOURCE_TYPE_COUNT,
-          "Buck config entry [%s].%s contains %s values, but expected to contain %s values "
-              + "in the following order: cpu, memory, disk_io, network_io",
-          RESOURCES_PER_RULE_SECTION_HEADER,
-          ruleName,
-          configAmounts.size(),
-          ResourceAmounts.RESOURCE_TYPE_COUNT);
-      ResourceAmounts amounts =
-          ResourceAmounts.of(
-              Integer.valueOf(configAmounts.get(0)),
-              Integer.valueOf(configAmounts.get(1)),
-              Integer.valueOf(configAmounts.get(2)),
-              Integer.valueOf(configAmounts.get(3)));
-      result.put(ruleName, amounts);
-    }
-    return result.build();
-  }
-
-  public int getManagedThreadCount() {
-    if (!isResourceAwareSchedulingEnabled()) {
-      return getNumThreads();
-    }
-    return config
-        .getLong(RESOURCES_SECTION_HEADER, "managed_thread_count")
-        .orElse((long) getNumThreads() + getDefaultMaximumNumberOfThreads())
-        .intValue();
-  }
-
-  public ResourceAmounts getDefaultResourceAmounts() {
-    if (!isResourceAwareSchedulingEnabled()) {
-      return ResourceAmounts.of(1, 0, 0, 0);
-    }
-    return ResourceAmounts.of(
-        config
-            .getInteger(RESOURCES_SECTION_HEADER, "default_cpu_amount")
-            .orElse(ResourceAmountsEstimator.DEFAULT_CPU_AMOUNT),
-        config
-            .getInteger(RESOURCES_SECTION_HEADER, "default_memory_amount")
-            .orElse(ResourceAmountsEstimator.DEFAULT_MEMORY_AMOUNT),
-        config
-            .getInteger(RESOURCES_SECTION_HEADER, "default_disk_io_amount")
-            .orElse(ResourceAmountsEstimator.DEFAULT_DISK_IO_AMOUNT),
-        config
-            .getInteger(RESOURCES_SECTION_HEADER, "default_network_io_amount")
-            .orElse(ResourceAmountsEstimator.DEFAULT_NETWORK_IO_AMOUNT));
-  }
-
-  public ResourceAmounts getMaximumResourceAmounts() {
-    ResourceAmounts estimated = ResourceAmountsEstimator.getEstimatedAmounts();
-    return ResourceAmounts.of(
-        getNumThreads(estimated.getCpu()),
-        getInteger(BuckConfig.RESOURCES_SECTION_HEADER, "max_memory_resource")
-            .orElse(estimated.getMemory()),
-        getInteger(BuckConfig.RESOURCES_SECTION_HEADER, "max_disk_io_resource")
-            .orElse(estimated.getDiskIO()),
-        getInteger(BuckConfig.RESOURCES_SECTION_HEADER, "max_network_io_resource")
-            .orElse(estimated.getNetworkIO()));
-  }
-
   /** @return whether to enabled versions on build/test command. */
   public boolean getBuildVersions() {
     return getBooleanValue("build", "versions", false);
@@ -1091,5 +962,10 @@ public class BuckConfig implements ConfigPathGetter {
 
   public boolean isLogBuildIdToConsoleEnabled() {
     return getBooleanValue("log", "log_build_id_to_console_enabled", false);
+  }
+
+  /** Whether to create symlinks of build output in buck-out/last. */
+  public boolean createBuildOutputSymLinksEnabled() {
+    return getBooleanValue("build", "create_build_output_symlinks_enabled", false);
   }
 }

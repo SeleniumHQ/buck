@@ -260,7 +260,7 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
   }
 
   private String getPathForResourceJar(PackagedResource packagedResource) {
-    return new PathSourcePath(
+    return PathSourcePath.of(
             this.getProjectFilesystem(),
             AndroidInstrumentationTest.class + "/" + packagedResource.getFilenamePath(),
             packagedResource)
@@ -322,7 +322,7 @@ public class AndroidInstrumentationTest extends AbstractBuildRuleWithDeclaredAnd
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), getPathToTestOutputDirectory());
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getPathToTestOutputDirectory());
   }
 
   @Override

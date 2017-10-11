@@ -47,13 +47,6 @@ public final class JavacOptionsFactory {
       builder.setTargetLevel(jvmLibraryArg.getTarget().get());
     }
 
-    if (jvmLibraryArg.getGenerateAbiFromSource().isPresent()
-        && !jvmLibraryArg.getGenerateAbiFromSource().get()) {
-      // This parameter can only be used to turn off ABI generation from source where it would
-      // otherwise be employed.
-      builder.setCompilationMode(JavacCompilationMode.FULL);
-    }
-
     builder.addAllExtraArguments(jvmLibraryArg.getExtraArguments());
 
     AnnotationProcessingParams annotationParams =

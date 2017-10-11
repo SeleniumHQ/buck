@@ -126,7 +126,32 @@ public class AndroidInstrumentationApkDescription
                 resourceDetails.getResourcesWithNonEmptyResDir(),
                 resourceDetails.getResourcesWithEmptyResButNonEmptyAssetsDir()));
 
+    boolean shouldProguard =
+        apkUnderTest.getProguardConfig().isPresent()
+            || !ProGuardObfuscateStep.SdkProguardType.NONE.equals(
+                apkUnderTest.getSdkProguardConfig());
+    NonPredexedDexBuildableArgs nonPreDexedDexBuildableArgs =
+        NonPredexedDexBuildableArgs.builder()
+            .setProguardAgentPath(proGuardConfig.getProguardAgentPath())
+            .setProguardJarOverride(proGuardConfig.getProguardJarOverride())
+            .setProguardMaxHeapSize(proGuardConfig.getProguardMaxHeapSize())
+            .setSdkProguardConfig(apkUnderTest.getSdkProguardConfig())
+            .setPreprocessJavaClassesBash(Optional.empty())
+            .setReorderClassesIntraDex(false)
+            .setDexReorderToolFile(Optional.empty())
+            .setDexReorderDataDumpFile(Optional.empty())
+            .setDxExecutorService(dxExecutorService)
+            .setDxMaxHeapSize(Optional.empty())
+            .setOptimizationPasses(apkUnderTest.getOptimizationPasses())
+            .setProguardJvmArgs(apkUnderTest.getProguardJvmArgs())
+            .setSkipProguard(apkUnderTest.getSkipProguard())
+            .setJavaRuntimeLauncher(apkUnderTest.getJavaRuntimeLauncher())
+            .setProguardConfigPath(apkUnderTest.getProguardConfig())
+            .setShouldProguard(shouldProguard)
+            .build();
+
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+
     AndroidBinaryGraphEnhancer graphEnhancer =
         new AndroidBinaryGraphEnhancer(
             buildTarget,
@@ -175,7 +200,9 @@ public class AndroidInstrumentationApkDescription
             cxxBuckConfig,
             new APKModuleGraph(targetGraph, buildTarget, Optional.empty()),
             dxConfig,
-            /* postFilterResourcesCommands */ Optional.empty());
+            /* postFilterResourcesCommands */ Optional.empty(),
+            nonPreDexedDexBuildableArgs,
+            rulesToExcludeFromDex);
 
     AndroidGraphEnhancementResult enhancementResult = graphEnhancer.createAdditionalBuildables();
 
@@ -184,13 +211,9 @@ public class AndroidInstrumentationApkDescription
         projectFilesystem,
         params,
         ruleFinder,
-        proGuardConfig.getProguardJarOverride(),
-        proGuardConfig.getProguardMaxHeapSize(),
-        proGuardConfig.getProguardAgentPath(),
         apkUnderTest,
         rulesToExcludeFromDex,
-        enhancementResult,
-        dxExecutorService);
+        enhancementResult);
   }
 
   @BuckStyleImmutable

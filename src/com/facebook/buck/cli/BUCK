@@ -46,6 +46,7 @@ java_immutables_library(
     deps = [
         "//src/com/facebook/buck/io/file:file",
         "//src-gen:thrift",
+        "//src/com/facebook/buck/cli/output:output",
         "//src/com/facebook/buck/io/filesystem/impl:impl",
         "//src/com/facebook/buck/android/aapt:aapt",
         "//src/com/facebook/buck/android:config",
@@ -79,6 +80,7 @@ java_immutables_library(
         "//src/com/facebook/buck/event:interfaces",
         "//src/com/facebook/buck/file:downloader",
         "//src/com/facebook/buck/file:file",
+        "//src/com/facebook/buck/config/resources:resources",
         "//src/com/facebook/buck/graph:graph",
         "//src/com/facebook/buck/halide:halide",
         "//src/com/facebook/buck/hashing:hashing",
@@ -163,6 +165,7 @@ java_immutables_library(
         "//src/com/facebook/buck/test:test",
         "//src/com/facebook/buck/test/external:events",
         "//src/com/facebook/buck/timing:timing",
+        "//src/com/facebook/buck/toolchain/impl:impl",
         "//src/com/facebook/buck/util/autosparse:autosparse_config",
         "//src/com/facebook/buck/util/cache/impl:impl",
         "//src/com/facebook/buck/util/concurrent:concurrent",

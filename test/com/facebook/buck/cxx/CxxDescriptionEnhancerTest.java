@@ -81,7 +81,8 @@ public class CxxDescriptionEnhancerTest {
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 CxxPlatformUtils.DEFAULT_PLATFORM, deps),
             ImmutableList.of(),
-            Optional.empty());
+            Optional.empty(),
+            ImmutableSortedSet.of());
 
     Set<SourcePath> roots = new HashSet<>();
     for (CxxHeaders headers : CxxPreprocessorInput.concat(combinedInput).getIncludes()) {
@@ -91,8 +92,8 @@ public class CxxDescriptionEnhancerTest {
         "Test of library should include both public and private headers",
         roots,
         Matchers.hasItems(
-            new DefaultBuildTargetSourcePath(BuildTargetFactory.newInstance("//:symlink")),
-            new DefaultBuildTargetSourcePath(BuildTargetFactory.newInstance("//:privatesymlink"))));
+            DefaultBuildTargetSourcePath.of(BuildTargetFactory.newInstance("//:symlink")),
+            DefaultBuildTargetSourcePath.of(BuildTargetFactory.newInstance("//:privatesymlink"))));
   }
 
   @Test
@@ -149,7 +150,8 @@ public class CxxDescriptionEnhancerTest {
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 CxxPlatformUtils.DEFAULT_PLATFORM, deps),
             ImmutableList.of(),
-            Optional.empty());
+            Optional.empty(),
+            ImmutableSortedSet.of());
 
     Set<SourcePath> roots = new HashSet<>();
     for (CxxHeaders headers : CxxPreprocessorInput.concat(combinedInput).getIncludes()) {
@@ -161,11 +163,10 @@ public class CxxDescriptionEnhancerTest {
             CxxPreprocessorInput.concat(combinedInput).getIncludes(), CxxHeaders::getRoot),
         allOf(
             hasItem(
-                new DefaultBuildTargetSourcePath(
-                    BuildTargetFactory.newInstance("//:othersymlink"))),
+                DefaultBuildTargetSourcePath.of(BuildTargetFactory.newInstance("//:othersymlink"))),
             not(
                 hasItem(
-                    new DefaultBuildTargetSourcePath(
+                    DefaultBuildTargetSourcePath.of(
                         BuildTargetFactory.newInstance("//:otherprivatesymlink"))))));
   }
 
@@ -204,7 +205,8 @@ public class CxxDescriptionEnhancerTest {
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
                 CxxPlatformUtils.DEFAULT_PLATFORM, deps),
             ImmutableList.of(),
-            Optional.empty());
+            Optional.empty(),
+            ImmutableSortedSet.of());
 
     Set<SourcePath> roots = new HashSet<>();
     for (CxxHeaders headers : CxxPreprocessorInput.concat(otherInput).getIncludes()) {
@@ -214,10 +216,10 @@ public class CxxDescriptionEnhancerTest {
         "Non-test rule with library dep should include public and not private headers",
         roots,
         allOf(
-            hasItem(new DefaultBuildTargetSourcePath(BuildTargetFactory.newInstance("//:symlink"))),
+            hasItem(DefaultBuildTargetSourcePath.of(BuildTargetFactory.newInstance("//:symlink"))),
             not(
                 hasItem(
-                    new DefaultBuildTargetSourcePath(
+                    DefaultBuildTargetSourcePath.of(
                         BuildTargetFactory.newInstance("//:privatesymlink"))))));
   }
 

@@ -17,7 +17,7 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.CellConfig;
+import com.facebook.buck.config.resources.ResourcesConfig;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.LogConfigSetup;
@@ -26,6 +26,7 @@ import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.BuildTargetPatternTargetNodeParser;
 import com.facebook.buck.parser.TargetNodeSpec;
+import com.facebook.buck.rules.CellConfig;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.RelativeCellName;
 import com.facebook.buck.rules.RuleKey;
@@ -313,12 +314,13 @@ public abstract class AbstractCommand implements Command {
   }
 
   public ConcurrencyLimit getConcurrencyLimit(BuckConfig buckConfig) {
+    ResourcesConfig resourcesConfig = buckConfig.getView(ResourcesConfig.class);
     return new ConcurrencyLimit(
         buckConfig.getNumThreads(),
-        buckConfig.getResourceAllocationFairness(),
-        buckConfig.getManagedThreadCount(),
-        buckConfig.getDefaultResourceAmounts(),
-        buckConfig.getMaximumResourceAmounts());
+        resourcesConfig.getResourceAllocationFairness(),
+        resourcesConfig.getManagedThreadCount(),
+        resourcesConfig.getDefaultResourceAmounts(),
+        resourcesConfig.getMaximumResourceAmounts());
   }
 
   @Override

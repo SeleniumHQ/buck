@@ -171,7 +171,7 @@ public class HaskellBinaryDescription
     CommandTool.Builder executableBuilder = new CommandTool.Builder();
 
     // Add the binary as the first argument.
-    executableBuilder.addArg(SourcePathArg.of(new DefaultBuildTargetSourcePath(binaryTarget)));
+    executableBuilder.addArg(SourcePathArg.of(DefaultBuildTargetSourcePath.of(binaryTarget)));
 
     Path outputDir = BuildTargets.getGenPath(projectFilesystem, binaryTarget, "%s").getParent();
     Path outputPath = outputDir.resolve(binaryTarget.getShortName());
@@ -313,11 +313,6 @@ public class HaskellBinaryDescription
     }
 
     return false;
-  }
-
-  @Override
-  public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
-    return true;
   }
 
   protected enum Type implements FlavorConvertible {

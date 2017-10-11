@@ -88,7 +88,7 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
               }
               if (sandbox.isPresent()) {
                 ExplicitBuildTargetSourcePath root =
-                    new ExplicitBuildTargetSourcePath(
+                    ExplicitBuildTargetSourcePath.of(
                         sandbox.get().getBuildTarget(),
                         sandbox.get().getProjectFilesystem().relativize(sandbox.get().getRoot()));
                 builder.addSymlinkTree(root, sandbox.get().getLinks());
@@ -141,7 +141,7 @@ final class PreprocessorDelegate implements RuleKeyAppendable {
     sink.setReflectively("preprocessor", preprocessor);
     sink.setReflectively("frameworkPathSearchPathFunction", frameworkPathSearchPathFunction);
     sink.setReflectively("headerVerification", headerVerification);
-    preprocessorFlags.appendToRuleKey(sink);
+    sink.setReflectively("preprocessorFlags", preprocessorFlags);
   }
 
   public HeaderPathNormalizer getHeaderPathNormalizer() {

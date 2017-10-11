@@ -64,6 +64,7 @@ import com.fasterxml.jackson.core.JsonGenerator;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -162,10 +163,17 @@ public class ChromeTraceBuildListener implements BuckEventListener {
   private void addProcessMetadataEvent(InvocationInfo invocationInfo) {
     writeChromeTraceMetadataEvent(
         "process_name",
+        ImmutableMap.<String, Object>builder().put("name", invocationInfo.getBuildId()).build());
+    writeChromeTraceMetadataEvent(
+        "process_labels",
         ImmutableMap.<String, Object>builder()
-            .put("user_args", invocationInfo.getUnexpandedCommandArgs())
-            .put("is_daemon", invocationInfo.getIsDaemon())
-            .put("timestamp", invocationInfo.getTimestampMillis())
+            .put(
+                "labels",
+                String.format(
+                    "user_args=%s, is_daemon=%b, timestamp=%d",
+                    invocationInfo.getUnexpandedCommandArgs(),
+                    invocationInfo.getIsDaemon(),
+                    invocationInfo.getTimestampMillis()))
             .build());
   }
 
@@ -864,6 +872,13 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       return;
     }
 
+    String buckClasspathEnvVarName = "BUCK_CLASSPATH";
+    String buckClasspath = System.getenv(buckClasspathEnvVarName);
+    if (Strings.isNullOrEmpty(buckClasspath)) {
+      LOG.error(buckClasspathEnvVarName + " env var is not set. Will not upload the trace file.");
+      return;
+    }
+
     Path fullPath = projectFilesystem.resolve(tracePath);
     Path logFile = projectFilesystem.resolve(logDirectoryPath.resolve("upload-build-trace.log"));
     LOG.debug("Uploading build trace in the background. Upload will log to %s", logFile);
@@ -872,7 +887,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       String[] args = {
         "java",
         "-cp",
-        System.getenv("BUCK_CLASSPATH"),
+        buckClasspath,
         "com.facebook.buck.util.trace.uploader.Main",
         "--buildId",
         buildId.toString(),

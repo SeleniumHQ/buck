@@ -26,6 +26,7 @@ import com.facebook.buck.rules.BinaryBuildRuleToolProvider;
 import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.RuleScheduleInfo;
 import com.facebook.buck.rules.ToolProvider;
+import com.facebook.buck.rules.tool.config.ToolConfig;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
@@ -133,7 +134,8 @@ public class CxxBuckConfig {
    * Constructs the appropriate Archiver for the specified platform.
    */
   public Optional<ArchiverProvider> getArchiverProvider(Platform defaultPlatform) {
-    Optional<ToolProvider> toolProvider = delegate.getToolProvider(cxxSection, "ar");
+    Optional<ToolProvider> toolProvider =
+        delegate.getView(ToolConfig.class).getToolProvider(cxxSection, "ar");
     return toolProvider.map(
         archiver -> {
           Optional<Platform> archiverPlatform =
@@ -200,7 +202,8 @@ public class CxxBuckConfig {
   }
 
   public Optional<LinkerProvider> getLinkerProvider(String field, LinkerProvider.Type defaultType) {
-    Optional<ToolProvider> toolProvider = delegate.getToolProvider(cxxSection, field);
+    Optional<ToolProvider> toolProvider =
+        delegate.getView(ToolConfig.class).getToolProvider(cxxSection, field);
     if (!toolProvider.isPresent()) {
       return Optional.empty();
     }
@@ -264,8 +267,17 @@ public class CxxBuckConfig {
     return delegate.getInteger(cxxSection, "debug_path_sanitizer_limit").orElse(250);
   }
 
+  /** @return whether to remap to the underlying host platform or to use #default */
+  public boolean getShouldRemapHostPlatform() {
+    return delegate.getBooleanValue(cxxSection, "should_remap_host_platform", false);
+  }
+
   public Optional<ToolProvider> getToolProvider(String name) {
-    return delegate.getToolProvider(cxxSection, name);
+    return delegate.getView(ToolConfig.class).getToolProvider(cxxSection, name);
+  }
+
+  public boolean isUniqueLibraryNameEnabled() {
+    return delegate.getBooleanValue(cxxSection, "unique_library_name_enabled", false);
   }
 
   /** @return whether to enable shared library interfaces. */
@@ -291,7 +303,8 @@ public class CxxBuckConfig {
   }
 
   public boolean isDeprecatedPrebuiltCxxLibraryApiEnabled() {
-    return delegate.getBooleanValue(cxxSection, "enable_deprecated_prebuilt_cxx_library_api", true);
+    return delegate.getBooleanValue(
+        cxxSection, "enable_deprecated_prebuilt_cxx_library_api", false);
   }
 
   @Value.Immutable

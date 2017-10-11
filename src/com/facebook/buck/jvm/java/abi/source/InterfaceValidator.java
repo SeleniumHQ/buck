@@ -17,7 +17,7 @@
 package com.facebook.buck.jvm.java.abi.source;
 
 import com.facebook.buck.event.api.BuckTracing;
-import com.facebook.buck.jvm.java.abi.source.api.InterfaceValidatorCallback;
+import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
 import com.facebook.buck.jvm.java.plugin.adapter.BuckJavacTask;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.util.TreePath;
@@ -60,14 +60,14 @@ class InterfaceValidator {
   private final Elements elements;
   private final Diagnostic.Kind messageKind;
   private final Trees trees;
-  private final InterfaceValidatorCallback callback;
+  private final SourceOnlyAbiRuleInfo ruleInfo;
 
   public InterfaceValidator(
-      Diagnostic.Kind messageKind, BuckJavacTask task, InterfaceValidatorCallback callback) {
+      Diagnostic.Kind messageKind, BuckJavacTask task, SourceOnlyAbiRuleInfo ruleInfo) {
     this.messageKind = messageKind;
     trees = task.getTrees();
     elements = task.getElements();
-    this.callback = callback;
+    this.ruleInfo = ruleInfo;
   }
 
   public void validate(List<? extends CompilationUnitTree> compilationUnits) {
@@ -79,10 +79,15 @@ class InterfaceValidator {
 
                 @Override
                 public void onAnnotationTypeFound(TypeElement type, TreePath path) {
-                  if (!callback.ruleIsRequiredForSourceAbi()) {
+                  if (!ruleInfo.ruleIsRequiredForSourceOnlyAbi()) {
                     trees.printMessage(
                         messageKind,
-                        "Annotation definitions are not allowed in a Buck rule with required_for_source_abi absent or set to False. Move this annotation to a rule with required_for_source_abi = True.",
+                        String.format(
+                            "Annotation definitions must be in rules with required_for_source_only_abi = True.\n"
+                                + "For a quick fix, add required_for_source_only_abi = True to %s.\n"
+                                + "A better fix is to move %s to a new rule that contains only\n"
+                                + "annotations, and mark that rule required_for_source_only_abi.\n",
+                            ruleInfo.getRuleName(), type.getSimpleName()),
                         path.getLeaf(),
                         path.getCompilationUnit());
                   }
@@ -143,7 +148,7 @@ class InterfaceValidator {
                 }
 
                 private boolean isOnBootClasspath(TypeElement typeElement) {
-                  return callback.classIsOnBootClasspath(
+                  return ruleInfo.classIsOnBootClasspath(
                       elements.getBinaryName(typeElement).toString());
                 }
 

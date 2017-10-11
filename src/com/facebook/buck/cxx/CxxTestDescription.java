@@ -275,7 +275,7 @@ public class CxxTestDescription
                   testEnv,
                   testArgs,
                   FluentIterable.from(args.getResources())
-                      .transform(p -> new PathSourcePath(projectFilesystem, p))
+                      .transform(p -> PathSourcePath.of(projectFilesystem, p))
                       .toSortedSet(Ordering.natural()),
                   args.getAdditionalCoverageTargets(),
                   additionalDeps,
@@ -298,7 +298,7 @@ public class CxxTestDescription
                   testEnv,
                   testArgs,
                   FluentIterable.from(args.getResources())
-                      .transform(p -> new PathSourcePath(projectFilesystem, p))
+                      .transform(p -> PathSourcePath.of(projectFilesystem, p))
                       .toSortedSet(Ordering.natural()),
                   args.getAdditionalCoverageTargets(),
                   additionalDeps,
@@ -407,11 +407,6 @@ public class CxxTestDescription
     return CxxDescriptionEnhancer.createCompilationDatabaseDependencies(
             buildTarget, cxxPlatforms, resolver, args)
         .map(metadataClass::cast);
-  }
-
-  @Override
-  public boolean isVersionRoot(ImmutableSet<Flavor> flavors) {
-    return true;
   }
 
   @BuckStyleImmutable

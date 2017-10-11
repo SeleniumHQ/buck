@@ -67,7 +67,7 @@ public class SourcePathTypeCoercerTest {
     SourcePath sourcePath =
         sourcePathTypeCoercer.coerce(cellRoots, projectFilesystem, pathRelativeToProjectRoot, path);
 
-    assertEquals(new PathSourcePath(projectFilesystem, Paths.get(path)), sourcePath);
+    assertEquals(PathSourcePath.of(projectFilesystem, Paths.get(path)), sourcePath);
   }
 
   @Test
@@ -77,7 +77,7 @@ public class SourcePathTypeCoercerTest {
             cellRoots, projectFilesystem, pathRelativeToProjectRoot, "//:hello");
 
     assertEquals(
-        new DefaultBuildTargetSourcePath(
+        DefaultBuildTargetSourcePath.of(
             BuildTarget.of(
                 UnflavoredBuildTarget.of(
                     projectFilesystem.getRootPath(), Optional.empty(), "//", "hello"),
@@ -92,7 +92,7 @@ public class SourcePathTypeCoercerTest {
             cellRoots, projectFilesystem, pathRelativeToProjectRoot, ":hello");
 
     assertEquals(
-        new DefaultBuildTargetSourcePath(
+        DefaultBuildTargetSourcePath.of(
             BuildTarget.of(
                 UnflavoredBuildTarget.of(
                     projectFilesystem.getRootPath(), Optional.empty(), "//", "hello"),
@@ -104,7 +104,7 @@ public class SourcePathTypeCoercerTest {
   public void coerceCrossRepoBuildTarget() throws CoerceFailedException, IOException {
     Path helloRoot = Paths.get("/opt/src/hello");
     cellRoots =
-        new DefaultCellPathResolver(
+        DefaultCellPathResolver.of(
             projectFilesystem.getRootPath(), ImmutableMap.of("hello", helloRoot));
 
     SourcePath sourcePath =
@@ -115,7 +115,7 @@ public class SourcePathTypeCoercerTest {
     // the cell name should be absent (otherwise, we'd look for a cell named `@hello` from the
     // `@hello` cell. Yeah. My head hurts a little too.
     assertEquals(
-        new DefaultBuildTargetSourcePath(
+        DefaultBuildTargetSourcePath.of(
             BuildTarget.of(
                 UnflavoredBuildTarget.of(helloRoot, Optional.of("hello"), "//", "hello"),
                 ImmutableSortedSet.of())),

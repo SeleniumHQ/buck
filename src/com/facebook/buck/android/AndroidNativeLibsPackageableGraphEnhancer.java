@@ -34,7 +34,6 @@ import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRules;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.PathSourcePath;
@@ -305,11 +304,11 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
               FluentIterable.from(strippedLibsAssetsMap.entrySet())
                   .filter(entry -> module.equals(entry.getValue().getApkModule())));
 
-      ImmutableCollection<BuildTarget> nativeLibsTargets =
-          packageableCollection.getNativeLibsTargets().get(module);
-
       ImmutableCollection<SourcePath> nativeLibsDirectories =
           packageableCollection.getNativeLibsDirectories().get(module);
+
+      ImmutableCollection<SourcePath> nativeLibsAssetsDirectories =
+          packageableCollection.getNativeLibAssetsDirectories().get(module);
 
       if (filteredStrippedLibsMap.isEmpty()
           && filteredStrippedLibsAssetsMap.isEmpty()
@@ -317,8 +316,6 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
         continue;
       }
 
-      ImmutableSortedSet<BuildRule> nativeLibsRules =
-          BuildRules.toBuildRulesFor(originalBuildTarget, ruleResolver, nativeLibsTargets);
       moduleMappedCopyNativeLibriesBuilder.put(
           module,
           createCopyNativeLibraries(
@@ -326,7 +323,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
               filteredStrippedLibsMap,
               filteredStrippedLibsAssetsMap,
               nativeLibsDirectories,
-              nativeLibsRules));
+              nativeLibsAssetsDirectories));
       hasCopyNativeLibraries = true;
     }
     return resultBuilder
@@ -361,7 +358,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
                       .build();
               nativeLinkableLibsBuilder.put(
                   runtimeLinkableMetadata,
-                  new PathSourcePath(projectFilesystem, platform.getCxxSharedRuntimePath().get()));
+                  PathSourcePath.of(projectFilesystem, platform.getCxxSharedRuntimePath().get()));
             });
   }
 
@@ -370,16 +367,16 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       ImmutableMap<StripLinkable, StrippedObjectDescription> filteredStrippedLibsMap,
       ImmutableMap<StripLinkable, StrippedObjectDescription> filteredStrippedLibsAssetsMap,
       ImmutableCollection<SourcePath> nativeLibsDirectories,
-      ImmutableSortedSet<BuildRule> nativeLibsRules) {
+      ImmutableCollection<SourcePath> nativeLibAssetsDirectories) {
     return new CopyNativeLibraries(
         originalBuildTarget.withAppendedFlavors(
             InternalFlavor.of(COPY_NATIVE_LIBS + "_" + module.getName())),
         projectFilesystem,
         ruleFinder,
-        nativeLibsRules,
+        ImmutableSet.copyOf(filteredStrippedLibsMap.values()),
+        ImmutableSet.copyOf(filteredStrippedLibsAssetsMap.values()),
         ImmutableSet.copyOf(nativeLibsDirectories),
-        filteredStrippedLibsMap,
-        filteredStrippedLibsAssetsMap,
+        ImmutableSet.copyOf(nativeLibAssetsDirectories),
         cpuFilters,
         module.getName());
   }

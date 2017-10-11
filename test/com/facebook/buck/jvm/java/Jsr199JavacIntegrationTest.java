@@ -143,8 +143,8 @@ public class Jsr199JavacIntegrationTest {
                 SOURCE_PATHS,
                 pathToSrcsList,
                 Paths.get("working"),
-                JavacCompilationMode.FULL,
-                false)
+                AbiGenerationMode.CLASS,
+                null)
             .buildClasses();
     assertEquals("javac should exit with code 0.", exitCode, 0);
 
@@ -196,8 +196,8 @@ public class Jsr199JavacIntegrationTest {
                 SOURCE_PATHS,
                 pathToSrcsList,
                 Paths.get("working"),
-                JavacCompilationMode.FULL,
-                false)
+                AbiGenerationMode.CLASS,
+                null)
             .buildClasses();
     assertEquals("javac should exit with code 0.", exitCode, 0);
 
@@ -298,8 +298,8 @@ public class Jsr199JavacIntegrationTest {
               SOURCE_PATHS,
               pathToSrcsList,
               Paths.get("working"),
-              JavacCompilationMode.FULL,
-              false)
+              AbiGenerationMode.CLASS,
+              null)
           .buildClasses();
       fail("Did not expect compilation to succeed");
     } catch (OutOfMemoryError ex) {
@@ -325,8 +325,7 @@ public class Jsr199JavacIntegrationTest {
     Path pathToOutputDirectory = Paths.get("out");
     tmp.newFolder(pathToOutputDirectory.toString());
 
-    Optional<SourcePath> jar =
-        javacJar.map(p -> new PathSourcePath(new FakeProjectFilesystem(), p));
+    Optional<SourcePath> jar = javacJar.map(p -> PathSourcePath.of(new FakeProjectFilesystem(), p));
     if (jar.isPresent()) {
       return new JarBackedJavac(
           JavacSpec.COM_SUN_TOOLS_JAVAC_API_JAVAC_TOOL, ImmutableSet.of(jar.get()));

@@ -16,6 +16,12 @@ class LabelTest(unittest.TestCase):
         self.assertEqual(l.package, 'package')
         self.assertIsNone(l.cell)
 
+    def test_can_parse_label_with_extension(self):
+        l = label.from_string('//pkg/file.ext')
+        self.assertIsNone(l.name)
+        self.assertEqual(l.package, 'pkg/file.ext')
+        self.assertIsNone(l.cell)
+
     def test_can_parse_label_with_multilevel_package(self):
         l = label.from_string('cell//pkg/subpkg:name')
         self.assertEqual(l.name, 'name')
@@ -35,3 +41,9 @@ class LabelTest(unittest.TestCase):
 
     def test_can_convert_to_import_string(self):
         self.assertEqual('cell//pkg:name', label.from_string('cell//pkg:name').to_import_string())
+
+    def test_can_convert_to_import_string_without_cell(self):
+        self.assertEqual('//pkg:name', label.from_string('//pkg:name').to_import_string())
+
+    def test_can_convert_to_import_string_without_name(self):
+        self.assertEqual('cell//pkg', label.from_string('cell//pkg').to_import_string())

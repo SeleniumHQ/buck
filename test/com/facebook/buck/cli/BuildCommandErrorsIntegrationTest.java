@@ -18,7 +18,6 @@ package com.facebook.buck.cli;
 
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
@@ -69,7 +68,7 @@ import org.junit.Rule;
 import org.junit.Test;
 
 public class BuildCommandErrorsIntegrationTest {
-  private static final boolean DEBUG = false;
+  private static final boolean DEBUG = true;
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
   private ProjectWorkspace workspace;
@@ -81,9 +80,9 @@ public class BuildCommandErrorsIntegrationTest {
     workspace.setUp();
     mockDescription = new MockDescription();
     workspace.setKnownBuildRuleTypesFactoryFactory(
-        (processExecutor, androidDirectoryResolver, sdkEnvironment) ->
+        (processExecutor, sdkEnvironment, toolchainProvider) ->
             new KnownBuildRuleTypesFactory(
-                new FakeProcessExecutor(), new FakeAndroidDirectoryResolver(), sdkEnvironment) {
+                new FakeProcessExecutor(), sdkEnvironment, toolchainProvider) {
               @Override
               public KnownBuildRuleTypes create(BuckConfig config, ProjectFilesystem filesystem)
                   throws IOException, InterruptedException {
@@ -188,7 +187,10 @@ public class BuildCommandErrorsIntegrationTest {
     ProjectWorkspace.ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertFailure();
     assertEquals(
-        "Build failed: java.io.IOException failure message\n"
+        "Buck encountered an internal error\n"
+            + "java.io.IOException: failure message\n"
+            + "<stacktrace>\n"
+            + "\n"
             + "    When running <failing_step>.\n"
             + "    When building rule //:target_name.",
         getError(getStderr(result)));
@@ -200,7 +202,10 @@ public class BuildCommandErrorsIntegrationTest {
     ProjectWorkspace.ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertFailure();
     assertEquals(
-        "Build failed: java.io.IOException failure message\n"
+        "Buck encountered an internal error\n"
+            + "java.io.IOException: failure message\n"
+            + "<stacktrace>\n"
+            + "\n"
             + "    When building rule //:target_name.",
         getError(getStderr(result)));
   }
@@ -212,7 +217,10 @@ public class BuildCommandErrorsIntegrationTest {
     ProjectWorkspace.ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertFailure();
     assertEquals(
-        "Build failed: java.io.IOException failure message //:target_name\n"
+        "Buck encountered an internal error\n"
+            + "java.io.IOException: failure message //:target_name\n"
+            + "<stacktrace>\n"
+            + "\n"
             + "    When building rule //:target_name.",
         getError(getStderr(result)));
   }
@@ -270,12 +278,70 @@ public class BuildCommandErrorsIntegrationTest {
     assertEquals("", getError(getStderr(result)));
   }
 
+  @Test
+  public void runtimeExceptionThrownKeepGoing() throws Exception {
+    mockDescription.buildRuleFactory =
+        exceptionTargetFactory("failure message", RuntimeException.class);
+    ProjectWorkspace.ProcessResult result = workspace.runBuckBuild("--keep-going", ":target_name");
+    result.assertFailure();
+    assertEquals(
+        " ** Summary of failures encountered during the build **\n"
+            + "Rule //:target_name FAILED because failure message\n"
+            + "    When building rule //:target_name.\n"
+            + "Not all rules succeeded.",
+        getError(getStderr(result)));
+  }
+
+  @Test
+  public void runtimeExceptionThrownInStepKeepGoing() throws Exception {
+    mockDescription.buildRuleFactory =
+        stepExceptionTargetFactory("failure message", RuntimeException.class);
+    ProjectWorkspace.ProcessResult result = workspace.runBuckBuild("--keep-going", ":target_name");
+    result.assertFailure();
+    assertEquals(
+        " ** Summary of failures encountered during the build **\n"
+            + "Rule //:target_name FAILED because failure message\n"
+            + "    When running <failing_step>.\n"
+            + "    When building rule //:target_name.\n"
+            + "Not all rules succeeded.",
+        getError(getStderr(result)));
+  }
+
+  @Test
+  public void ioExceptionThrownInStepKeepGoing() throws Exception {
+    mockDescription.buildRuleFactory =
+        stepExceptionTargetFactory("failure message", IOException.class);
+    ProjectWorkspace.ProcessResult result = workspace.runBuckBuild("--keep-going", ":target_name");
+    result.assertFailure();
+    assertEquals(
+        " ** Summary of failures encountered during the build **\n"
+            + "Rule //:target_name FAILED because failure message\n"
+            + "    When running <failing_step>.\n"
+            + "    When building rule //:target_name.\n"
+            + "Not all rules succeeded.",
+        getError(getStderr(result)));
+  }
+
+  @Test
+  public void ioExceptionThrownKeepGoing() throws Exception {
+    mockDescription.buildRuleFactory = exceptionTargetFactory("failure message", IOException.class);
+    ProjectWorkspace.ProcessResult result = workspace.runBuckBuild("--keep-going", ":target_name");
+    result.assertFailure();
+    assertEquals(
+        " ** Summary of failures encountered during the build **\n"
+            + "Rule //:target_name FAILED because failure message\n"
+            + "    When building rule //:target_name.\n"
+            + "Not all rules succeeded.",
+        getError(getStderr(result)));
+  }
+
   private String getError(String stderr) {
     String[] lines = stderr.split("\n");
     int start = 0;
     while (start < lines.length) {
       if (lines[start].startsWith("Build failed")
-          || lines[start].startsWith("Buck encountered an internal")) {
+          || lines[start].startsWith("Buck encountered an internal")
+          || lines[start].startsWith(" ** Summary of failures encountered during the build **")) {
         break;
       }
       start++;

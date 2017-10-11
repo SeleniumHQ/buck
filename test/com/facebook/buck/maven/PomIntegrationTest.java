@@ -135,7 +135,7 @@ public class PomIntegrationTest {
         createMavenPublishable(
             "//example:template",
             "example.com:project:1.0.0",
-            new FakeSourcePath(
+            FakeSourcePath.of(
                 TestDataHelper.getTestDataDirectory(getClass())
                     .resolve("poms/template-pom.xml")
                     .toString()));
@@ -234,7 +234,7 @@ public class PomIntegrationTest {
 
     @Override
     public SourcePath getSourcePathToOutput() {
-      return new ExplicitBuildTargetSourcePath(
+      return ExplicitBuildTargetSourcePath.of(
           getBuildTarget(),
           BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s.jar"));
     }

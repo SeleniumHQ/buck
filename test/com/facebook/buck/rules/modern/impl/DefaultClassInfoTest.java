@@ -31,6 +31,7 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
+import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
@@ -124,17 +125,17 @@ public class DefaultClassInfoTest {
     BuildRule rule3 = new FakeBuildRule(target3, ImmutableSortedSet.of());
 
     BuildTargetSourcePath targetSourcePath1 =
-        new ExplicitBuildTargetSourcePath(target1, Paths.get("path"));
+        ExplicitBuildTargetSourcePath.of(target1, Paths.get("path"));
     BuildTargetSourcePath targetSourcePath2 =
-        new ExplicitBuildTargetSourcePath(target2, Paths.get("path"));
+        ExplicitBuildTargetSourcePath.of(target2, Paths.get("path"));
     BuildTargetSourcePath targetSourcePath3 =
-        new ExplicitBuildTargetSourcePath(target3, Paths.get("path"));
+        ExplicitBuildTargetSourcePath.of(target3, Paths.get("path"));
 
     InputPath targetInputPath1 = new InputPath(targetSourcePath1);
     InputPath targetInputPath2 = new InputPath(targetSourcePath2);
     InputPath targetInputPath3 = new InputPath(targetSourcePath3);
 
-    PathSourcePath pathSourcePath = new PathSourcePath(filesystem, Paths.get("path"));
+    PathSourcePath pathSourcePath = FakeSourcePath.of(filesystem, "path");
     InputPath pathInputPath = new InputPath(pathSourcePath);
 
     DerivedClass buildable =

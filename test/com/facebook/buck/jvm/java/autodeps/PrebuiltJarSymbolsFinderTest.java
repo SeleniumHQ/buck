@@ -211,13 +211,13 @@ public class PrebuiltJarSymbolsFinderTest {
     }
 
     ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
-    SourcePath sourcePath = new PathSourcePath(filesystem, Paths.get(jarFileName));
+    SourcePath sourcePath = PathSourcePath.of(filesystem, Paths.get(jarFileName));
     return new PrebuiltJarSymbolsFinder(sourcePath);
   }
 
   private PrebuiltJarSymbolsFinder createFinderForGeneratedJar(String target) {
     BuildTarget buildTarget = BuildTargetFactory.newInstance(target);
-    SourcePath sourcePath = new DefaultBuildTargetSourcePath(buildTarget);
+    SourcePath sourcePath = DefaultBuildTargetSourcePath.of(buildTarget);
     return new PrebuiltJarSymbolsFinder(sourcePath);
   }
 }

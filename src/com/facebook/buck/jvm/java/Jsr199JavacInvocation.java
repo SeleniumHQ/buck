@@ -19,6 +19,7 @@ package com.facebook.buck.jvm.java;
 import com.facebook.buck.event.api.BuckTracing;
 import com.facebook.buck.jvm.java.abi.SourceBasedAbiStubber;
 import com.facebook.buck.jvm.java.abi.StubGenerator;
+import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
 import com.facebook.buck.jvm.java.plugin.PluginLoader;
 import com.facebook.buck.jvm.java.plugin.api.BuckJavacTaskListener;
 import com.facebook.buck.jvm.java.plugin.api.BuckJavacTaskProxy;
@@ -44,7 +45,6 @@ import java.io.PrintWriter; // NOPMD required by API
 import java.io.Writer;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Set;
@@ -68,8 +68,8 @@ class Jsr199JavacInvocation implements Javac.Invocation {
   private final ImmutableList<JavacPluginJsr199Fields> pluginFields;
   private final ImmutableSortedSet<Path> javaSourceFilePaths;
   private final Path pathToSrcsList;
-  private final JavacCompilationMode compilationMode;
-  private final boolean requiredForSourceAbi;
+  private final AbiGenerationMode abiGenerationMode;
+  @Nullable private final SourceOnlyAbiRuleInfo ruleInfo;
   private final DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
   private final List<AutoCloseable> closeables = new ArrayList<>();
 
@@ -85,8 +85,8 @@ class Jsr199JavacInvocation implements Javac.Invocation {
       ImmutableList<JavacPluginJsr199Fields> pluginFields,
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
-      JavacCompilationMode compilationMode,
-      boolean requiredForSourceAbi) {
+      AbiGenerationMode abiGenerationMode,
+      @Nullable SourceOnlyAbiRuleInfo ruleInfo) {
     this.compilerConstructor = compilerConstructor;
     this.context = context;
     this.invokingRule = invokingRule;
@@ -94,8 +94,8 @@ class Jsr199JavacInvocation implements Javac.Invocation {
     this.pluginFields = pluginFields;
     this.javaSourceFilePaths = javaSourceFilePaths;
     this.pathToSrcsList = pathToSrcsList;
-    this.compilationMode = compilationMode;
-    this.requiredForSourceAbi = requiredForSourceAbi;
+    this.abiGenerationMode = abiGenerationMode;
+    this.ruleInfo = ruleInfo;
   }
 
   @Override
@@ -132,10 +132,10 @@ class Jsr199JavacInvocation implements Javac.Invocation {
         }
       } catch (RuntimeException e) {
         throw new HumanReadableException(
+            e,
             String.format(
                 "The compiler crashed when run without dependencies. There is probably an error in the source code. Try building %s to reveal it.",
-                invokingRule.getUnflavoredBuildTarget().toString()),
-            e);
+                invokingRule.getUnflavoredBuildTarget().toString()));
       }
       frontendRunAttempted = true;
 
@@ -362,18 +362,14 @@ class Jsr199JavacInvocation implements Javac.Invocation {
       PluginClassLoader pluginLoader = loaderFactory.getPluginClassLoader(javacTask);
 
       BuckJavacTaskListener taskListener = null;
-      if (EnumSet.of(
-              JavacCompilationMode.FULL_CHECKING_REFERENCES,
-              JavacCompilationMode.FULL_ENFORCING_REFERENCES)
-          .contains(compilationMode)) {
+      if (abiGenerationMode.checkForSourceOnlyAbiCompatibility() && ruleInfo != null) {
+        ruleInfo.setFileManager(fileManager);
         taskListener =
             SourceBasedAbiStubber.newValidatingTaskListener(
                 pluginLoader,
                 javacTask,
-                new DefaultInterfaceValidatorCallback(fileManager, requiredForSourceAbi),
-                compilationMode == JavacCompilationMode.FULL_ENFORCING_REFERENCES
-                    ? Diagnostic.Kind.ERROR
-                    : Diagnostic.Kind.WARNING);
+                ruleInfo,
+                abiGenerationMode.getDiagnosticKindForSourceOnlyAbiCompatibility());
       }
 
       TranslatingJavacPhaseTracer tracer =

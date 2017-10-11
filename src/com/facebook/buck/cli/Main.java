@@ -16,7 +16,7 @@
 
 package com.facebook.buck.cli;
 
-import static com.facebook.buck.config.CellConfig.MalformedOverridesException;
+import static com.facebook.buck.rules.CellConfig.MalformedOverridesException;
 import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
 import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
 
@@ -99,6 +99,8 @@ import com.facebook.buck.test.TestResultSummaryVerbosity;
 import com.facebook.buck.timing.Clock;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.timing.NanosAdjustedClock;
+import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.toolchain.impl.DefaultToolchainProvider;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.AsyncCloseable;
@@ -326,8 +328,8 @@ public final class Main {
   public interface KnownBuildRuleTypesFactoryFactory {
     KnownBuildRuleTypesFactory create(
         ProcessExecutor processExecutor,
-        AndroidDirectoryResolver androidDirectoryResolver,
-        SdkEnvironment sdkEnvironment);
+        SdkEnvironment sdkEnvironment,
+        ToolchainProvider toolchainProvider);
   }
 
   private final KnownBuildRuleTypesFactoryFactory knownBuildRuleTypesFactoryFactory;
@@ -432,6 +434,96 @@ public final class Main {
                 platform, getClientEnvironment(context))));
   }
 
+  private OptionalInt parseArgs(ImmutableList<String> args, BuckCommand command) {
+    // Parse the command line args.
+    AdditionalOptionsCmdLineParser cmdLineParser = new AdditionalOptionsCmdLineParser(command);
+    try {
+      cmdLineParser.parseArgument(args);
+    } catch (CmdLineException e) {
+      // Can't go through the console for prettification since that needs the BuckConfig, and that
+      // needs to be created with the overrides, which are parsed from the command line here, which
+      // required the console to print the message that parsing has failed. So just write to stderr
+      // and be done with it.
+      stdErr.println(e.getLocalizedMessage());
+      stdErr.println("For help see 'buck --help'.");
+      return OptionalInt.of(1);
+    }
+    // Return help strings fast if the command is a help request.
+    OptionalInt result = command.runHelp(stdErr);
+    return result;
+  }
+
+  private void setupLogging(
+      CommandMode commandMode, BuckCommand command, ImmutableList<String> args) throws IOException {
+    // Setup logging.
+    if (commandMode.isLoggingEnabled()) {
+      // Reset logging each time we run a command while daemonized.
+      // This will cause us to write a new log per command.
+      LOG.debug("Rotating log.");
+      LogConfig.flushLogs();
+      LogConfig.setupLogging(command.getLogConfig());
+
+      if (LOG.isDebugEnabled()) {
+        Long gitCommitTimestamp = Long.getLong("buck.git_commit_timestamp");
+        String buildDateStr;
+        if (gitCommitTimestamp == null) {
+          buildDateStr = "(unknown)";
+        } else {
+          buildDateStr =
+              new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US)
+                  .format(new Date(TimeUnit.SECONDS.toMillis(gitCommitTimestamp)));
+        }
+        String buildRev = System.getProperty("buck.git_commit", "(unknown)");
+        LOG.debug("Starting up (build date %s, rev %s), args: %s", buildDateStr, buildRev, args);
+        LOG.debug("System properties: %s", System.getProperties());
+      }
+    }
+  }
+
+  private Config setupDefaultConfig(Path canonicalRootPath, BuckCommand command)
+      throws IOException {
+    ImmutableMap<RelativeCellName, Path> cellMapping =
+        DefaultCellPathResolver.bootstrapPathMapping(
+            canonicalRootPath, Configs.createDefaultConfig(canonicalRootPath));
+    RawConfig rootCellConfigOverrides;
+    try {
+      ImmutableMap<Path, RawConfig> overridesByPath =
+          command.getConfigOverrides().getOverridesByPath(cellMapping);
+      rootCellConfigOverrides =
+          Optional.ofNullable(overridesByPath.get(canonicalRootPath)).orElse(RawConfig.of());
+    } catch (MalformedOverridesException exception) {
+      rootCellConfigOverrides =
+          command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME);
+    }
+    return Configs.createDefaultConfig(canonicalRootPath, rootCellConfigOverrides);
+  }
+
+  private ImmutableSet<Path> getProjectWatchList(
+      Path canonicalRootPath, BuckConfig buckConfig, DefaultCellPathResolver cellPathResolver) {
+    return ImmutableSet.<Path>builder()
+        .add(canonicalRootPath)
+        .addAll(
+            buckConfig.getView(ParserConfig.class).getWatchCells()
+                ? cellPathResolver.getPathMapping().values()
+                : ImmutableList.of())
+        .build();
+  }
+
+  private void checkJavaSpecificationVersions(BuckConfig buckConfig) {
+    Optional<ImmutableList<String>> allowedJavaSpecificationVersions =
+        buckConfig.getAllowedJavaSpecificationVersions();
+    if (allowedJavaSpecificationVersions.isPresent()) {
+      String specificationVersion = System.getProperty("java.specification.version");
+      boolean javaSpecificationVersionIsAllowed =
+          allowedJavaSpecificationVersions.get().contains(specificationVersion);
+      if (!javaSpecificationVersionIsAllowed) {
+        throw new HumanReadableException(
+            "Current Java version '%s' is not in the allowed java specification versions:\n%s",
+            specificationVersion, Joiner.on(", ").join(allowedJavaSpecificationVersions.get()));
+      }
+    }
+  }
+
   /**
    * @param buildId an identifier for this command execution.
    * @param context an optional NGContext that is present if running inside a Nailgun server.
@@ -454,113 +546,36 @@ public final class Main {
     ImmutableList<String> args =
         BuckArgsMethods.expandAtFiles(unexpandedCommandLineArgs, projectRoot);
 
-    // Parse the command line args.
     BuckCommand command = new BuckCommand();
-    AdditionalOptionsCmdLineParser cmdLineParser = new AdditionalOptionsCmdLineParser(command);
-    try {
-      cmdLineParser.parseArgument(args);
-    } catch (CmdLineException e) {
-      // Can't go through the console for prettification since that needs the BuckConfig, and that
-      // needs to be created with the overrides, which are parsed from the command line here, which
-      // required the console to print the message that parsing has failed. So just write to stderr
-      // and be done with it.
-      stdErr.println(e.getLocalizedMessage());
-      stdErr.println("For help see 'buck --help'.");
-      return 1;
+    OptionalInt returnCode = parseArgs(args, command);
+    if (returnCode.isPresent()) {
+      return returnCode.getAsInt();
     }
 
-    {
-      // Return help strings fast if the command is a help request.
-      OptionalInt result = command.runHelp(stdErr);
-      if (result.isPresent()) {
-        return result.getAsInt();
-      }
-    }
-
-    // Setup logging.
-    if (commandMode.isLoggingEnabled()) {
-
-      // Reset logging each time we run a command while daemonized.
-      // This will cause us to write a new log per command.
-      LOG.debug("Rotating log.");
-      LogConfig.flushLogs();
-      LogConfig.setupLogging(command.getLogConfig());
-
-      if (LOG.isDebugEnabled()) {
-        Long gitCommitTimestamp = Long.getLong("buck.git_commit_timestamp");
-        String buildDateStr;
-        if (gitCommitTimestamp == null) {
-          buildDateStr = "(unknown)";
-        } else {
-          buildDateStr =
-              new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US)
-                  .format(new Date(TimeUnit.SECONDS.toMillis(gitCommitTimestamp)));
-        }
-        String buildRev = System.getProperty("buck.git_commit", "(unknown)");
-        LOG.debug("Starting up (build date %s, rev %s), args: %s", buildDateStr, buildRev, args);
-        LOG.debug("System properties: %s", System.getProperties());
-      }
-    }
+    setupLogging(commandMode, command, args);
 
     // Setup filesystem and buck config.
     Path canonicalRootPath = projectRoot.toRealPath().normalize();
-    ImmutableMap<RelativeCellName, Path> cellMapping =
-        DefaultCellPathResolver.bootstrapPathMapping(
-            canonicalRootPath, Configs.createDefaultConfig(canonicalRootPath));
-    RawConfig rootCellConfigOverrides = RawConfig.of();
-    try {
-      ImmutableMap<Path, RawConfig> overridesByPath =
-          command.getConfigOverrides().getOverridesByPath(cellMapping);
-      rootCellConfigOverrides =
-          Optional.ofNullable(overridesByPath.get(canonicalRootPath)).orElse(RawConfig.of());
-    } catch (MalformedOverridesException exception) {
-      rootCellConfigOverrides =
-          command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME);
-    }
-    Config config = Configs.createDefaultConfig(canonicalRootPath, rootCellConfigOverrides);
+    Config config = setupDefaultConfig(canonicalRootPath, command);
 
     ProjectFilesystemFactory projectFilesystemFactory = new DefaultProjectFilesystemFactory();
     ProjectFilesystem filesystem =
         projectFilesystemFactory.createProjectFilesystem(canonicalRootPath, config);
 
     DefaultCellPathResolver cellPathResolver =
-        new DefaultCellPathResolver(filesystem.getRootPath(), config);
+        DefaultCellPathResolver.of(filesystem.getRootPath(), config);
     BuckConfig buckConfig =
         new BuckConfig(
             config, filesystem, architecture, platform, clientEnvironment, cellPathResolver);
     ImmutableSet<Path> projectWatchList =
-        ImmutableSet.<Path>builder()
-            .add(canonicalRootPath)
-            .addAll(
-                buckConfig.getView(ParserConfig.class).getWatchCells()
-                    ? cellPathResolver.getPathMapping().values()
-                    : ImmutableList.of())
-            .build();
-    Optional<ImmutableList<String>> allowedJavaSpecificiationVersions =
-        buckConfig.getAllowedJavaSpecificationVersions();
-    if (allowedJavaSpecificiationVersions.isPresent()) {
-      String specificationVersion = System.getProperty("java.specification.version");
-      boolean javaSpecificationVersionIsAllowed =
-          allowedJavaSpecificiationVersions.get().contains(specificationVersion);
-      if (!javaSpecificationVersionIsAllowed) {
-        throw new HumanReadableException(
-            "Current Java version '%s' is not in the allowed java specification versions:\n%s",
-            specificationVersion, Joiner.on(", ").join(allowedJavaSpecificiationVersions.get()));
-      }
-    }
+        getProjectWatchList(canonicalRootPath, buckConfig, cellPathResolver);
+
+    checkJavaSpecificationVersions(buckConfig);
 
     Verbosity verbosity = VerbosityParser.parse(args);
 
     // Setup the console.
     final Console console = makeCustomConsole(context, verbosity, buckConfig);
-
-    // dirty! this is a temporary fix to speed up buck --version
-    // this will go away with permanent fix that dispatches commands providing only needed
-    // parameters which are lazily initialized
-    if (command.subcommand instanceof VersionCommand) {
-      ((VersionCommand) command.subcommand).printVersion(console);
-      return 0;
-    }
 
     // No more early outs: if this command is not read only, acquire the command semaphore to
     // become the only executing read/write command.
@@ -607,6 +622,9 @@ public final class Main {
         }
       }
 
+      ToolchainProvider toolchainProvider =
+          new DefaultToolchainProvider(clientEnvironment, buckConfig, filesystem);
+
       AndroidBuckConfig androidBuckConfig = new AndroidBuckConfig(buckConfig, platform);
       AndroidDirectoryResolver androidDirectoryResolver =
           new DefaultAndroidDirectoryResolver(
@@ -618,7 +636,7 @@ public final class Main {
       ProcessExecutor processExecutor = new DefaultProcessExecutor(console);
 
       SdkEnvironment sdkEnvironment =
-          SdkEnvironment.create(buckConfig, processExecutor, androidDirectoryResolver);
+          SdkEnvironment.create(buckConfig, processExecutor, toolchainProvider);
 
       Clock clock;
       boolean enableThreadCpuTime =
@@ -638,7 +656,7 @@ public final class Main {
 
         KnownBuildRuleTypesFactory factory =
             knownBuildRuleTypesFactoryFactory.create(
-                processExecutor, androidDirectoryResolver, sdkEnvironment);
+                processExecutor, sdkEnvironment, toolchainProvider);
 
         Cell rootCell =
             CellProvider.createForLocalBuild(
@@ -1079,6 +1097,7 @@ public final class Main {
                         .setDefaultRuleKeyFactoryCacheRecycler(defaultRuleKeyFactoryCacheRecycler)
                         .setBuildInfoStoreManager(storeManager)
                         .setProjectFilesystemFactory(projectFilesystemFactory)
+                        .setToolchainProvider(factory.getToolchainProvider())
                         .build());
           } catch (InterruptedException | ClosedByInterruptException e) {
             buildEventBus.post(CommandEvent.interrupted(startedEvent, INTERRUPTED_EXIT_CODE));
@@ -1544,6 +1563,7 @@ public final class Main {
         testResultSummaryVerbosity,
         config.getHideSucceededRulesInLogMode(),
         config.getNumberOfSlowRulesToShow(),
+        config.shouldShowSlowRulesInConsole(),
         locale,
         testLogPath,
         executionEnvironment,

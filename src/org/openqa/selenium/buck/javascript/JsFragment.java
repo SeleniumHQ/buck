@@ -142,7 +142,6 @@ public class JsFragment extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   @Nullable
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new PathSourcePath(getProjectFilesystem(), output);
+    return PathSourcePath.of(getProjectFilesystem(), output);
   }
-
 }

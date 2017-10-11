@@ -86,16 +86,16 @@ public class RuleKeyBuilderTest {
   private static final Path PATH_1 = Paths.get("path1");
   private static final Path PATH_2 = Paths.get("path2");
   private static final ProjectFilesystem FILESYSTEM = new FakeProjectFilesystem();
-  private static final SourcePath SOURCE_PATH_1 = new PathSourcePath(FILESYSTEM, PATH_1);
-  private static final SourcePath SOURCE_PATH_2 = new PathSourcePath(FILESYSTEM, PATH_2);
+  private static final SourcePath SOURCE_PATH_1 = PathSourcePath.of(FILESYSTEM, PATH_1);
+  private static final SourcePath SOURCE_PATH_2 = PathSourcePath.of(FILESYSTEM, PATH_2);
   private static final ArchiveMemberSourcePath ARCHIVE_PATH_1 =
       ArchiveMemberSourcePath.of(SOURCE_PATH_1, Paths.get("member"));
   private static final ArchiveMemberSourcePath ARCHIVE_PATH_2 =
       ArchiveMemberSourcePath.of(SOURCE_PATH_2, Paths.get("member"));
   private static final DefaultBuildTargetSourcePath TARGET_PATH_1 =
-      new DefaultBuildTargetSourcePath(TARGET_1);
+      DefaultBuildTargetSourcePath.of(TARGET_1);
   private static final DefaultBuildTargetSourcePath TARGET_PATH_2 =
-      new DefaultBuildTargetSourcePath(TARGET_2);
+      DefaultBuildTargetSourcePath.of(TARGET_2);
 
   @Test
   public void testUniqueness() {

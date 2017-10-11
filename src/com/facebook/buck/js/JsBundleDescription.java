@@ -62,15 +62,19 @@ public class JsBundleDescription
         Flavored,
         HasAppleBundleResourcesDescription<JsBundleDescriptionArg> {
 
-  private static final ImmutableSet<FlavorDomain<?>> FLAVOR_DOMAINS =
+  static final ImmutableSet<FlavorDomain<?>> FLAVOR_DOMAINS =
       ImmutableSet.of(
           JsFlavors.PLATFORM_DOMAIN,
           JsFlavors.OPTIMIZATION_DOMAIN,
           JsFlavors.RAM_BUNDLE_DOMAIN,
-          JsFlavors.SOURCE_MAP_DOMAIN);
+          JsFlavors.OUTPUT_OPTIONS_DOMAIN);
 
   @Override
   public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
+    return supportsFlavors(flavors);
+  }
+
+  static boolean supportsFlavors(ImmutableSet<Flavor> flavors) {
     return JsFlavors.validateFlavors(flavors, FLAVOR_DOMAINS);
   }
 
@@ -127,9 +131,9 @@ public class JsBundleDescription
     params = JsUtil.withWorkerDependencyOnly(params, resolver, args.getWorker());
 
     final Either<ImmutableSet<String>, String> entryPoint = args.getEntry();
-    ImmutableSortedSet<JsLibrary> libraryDeps =
-        new TransitiveLibraryDependencies(buildTarget, targetGraph, resolver)
-            .collect(args.getDeps());
+    TransitiveLibraryDependencies libsResolver =
+        new TransitiveLibraryDependencies(buildTarget, targetGraph, resolver);
+    ImmutableSortedSet<JsLibrary> libraryDeps = libsResolver.collect(args.getDeps());
 
     BuildRuleParams paramsWithLibraries = params.copyAppendingExtraDeps(libraryDeps);
     ImmutableSortedSet<SourcePath> libraries =
@@ -152,6 +156,17 @@ public class JsBundleDescription
           resolver.getRuleWithType(args.getWorker(), WorkerTool.class));
     }
 
+    ImmutableList<ImmutableSet<SourcePath>> libraryPathGroups =
+        args.getLibraryGroups()
+            .stream()
+            .map(
+                group ->
+                    group
+                        .stream()
+                        .map(lib -> libsResolver.requireLibrary(lib).getSourcePathToOutput())
+                        .collect(MoreCollectors.toImmutableSet()))
+            .collect(MoreCollectors.toImmutableList());
+
     String bundleName = getBundleName(args, buildTarget.getFlavors());
 
     return new JsBundle(
@@ -160,6 +175,7 @@ public class JsBundleDescription
         paramsWithLibraries,
         libraries,
         entryPoints,
+        libraryPathGroups,
         bundleName,
         resolver.getRuleWithType(args.getWorker(), WorkerTool.class));
   }
@@ -253,6 +269,11 @@ public class JsBundleDescription
       BuildRuleResolver resolver) {
     JsBundleOutputs bundle =
         resolver.getRuleWithType(targetNode.getBuildTarget(), JsBundleOutputs.class);
+    addAppleBundleResources(builder, bundle);
+  }
+
+  static void addAppleBundleResources(
+      AppleBundleResources.Builder builder, JsBundleOutputs bundle) {
     builder.addDirsContainingResourceDirs(
         bundle.getSourcePathToOutput(), bundle.getSourcePathToResources());
   }
@@ -274,6 +295,12 @@ public class JsBundleDescription
 
     /** For R.java */
     Optional<String> getAndroidPackage();
+
+    /**
+     * Get the ordered list of library groups that should be bundled together, in the case of
+     * "bundle splitting".
+     */
+    ImmutableList<ImmutableSet<BuildTarget>> getLibraryGroups();
   }
 
   private static String getBundleName(

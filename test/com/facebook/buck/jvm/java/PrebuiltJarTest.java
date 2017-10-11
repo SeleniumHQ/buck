@@ -60,13 +60,13 @@ public class PrebuiltJarTest {
                 new SourcePathRuleFinder(
                     new SingleThreadedBuildRuleResolver(
                         TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()))),
-            new FakeSourcePath("abi.jar"),
-            Optional.of(new FakeSourcePath("lib/junit-4.11-sources.jar")),
+            FakeSourcePath.of("abi.jar"),
+            Optional.of(FakeSourcePath.of("lib/junit-4.11-sources.jar")),
             /* gwtJar */ Optional.empty(),
             Optional.of("http://junit-team.github.io/junit/javadoc/latest/"),
             /* mavenCoords */ Optional.empty(),
             /* provided */ false,
-            /* requiredForSourceAbi */ false);
+            /* requiredForSourceOnlyAbi */ false);
   }
 
   @Test

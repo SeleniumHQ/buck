@@ -26,11 +26,9 @@ import static org.junit.Assume.assumeTrue;
 import com.dd.plist.BinaryPropertyListParser;
 import com.dd.plist.NSDictionary;
 import com.dd.plist.NSObject;
-import com.facebook.buck.android.DefaultAndroidDirectoryResolver;
 import com.facebook.buck.cli.Main;
 import com.facebook.buck.cli.TestRunning;
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.CellConfig;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.WatchmanWatcher;
@@ -46,11 +44,13 @@ import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.CellConfig;
 import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.DefaultProcessExecutor;
@@ -150,10 +150,14 @@ public class ProjectWorkspace {
         }
       };
 
+  private static final String TEST_CELL_LOCATION =
+      "test/com/facebook/buck/testutil/integration/testlibs";
+
   private boolean isSetUp = false;
   private final Map<String, Map<String, String>> localConfigs = new HashMap<>();
   private final Path templatePath;
   private final Path destPath;
+  private final boolean addBuckRepoCell;
   @Nullable private ProjectFilesystemAndConfig projectFilesystemAndConfig;
   @Nullable private Main.KnownBuildRuleTypesFactoryFactory knownBuildRuleTypesFactoryFactory;
 
@@ -169,9 +173,15 @@ public class ProjectWorkspace {
   }
 
   @VisibleForTesting
-  ProjectWorkspace(Path templateDir, final Path targetFolder) {
+  ProjectWorkspace(Path templateDir, Path targetFolder, boolean addBuckRepoCell) {
     this.templatePath = templateDir;
     this.destPath = targetFolder;
+    this.addBuckRepoCell = addBuckRepoCell;
+  }
+
+  @VisibleForTesting
+  ProjectWorkspace(Path templateDir, final Path targetFolder) {
+    this(templateDir, targetFolder, false);
   }
 
   /**
@@ -251,6 +261,11 @@ public class ProjectWorkspace {
     // same time from creating a quadratic number of threads. Tests can disable this using
     // `disableThreadLimitOverride`.
     addBuckConfigLocalOption("build", "threads", "2");
+
+    if (addBuckRepoCell) {
+      addBuckConfigLocalOption(
+          "repositories", "buck", Paths.get(TEST_CELL_LOCATION).toAbsolutePath().toString());
+    }
 
     // We have to have .watchmanconfig on windows, otherwise we have problems with deleting stuff
     // from buck-out while watchman indexes/touches files.
@@ -737,9 +752,6 @@ public class ProjectWorkspace {
 
     TestConsole console = new TestConsole();
     ImmutableMap<String, String> env = ImmutableMap.copyOf(System.getenv());
-    DefaultAndroidDirectoryResolver directoryResolver =
-        new DefaultAndroidDirectoryResolver(
-            filesystem.getRootPath().getFileSystem(), env, Optional.empty(), Optional.empty());
     ProcessExecutor processExecutor = new DefaultProcessExecutor(console);
     BuckConfig buckConfig =
         new BuckConfig(
@@ -748,15 +760,17 @@ public class ProjectWorkspace {
             Architecture.detect(),
             Platform.detect(),
             env,
-            new DefaultCellPathResolver(filesystem.getRootPath(), config));
+            DefaultCellPathResolver.of(filesystem.getRootPath(), config));
+    TestToolchainProvider toolchainProvider = new TestToolchainProvider();
     SdkEnvironment sdkEnvironment =
-        SdkEnvironment.create(buckConfig, processExecutor, directoryResolver);
+        SdkEnvironment.create(buckConfig, processExecutor, toolchainProvider);
+
     return CellProvider.createForLocalBuild(
             filesystem,
             Watchman.NULL_WATCHMAN,
             buckConfig,
             CellConfig.of(),
-            new KnownBuildRuleTypesFactory(processExecutor, directoryResolver, sdkEnvironment),
+            new KnownBuildRuleTypesFactory(processExecutor, sdkEnvironment, toolchainProvider),
             sdkEnvironment,
             new DefaultProjectFilesystemFactory())
         .getCellByPath(filesystem.getRootPath());

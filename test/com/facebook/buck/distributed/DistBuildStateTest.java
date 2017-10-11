@@ -22,8 +22,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.android.AndroidDirectoryResolver;
-import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.distributed.thrift.BuildJobState;
@@ -69,6 +67,7 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.cache.FileHashCacheMode;
@@ -108,10 +107,11 @@ public class DistBuildStateTest {
 
   private void setUp(BuckConfig buckConfig) {
     ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
-    AndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
-    sdkEnvironment = SdkEnvironment.create(buckConfig, processExecutor, androidDirectoryResolver);
+    TestToolchainProvider toolchainProvider = new TestToolchainProvider();
+    sdkEnvironment = SdkEnvironment.create(buckConfig, processExecutor, toolchainProvider);
+
     knownBuildRuleTypesFactory =
-        new KnownBuildRuleTypesFactory(processExecutor, androidDirectoryResolver, sdkEnvironment);
+        new KnownBuildRuleTypesFactory(processExecutor, sdkEnvironment, toolchainProvider);
   }
 
   @Test
@@ -129,7 +129,7 @@ public class DistBuildStateTest {
                 .putAll(System.getenv())
                 .put("envKey", "envValue")
                 .build(),
-            new DefaultCellPathResolver(filesystem.getRootPath(), config));
+            DefaultCellPathResolver.of(filesystem.getRootPath(), config));
     Cell rootCellWhenSaving =
         new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(buckConfig).build();
     setUp(buckConfig);
@@ -181,7 +181,7 @@ public class DistBuildStateTest {
                 .putAll(System.getenv())
                 .put("envKey", "envValue")
                 .build(),
-            new DefaultCellPathResolver(filesystem.getRootPath(), config));
+            DefaultCellPathResolver.of(filesystem.getRootPath(), config));
     Cell rootCellWhenSaving =
         new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(buckConfig).build();
     setUp(buckConfig);
@@ -199,7 +199,7 @@ public class DistBuildStateTest {
                 .putAll(System.getenv())
                 .put("envKey", "envValue")
                 .build(),
-            new DefaultCellPathResolver(filesystem.getRootPath(), config));
+            DefaultCellPathResolver.of(filesystem.getRootPath(), config));
 
     BuildJobState dump =
         DistBuildState.dump(
@@ -293,7 +293,7 @@ public class DistBuildStateTest {
         Lists.newArrayList("A.java", "B.java", "C.java")
             .stream()
             .map(f -> reconstructedCellFilesystem.getPath(f))
-            .map(p -> new PathSourcePath(reconstructedCellFilesystem, p))
+            .map(p -> PathSourcePath.of(reconstructedCellFilesystem, p))
             .map(ImmutableSortedSet::of)
             .collect(Collectors.toList()));
   }
@@ -325,7 +325,7 @@ public class DistBuildStateTest {
                 .putAll(System.getenv())
                 .put("envKey", "envValue")
                 .build(),
-            new DefaultCellPathResolver(cell1Root, config));
+            DefaultCellPathResolver.of(cell1Root, config));
     Cell rootCellWhenSaving =
         new TestCellBuilder().setFilesystem(cell1Filesystem).setBuckConfig(buckConfig).build();
     setUp(buckConfig);
@@ -354,7 +354,7 @@ public class DistBuildStateTest {
                 .putAll(System.getenv())
                 .put("envKey", "envValue")
                 .build(),
-            new DefaultCellPathResolver(cell1Root, localConfig));
+            DefaultCellPathResolver.of(cell1Root, localConfig));
     DistBuildState distributedBuildState =
         DistBuildState.load(
             localBuckConfig,
@@ -454,7 +454,7 @@ public class DistBuildStateTest {
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance(cellOneFilesystem.getRootPath(), "//:foo"),
                 cellOneFilesystem)
-            .addSrc(new DefaultBuildTargetSourcePath(target))
+            .addSrc(DefaultBuildTargetSourcePath.of(target))
             .build(),
         JavaLibraryBuilder.createBuilder(target, cellTwoFilesystem).build());
   }

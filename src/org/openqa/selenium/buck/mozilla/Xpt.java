@@ -82,6 +82,6 @@ public class Xpt extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new PathSourcePath(getProjectFilesystem(), out);
+    return PathSourcePath.of(getProjectFilesystem(), out);
   }
 }

@@ -396,37 +396,7 @@ public class JavaBuckConfigTest {
   @Test
   public void testCompileFullJarsByDefault() throws IOException {
     JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(""));
-    JavacOptions options = config.getDefaultJavacOptions();
-    assertThat(options.getCompilationMode(), Matchers.equalTo(JavacCompilationMode.FULL));
-  }
-
-  @Test
-  public void testSourceWithDepsABI() throws IOException {
-    String content = Joiner.on('\n').join("[java]", "    abi_generation_mode = source_with_deps");
-    JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(content));
-    JavacOptions options = config.getDefaultJavacOptions();
-    assertThat(options.getCompilationMode(), Matchers.equalTo(JavacCompilationMode.FULL));
-  }
-
-  @Test
-  public void testMigratingToSourceABI() throws IOException {
-    String content =
-        Joiner.on('\n').join("[java]", "    abi_generation_mode = migrating_to_source");
-    JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(content));
-    JavacOptions options = config.getDefaultJavacOptions();
-    assertThat(
-        options.getCompilationMode(),
-        Matchers.equalTo(JavacCompilationMode.FULL_CHECKING_REFERENCES));
-  }
-
-  @Test
-  public void testSourceABINoDeps() throws IOException {
-    String content = Joiner.on('\n').join("[java]", "    abi_generation_mode = source");
-    JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(content));
-    JavacOptions options = config.getDefaultJavacOptions();
-    assertThat(
-        options.getCompilationMode(),
-        Matchers.equalTo(JavacCompilationMode.FULL_ENFORCING_REFERENCES));
+    assertThat(config.getAbiGenerationMode(), Matchers.equalTo(AbiGenerationMode.CLASS));
   }
 
   private void assertOptionKeyAbsent(JavacOptions options, String key) {

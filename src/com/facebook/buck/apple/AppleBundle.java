@@ -251,7 +251,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return new ExplicitBuildTargetSourcePath(getBuildTarget(), bundleRoot);
+    return ExplicitBuildTargetSourcePath.of(getBuildTarget(), bundleRoot);
   }
 
   public Path getInfoPlistPath() {
@@ -1011,7 +1011,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @Override
   public Tool getExecutableCommand() {
     return new CommandTool.Builder()
-        .addArg(SourcePathArg.of(new PathSourcePath(getProjectFilesystem(), bundleBinaryPath)))
+        .addArg(SourcePathArg.of(PathSourcePath.of(getProjectFilesystem(), bundleBinaryPath)))
         .build();
   }
 }

@@ -163,9 +163,9 @@ public class ConstructorArgMarshallerImmutableTest {
                 "targetPath", ":peas"));
 
     assertEquals(
-        new PathSourcePath(projectFilesystem, Paths.get("example/path/cheese.txt")),
+        PathSourcePath.of(projectFilesystem, Paths.get("example/path/cheese.txt")),
         built.getFilePath());
-    assertEquals(new DefaultBuildTargetSourcePath(target), built.getTargetPath());
+    assertEquals(DefaultBuildTargetSourcePath.of(target), built.getTargetPath());
   }
 
   @Test
@@ -461,7 +461,7 @@ public class ConstructorArgMarshallerImmutableTest {
     assertEquals(Optional.of(88L), built.getOptionalLong());
     assertTrue(built.isNeeded());
     assertEquals(Optional.empty(), built.isNotNeeded());
-    DefaultBuildTargetSourcePath expected = new DefaultBuildTargetSourcePath(target);
+    DefaultBuildTargetSourcePath expected = DefaultBuildTargetSourcePath.of(target);
     assertEquals(expected, built.getASrcPath());
     assertEquals(Paths.get("example/path/NotFile.java"), built.getNotAPath().get());
   }

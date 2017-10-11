@@ -94,16 +94,16 @@ public abstract class ActionGraphEvent extends AbstractBuckEvent
       return new Miss(cacheWasEmpty);
     }
 
+    public static MissWithEmptyCache missWithEmptyCache() {
+      return new MissWithEmptyCache();
+    }
+
     public static MissWithTargetGraphHashMatch missWithTargetGraphHashMatch() {
       return new MissWithTargetGraphHashMatch();
     }
 
-    public static MissWithWatchmanPathEvent missWithWatchmanPathEvent() {
-      return new MissWithWatchmanPathEvent();
-    }
-
-    public static MissWithWatchmanOverflowEvent missWithWatchmanOverflowEvent() {
-      return new MissWithWatchmanOverflowEvent();
+    public static MissWithTargetGraphDifference missWithTargetGraphDifference() {
+      return new MissWithTargetGraphDifference();
     }
 
     public static class Hit extends Cache {
@@ -121,21 +121,21 @@ public abstract class ActionGraphEvent extends AbstractBuckEvent
       }
     }
 
+    public static class MissWithEmptyCache extends Cache {
+      public MissWithEmptyCache() {
+        super("ActionGraphCacheMissWithEmptyCache");
+      }
+    }
+
     public static class MissWithTargetGraphHashMatch extends Cache {
       public MissWithTargetGraphHashMatch() {
         super("ActionGraphCacheMissWithTargetGraphHashMatch");
       }
     }
 
-    public static class MissWithWatchmanPathEvent extends Cache {
-      public MissWithWatchmanPathEvent() {
-        super("ActionGraphCacheMissWithWatchmanPathEvent");
-      }
-    }
-
-    public static class MissWithWatchmanOverflowEvent extends Cache {
-      public MissWithWatchmanOverflowEvent() {
-        super("ActionGraphCacheMissWithWatchmanOverflowEvent");
+    public static class MissWithTargetGraphDifference extends Cache {
+      public MissWithTargetGraphDifference() {
+        super("ActionGraphCacheMissWithTargetGraphDifference");
       }
     }
 

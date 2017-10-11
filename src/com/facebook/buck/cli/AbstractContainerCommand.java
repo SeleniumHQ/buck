@@ -16,9 +16,9 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.config.CellConfig;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.log.LogConfigSetup;
+import com.facebook.buck.rules.CellConfig;
 import com.facebook.buck.step.ExecutorPool;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -43,6 +43,14 @@ public abstract class AbstractContainerCommand implements Command {
   )
   @SuppressWarnings("PMD.UnusedPrivateField")
   private boolean helpScreen;
+
+  @Option(
+    name = "--flagfile",
+    metaVar = "FILE",
+    usage = "File to read command line arguments from."
+  )
+  @SuppressWarnings("PMD.UnusedPrivateField")
+  private String[] files;
 
   protected String getSubcommandsFieldName() {
     return "subcommand";

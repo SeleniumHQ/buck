@@ -89,9 +89,9 @@ java_library(
 )
 
 java_library(
-    name = "javac-compilation-mode",
+    name = "abi-generation-mode",
     srcs = [
-        "JavacCompilationMode.java",
+        "AbiGenerationMode.java",
     ],
     visibility = ["PUBLIC"],
     deps = [],
@@ -158,7 +158,7 @@ java_immutables_library(
         "ConstantJavacProvider.java",
         "DefaultClassUsageFileReader.java",
         "DefaultClassUsageFileWriter.java",
-        "DefaultInterfaceValidatorCallback.java",
+        "DefaultSourceOnlyAbiRuleInfo.java",
         "DiagnosticCleaner.java",
         "DiagnosticPrettyPrinter.java",
         "ExternalJavac.java",
@@ -191,7 +191,7 @@ java_immutables_library(
         "Jsr199TracingBridge.java",
         "LoggingJarBuilderObserver.java",
         "MavenPublishable.java",
-        "MaybeRequiredForSourceAbi.java",
+        "MaybeRequiredForSourceOnlyAbi.java",
         "NoOpClassUsageFileWriter.java",
         "OptionsConsumer.java",
         "OutOfProcessConnectionFactory.java",
@@ -205,7 +205,7 @@ java_immutables_library(
         "TracingProcessorWrapper.java",
     ],
     exported_deps = [
-        "//src/com/facebook/buck/jvm/java:javac-compilation-mode",
+        "//src/com/facebook/buck/jvm/java:abi-generation-mode",
     ],
     provided_deps = [
         # Event API is loaded by the bootstrapper at runtime; don't need to depend on it strongly
@@ -327,10 +327,11 @@ java_library(
 java_immutables_library(
     name = "rules",
     srcs = [
+        "AbstractDefaultJavaLibraryClasspaths.java",
         "BuiltInJavac.java",
         "CalculateAbi.java",
-        "CalculateAbiFromClasses.java",
-        "CalculateAbiFromSource.java",
+        "CalculateClassAbi.java",
+        "CalculateSourceAbi.java",
         "CompareAbis.java",
         "ConfiguredCompilerFactory.java",
         "DefaultJavaLibrary.java",
@@ -359,11 +360,14 @@ java_immutables_library(
         "Keystore.java",
         "KeystoreDescription.java",
         "MavenUberJar.java",
-        "MaybeRequiredForSourceAbiArg.java",
+        "MaybeRequiredForSourceOnlyAbiArg.java",
         "PrebuiltJar.java",
         "PrebuiltJarDescription.java",
         "SourceJar.java",
         "ZipArchiveDependencySupplier.java",
+    ],
+    exported_deps = [
+        "//src/com/facebook/buck/jvm/java/abi/source/api:api",
     ],
     resources = [
         "FatJar.java",
@@ -485,7 +489,7 @@ java_immutables_library(
         "AbstractDiffAbisStep.java",
         "AbstractJUnitJvmArgs.java",
         "AccumulateClassNamesStep.java",
-        "CalculateAbiFromClassesStep.java",
+        "CalculateClassAbiStep.java",
         "ClasspathChecker.java",
         "CompileToJarStepFactory.java",
         "CopyResourcesStep.java",
