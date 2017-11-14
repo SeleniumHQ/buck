@@ -148,7 +148,7 @@ public class DelegateAndGraphsInitializer {
                   /* checkActionGraphs */ false,
                   /* skipActionGraphCache */ false,
                   Preconditions.checkNotNull(targetGraph),
-                  args.getCacheKeySeed(),
+                  args.getRuleKeyConfiguration(),
                   ActionGraphParallelizationMode.DISABLED,
                   Optional.empty());
       return actionGraphAndResolver;
@@ -215,7 +215,8 @@ public class DelegateAndGraphsInitializer {
     ParserTargetNodeFactory<TargetNode<?, ?>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
             new ConstructorArgMarshaller(typeCoercerFactory),
-            new TargetNodeFactory(typeCoercerFactory));
+            new TargetNodeFactory(typeCoercerFactory),
+            args.getRuleKeyConfiguration());
 
     return new DistBuildTargetGraphCodec(
         parserTargetNodeFactory,

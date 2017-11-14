@@ -134,6 +134,7 @@ import com.facebook.buck.python.PythonBuckConfig;
 import com.facebook.buck.python.PythonLibraryDescription;
 import com.facebook.buck.python.PythonPlatform;
 import com.facebook.buck.python.PythonTestDescription;
+import com.facebook.buck.rules.keys.RuleKeyConfiguration;
 import com.facebook.buck.rust.PrebuiltRustLibraryDescription;
 import com.facebook.buck.rust.RustBinaryDescription;
 import com.facebook.buck.rust.RustBuckConfig;
@@ -251,6 +252,7 @@ abstract class AbstractKnownBuildRuleTypes {
       ToolchainProvider toolchainProvider,
       SdkEnvironment sdkEnvironment,
       PluginManager pluginManager,
+      RuleKeyConfiguration ruleKeyConfiguration,
       SandboxExecutionStrategyFactory sandboxExecutionStrategyFactory)
       throws InterruptedException, IOException {
 
@@ -323,7 +325,12 @@ abstract class AbstractKnownBuildRuleTypes {
         FlavorDomain.from("Python Platform", pythonPlatformsList);
     PythonBinaryDescription pythonBinaryDescription =
         new PythonBinaryDescription(
-            pyConfig, pythonPlatforms, cxxBuckConfig, defaultCxxPlatform, cxxPlatforms);
+            ruleKeyConfiguration,
+            pyConfig,
+            pythonPlatforms,
+            cxxBuckConfig,
+            defaultCxxPlatform,
+            cxxPlatforms);
 
     // Look up the timeout to apply to entire test rules.
     Optional<Long> defaultTestRuleTimeoutMs = config.getLong("test", "rule_timeout");

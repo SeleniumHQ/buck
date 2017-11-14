@@ -4,7 +4,7 @@ java_library(
     name = "testutil",
     srcs = glob(
         ["*.java"],
-        excludes = [
+        exclude = [
             "*Test.java",
             "*Builder.java",
         ],
@@ -184,6 +184,7 @@ java_library(
         "//test/com/facebook/buck/cxx/toolchain:testutil",
         "//test/com/facebook/buck/python:testutil",
         "//test/com/facebook/buck/rules:testutil",
+        "//test/com/facebook/buck/rules/keys:testutil",
         "//test/com/facebook/buck/rules/macros:testutil",
         "//test/com/facebook/buck/testutil/integration:util",
         "//test/com/facebook/buck/timing:testutil",
@@ -369,7 +370,7 @@ java_test(
     name = "python",
     srcs = glob(
         ["*Test.java"],
-        excludes = ["PythonBinaryIntegrationTest.java"],
+        exclude = ["PythonBinaryIntegrationTest.java"],
     ),
     labels = ["long_running"],
     deps = [

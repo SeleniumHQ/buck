@@ -27,4 +27,7 @@ abstract class AbstractRuleKeyConfiguration {
   /** The seed of all rule keys. */
   @Value.Parameter
   public abstract int getSeed();
+
+  @Value.Parameter
+  public abstract String getCoreKey();
 }

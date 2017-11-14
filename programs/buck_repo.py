@@ -89,8 +89,6 @@ class BuckRepo(BuckTool):
     def _get_extra_java_args(self):
         with Tracing('BuckRepo._get_extra_java_args'):
             return [
-                "-Dbuck.git_commit={0}".format(self._get_buck_version_uid()),
-                "-Dbuck.git_commit_timestamp={0}".format(self._get_buck_version_timestamp()),
                 "-Dbuck.git_dirty={0}".format(int(self._get_buck_repo_dirty())),
             ]
 
@@ -108,6 +106,8 @@ class BuckRepo(BuckTool):
                 classpath_entries.append(line)
         return self._pathsep.join([self._join_buck_dir(p) for p in classpath_entries])
 
+    def _get_buck_binary_hash(self):
+        return self.__read_file(BUCK_BINARY_HASH_LOCATION)
 
     def __enter__(self):
         return self

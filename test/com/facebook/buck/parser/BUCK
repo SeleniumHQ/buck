@@ -168,7 +168,7 @@ java_test(
     name = "unit",
     srcs = glob(
         ["*Test.java"],
-        excludes = PARSER_TEST_SRCS + ["*IntegrationTest.java"],
+        exclude = PARSER_TEST_SRCS + ["*IntegrationTest.java"],
     ),
     deps = [
         "//src-gen:thrift",
@@ -294,6 +294,7 @@ java_test(
         "//test/com/facebook/buck/io/filesystem:testutil",
         "//test/com/facebook/buck/model:testutil",
         "//test/com/facebook/buck/rules:testutil",
+        "//test/com/facebook/buck/rules/keys:testutil",
         "//test/com/facebook/buck/sandbox:testutil",
         "//test/com/facebook/buck/testutil:testutil",
         "//test/com/facebook/buck/testutil/integration:util",
