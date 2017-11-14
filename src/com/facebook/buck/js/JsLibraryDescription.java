@@ -33,6 +33,7 @@ import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDepsQuery;
+import com.facebook.buck.rules.HasTests;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
@@ -174,8 +175,8 @@ public class JsLibraryDescription
   }
 
   @BuckStyleImmutable
-  @Value.Immutable
-  interface AbstractJsLibraryDescriptionArg extends CommonDescriptionArg, HasDepsQuery {
+  @Value.Immutable(copy = true)
+  interface AbstractJsLibraryDescriptionArg extends CommonDescriptionArg, HasDepsQuery, HasTests {
     Optional<String> getExtraArgs();
 
     ImmutableSet<Either<SourcePath, Pair<SourcePath, String>>> getSrcs();

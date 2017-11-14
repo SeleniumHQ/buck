@@ -22,7 +22,9 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.android.AndroidLegacyToolchain;
 import com.facebook.buck.android.AndroidPlatformTarget;
+import com.facebook.buck.android.TestAndroidLegacyToolchainFactory;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBinaryRuleBuilder;
@@ -32,14 +34,12 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildInfo;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeOnDiskBuildInfo;
 import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKey;
@@ -49,6 +49,8 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.InputBasedRuleKeyFactory;
+import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.TestInputBasedRuleKeyFactory;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
@@ -58,6 +60,7 @@ import com.facebook.buck.step.fs.SymlinkTreeStep;
 import com.facebook.buck.testutil.DummyFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
+import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
@@ -65,16 +68,15 @@ import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.hash.Hashing;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.easymock.EasyMock;
 import org.hamcrest.Matchers;
 import org.junit.Before;
@@ -326,13 +328,7 @@ public class GenruleTest {
         WorkerToolBuilder.newWorkerToolBuilder(BuildTargetFactory.newInstance("//:worker_rule"))
             .setExe(shBinaryRule.getBuildTarget())
             .build(resolver);
-    workerTool
-        .getBuildOutputInitializer()
-        .setBuildOutputForTests(
-            workerTool.initializeFromDisk(
-                new FakeOnDiskBuildInfo()
-                    .putMetadata(
-                        BuildInfo.MetadataKey.RULE_KEY, Hashing.sha1().hashLong(0).toString())));
+    workerTool.getBuildOutputInitializer().setBuildOutputForTests(UUID.randomUUID());
 
     return GenruleBuilder.newGenruleBuilder(
             BuildTargetFactory.newInstance("//:genrule_with_worker"))
@@ -354,8 +350,6 @@ public class GenruleTest {
         genrule.getBuildSteps(
             FakeBuildContext.withSourcePathResolver(pathResolver), new FakeBuildableContext());
 
-    ExecutionContext executionContext = newEmptyExecutionContext(Platform.LINUX);
-
     MoreAsserts.assertStepsNames(
         "", ImmutableList.of("rm", "mkdir", "rm", "mkdir", "rm", "mkdir", "worker"), steps);
 
@@ -364,7 +358,7 @@ public class GenruleTest {
     WorkerShellStep workerShellStep = (WorkerShellStep) step;
     assertThat(workerShellStep.getShortName(), Matchers.equalTo("worker"));
     assertThat(
-        workerShellStep.getEnvironmentVariables(executionContext),
+        workerShellStep.getEnvironmentVariables(),
         Matchers.hasEntry(
             "OUT",
             filesystem
@@ -529,19 +523,17 @@ public class GenruleTest {
     EasyMock.replay(android);
 
     BuildTarget target = BuildTargetFactory.newInstance("//example:genrule");
+    TestToolchainProvider testToolchainProvider = new TestToolchainProvider();
+    testToolchainProvider.addToolchain(
+        AndroidLegacyToolchain.DEFAULT_NAME, TestAndroidLegacyToolchainFactory.create(android));
     Genrule genrule =
-        GenruleBuilder.newGenruleBuilder(target)
+        GenruleBuilder.newGenruleBuilder(target, testToolchainProvider)
             .setBash("echo something > $OUT")
             .setOut("file")
             .build(resolver);
 
-    ExecutionContext context =
-        TestExecutionContext.newBuilder()
-            .setAndroidPlatformTargetSupplier(Suppliers.ofInstance(android))
-            .build();
-
     ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
-    genrule.addEnvironmentVariables(pathResolver, context, builder);
+    genrule.addEnvironmentVariables(pathResolver, builder);
     ImmutableMap<String, String> env = builder.build();
 
     assertEquals(Paths.get(".").toString(), env.get("DX"));
@@ -567,7 +559,7 @@ public class GenruleTest {
             .build(resolver);
 
     ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
-    genrule.addEnvironmentVariables(pathResolver, TestExecutionContext.newInstance(), builder);
+    genrule.addEnvironmentVariables(pathResolver, builder);
 
     assertEquals("1", builder.build().get("NO_BUCKD"));
   }
@@ -695,7 +687,7 @@ public class GenruleTest {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     DefaultRuleKeyFactory ruleKeyFactory =
-        new DefaultRuleKeyFactory(0, new DummyFileHashCache(), pathResolver, ruleFinder);
+        new TestDefaultRuleKeyFactory(new DummyFileHashCache(), pathResolver, ruleFinder);
 
     // Get a rule key for two genrules using two different output names, but are otherwise the
     // same.
@@ -739,14 +731,12 @@ public class GenruleTest {
         "something", pathResolver.getRelativePath(dep.getSourcePathToOutput()));
     BuildRule rule = ruleBuilder.build(resolver);
     DefaultRuleKeyFactory ruleKeyFactory =
-        new DefaultRuleKeyFactory(
-            0,
+        new TestDefaultRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);
     InputBasedRuleKeyFactory inputBasedRuleKeyFactory =
-        new InputBasedRuleKeyFactory(
-            0,
+        new TestInputBasedRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);
@@ -768,14 +758,12 @@ public class GenruleTest {
     ruleFinder = new SourcePathRuleFinder(resolver);
     pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     ruleKeyFactory =
-        new DefaultRuleKeyFactory(
-            0,
+        new TestDefaultRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);
     inputBasedRuleKeyFactory =
-        new InputBasedRuleKeyFactory(
-            0,
+        new TestInputBasedRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);
@@ -799,8 +787,7 @@ public class GenruleTest {
         "something else", pathResolver.getRelativePath(dep.getSourcePathToOutput()));
     rule = ruleBuilder.build(resolver);
     inputBasedRuleKeyFactory =
-        new InputBasedRuleKeyFactory(
-            0,
+        new TestInputBasedRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);
@@ -831,14 +818,12 @@ public class GenruleTest {
         "something", pathResolver.getRelativePath(dep.getSourcePathToOutput()));
     BuildRule rule = ruleBuilder.build(resolver);
     DefaultRuleKeyFactory defaultRuleKeyFactory =
-        new DefaultRuleKeyFactory(
-            0,
+        new TestDefaultRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);
     InputBasedRuleKeyFactory inputBasedRuleKeyFactory =
-        new InputBasedRuleKeyFactory(
-            0,
+        new TestInputBasedRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);
@@ -864,14 +849,12 @@ public class GenruleTest {
     ruleFinder = new SourcePathRuleFinder(resolver);
     pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     defaultRuleKeyFactory =
-        new DefaultRuleKeyFactory(
-            0,
+        new TestDefaultRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);
     inputBasedRuleKeyFactory =
-        new InputBasedRuleKeyFactory(
-            0,
+        new TestInputBasedRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);
@@ -894,8 +877,7 @@ public class GenruleTest {
     ruleFinder = new SourcePathRuleFinder(resolver);
     pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     inputBasedRuleKeyFactory =
-        new InputBasedRuleKeyFactory(
-            0,
+        new TestInputBasedRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);
@@ -926,14 +908,12 @@ public class GenruleTest {
         "something", pathResolver.getRelativePath(dep.getSourcePathToOutput()));
     BuildRule rule = ruleBuilder.build(resolver);
     DefaultRuleKeyFactory defaultRuleKeyFactory =
-        new DefaultRuleKeyFactory(
-            0,
+        new TestDefaultRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);
     InputBasedRuleKeyFactory inputBasedRuleKeyFactory =
-        new InputBasedRuleKeyFactory(
-            0,
+        new TestInputBasedRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);
@@ -955,14 +935,12 @@ public class GenruleTest {
     ruleFinder = new SourcePathRuleFinder(resolver);
     pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     defaultRuleKeyFactory =
-        new DefaultRuleKeyFactory(
-            0,
+        new TestDefaultRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);
     inputBasedRuleKeyFactory =
-        new InputBasedRuleKeyFactory(
-            0,
+        new TestInputBasedRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);
@@ -985,8 +963,7 @@ public class GenruleTest {
     ruleFinder = new SourcePathRuleFinder(resolver);
     pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     inputBasedRuleKeyFactory =
-        new InputBasedRuleKeyFactory(
-            0,
+        new TestInputBasedRuleKeyFactory(
             StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT),
             pathResolver,
             ruleFinder);

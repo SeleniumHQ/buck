@@ -18,17 +18,19 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
 import com.facebook.buck.distributed.DistBuildConfig;
-import com.facebook.buck.distributed.DistBuildExecutorArgs;
-import com.facebook.buck.distributed.DistBuildLogStateTracker;
 import com.facebook.buck.distributed.DistBuildMode;
 import com.facebook.buck.distributed.DistBuildService;
-import com.facebook.buck.distributed.DistBuildSlaveExecutor;
 import com.facebook.buck.distributed.DistBuildState;
 import com.facebook.buck.distributed.FileContentsProvider;
 import com.facebook.buck.distributed.FileMaterializationStatsTracker;
 import com.facebook.buck.distributed.FrontendService;
 import com.facebook.buck.distributed.MultiSourceContentsProvider;
 import com.facebook.buck.distributed.ServerContentsProvider;
+import com.facebook.buck.distributed.build_client.LogStateTracker;
+import com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTracker;
+import com.facebook.buck.distributed.build_slave.DistBuildSlaveExecutor;
+import com.facebook.buck.distributed.build_slave.DistBuildSlaveExecutorArgs;
+import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
@@ -53,9 +55,9 @@ public abstract class DistBuildFactory {
     return new DistBuildService(newFrontendService(params));
   }
 
-  public static DistBuildLogStateTracker newDistBuildLogStateTracker(
-      Path logDir, ProjectFilesystem fileSystem) {
-    return new DistBuildLogStateTracker(logDir, fileSystem);
+  public static LogStateTracker newDistBuildLogStateTracker(
+      Path logDir, ProjectFilesystem fileSystem, DistBuildService service) {
+    return new LogStateTracker(logDir, fileSystem, service);
   }
 
   public static FrontendService newFrontendService(CommandRunnerParams params) {
@@ -101,8 +103,10 @@ public abstract class DistBuildFactory {
       int coordinatorPort,
       String coordinatorAddress,
       Optional<StampedeId> stampedeId,
+      BuildSlaveRunId buildSlaveRunId,
       FileContentsProvider fileContentsProvider,
-      DistBuildConfig distBuildConfig) {
+      DistBuildConfig distBuildConfig,
+      BuildSlaveTimingStatsTracker timingStatsTracker) {
     Preconditions.checkArgument(state.getCells().size() > 0);
 
     // Create a cache factory which uses a combination of the distributed build config,
@@ -112,29 +116,34 @@ public abstract class DistBuildFactory {
 
     DistBuildSlaveExecutor executor =
         new DistBuildSlaveExecutor(
-            DistBuildExecutorArgs.builder()
+            DistBuildSlaveExecutorArgs.builder()
                 .setBuckEventBus(params.getBuckEventBus())
                 .setPlatform(params.getPlatform())
                 .setClock(params.getClock())
-                .setArtifactCache(distBuildArtifactCacheFactory.newInstance(true))
+                .setArtifactCacheFactory(distBuildArtifactCacheFactory)
                 .setState(state)
                 .setParser(params.getParser())
                 .setExecutorService(executorService)
                 .setActionGraphCache(params.getActionGraphCache())
-                //TODO(alisdair,shivanker): Change this to state.getRootCell().getBuckConfig().getKeySeed()
+                // TODO(alisdair,shivanker): Change this to
+                // state.getRootCell().getBuckConfig().getKeySeed()
                 .setCacheKeySeed(params.getBuckConfig().getKeySeed())
                 .setConsole(params.getConsole())
+                .setLogDirectoryPath(params.getInvocationInfo().get().getLogDirectoryPath())
                 .setProvider(fileContentsProvider)
                 .setExecutors(params.getExecutors())
                 .setDistBuildMode(mode)
                 .setRemoteCoordinatorPort(coordinatorPort)
                 .setRemoteCoordinatorAddress(coordinatorAddress)
                 .setStampedeId(stampedeId.orElse(new StampedeId().setId("LOCAL_FILE")))
+                .setBuildSlaveRunId(buildSlaveRunId)
                 .setVersionedTargetGraphCache(params.getVersionedTargetGraphCache())
                 .setBuildInfoStoreManager(params.getBuildInfoStoreManager())
                 .setDistBuildService(service)
                 .setDistBuildConfig(distBuildConfig)
                 .setProjectFilesystemFactory(params.getProjectFilesystemFactory())
+                .setTimingStatsTracker(timingStatsTracker)
+                .setKnownBuildRuleTypesProvider(params.getKnownBuildRuleTypesProvider())
                 .build());
     return executor;
   }

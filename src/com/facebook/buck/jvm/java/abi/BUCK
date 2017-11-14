@@ -2,15 +2,20 @@ java_library(
     name = "abi",
     srcs = glob(
         ["*.java"],
-        excludes = ["ApiStubber.java"],
+        excludes = [
+            "ApiStubber.java",
+            "AbiGenerationMode.java",
+        ],
     ),
+    exported_deps = [":abi-generation-mode"],
     tests = [
         "//test/com/facebook/buck/jvm/java/abi:abi",
     ],
     visibility = [
+        "//src/com/facebook/buck/jvm/java:rules",
         "//src/com/facebook/buck/jvm/java:steps",
         "//src/com/facebook/buck/jvm/java:support",
-        "//test/com/facebook/buck/jvm/java/abi:abi",
+        "//test/com/facebook/buck/jvm/java/abi/...",
     ],
     deps = [
         "//src/com/facebook/buck/event:event",
@@ -31,6 +36,14 @@ java_library(
         "//third-party/java/guava:guava",
         "//third-party/java/infer-annotations:infer-annotations",
         "//third-party/java/jsr:jsr305",
+    ],
+)
+
+java_library(
+    name = "abi-generation-mode",
+    srcs = ["AbiGenerationMode.java"],
+    visibility = [
+        "//src/com/facebook/buck/oop_javac:oop_javac",
     ],
 )
 

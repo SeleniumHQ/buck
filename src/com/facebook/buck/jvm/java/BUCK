@@ -1,3 +1,5 @@
+load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
+
 java_library(
     name = "fat-jar-main",
     srcs = [
@@ -89,15 +91,6 @@ java_library(
 )
 
 java_library(
-    name = "abi-generation-mode",
-    srcs = [
-        "AbiGenerationMode.java",
-    ],
-    visibility = ["PUBLIC"],
-    deps = [],
-)
-
-java_library(
     name = "javac-sink",
     srcs = [
         "JavacEventSink.java",
@@ -152,18 +145,16 @@ java_immutables_library(
         "BuildsAnnotationProcessor.java",
         "BuiltInJavac.java",
         "ClassUsageFileWriter.java",
-        "ClassUsageFileWriterSerializer.java",
         "ClassUsageTracker.java",
         "ConfiguredCompiler.java",
         "ConstantJavacProvider.java",
         "DefaultClassUsageFileReader.java",
         "DefaultClassUsageFileWriter.java",
-        "DefaultSourceOnlyAbiRuleInfo.java",
         "DiagnosticCleaner.java",
         "DiagnosticPrettyPrinter.java",
         "ExternalJavac.java",
         "ExternalOrJarBackedJavacProvider.java",
-        "ExtraClasspathFromContextFunction.java",
+        "ExtraClasspathProvider.java",
         "ForwardingStandardJavaFileManager.java",
         "HasClasspathEntries.java",
         "HasJavaAbi.java",
@@ -192,7 +183,6 @@ java_immutables_library(
         "LoggingJarBuilderObserver.java",
         "MavenPublishable.java",
         "MaybeRequiredForSourceOnlyAbi.java",
-        "NoOpClassUsageFileWriter.java",
         "OptionsConsumer.java",
         "OutOfProcessConnectionFactory.java",
         "OutOfProcessJarBackedJavac.java",
@@ -205,7 +195,7 @@ java_immutables_library(
         "TracingProcessorWrapper.java",
     ],
     exported_deps = [
-        "//src/com/facebook/buck/jvm/java:abi-generation-mode",
+        "//src/com/facebook/buck/jvm/java/abi:abi",
     ],
     provided_deps = [
         # Event API is loaded by the bootstrapper at runtime; don't need to depend on it strongly
@@ -235,7 +225,6 @@ java_immutables_library(
         "//src/com/facebook/buck/jvm/java:javac-internals",
         "//src/com/facebook/buck/jvm/java:javac-sink",
         "//src/com/facebook/buck/jvm/java:packagefinder",
-        "//src/com/facebook/buck/jvm/java/abi:abi",
         "//src/com/facebook/buck/jvm/java/abi/source/api:api",
         "//src/com/facebook/buck/jvm/java/plugin:plugin",
         "//src/com/facebook/buck/jvm/java/tracing:tracing",
@@ -266,6 +255,7 @@ java_immutables_library(
         "//src/com/facebook/buck/util/function:function",
         "//src/com/facebook/buck/util/immutables:immutables",
         "//src/com/facebook/buck/util/sha1:sha1",
+        "//src/com/facebook/buck/util/string:string",
         "//src/com/facebook/buck/util/versioncontrol:versioncontrol",
         "//src/com/facebook/buck/util/zip:zip",
         "//src/com/facebook/buck/versions:types",
@@ -336,6 +326,7 @@ java_immutables_library(
         "ConfiguredCompilerFactory.java",
         "DefaultJavaLibrary.java",
         "DefaultJavaLibraryRules.java",
+        "DefaultSourceOnlyAbiRuleInfo.java",
         "ForkMode.java",
         "JarBuildStepsFactory.java",
         "JarFattener.java",
@@ -354,7 +345,6 @@ java_immutables_library(
         "JavaTestDescription.java",
         "JavacFactory.java",
         "JavacOptionsFactory.java",
-        "JavacPipelineState.java",
         "Javadoc.java",
         "JvmLibraryArg.java",
         "Keystore.java",
@@ -409,6 +399,7 @@ java_immutables_library(
         "//src/com/facebook/buck/jvm/java:packagefinder",
         "//src/com/facebook/buck/jvm/java:steps",
         "//src/com/facebook/buck/jvm/java:support",
+        "//src/com/facebook/buck/jvm/java/abi:abi",
         "//src/com/facebook/buck/jvm/java/abi/source/api:api",
         "//src/com/facebook/buck/jvm/java/classes:classes",
         "//src/com/facebook/buck/log:api",
@@ -497,6 +488,7 @@ java_immutables_library(
         "JUnitStep.java",
         "JacocoConstants.java",
         "JarDirectoryStep.java",
+        "JavacPipelineState.java",
         "JavacStep.java",
         "JavacToJarStepFactory.java",
         "TestType.java",

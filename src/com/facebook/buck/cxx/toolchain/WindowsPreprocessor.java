@@ -16,14 +16,16 @@
 
 package com.facebook.buck.cxx.toolchain;
 
+import com.facebook.buck.rules.DelegatingTool;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.Tool;
-import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
 import java.nio.file.Path;
+import java.util.function.Function;
 
-public class WindowsPreprocessor extends AbstractPreprocessor {
+/** Preprocessor implementation for the Windows toolchain. */
+public class WindowsPreprocessor extends DelegatingTool implements Preprocessor {
 
   private static Function<String, String> prependIncludeFlag = "/I"::concat;
 
@@ -46,17 +48,17 @@ public class WindowsPreprocessor extends AbstractPreprocessor {
 
   @Override
   public Iterable<String> localIncludeArgs(Iterable<String> includeRoots) {
-    return Iterables.transform(includeRoots, prependIncludeFlag);
+    return Iterables.transform(includeRoots, prependIncludeFlag::apply);
   }
 
   @Override
   public Iterable<String> systemIncludeArgs(Iterable<String> includeRoots) {
-    return Iterables.transform(includeRoots, prependIncludeFlag);
+    return Iterables.transform(includeRoots, prependIncludeFlag::apply);
   }
 
   @Override
   public Iterable<String> quoteIncludeArgs(Iterable<String> includeRoots) {
-    return Iterables.transform(includeRoots, prependIncludeFlag);
+    return Iterables.transform(includeRoots, prependIncludeFlag::apply);
   }
 
   @Override

@@ -17,6 +17,8 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.aapt.RDotTxtEntry;
+import com.facebook.buck.android.exopackage.ExopackageMode;
+import com.facebook.buck.android.exopackage.ExopackagePathAndHash;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -29,6 +31,8 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.ManifestEntries;
+import com.facebook.buck.shell.ExportFile;
+import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -50,9 +54,15 @@ class AndroidBinaryResourcesGraphEnhancer {
   private static final Flavor MERGE_ASSETS_FLAVOR = InternalFlavor.of("merge_assets");
   static final Flavor GENERATE_RDOT_JAVA_FLAVOR = InternalFlavor.of("generate_rdot_java");
   private static final Flavor SPLIT_RESOURCES_FLAVOR = InternalFlavor.of("split_resources");
-  static final Flavor GENERATE_STRING_SOURCE_MAP_FLAVOR =
-      InternalFlavor.of("generate_string_source_map");
+  static final Flavor GENERATE_STRING_RESOURCES_FLAVOR =
+      InternalFlavor.of("generate_string_resources");
+  private static final Flavor MERGE_THIRD_PARTY_JAR_RESOURCES_FLAVOR =
+      InternalFlavor.of("merge_third_party_jar_resources");
+  private static final Flavor WRITE_EXO_RESOURCES_HASH_FLAVOR =
+      InternalFlavor.of("write_exo_resources_hash");
+  private static final Flavor COPY_MANIFEST_FLAVOR = InternalFlavor.of("copy_manifest");
 
+  private final AndroidLegacyToolchain androidLegacyToolchain;
   private final SourcePathRuleFinder ruleFinder;
   private final FilterResourcesSteps.ResourceFilter resourceFilter;
   private final ResourcesFilter.ResourceCompressionMode resourceCompressionMode;
@@ -76,6 +86,7 @@ class AndroidBinaryResourcesGraphEnhancer {
   public AndroidBinaryResourcesGraphEnhancer(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      AndroidLegacyToolchain androidLegacyToolchain,
       BuildRuleResolver ruleResolver,
       BuildTarget originalBuildTarget,
       boolean exopackageForResources,
@@ -92,6 +103,7 @@ class AndroidBinaryResourcesGraphEnhancer {
       ManifestEntries manifestEntries,
       Optional<Arg> postFilterResourcesCmd,
       boolean noAutoVersionResources) {
+    this.androidLegacyToolchain = androidLegacyToolchain;
     this.buildTarget = buildTarget;
     this.projectFilesystem = projectFilesystem;
     this.ruleResolver = ruleResolver;
@@ -130,7 +142,7 @@ class AndroidBinaryResourcesGraphEnhancer {
 
     ImmutableList<SourcePath> getPrimaryApkAssetZips();
 
-    ImmutableList<SourcePath> getExoResources();
+    ImmutableList<ExopackagePathAndHash> getExoResources();
   }
 
   AndroidBinaryResourcesGraphEnhancementResult enhance(
@@ -147,6 +159,7 @@ class AndroidBinaryResourcesGraphEnhancer {
     FilteredResourcesProvider filteredResourcesProvider;
     boolean needsResourceFiltering =
         resourceFilter.isEnabled()
+            || postFilterResourcesCmd.isPresent()
             || resourceCompressionMode.isStoreStringsAsAssets()
             || !locales.isEmpty();
 
@@ -198,7 +211,7 @@ class AndroidBinaryResourcesGraphEnhancer {
             "exopackage_modes and resource_compression_mode for android_binary %s are "
                 + "incompatible. Either remove %s from exopackage_modes or disable storing strings "
                 + "as assets.",
-            buildTarget, AndroidBinary.ExopackageMode.RESOURCES);
+            buildTarget, ExopackageMode.RESOURCES);
       }
       packageStringAssets =
           Optional.of(
@@ -214,20 +227,29 @@ class AndroidBinaryResourcesGraphEnhancer {
     resultBuilder.setPackageStringAssets(packageStringAssets);
 
     SourcePath pathToRDotTxt;
+    final ImmutableList<ExopackagePathAndHash> exoResources;
     if (exopackageForResources) {
       MergeAssets mergeAssets =
           createMergeAssetsRule(packageableCollection.getAssetsDirectories(), Optional.empty());
       SplitResources splitResources =
           createSplitResourcesRule(
               aaptOutputInfo.getPrimaryResourcesApkPath(), aaptOutputInfo.getPathToRDotTxt());
+      MergeThirdPartyJarResources mergeThirdPartyJarResource =
+          createMergeThirdPartyJarResources(packageableCollection.getPathsToThirdPartyJars());
 
       ruleResolver.addToIndex(mergeAssets);
       ruleResolver.addToIndex(splitResources);
+      ruleResolver.addToIndex(mergeThirdPartyJarResource);
 
       pathToRDotTxt = splitResources.getPathToRDotTxt();
       resultBuilder.setPrimaryResourcesApkPath(splitResources.getPathToPrimaryResources());
-      resultBuilder.addExoResources(splitResources.getPathToExoResources());
-      resultBuilder.addExoResources(mergeAssets.getSourcePathToOutput());
+
+      exoResources =
+          ImmutableList.of(
+              withFileHashCodeRule(splitResources.getPathToExoResources(), "exo_resources"),
+              withFileHashCodeRule(mergeAssets.getSourcePathToOutput(), "merged_assets"),
+              withFileHashCodeRule(
+                  mergeThirdPartyJarResource.getSourcePathToOutput(), "third_party_jar_resources"));
 
       ruleResolver.addToIndex(splitResources);
       ruleResolver.addToIndex(mergeAssets);
@@ -244,7 +266,9 @@ class AndroidBinaryResourcesGraphEnhancer {
         resultBuilder.addPrimaryApkAssetZips(
             packageStringAssets.get().getSourcePathToStringAssetsZip());
       }
+      exoResources = ImmutableList.of();
     }
+    resultBuilder.setExoResources(exoResources);
 
     Optional<GenerateRDotJava> generateRDotJava = Optional.empty();
     if (filteredResourcesProvider.hasResources()) {
@@ -257,18 +281,51 @@ class AndroidBinaryResourcesGraphEnhancer {
       ruleResolver.addToIndex(generateRDotJava.get());
 
       if (shouldBuildStringSourceMap) {
-        ruleResolver.addToIndex(
-            createGenerateStringSourceMap(pathToRDotTxt, filteredResourcesProvider));
+        ruleResolver.addToIndex(createGenerateStringResources(filteredResourcesProvider));
       }
     }
 
+    // Create a rule that copies the AndroidManifest. This allows the AndroidBinary rule (and
+    // exopackage installation rules) to have a runtime dep on the manifest without having to have
+    // a runtime dep on the full aapt output.
+    ExportFile manifestCopyRule =
+        new ExportFile(
+            originalBuildTarget.withAppendedFlavors(COPY_MANIFEST_FLAVOR),
+            projectFilesystem,
+            ruleFinder,
+            "AndroidManifest.xml",
+            ExportFileDescription.Mode.COPY,
+            aaptOutputInfo.getAndroidManifestXml());
+    ruleResolver.addToIndex(manifestCopyRule);
+
     return resultBuilder
         .setAaptGeneratedProguardConfigFile(aaptOutputInfo.getAaptGeneratedProguardConfigFile())
-        .setAndroidManifestXml(aaptOutputInfo.getAndroidManifestXml())
+        .setAndroidManifestXml(manifestCopyRule.getSourcePathToOutput())
         .setPathToRDotTxt(aaptOutputInfo.getPathToRDotTxt())
         .setRDotJavaDir(
             generateRDotJava.map(GenerateRDotJava::getSourcePathToGeneratedRDotJavaSrcFiles))
         .build();
+  }
+
+  private ExopackagePathAndHash withFileHashCodeRule(SourcePath pathToFile, String name) {
+    WriteFileHashCode fileHashCode =
+        new WriteFileHashCode(
+            buildTarget.withAppendedFlavors(
+                WRITE_EXO_RESOURCES_HASH_FLAVOR, InternalFlavor.of(name)),
+            projectFilesystem,
+            ruleFinder,
+            pathToFile);
+    ruleResolver.addToIndex(fileHashCode);
+    return ExopackagePathAndHash.of(pathToFile, fileHashCode.getSourcePathToOutput());
+  }
+
+  private MergeThirdPartyJarResources createMergeThirdPartyJarResources(
+      ImmutableSet<SourcePath> pathsToThirdPartyJars) {
+    return new MergeThirdPartyJarResources(
+        buildTarget.withAppendedFlavors(MERGE_THIRD_PARTY_JAR_RESOURCES_FLAVOR),
+        projectFilesystem,
+        ruleFinder,
+        pathsToThirdPartyJars);
   }
 
   private SplitResources createSplitResourcesRule(
@@ -276,6 +333,7 @@ class AndroidBinaryResourcesGraphEnhancer {
     return new SplitResources(
         buildTarget.withAppendedFlavors(SPLIT_RESOURCES_FLAVOR),
         projectFilesystem,
+        androidLegacyToolchain,
         ruleFinder,
         aaptOutputPath,
         aaptRDotTxtPath);
@@ -291,6 +349,7 @@ class AndroidBinaryResourcesGraphEnhancer {
       Preconditions.checkState(
           resourceFilterRule.isPresent(),
           "Expected ResourceFilterRule to be present when filtered resources are present.");
+
       ImmutableSortedSet<BuildRule> compileDeps = ImmutableSortedSet.of(resourceFilterRule.get());
       int index = 0;
       for (SourcePath resDir : filteredResourcesProvider.get().getResDirectories()) {
@@ -298,6 +357,7 @@ class AndroidBinaryResourcesGraphEnhancer {
             new Aapt2Compile(
                 buildTarget.withAppendedFlavors(InternalFlavor.of("aapt2_compile_" + index)),
                 projectFilesystem,
+                androidLegacyToolchain,
                 compileDeps,
                 resDir);
         ruleResolver.addToIndex(compileRule);
@@ -316,6 +376,7 @@ class AndroidBinaryResourcesGraphEnhancer {
     return new Aapt2Link(
         buildTarget.withAppendedFlavors(AAPT2_LINK_FLAVOR),
         projectFilesystem,
+        androidLegacyToolchain,
         ruleFinder,
         compileListBuilder.build(),
         getTargetsAsResourceDeps(resourceDetails.getResourcesWithNonEmptyResDir()),
@@ -339,13 +400,12 @@ class AndroidBinaryResourcesGraphEnhancer {
         resourcesProvider);
   }
 
-  private GenerateStringSourceMap createGenerateStringSourceMap(
-      SourcePath pathToRDotTxtFile, FilteredResourcesProvider filteredResourcesProvider) {
-    return new GenerateStringSourceMap(
-        buildTarget.withAppendedFlavors(GENERATE_STRING_SOURCE_MAP_FLAVOR),
+  private GenerateStringResources createGenerateStringResources(
+      FilteredResourcesProvider filteredResourcesProvider) {
+    return new GenerateStringResources(
+        buildTarget.withAppendedFlavors(GENERATE_STRING_RESOURCES_FLAVOR),
         projectFilesystem,
         ruleFinder,
-        pathToRDotTxtFile,
         filteredResourcesProvider);
   }
 
@@ -373,6 +433,7 @@ class AndroidBinaryResourcesGraphEnhancer {
     return new AaptPackageResources(
         buildTarget.withAppendedFlavors(AAPT_PACKAGE_FLAVOR),
         projectFilesystem,
+        androidLegacyToolchain,
         ruleFinder,
         ruleResolver,
         manifest,

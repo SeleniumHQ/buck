@@ -470,6 +470,10 @@ public class BuckConfig implements ConfigPathGetter {
     return Boolean.parseBoolean(getValue("adb", "adb_restart_on_failure").orElse("true"));
   }
 
+  public ImmutableList<String> getAdbRapidInstallTypes() {
+    return getListWithoutComments("adb", "rapid_install_types_beta");
+  }
+
   public boolean getMultiInstallMode() {
     return getBooleanValue("adb", "multi_install_mode", false);
   }
@@ -542,6 +546,10 @@ public class BuckConfig implements ConfigPathGetter {
 
   public boolean isActionGraphCheckingEnabled() {
     return getBooleanValue("cache", "action_graph_cache_check_enabled", false);
+  }
+
+  public int getMaxActionGraphCacheEntries() {
+    return getInteger("cache", "max_action_graph_cache_entries").orElse(1);
   }
 
   public Optional<String> getRepository() {

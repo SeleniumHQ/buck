@@ -30,14 +30,17 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.parser.Parser;
+import com.facebook.buck.plugin.BuckPluginManagerFactory;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildInfoStoreManager;
 import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
+import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
+import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.RelativeCellName;
 import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.FakeExecutor;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
@@ -61,6 +64,7 @@ import org.easymock.EasyMockSupport;
 import org.junit.Before;
 import org.junit.Test;
 import org.kohsuke.args4j.CmdLineException;
+import org.pf4j.PluginManager;
 
 /** Unit test for {@link CleanCommand}. */
 public class CleanCommandTest extends EasyMockSupport {
@@ -140,6 +144,8 @@ public class CleanCommandTest extends EasyMockSupport {
     SdkEnvironment sdkEnvironment =
         SdkEnvironment.create(buckConfig, processExecutor, toolchainProvider);
 
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
+
     return CommandRunnerParams.builder()
         .setConsole(new TestConsole())
         .setBuildInfoStoreManager(new BuildInfoStoreManager())
@@ -164,9 +170,15 @@ public class CleanCommandTest extends EasyMockSupport {
         .setVersionControlStatsGenerator(
             new VersionControlStatsGenerator(new NoOpCmdLineInterface(), Optional.empty()))
         .setVersionedTargetGraphCache(new VersionedTargetGraphCache())
-        .setActionGraphCache(new ActionGraphCache())
-        .setKnownBuildRuleTypesFactory(
-            new KnownBuildRuleTypesFactory(processExecutor, sdkEnvironment, toolchainProvider))
+        .setActionGraphCache(new ActionGraphCache(buckConfig.getMaxActionGraphCacheEntries()))
+        .setKnownBuildRuleTypesProvider(
+            KnownBuildRuleTypesProvider.of(
+                DefaultKnownBuildRuleTypesFactory.of(
+                    processExecutor,
+                    sdkEnvironment,
+                    toolchainProvider,
+                    pluginManager,
+                    new TestSandboxExecutionStrategyFactory())))
         .setSdkEnvironment(sdkEnvironment)
         .setProjectFilesystemFactory(new DefaultProjectFilesystemFactory())
         .setToolchainProvider(toolchainProvider)

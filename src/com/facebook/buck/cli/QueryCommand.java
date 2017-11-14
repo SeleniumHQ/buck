@@ -123,6 +123,7 @@ public class QueryCommand extends AbstractCommand {
                 params.getBuckEventBus(),
                 pool.getListeningExecutorService(),
                 params.getCell(),
+                params.getKnownBuildRuleTypesProvider(),
                 getEnableParserProfiling(),
                 PerBuildState.SpeculativeParsing.ENABLED)) {
       ListeningExecutorService executor = pool.getListeningExecutorService();
@@ -233,14 +234,14 @@ public class QueryCommand extends AbstractCommand {
   private void printDotOutput(
       CommandRunnerParams params, BuckQueryEnvironment env, Set<QueryTarget> queryResult)
       throws IOException, QueryException {
-    Dot.writeSubgraphOutput(
-        env.getTargetGraph(),
-        "result_graph",
-        env.getNodesFromQueryTargets(queryResult),
-        targetNode -> "\"" + targetNode.getBuildTarget().getFullyQualifiedName() + "\"",
-        targetNode -> Description.getBuildRuleType(targetNode.getDescription()).getName(),
-        params.getConsole().getStdOut(),
-        shouldGenerateBFSOutput());
+    Dot.builder(env.getTargetGraph(), "result_graph")
+        .setNodesToFilter(env.getNodesFromQueryTargets(queryResult)::contains)
+        .setNodeToName(targetNode -> targetNode.getBuildTarget().getFullyQualifiedName())
+        .setNodeToTypeName(
+            targetNode -> Description.getBuildRuleType(targetNode.getDescription()).getName())
+        .setBfsSorted(shouldGenerateBFSOutput())
+        .build()
+        .writeOutput(params.getConsole().getStdOut());
   }
 
   private void collectAndPrintAttributes(

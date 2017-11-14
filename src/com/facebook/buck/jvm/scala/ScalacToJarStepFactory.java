@@ -20,7 +20,7 @@ import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.CompilerParameters;
-import com.facebook.buck.jvm.java.ExtraClasspathFromContextFunction;
+import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
@@ -37,6 +37,7 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -54,30 +55,14 @@ public class ScalacToJarStepFactory extends CompileToJarStepFactory implements A
   @AddToRuleKey private final ImmutableList<String> configCompilerFlags;
   @AddToRuleKey private final ImmutableList<String> extraArguments;
   @AddToRuleKey private final ImmutableSet<SourcePath> compilerPlugins;
-  @AddToRuleKey private final ExtraClasspathFromContextFunction extraClassPath;
+  @AddToRuleKey private final ExtraClasspathProvider extraClassPath;
   private final Javac javac;
   private final JavacOptions javacOptions;
 
   public ScalacToJarStepFactory(
-      Tool scalac,
-      BuildRule scalaLibraryTarget,
-      ImmutableList<String> configCompilerFlags,
-      ImmutableList<String> extraArguments,
-      ImmutableSet<BuildRule> compilerPlugins,
-      Javac javac,
-      JavacOptions javacOptions) {
-    this(
-        scalac,
-        scalaLibraryTarget,
-        configCompilerFlags,
-        extraArguments,
-        compilerPlugins,
-        javac,
-        javacOptions,
-        ExtraClasspathFromContextFunction.EMPTY);
-  }
-
-  public ScalacToJarStepFactory(
+      SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
+      ProjectFilesystem projectFilesystem,
       Tool scalac,
       BuildRule scalaLibraryTarget,
       ImmutableList<String> configCompilerFlags,
@@ -85,7 +70,8 @@ public class ScalacToJarStepFactory extends CompileToJarStepFactory implements A
       ImmutableSet<BuildRule> compilerPlugins,
       Javac javac,
       JavacOptions javacOptions,
-      ExtraClasspathFromContextFunction extraClassPath) {
+      ExtraClasspathProvider extraClassPath) {
+    super(resolver, ruleFinder, projectFilesystem);
     this.scalac = scalac;
     this.scalaLibraryTarget = scalaLibraryTarget;
     this.configCompilerFlags = configCompilerFlags;
@@ -104,11 +90,9 @@ public class ScalacToJarStepFactory extends CompileToJarStepFactory implements A
   public void createCompileStep(
       BuildContext context,
       BuildTarget invokingRule,
-      SourcePathResolver resolver,
-      ProjectFilesystem filesystem,
       CompilerParameters parameters,
       /* output params */
-      ImmutableList.Builder<Step> steps,
+      Builder<Step> steps,
       BuildableContext buildableContext) {
 
     ImmutableSortedSet<Path> classpathEntries = parameters.getClasspathEntries();
@@ -118,6 +102,7 @@ public class ScalacToJarStepFactory extends CompileToJarStepFactory implements A
     if (sourceFilePaths.stream().anyMatch(SCALA_PATH_MATCHER::matches)) {
       steps.add(
           new ScalacStep(
+              invokingRule,
               scalac,
               ImmutableList.<String>builder()
                   .addAll(configCompilerFlags)
@@ -137,10 +122,11 @@ public class ScalacToJarStepFactory extends CompileToJarStepFactory implements A
               sourceFilePaths,
               ImmutableSortedSet.<Path>naturalOrder()
                   .addAll(
-                      Optional.ofNullable(extraClassPath.apply(context)).orElse(ImmutableList.of()))
+                      Optional.ofNullable(extraClassPath.getExtraClasspath())
+                          .orElse(ImmutableList.of()))
                   .addAll(classpathEntries)
                   .build(),
-              filesystem));
+              projectFilesystem));
     }
 
     ImmutableSortedSet<Path> javaSourceFiles =
@@ -159,21 +145,15 @@ public class ScalacToJarStepFactory extends CompileToJarStepFactory implements A
                   ImmutableSortedSet.<Path>naturalOrder()
                       .add(outputDirectory)
                       .addAll(
-                          Optional.ofNullable(extraClassPath.apply(context))
+                          Optional.ofNullable(extraClassPath.getExtraClasspath())
                               .orElse(ImmutableList.of()))
                       .addAll(classpathEntries)
                       .build())
               .setSourceFilePaths(javaSourceFiles)
               .build();
-      new JavacToJarStepFactory(javac, javacOptions, extraClassPath)
-          .createCompileStep(
-              context,
-              invokingRule,
-              resolver,
-              filesystem,
-              javacParameters,
-              steps,
-              buildableContext);
+      new JavacToJarStepFactory(
+              resolver, ruleFinder, projectFilesystem, javac, javacOptions, extraClassPath)
+          .createCompileStep(context, invokingRule, javacParameters, steps, buildableContext);
     }
   }
 

@@ -16,9 +16,8 @@
 
 package com.facebook.buck.rules.keys;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-
 import com.facebook.buck.hashing.FileHashLoader;
+import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildTargetSourcePath;
@@ -32,9 +31,8 @@ import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashCode;
-import com.google.common.hash.Hashing;
 import java.io.IOException;
-import java.util.UUID;
+import java.util.Optional;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
@@ -46,18 +44,21 @@ public class DefaultRuleKeyFactory implements RuleKeyFactoryWithDiagnostics<Rule
   private final SourcePathResolver pathResolver;
   private final SourcePathRuleFinder ruleFinder;
   private final RuleKeyCache<RuleKey> ruleKeyCache;
+  private final Optional<ThriftRuleKeyLogger> ruleKeyLogger;
 
   public DefaultRuleKeyFactory(
       RuleKeyFieldLoader ruleKeyFieldLoader,
       FileHashLoader hashLoader,
       SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder,
-      RuleKeyCache<RuleKey> ruleKeyCache) {
+      RuleKeyCache<RuleKey> ruleKeyCache,
+      Optional<ThriftRuleKeyLogger> ruleKeyLogger) {
     this.ruleKeyFieldLoader = ruleKeyFieldLoader;
     this.hashLoader = hashLoader;
     this.pathResolver = pathResolver;
     this.ruleFinder = ruleFinder;
     this.ruleKeyCache = ruleKeyCache;
+    this.ruleKeyLogger = ruleKeyLogger;
   }
 
   public DefaultRuleKeyFactory(
@@ -65,15 +66,28 @@ public class DefaultRuleKeyFactory implements RuleKeyFactoryWithDiagnostics<Rule
       FileHashLoader hashLoader,
       SourcePathResolver pathResolver,
       SourcePathRuleFinder ruleFinder) {
-    this(ruleKeyFieldLoader, hashLoader, pathResolver, ruleFinder, new DefaultRuleKeyCache<>());
+    this(
+        ruleKeyFieldLoader,
+        hashLoader,
+        pathResolver,
+        ruleFinder,
+        new DefaultRuleKeyCache<>(),
+        Optional.empty());
   }
 
   public DefaultRuleKeyFactory(
-      int seed,
+      RuleKeyFieldLoader ruleKeyFieldLoader,
       FileHashLoader hashLoader,
       SourcePathResolver pathResolver,
-      SourcePathRuleFinder ruleFinder) {
-    this(new RuleKeyFieldLoader(seed), hashLoader, pathResolver, ruleFinder);
+      SourcePathRuleFinder ruleFinder,
+      Optional<ThriftRuleKeyLogger> ruleKeyLogger) {
+    this(
+        ruleKeyFieldLoader,
+        hashLoader,
+        pathResolver,
+        ruleFinder,
+        new DefaultRuleKeyCache<>(),
+        ruleKeyLogger);
   }
 
   private <HASH> Builder<HASH> newPopulatedBuilder(
@@ -93,7 +107,7 @@ public class DefaultRuleKeyFactory implements RuleKeyFactoryWithDiagnostics<Rule
 
   @VisibleForTesting
   public Builder<HashCode> newBuilderForTesting(BuildRule buildRule) {
-    return newPopulatedBuilder(buildRule, RuleKeyBuilder.createDefaultHasher());
+    return newPopulatedBuilder(buildRule, RuleKeyBuilder.createDefaultHasher(ruleKeyLogger));
   }
 
   @Nullable
@@ -104,13 +118,10 @@ public class DefaultRuleKeyFactory implements RuleKeyFactoryWithDiagnostics<Rule
 
   @Override
   public RuleKey build(BuildRule buildRule) {
-    if ("org.openqa.selenium.buck.file.BuildStamp".equals(buildRule.getClass().getName())) {
-      return new RuleKey(Hashing.sha1().hashString(UUID.randomUUID().toString(), UTF_8));
-    }
     return ruleKeyCache.get(
         buildRule,
         rule ->
-            newPopulatedBuilder(rule, RuleKeyBuilder.createDefaultHasher())
+            newPopulatedBuilder(rule, RuleKeyBuilder.createDefaultHasher(ruleKeyLogger))
                 .buildResult(RuleKey::new));
   }
 
@@ -118,7 +129,7 @@ public class DefaultRuleKeyFactory implements RuleKeyFactoryWithDiagnostics<Rule
     return ruleKeyCache.get(
         appendable,
         app ->
-            newPopulatedBuilder(app, RuleKeyBuilder.createDefaultHasher())
+            newPopulatedBuilder(app, RuleKeyBuilder.createDefaultHasher(ruleKeyLogger))
                 .buildResult(RuleKey::new));
   }
 

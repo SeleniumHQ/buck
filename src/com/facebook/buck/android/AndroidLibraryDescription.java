@@ -157,6 +157,6 @@ public class AndroidLibraryDescription
   }
 
   @BuckStyleImmutable
-  @Value.Immutable
+  @Value.Immutable(copy = true)
   interface AbstractAndroidLibraryDescriptionArg extends CoreArg {}
 }

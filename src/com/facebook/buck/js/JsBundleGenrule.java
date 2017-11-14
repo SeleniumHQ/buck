@@ -16,6 +16,7 @@
 
 package com.facebook.buck.js;
 
+import com.facebook.buck.android.AndroidLegacyToolchain;
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.io.BuildCellRelativePath;
@@ -24,14 +25,15 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.shell.Genrule;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
@@ -53,6 +55,9 @@ public class JsBundleGenrule extends Genrule
   public JsBundleGenrule(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      AndroidLegacyToolchain androidLegacyToolchain,
+      SandboxExecutionStrategy sandboxExecutionStrategy,
+      BuildRuleResolver resolver,
       BuildRuleParams params,
       JsBundleGenruleDescriptionArg args,
       Optional<Arg> cmd,
@@ -62,13 +67,17 @@ public class JsBundleGenrule extends Genrule
     super(
         buildTarget,
         projectFilesystem,
+        androidLegacyToolchain,
+        resolver,
         params,
+        sandboxExecutionStrategy,
         args.getSrcs(),
         cmd,
         bash,
         cmdExe,
         args.getType(),
-        JsBundleOutputs.JS_DIR_NAME);
+        JsBundleOutputs.JS_DIR_NAME,
+        false);
     this.jsBundle = jsBundle;
     jsBundleSourcePath = jsBundle.getSourcePathToOutput();
     this.rewriteSourcemap = args.getRewriteSourcemap();
@@ -77,12 +86,18 @@ public class JsBundleGenrule extends Genrule
   @Override
   protected void addEnvironmentVariables(
       SourcePathResolver pathResolver,
-      ExecutionContext context,
       ImmutableMap.Builder<String, String> environmentVariablesBuilder) {
-    super.addEnvironmentVariables(pathResolver, context, environmentVariablesBuilder);
+    super.addEnvironmentVariables(pathResolver, environmentVariablesBuilder);
     environmentVariablesBuilder
         .put("JS_DIR", pathResolver.getAbsolutePath(jsBundle.getSourcePathToOutput()).toString())
-        .put("JS_BUNDLE_NAME", jsBundle.getBundleName());
+        .put("JS_BUNDLE_NAME", jsBundle.getBundleName())
+        .put(
+            "PLATFORM",
+            JsFlavors.PLATFORM_DOMAIN
+                .getFlavor(getBuildTarget().getFlavors())
+                .map(flavor -> flavor.getName())
+                .orElse(""))
+        .put("RELEASE", getBuildTarget().getFlavors().contains(JsFlavors.RELEASE) ? "1" : "");
 
     if (rewriteSourcemap) {
       environmentVariablesBuilder.put(
@@ -111,7 +126,8 @@ public class JsBundleGenrule extends Genrule
             // First, all Genrule steps including the last RmDir step are added
             .addAll(buildSteps.subList(0, lastRmStep.getAsInt() + 1))
             // Our MkdirStep must run after all RmSteps created by Genrule to prevent immediate
-            // deletion of the directory. It must, however, run before the genrule command itself runs.
+            // deletion of the directory. It must, however, run before the genrule command itself
+            // runs.
             .add(
                 MkdirStep.of(
                     BuildCellRelativePath.fromCellRelativePath(

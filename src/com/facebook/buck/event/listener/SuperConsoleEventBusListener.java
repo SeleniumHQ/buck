@@ -17,6 +17,7 @@
 package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
+import com.facebook.buck.distributed.DistBuildCreatedEvent;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
@@ -52,7 +53,6 @@ import com.facebook.buck.util.unit.SizeUnit;
 import com.facebook.buck.util.versioncontrol.SparseSummary;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -84,11 +84,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.logging.Level;
 import javax.annotation.concurrent.GuardedBy;
 
 /** Console that provides rich, updating ansi output about the current build. */
 public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListener {
+
   /**
    * Maximum expected rendered line length so we can start with a decent size of line rendering
    * buffer.
@@ -157,6 +159,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
   @GuardedBy("distBuildSlaveTrackerLock")
   private final Map<BuildSlaveRunId, BuildSlaveStatus> distBuildSlaveTracker;
+
+  private Optional<String> stampedeIdLogLine = Optional.empty();
 
   private final Set<String> actionGraphCacheMessage = new HashSet<>();
 
@@ -455,10 +459,14 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
       maxThreadLines = threadLineLimitOnError;
     }
 
+    if (stampedeIdLogLine.isPresent()) {
+      lines.add(stampedeIdLogLine.get());
+    }
+
     if (distBuildStarted != null) {
       long distBuildMs =
           logEventPair(
-              "Distributed build",
+              "Distributed Build",
               getOptionalDistBuildLineSuffix(),
               currentTimeMillis,
               0,
@@ -655,10 +663,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         if (totalFilesMaterialized > 0) {
           columns.add(String.format("%d files materialized", totalFilesMaterialized));
         }
-
-        if (distBuildStatus.get().getMessage().isPresent()) {
-          columns.add(distBuildStatus.get().getMessage().get());
-        }
       }
     }
 
@@ -816,6 +820,12 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     }
   }
 
+  @Subscribe
+  public void onDistBuildCreatedEvent(DistBuildCreatedEvent event) {
+    stampedeIdLogLine = Optional.of(event.getConsoleLogLine());
+  }
+
+  /** When a new cache event is about to start. */
   @Subscribe
   public void artifactCacheStarted(ArtifactCacheEvent.Started started) {
     if (started.getInvocationType() == ArtifactCacheEvent.InvocationType.SYNCHRONOUS) {

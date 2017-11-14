@@ -32,12 +32,12 @@ import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -83,6 +83,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 import javax.annotation.Nullable;
@@ -170,8 +171,8 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
                   }
                   return Iterables.getOnlyElement(filtered);
                 })
-            // TODO(#10068334) So we claim to ignore this path to preserve existing behaviour, but we
-            // really don't end up ignoring it in reality (see extractIgnorePaths).
+            // TODO(#10068334) So we claim to ignore this path to preserve existing behaviour, but
+            // we really don't end up ignoring it in reality (see extractIgnorePaths).
             .append(ImmutableSet.of(buckPaths.getBuckOut()))
             .transform(PathOrGlobMatcher::new)
             .append(
@@ -212,9 +213,8 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
     return projectRoot;
   }
 
-  /** @return details about the delegate suitable for writing to a log file. */
   @Override
-  public String getDelegateDetails() {
+  public ImmutableMap<String, ? extends Object> getDelegateDetails() {
     return delegate.getDetailsForLogging();
   }
 
@@ -489,7 +489,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
         new SimpleFileVisitor<Path>() {
           @Override
           public FileVisitResult visitFile(Path path, BasicFileAttributes attributes) {
-            if (predicate.apply(path)) {
+            if (predicate.test(path)) {
               paths.add(path);
             }
             return FileVisitResult.CONTINUE;
@@ -826,7 +826,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   public void createSymLink(Path symLink, Path realFile, boolean force) throws IOException {
     symLink = resolve(symLink);
     if (force) {
-      Files.deleteIfExists(symLink);
+      MoreFiles.deleteRecursivelyIfExists(symLink);
     }
     if (Platform.detect() == Platform.WINDOWS) {
       if (windowsSymlinks) {

@@ -111,8 +111,9 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
   @AddToRuleKey private final boolean skipProguard;
   @AddToRuleKey private final Optional<Integer> xzCompressionLevel;
   @AddToRuleKey private final boolean shouldSplitDex;
+  @AddToRuleKey private final String dexTool;
 
-  // Only these two fields should not be added to the rulekey.
+  private final AndroidLegacyToolchain androidLegacyToolchain;
   private final ListeningExecutorService dxExecutorService;
   private final Supplier<ImmutableSortedSet<BuildRule>> buildDepsSupplier;
 
@@ -153,6 +154,7 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
   }
 
   NonPreDexedDexBuildable(
+      AndroidLegacyToolchain androidLegacyToolchain,
       SourcePathRuleFinder ruleFinder,
       SourcePath aaptGeneratedProguardConfigFile,
       ImmutableSortedSet<SourcePath> additionalJarsForProguard,
@@ -167,8 +169,10 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
       boolean shouldSplitDex,
       NonPredexedDexBuildableArgs args,
       ProjectFilesystem filesystem,
-      BuildTarget buildTarget) {
+      BuildTarget buildTarget,
+      String dexTool) {
     super(buildTarget, filesystem);
+    this.androidLegacyToolchain = androidLegacyToolchain;
     this.aaptGeneratedProguardConfigFile = aaptGeneratedProguardConfigFile;
     this.additionalJarsForProguard = additionalJarsForProguard;
     this.apkModuleMap = apkModuleMap;
@@ -201,6 +205,7 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
             () ->
                 BuildableSupport.deriveDeps(this, ruleFinder)
                     .collect(MoreCollectors.toImmutableSortedSet()));
+    this.dexTool = dexTool;
   }
 
   @VisibleForTesting
@@ -387,7 +392,8 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
                   "OUT_JARS_DIR",
                   getProjectFilesystem().resolve(preprocessJavaClassesOutDir).toString());
 
-              AndroidPlatformTarget platformTarget = context.getAndroidPlatformTarget();
+              AndroidPlatformTarget platformTarget =
+                  androidLegacyToolchain.getAndroidPlatformTarget();
               String bootclasspath =
                   Joiner.on(':')
                       .join(
@@ -572,6 +578,8 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
 
     // Run ProGuard on the classpath entries.
     ProGuardObfuscateStep.create(
+        getBuildTarget(),
+        androidLegacyToolchain,
         javaRuntimeLauncher.getCommandPrefix(buildContext.getSourcePathResolver()),
         getProjectFilesystem(),
         proguardJarOverride.isPresent()
@@ -851,6 +859,8 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
     }
     SmartDexingStep smartDexingCommand =
         new SmartDexingStep(
+            getBuildTarget(),
+            androidLegacyToolchain,
             buildContext,
             getProjectFilesystem(),
             selectedPrimaryDexPath,
@@ -862,12 +872,14 @@ class NonPreDexedDexBuildable extends AbstractBuildRule {
             dxOptions,
             dxExecutorService,
             xzCompressionLevel,
-            dxMaxHeapSize);
+            dxMaxHeapSize,
+            dexTool);
     steps.add(smartDexingCommand);
 
     if (reorderClassesIntraDex) {
       IntraDexReorderStep intraDexReorderStep =
           new IntraDexReorderStep(
+              getBuildTarget(),
               buildContext,
               getProjectFilesystem(),
               resolver.getAbsolutePath(dexReorderToolFile.get()),

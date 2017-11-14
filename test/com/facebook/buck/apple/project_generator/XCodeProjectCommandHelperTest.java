@@ -31,15 +31,22 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.Either;
+import com.facebook.buck.plugin.BuckPluginManagerFactory;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.SettableFakeClock;
+import com.facebook.buck.toolchain.impl.TestToolchainProvider;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -428,9 +435,18 @@ public class XCodeProjectCommandHelperTest {
         new TestCellBuilder()
             .setFilesystem(new FakeProjectFilesystem(SettableFakeClock.DO_NOT_CARE))
             .build();
+    KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
+        KnownBuildRuleTypesProvider.of(
+            DefaultKnownBuildRuleTypesFactory.of(
+                new DefaultProcessExecutor(new TestConsole()),
+                cell.getSdkEnvironment(),
+                new TestToolchainProvider(),
+                BuckPluginManagerFactory.createPluginManager(),
+                new TestSandboxExecutionStrategyFactory()));
     XCodeProjectCommandHelper.generateWorkspacesForTargets(
         BuckEventBusForTests.newInstance(),
         cell,
+        knownBuildRuleTypesProvider,
         FakeBuckConfig.builder().build(),
         MoreExecutors.newDirectExecutorService(),
         targetGraphAndTargets,
@@ -442,7 +458,8 @@ public class XCodeProjectCommandHelperTest {
             false,
             true /* shouldUseHeaderMaps */,
             false /* shouldMergeHeaderMaps */,
-            false /* shouldGenerateHeaderSymlinkTreeOnly */),
+            false /* shouldGenerateHeaderSymlinkTreeOnly */,
+            false),
         FocusedModuleTargetMatcher.noFocus(),
         projectGenerators,
         false,

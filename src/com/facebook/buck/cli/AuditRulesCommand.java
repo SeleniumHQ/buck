@@ -28,11 +28,11 @@ import com.facebook.buck.util.ObjectMappers;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.devtools.build.lib.syntax.SkylarkNestedSet;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Path;
@@ -47,6 +47,7 @@ import java.util.Optional;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 import javax.annotation.Nullable;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
@@ -97,7 +98,10 @@ public class AuditRulesCommand extends AbstractCommand {
         params
             .getCell()
             .createBuildFileParser(
-                new DefaultTypeCoercerFactory(), params.getConsole(), params.getBuckEventBus())) {
+                new DefaultTypeCoercerFactory(),
+                params.getConsole(),
+                params.getBuckEventBus(),
+                params.getKnownBuildRuleTypesProvider().get(params.getCell()).getDescriptions())) {
       PrintStream out = params.getConsole().getStdOut();
       for (String pathToBuildFile : getArguments()) {
         if (!json) {
@@ -147,7 +151,7 @@ public class AuditRulesCommand extends AbstractCommand {
             .filter(
                 rawRule -> {
                   String type = (String) rawRule.get(BuckPyFunction.TYPE_PROPERTY_NAME);
-                  return includeType.apply(type);
+                  return includeType.test(type);
                 });
 
     PrintStream stdOut = params.getConsole().getStdOut();
@@ -228,7 +232,10 @@ public class AuditRulesCommand extends AbstractCommand {
     return createDisplayString("", value);
   }
 
-  static String createDisplayString(String indent, @Nullable Object value) {
+  private static String createDisplayString(String indent, @Nullable Object value) {
+    if (value instanceof SkylarkNestedSet) {
+      value = ((SkylarkNestedSet) value).toCollection();
+    }
     if (value == null) {
       return "None";
     } else if (value instanceof Boolean) {

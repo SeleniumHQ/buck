@@ -22,7 +22,6 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.ArchiveMemberSourcePath;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
@@ -32,7 +31,6 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.ExportDependencies;
 import com.facebook.buck.rules.InitializableFromDisk;
-import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.RulePipelineStateFactory;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -90,8 +88,6 @@ public class DefaultJavaLibrary extends AbstractBuildRule
         SupportsDependencyFileRuleKey,
         SupportsPipelining<JavacPipelineState>,
         JavaLibraryWithTests {
-
-  private static final Path METADATA_DIR = Paths.get("META-INF");
 
   @AddToRuleKey private final JarBuildStepsFactory jarBuildStepsFactory;
   @AddToRuleKey private final Optional<String> mavenCoords;
@@ -329,11 +325,10 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
   /** Instructs this rule to report the ABI it has on disk as its current ABI. */
   @Override
-  public JavaLibrary.Data initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) throws IOException {
+  public JavaLibrary.Data initializeFromDisk() throws IOException {
     // Warm up the jar contents. We just wrote the thing, so it should be in the filesystem cache
     outputJarContentsSupplier.load();
-    return JavaLibraryRules.initializeFromDisk(
-        getBuildTarget(), getProjectFilesystem(), onDiskBuildInfo);
+    return JavaLibraryRules.initializeFromDisk(getBuildTarget(), getProjectFilesystem());
   }
 
   @Override
@@ -397,18 +392,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
   @Override
   public Predicate<SourcePath> getExistenceOfInterestPredicate(SourcePathResolver pathResolver) {
-    // Annotation processors might enumerate all files under a certain path and then generate
-    // code based on that list (without actually reading the files), making the list of files
-    // itself a used dependency that must be part of the dependency-based key. We don't
-    // currently have the instrumentation to detect such enumeration perfectly, but annotation
-    // processors are most commonly looking for files under META-INF, so as a stopgap we add
-    // the listing of META-INF to the rule key.
-    return (SourcePath path) ->
-        (path instanceof ArchiveMemberSourcePath)
-            && pathResolver
-                .getRelativeArchiveMemberPath(path)
-                .getMemberPath()
-                .startsWith(METADATA_DIR);
+    return jarBuildStepsFactory.getExistenceOfInterestPredicate(pathResolver);
   }
 
   @Override
@@ -420,7 +404,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
 
   @Override
   public boolean useRulePipelining() {
-    return true;
+    return jarBuildStepsFactory.useRulePipelining();
   }
 
   @Override
@@ -437,7 +421,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
   @Override
   public ImmutableList<? extends Step> getPipelinedBuildSteps(
       BuildContext context, BuildableContext buildableContext, JavacPipelineState state) {
-    // TODO: Reuse the javac
-    return getBuildSteps(context, buildableContext);
+    return jarBuildStepsFactory.getPipelinedBuildStepsForLibraryJar(
+        context, buildableContext, state);
   }
 }

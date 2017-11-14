@@ -16,6 +16,7 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.android.AndroidLegacyToolchain;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.macros.MacroException;
@@ -30,6 +31,7 @@ import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.rules.macros.ClasspathMacroExpander;
 import com.facebook.buck.rules.macros.ExecutableMacroExpander;
@@ -41,6 +43,8 @@ import com.facebook.buck.rules.macros.QueryOutputsMacroExpander;
 import com.facebook.buck.rules.macros.QueryPathsMacroExpander;
 import com.facebook.buck.rules.macros.QueryTargetsMacroExpander;
 import com.facebook.buck.rules.macros.WorkerMacroExpander;
+import com.facebook.buck.sandbox.SandboxExecutionStrategy;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.Optionals;
@@ -50,6 +54,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.util.Comparator;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescription.CommonArg>
@@ -68,25 +73,45 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
               .put("query_paths", new QueryPathsMacroExpander(Optional.empty()))
               .build());
 
+  protected final ToolchainProvider toolchainProvider;
+  protected final SandboxExecutionStrategy sandboxExecutionStrategy;
+  protected final boolean enableSandbox;
+
+  protected AbstractGenruleDescription(
+      ToolchainProvider toolchainProvider,
+      SandboxExecutionStrategy sandboxExecutionStrategy,
+      boolean enableSandbox) {
+    this.toolchainProvider = toolchainProvider;
+    this.sandboxExecutionStrategy = sandboxExecutionStrategy;
+    this.enableSandbox = enableSandbox;
+  }
+
   protected BuildRule createBuildRule(
       BuildTarget buildTarget,
       final ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      @SuppressWarnings("unused") final BuildRuleResolver resolver,
+      BuildRuleResolver resolver,
       T args,
-      Optional<com.facebook.buck.rules.args.Arg> cmd,
-      Optional<com.facebook.buck.rules.args.Arg> bash,
-      Optional<com.facebook.buck.rules.args.Arg> cmdExe) {
+      Optional<Arg> cmd,
+      Optional<Arg> bash,
+      Optional<Arg> cmdExe) {
+    AndroidLegacyToolchain androidLegacyToolchain =
+        toolchainProvider.getByName(
+            AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
     return new Genrule(
         buildTarget,
         projectFilesystem,
+        androidLegacyToolchain,
+        resolver,
         params,
+        sandboxExecutionStrategy,
         args.getSrcs(),
         cmd,
         bash,
         cmdExe,
         args.getType(),
-        args.getOut());
+        args.getOut(),
+        args.getEnableSandbox().orElse(enableSandbox));
   }
 
   protected MacroHandler getMacroHandlerForParseTimeDeps() {
@@ -127,12 +152,11 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
     if (maybeMacroHandler.isPresent()) {
       MacroHandler macroHandler = maybeMacroHandler.get();
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-      java.util.function.Function<String, com.facebook.buck.rules.args.Arg> macroArgFunction =
-          MacroArg.toMacroArgFunction(macroHandler, buildTarget, cellRoots, resolver)::apply;
-      final Optional<com.facebook.buck.rules.args.Arg> cmd = args.getCmd().map(macroArgFunction);
-      final Optional<com.facebook.buck.rules.args.Arg> bash = args.getBash().map(macroArgFunction);
-      final Optional<com.facebook.buck.rules.args.Arg> cmdExe =
-          args.getCmdExe().map(macroArgFunction);
+      Function<String, Arg> macroArgFunction =
+          MacroArg.toMacroArgFunction(macroHandler, buildTarget, cellRoots, resolver);
+      final Optional<Arg> cmd = args.getCmd().map(macroArgFunction);
+      final Optional<Arg> bash = args.getBash().map(macroArgFunction);
+      final Optional<Arg> cmdExe = args.getCmdExe().map(macroArgFunction);
       return createBuildRule(
           buildTarget,
           projectFilesystem,
@@ -256,5 +280,7 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
     Optional<String> getType();
 
     ImmutableList<SourcePath> getSrcs();
+
+    Optional<Boolean> getEnableSandbox();
   }
 }

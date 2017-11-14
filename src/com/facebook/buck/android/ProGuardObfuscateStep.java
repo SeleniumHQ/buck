@@ -18,6 +18,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.shell.ShellStep;
@@ -54,6 +55,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
     NONE,
   }
 
+  private final AndroidLegacyToolchain androidLegacyToolchain;
   private final ImmutableList<String> javaRuntimeLauncher;
   private final ProjectFilesystem filesystem;
   private final Map<Path, Path> inputAndOutputEntries;
@@ -72,6 +74,8 @@ public final class ProGuardObfuscateStep extends ShellStep {
    * @param steps Where to append the generated steps.
    */
   public static void create(
+      BuildTarget target,
+      AndroidLegacyToolchain androidLegacyToolchain,
       ImmutableList<String> javaRuntimeLauncher,
       ProjectFilesystem filesystem,
       Optional<Path> proguardJarOverride,
@@ -100,6 +104,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
     CommandLineHelperStep commandLineHelperStep =
         new CommandLineHelperStep(
             filesystem,
+            androidLegacyToolchain,
             generatedProGuardConfig,
             customProguardConfigs,
             sdkProguardConfig,
@@ -115,6 +120,8 @@ public final class ProGuardObfuscateStep extends ShellStep {
     } else {
       ProGuardObfuscateStep proGuardStep =
           new ProGuardObfuscateStep(
+              target,
+              androidLegacyToolchain,
               javaRuntimeLauncher,
               filesystem,
               inputAndOutputEntries,
@@ -145,6 +152,8 @@ public final class ProGuardObfuscateStep extends ShellStep {
    * @param pathToProGuardCommandLineArgsFile Path to file containing arguments to ProGuard.
    */
   private ProGuardObfuscateStep(
+      BuildTarget buildTarget,
+      AndroidLegacyToolchain androidLegacyToolchain,
       ImmutableList<String> javaRuntimeLauncher,
       ProjectFilesystem filesystem,
       Map<Path, Path> inputAndOutputEntries,
@@ -154,7 +163,8 @@ public final class ProGuardObfuscateStep extends ShellStep {
       String proguardMaxHeapSize,
       Optional<List<String>> proguardJvmArgs,
       Optional<String> proguardAgentPath) {
-    super(filesystem.getRootPath());
+    super(Optional.of(buildTarget), filesystem.getRootPath());
+    this.androidLegacyToolchain = androidLegacyToolchain;
     this.javaRuntimeLauncher = javaRuntimeLauncher;
     this.filesystem = filesystem;
     this.inputAndOutputEntries = ImmutableMap.copyOf(inputAndOutputEntries);
@@ -178,7 +188,8 @@ public final class ProGuardObfuscateStep extends ShellStep {
     if (proguardJarOverride.isPresent()) {
       proguardJar = filesystem.getPathForRelativePath(proguardJarOverride.get());
     } else {
-      AndroidPlatformTarget androidPlatformTarget = context.getAndroidPlatformTarget();
+      AndroidPlatformTarget androidPlatformTarget =
+          androidLegacyToolchain.getAndroidPlatformTarget();
       proguardJar = androidPlatformTarget.getProguardJar();
     }
 
@@ -267,6 +278,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
   static class CommandLineHelperStep extends AbstractExecutionStep {
 
     private final ProjectFilesystem filesystem;
+    private final AndroidLegacyToolchain androidLegacyToolchain;
     private final Path generatedProGuardConfig;
     private final Set<Path> customProguardConfigs;
     private final Map<Path, Path> inputAndOutputEntries;
@@ -289,6 +301,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
      */
     private CommandLineHelperStep(
         ProjectFilesystem filesystem,
+        AndroidLegacyToolchain androidLegacyToolchain,
         Path generatedProGuardConfig,
         Set<Path> customProguardConfigs,
         SdkProguardType sdkProguardConfig,
@@ -300,6 +313,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
       super("write_proguard_command_line_parameters");
 
       this.filesystem = filesystem;
+      this.androidLegacyToolchain = androidLegacyToolchain;
       this.generatedProGuardConfig = generatedProGuardConfig;
       this.customProguardConfigs = ImmutableSet.copyOf(customProguardConfigs);
       this.sdkProguardConfig = sdkProguardConfig;
@@ -313,8 +327,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
     @Override
     public StepExecutionResult execute(ExecutionContext context)
         throws IOException, InterruptedException {
-      String proGuardArguments =
-          Joiner.on('\n').join(getParameters(context, filesystem.getRootPath()));
+      String proGuardArguments = Joiner.on('\n').join(getParameters(filesystem.getRootPath()));
       filesystem.writeContentsToPath(proGuardArguments, pathToProGuardCommandLineArgsFile);
 
       return StepExecutionResult.SUCCESS;
@@ -322,9 +335,10 @@ public final class ProGuardObfuscateStep extends ShellStep {
 
     /** @return the list of arguments to pass to ProGuard. */
     @VisibleForTesting
-    ImmutableList<String> getParameters(ExecutionContext context, Path workingDirectory) {
+    ImmutableList<String> getParameters(Path workingDirectory) {
       ImmutableList.Builder<String> args = ImmutableList.builder();
-      AndroidPlatformTarget androidPlatformTarget = context.getAndroidPlatformTarget();
+      AndroidPlatformTarget androidPlatformTarget =
+          androidLegacyToolchain.getAndroidPlatformTarget();
 
       // Relative paths should be interpreted relative to project directory root, not the
       // written parameters file.

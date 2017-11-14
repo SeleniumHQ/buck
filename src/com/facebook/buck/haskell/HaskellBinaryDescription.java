@@ -189,7 +189,7 @@ public class HaskellBinaryDescription
                   projectFilesystem,
                   platform.getCxxPlatform(),
                   deps,
-                  NativeLinkable.class::isInstance));
+                  r -> Optional.empty()));
 
       // Embed a origin-relative library path into the binary so it can find the shared libraries.
       // The shared libraries root is absolute. Also need an absolute path to the linkOutput
@@ -340,7 +340,7 @@ public class HaskellBinaryDescription
   }
 
   @BuckStyleImmutable
-  @Value.Immutable
+  @Value.Immutable(copy = true)
   interface AbstractHaskellBinaryDescriptionArg extends CommonDescriptionArg, HasDepsQuery {
 
     @Value.Default

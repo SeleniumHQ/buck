@@ -20,11 +20,15 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal;
 import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal.CycleException;
+import com.facebook.buck.graph.DirectedAcyclicGraph;
+import com.facebook.buck.graph.Dot;
+import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.hashing.FileHashLoader;
 import com.facebook.buck.hashing.FilePathHashLoader;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.model.BuildFileTree;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
@@ -32,6 +36,8 @@ import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.PerBuildState;
+import com.facebook.buck.parser.PerBuildState.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.ActionGraph;
@@ -42,6 +48,10 @@ import com.facebook.buck.rules.BuildRuleType;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasTests;
+import com.facebook.buck.rules.KnownBuildRuleTypes;
+import com.facebook.buck.rules.ParallelRuleKeyCalculator;
+import com.facebook.buck.rules.RuleDepsCache;
+import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -51,6 +61,7 @@ import com.facebook.buck.rules.TargetGraphHashing;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.RuleKeyConfiguration;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
@@ -63,7 +74,6 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.base.Supplier;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -75,6 +85,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
+import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -89,6 +100,9 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.SortedMap;
+import java.util.function.Function;
+import java.util.function.Predicate;
+import javax.annotation.Nullable;
 import org.immutables.value.Value;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
@@ -126,6 +140,13 @@ public class TargetsCommand extends AbstractCommand {
 
   @Option(name = "--json", usage = "Print JSON representation of each target")
   private boolean json;
+
+  @Option(
+    name = "--dot",
+    usage =
+        "Output rule keys in DOT format, only works with both --show-rulekey and --show-transitive-rulekeys"
+  )
+  private boolean dot;
 
   @Option(name = "--print0", usage = "Delimit targets using the ASCII NUL character.")
   private boolean print0;
@@ -224,6 +245,13 @@ public class TargetsCommand extends AbstractCommand {
   @SuppressFieldNotInitialized
   private Supplier<ImmutableSet<String>> outputAttributes;
 
+  @Nullable
+  @Option(
+    name = "--rulekeys-log-path",
+    usage = "If set, log a binary representation of rulekeys to this file."
+  )
+  private String ruleKeyLogPath = null;
+
   @Argument private List<String> arguments = new ArrayList<>();
 
   public List<String> getArguments() {
@@ -310,6 +338,14 @@ public class TargetsCommand extends AbstractCommand {
   }
 
   /**
+   * Determines if the results should be in DOT format. This is true when {@code --dot} parameter is
+   * specified along with {@code --show-rulekey} and {@code --show-transitive-rulekeys}
+   */
+  private boolean shouldUseDotFormat() {
+    return dot && isShowRuleKey() && isShowTransitiveRuleKeys();
+  }
+
+  /**
    * @return set of paths passed to {@code --assume-modified-files} if either {@code
    *     --assume-modified-files} or {@code --assume-no-modified-files} is used, absent otherwise.
    */
@@ -351,49 +387,109 @@ public class TargetsCommand extends AbstractCommand {
       return 1;
     }
 
-    if (isShowCellPath()
+    // shortcut to old plain simple format
+    if (!(isShowCellPath()
         || isShowOutput()
         || isShowFullOutput()
         || isShowRuleKey()
-        || isShowTargetHash()) {
-      ImmutableMap<BuildTarget, ShowOptions> showRulesResult;
-      TargetGraphAndBuildTargets targetGraphAndBuildTargetsForShowRules =
-          buildTargetGraphAndTargetsForShowRules(params, executor, descriptionClasses);
-      boolean useVersioning =
-          isShowRuleKey() || isShowOutput() || isShowFullOutput()
-              ? params.getBuckConfig().getBuildVersions()
-              : params.getBuckConfig().getTargetsVersions();
-      targetGraphAndBuildTargetsForShowRules =
-          useVersioning
-              ? toVersionedTargetGraph(params, targetGraphAndBuildTargetsForShowRules)
-              : targetGraphAndBuildTargetsForShowRules;
-      showRulesResult =
-          computeShowRules(
-              params,
-              executor,
-              new Pair<>(
-                  targetGraphAndBuildTargetsForShowRules.getTargetGraph(),
-                  targetGraphAndBuildTargetsForShowRules
-                      .getTargetGraph()
-                      .getAll(targetGraphAndBuildTargetsForShowRules.getBuildTargets())));
-
-      if (shouldUseJsonFormat()) {
-        ImmutableSortedSet.Builder<BuildTarget> keysBuilder = ImmutableSortedSet.naturalOrder();
-        keysBuilder.addAll(showRulesResult.keySet());
-        Iterable<TargetNode<?, ?>> matchingNodes =
-            targetGraphAndBuildTargetsForShowRules.getTargetGraph().getAll(keysBuilder.build());
-        printJsonForTargets(
-            params, executor, matchingNodes, showRulesResult, getOutputAttributes());
-      } else {
-        printShowRules(showRulesResult, params);
-      }
-      return 0;
+        || isShowTargetHash())) {
+      return printResults(
+          params,
+          executor,
+          getMatchingNodes(
+              params, buildTargetGraphAndTargets(params, executor), descriptionClasses));
     }
 
-    return printResults(
-        params,
-        executor,
-        getMatchingNodes(params, buildTargetGraphAndTargets(params, executor), descriptionClasses));
+    // shortcut to DOT format, it only works along with rule keys and transitive rule keys
+    // because we want to construct action graph
+    if (shouldUseDotFormat()) {
+      return printDotFormat(params, executor);
+    }
+
+    // plain or json output
+    ImmutableMap<BuildTarget, TargetResult> showRulesResult;
+    TargetGraphAndBuildTargets targetGraphAndBuildTargetsForShowRules =
+        buildTargetGraphAndTargetsForShowRules(params, executor, descriptionClasses);
+    boolean useVersioning =
+        isShowRuleKey() || isShowOutput() || isShowFullOutput()
+            ? params.getBuckConfig().getBuildVersions()
+            : params.getBuckConfig().getTargetsVersions();
+    targetGraphAndBuildTargetsForShowRules =
+        useVersioning
+            ? toVersionedTargetGraph(params, targetGraphAndBuildTargetsForShowRules)
+            : targetGraphAndBuildTargetsForShowRules;
+    showRulesResult =
+        computeShowRules(
+            params,
+            executor,
+            new Pair<>(
+                targetGraphAndBuildTargetsForShowRules.getTargetGraph(),
+                targetGraphAndBuildTargetsForShowRules
+                    .getTargetGraph()
+                    .getAll(targetGraphAndBuildTargetsForShowRules.getBuildTargets())));
+
+    if (shouldUseJsonFormat()) {
+      ImmutableSortedSet.Builder<BuildTarget> keysBuilder = ImmutableSortedSet.naturalOrder();
+      keysBuilder.addAll(showRulesResult.keySet());
+      Iterable<TargetNode<?, ?>> matchingNodes =
+          targetGraphAndBuildTargetsForShowRules.getTargetGraph().getAll(keysBuilder.build());
+      printJsonForTargets(params, executor, matchingNodes, showRulesResult, getOutputAttributes());
+    } else {
+      printShowRules(showRulesResult, params);
+    }
+
+    return 0;
+  }
+
+  /**
+   * Output rules along with dependencies as a graph in DOT format As a part of invocation,
+   * constructs both target and action graphs
+   */
+  private int printDotFormat(CommandRunnerParams params, ListeningExecutorService executor)
+      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException,
+          VersionException {
+    TargetGraphAndBuildTargets targetGraphAndTargets = buildTargetGraphAndTargets(params, executor);
+    ActionGraphAndResolver result =
+        params
+            .getActionGraphCache()
+            .getActionGraph(
+                params.getBuckEventBus(),
+                targetGraphAndTargets.getTargetGraph(),
+                params.getBuckConfig());
+
+    // construct real graph
+    MutableDirectedGraph<BuildRule> actionGraphMutable = new MutableDirectedGraph<>();
+
+    for (BuildRule rule : result.getActionGraph().getNodes()) {
+      actionGraphMutable.addNode(rule);
+      for (BuildRule node : rule.getBuildDeps()) {
+        actionGraphMutable.addEdge(rule, node);
+      }
+    }
+
+    // ruleKeyFactory is used to calculate rule key that we also want to display on a graph
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(result.getResolver());
+    DefaultRuleKeyFactory ruleKeyFactory =
+        new DefaultRuleKeyFactory(
+            new RuleKeyFieldLoader(RuleKeyConfiguration.of(params.getBuckConfig().getKeySeed())),
+            params.getFileHashCache(),
+            DefaultSourcePathResolver.from(ruleFinder),
+            ruleFinder);
+
+    // it is time to construct DOT output
+    Dot.builder(new DirectedAcyclicGraph<>(actionGraphMutable), "action_graph")
+        .setNodeToName(
+            node ->
+                node.getFullyQualifiedName()
+                    + " "
+                    + node.getType()
+                    + " "
+                    + ruleKeyFactory.build(node).toString())
+        .setNodeToTypeName(node -> node.getType())
+        .build()
+        .writeOutput(params.getConsole().getStdOut());
+
+    return 0;
   }
 
   private TargetGraphAndBuildTargets buildTargetGraphAndTargetsForShowRules(
@@ -540,8 +636,10 @@ public class TargetsCommand extends AbstractCommand {
         ImmutableSet.builder();
     for (String name : types) {
       try {
-        BuildRuleType type = params.getCell().getBuildRuleType(name);
-        Description<?> description = params.getCell().getDescription(type);
+        KnownBuildRuleTypes knownBuildRuleTypes =
+            params.getKnownBuildRuleTypesProvider().get(params.getCell());
+        BuildRuleType type = knownBuildRuleTypes.getBuildRuleType(name);
+        Description<?> description = knownBuildRuleTypes.getDescription(type);
         descriptionClassesBuilder.add((Class<? extends Description<?>>) description.getClass());
       } catch (IllegalArgumentException e) {
         params.getBuckEventBus().post(ConsoleEvent.severe("Invalid build rule type: " + name));
@@ -552,19 +650,19 @@ public class TargetsCommand extends AbstractCommand {
   }
 
   private void printShowRules(
-      Map<BuildTarget, ShowOptions> showRulesResult, CommandRunnerParams params) {
-    for (Entry<BuildTarget, ShowOptions> entry :
+      Map<BuildTarget, TargetResult> showRulesResult, CommandRunnerParams params) {
+    for (Entry<BuildTarget, TargetResult> entry :
         ImmutableSortedMap.copyOf(showRulesResult).entrySet()) {
       ImmutableList.Builder<String> builder = ImmutableList.builder();
       builder.add(entry.getKey().getFullyQualifiedName());
-      ShowOptions showOptions = entry.getValue();
-      showOptions.getRuleKey().ifPresent(builder::add);
+      TargetResult targetResult = entry.getValue();
+      targetResult.getRuleKey().ifPresent(builder::add);
       if (isShowCellPath()) {
         builder.add(entry.getKey().getCellPath().toString());
       }
-      showOptions.getOutputPath().ifPresent(builder::add);
-      showOptions.getGeneratedSourcePath().ifPresent(builder::add);
-      showOptions.getTargetHash().ifPresent(builder::add);
+      targetResult.getOutputPath().ifPresent(builder::add);
+      targetResult.getGeneratedSourcePath().ifPresent(builder::add);
+      targetResult.getTargetHash().ifPresent(builder::add);
       params.getConsole().getStdOut().println(Joiner.on(' ').join(builder.build()));
     }
   }
@@ -603,9 +701,11 @@ public class TargetsCommand extends AbstractCommand {
                   .map(TargetNode::getBuildTarget)
                   .collect(MoreCollectors.toImmutableSet()));
       directOwners =
-          FluentIterable.from(graph.getNodes())
+          graph
+              .getNodes()
+              .stream()
               .filter(new DirectOwnerPredicate(buildFileTree, referencedFiles.get(), buildFileName))
-              .toSet();
+              .collect(MoreCollectors.toImmutableSet());
     } else {
       directOwners = graph.getNodes();
     }
@@ -691,7 +791,7 @@ public class TargetsCommand extends AbstractCommand {
       CommandRunnerParams params,
       ListeningExecutorService executor,
       Iterable<TargetNode<?, ?>> targetNodes,
-      ImmutableMap<BuildTarget, ShowOptions> showRulesResult,
+      ImmutableMap<BuildTarget, TargetResult> targetResults,
       ImmutableSet<String> outputAttributes)
       throws BuildFileParseException {
     PatternsMatcher attributesPatternsMatcher = new PatternsMatcher(outputAttributes);
@@ -701,93 +801,64 @@ public class TargetsCommand extends AbstractCommand {
 
     Iterator<TargetNode<?, ?>> targetNodeIterator = targetNodes.iterator();
 
-    while (targetNodeIterator.hasNext()) {
-      TargetNode<?, ?> targetNode = targetNodeIterator.next();
-      Map<String, Object> sortedTargetRule;
-      sortedTargetRule =
+    try (PerBuildState state =
+        new PerBuildState(
+            params.getParser(),
+            params.getBuckEventBus(),
+            executor,
+            params.getCell(),
+            params.getKnownBuildRuleTypesProvider(),
+            getEnableParserProfiling(),
+            SpeculativeParsing.DISABLED)) {
+
+      while (targetNodeIterator.hasNext()) {
+        TargetNode<?, ?> targetNode = targetNodeIterator.next();
+        Map<String, Object> rawTargetNode =
+            params.getParser().getRawTargetNode(state, params.getCell(), targetNode);
+        if (rawTargetNode == null) {
           params
-              .getParser()
-              .getRawTargetNode(
-                  params.getBuckEventBus(),
-                  params.getCell(),
-                  getEnableParserProfiling(),
-                  executor,
-                  targetNode);
-      if (sortedTargetRule == null) {
-        params
-            .getConsole()
-            .printErrorText(
-                "unable to find rule for target "
-                    + targetNode.getBuildTarget().getFullyQualifiedName());
-        continue;
-      }
+              .getConsole()
+              .printErrorText(
+                  "unable to find rule for target "
+                      + targetNode.getBuildTarget().getFullyQualifiedName());
+          continue;
+        }
 
-      sortedTargetRule = attributesPatternsMatcher.filterMatchingMapKeys(sortedTargetRule);
+        TargetResult targetResult = targetResults.get(targetNode.getBuildTarget());
+        if (targetResult != null) {
+          for (TargetResultFieldName field : TargetResultFieldName.values()) {
+            field
+                .getter
+                .apply(targetResult)
+                .ifPresent(value -> rawTargetNode.put(field.name, value));
+          }
+        }
+        rawTargetNode.put(
+            "fully_qualified_name", targetNode.getBuildTarget().getFullyQualifiedName());
+        if (isShowCellPath()) {
+          rawTargetNode.put("buck.cell_path", targetNode.getBuildTarget().getCellPath());
+        }
 
-      ShowOptions showOptions = showRulesResult.get(targetNode.getBuildTarget());
-      if (showOptions != null) {
-        putIfValuePresentAndMatches(
-            ShowOptionsName.RULE_KEY.getName(),
-            showOptions.getRuleKey(),
-            sortedTargetRule,
-            attributesPatternsMatcher);
-        putIfValuePresentAndMatches(
-            ShowOptionsName.OUTPUT_PATH.getName(),
-            showOptions.getOutputPath(),
-            sortedTargetRule,
-            attributesPatternsMatcher);
-        putIfValuePresentAndMatches(
-            ShowOptionsName.GEN_SRC_PATH.getName(),
-            showOptions.getGeneratedSourcePath(),
-            sortedTargetRule,
-            attributesPatternsMatcher);
-        putIfValuePresentAndMatches(
-            ShowOptionsName.TARGET_HASH.getName(),
-            showOptions.getTargetHash(),
-            sortedTargetRule,
-            attributesPatternsMatcher);
-        putIfValuePresentAndMatches(
-            ShowOptionsName.RULE_TYPE.getName(),
-            showOptions.getRuleType(),
-            sortedTargetRule,
-            attributesPatternsMatcher);
+        // Print the build rule information as JSON.
+        StringWriter stringWriter = new StringWriter();
+        try {
+          ObjectMappers.WRITER
+              .withDefaultPrettyPrinter()
+              .writeValue(
+                  stringWriter, attributesPatternsMatcher.filterMatchingMapKeys(rawTargetNode));
+        } catch (IOException e) {
+          // Shouldn't be possible while writing to a StringWriter...
+          throw new RuntimeException(e);
+        }
+        params.getConsole().getStdOut().print(stringWriter.getBuffer().toString());
+        if (targetNodeIterator.hasNext()) {
+          params.getConsole().getStdOut().print(',');
+        }
+        params.getConsole().getStdOut().println();
       }
-      String fullyQualifiedNameAttribute = "fully_qualified_name";
-      if (attributesPatternsMatcher.matches(fullyQualifiedNameAttribute)) {
-        sortedTargetRule.put(
-            fullyQualifiedNameAttribute, targetNode.getBuildTarget().getFullyQualifiedName());
-      }
-      String cellPathAttribute = "buck.cell_path";
-      if (isShowCellPath() && attributesPatternsMatcher.matches(cellPathAttribute)) {
-        sortedTargetRule.put(cellPathAttribute, targetNode.getBuildTarget().getCellPath());
-      }
-
-      // Print the build rule information as JSON.
-      StringWriter stringWriter = new StringWriter();
-      try {
-        ObjectMappers.WRITER.withDefaultPrettyPrinter().writeValue(stringWriter, sortedTargetRule);
-      } catch (IOException e) {
-        // Shouldn't be possible while writing to a StringWriter...
-        throw new RuntimeException(e);
-      }
-      String output = stringWriter.getBuffer().toString();
-      if (targetNodeIterator.hasNext()) {
-        output += ",";
-      }
-      params.getConsole().getStdOut().println(output);
     }
 
     params.getConsole().getStdOut().println("]");
-  }
-
-  private void putIfValuePresentAndMatches(
-      String key,
-      Optional<String> value,
-      Map<String, Object> targetMap,
-      PatternsMatcher patternsMatcher) {
-    if (value.isPresent() && patternsMatcher.matches(key)) {
-      targetMap.put(key, value.get());
-    }
   }
 
   @VisibleForTesting
@@ -798,116 +869,153 @@ public class TargetsCommand extends AbstractCommand {
   }
 
   /**
+   * Create a {@link ThriftRuleKeyLogger} depending on whether {@link TargetsCommand#ruleKeyLogPath}
+   * is set or not
+   */
+  private Optional<ThriftRuleKeyLogger> createRuleKeyLogger() throws IOException {
+    if (ruleKeyLogPath == null) {
+      return Optional.empty();
+    } else {
+      return Optional.of(ThriftRuleKeyLogger.create(Paths.get(ruleKeyLogPath)));
+    }
+  }
+
+  /**
    * Assumes at least one target is specified. Computes each of the specified targets, followed by
    * the rule key, output path, and/or target hash, depending on what flags are passed in.
    *
    * @return An immutable map consisting of result of show options for to each target rule
    */
-  private ImmutableMap<BuildTarget, ShowOptions> computeShowRules(
+  private ImmutableMap<BuildTarget, TargetResult> computeShowRules(
       CommandRunnerParams params,
       ListeningExecutorService executor,
       Pair<TargetGraph, Iterable<TargetNode<?, ?>>> targetGraphAndTargetNodes)
       throws IOException, InterruptedException, BuildFileParseException, BuildTargetException,
           CycleException {
 
-    Map<BuildTarget, ShowOptions.Builder> showOptionBuilderMap = new HashMap<>();
+    TargetResultBuilders targetResultBuilders = new TargetResultBuilders();
     if (isShowTargetHash()) {
-      computeShowTargetHash(params, executor, targetGraphAndTargetNodes, showOptionBuilderMap);
+      computeShowTargetHash(params, executor, targetGraphAndTargetNodes, targetResultBuilders);
     }
 
     // We only need the action graph if we're showing the output or the keys, and the
     // RuleKeyFactory if we're showing the keys.
-    Optional<ActionGraph> actionGraph = Optional.empty();
-    Optional<BuildRuleResolver> buildRuleResolver = Optional.empty();
-    Optional<DefaultRuleKeyFactory> ruleKeyFactory = Optional.empty();
-    if (isShowRuleKey() || isShowOutput() || isShowFullOutput()) {
-      ActionGraphAndResolver result =
-          params
-              .getActionGraphCache()
-              .getActionGraph(
-                  params.getBuckEventBus(),
-                  targetGraphAndTargetNodes.getFirst(),
-                  params.getBuckConfig());
-      actionGraph = Optional.of(result.getActionGraph());
-      buildRuleResolver = Optional.of(result.getResolver());
-      if (isShowRuleKey()) {
-        SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(result.getResolver());
-        ruleKeyFactory =
-            Optional.of(
-                new DefaultRuleKeyFactory(
-                    new RuleKeyFieldLoader(params.getBuckConfig().getKeySeed()),
-                    params.getFileHashCache(),
-                    DefaultSourcePathResolver.from(ruleFinder),
-                    ruleFinder));
-      }
-    }
+    Optional<ActionGraph> actionGraph;
+    Optional<BuildRuleResolver> buildRuleResolver;
+    Optional<ParallelRuleKeyCalculator<RuleKey>> ruleKeyCalculator = Optional.empty();
 
-    for (TargetNode<?, ?> targetNode : targetGraphAndTargetNodes.getSecond()) {
-      ShowOptions.Builder showOptionsBuilder =
-          getShowOptionBuilder(showOptionBuilderMap, targetNode.getBuildTarget());
-      Preconditions.checkNotNull(showOptionsBuilder);
-      if (actionGraph.isPresent()) {
-        BuildRule rule = buildRuleResolver.get().requireRule(targetNode.getBuildTarget());
+    try (ThriftRuleKeyLogger ruleKeyLogger = createRuleKeyLogger().orElse(null)) {
+      if (isShowRuleKey() || isShowOutput() || isShowFullOutput()) {
+        ActionGraphAndResolver result =
+            params
+                .getActionGraphCache()
+                .getActionGraph(
+                    params.getBuckEventBus(),
+                    targetGraphAndTargetNodes.getFirst(),
+                    params.getBuckConfig());
+        actionGraph = Optional.of(result.getActionGraph());
+        buildRuleResolver = Optional.of(result.getResolver());
         if (isShowRuleKey()) {
-          showOptionsBuilder.setRuleKey(ruleKeyFactory.get().build(rule).toString());
+          SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(result.getResolver());
+          // Setup a parallel rule key calculator to use when building rule keys.
+          ruleKeyCalculator =
+              Optional.of(
+                  new ParallelRuleKeyCalculator<>(
+                      executor,
+                      new DefaultRuleKeyFactory(
+                          new RuleKeyFieldLoader(
+                              RuleKeyConfiguration.of(params.getBuckConfig().getKeySeed())),
+                          params.getFileHashCache(),
+                          DefaultSourcePathResolver.from(ruleFinder),
+                          ruleFinder,
+                          Optional.ofNullable(ruleKeyLogger)),
+                      new RuleDepsCache(buildRuleResolver.get()),
+                      (eventBus, rule) -> () -> {}));
+        }
+      } else {
+        actionGraph = Optional.empty();
+        buildRuleResolver = Optional.empty();
+      }
+
+      // Start rule calculations in parallel.
+      for (TargetNode<?, ?> targetNode : targetGraphAndTargetNodes.getSecond()) {
+        if (actionGraph.isPresent() && isShowRuleKey()) {
+          BuildRule rule = buildRuleResolver.get().requireRule(targetNode.getBuildTarget());
+          ruleKeyCalculator.get().calculate(params.getBuckEventBus(), rule);
+        }
+      }
+
+      for (TargetNode<?, ?> targetNode : targetGraphAndTargetNodes.getSecond()) {
+        TargetResult.Builder builder =
+            targetResultBuilders.getOrCreate(targetNode.getBuildTarget());
+        Preconditions.checkNotNull(builder);
+        if (actionGraph.isPresent() && isShowRuleKey()) {
+          BuildRule rule = buildRuleResolver.get().requireRule(targetNode.getBuildTarget());
+          builder.setRuleKey(
+              Futures.getUnchecked(
+                      ruleKeyCalculator.get().calculate(params.getBuckEventBus(), rule))
+                  .toString());
           if (isShowTransitiveRuleKeys()) {
-            showTransitiveRuleKeys(rule, ruleKeyFactory.get(), showOptionBuilderMap);
+            ParallelRuleKeyCalculator<RuleKey> calculator = ruleKeyCalculator.get();
+            AbstractBreadthFirstTraversal.traverse(
+                rule,
+                traversedRule -> {
+                  TargetResult.Builder showOptionsBuilder =
+                      targetResultBuilders.getOrCreate(traversedRule.getBuildTarget());
+                  showOptionsBuilder.setRuleKey(
+                      Futures.getUnchecked(
+                              calculator.calculate(params.getBuckEventBus(), traversedRule))
+                          .toString());
+                  return traversedRule.getBuildDeps();
+                });
           }
         }
       }
-    }
 
-    for (Entry<BuildTarget, ShowOptions.Builder> entry : showOptionBuilderMap.entrySet()) {
-      BuildTarget target = entry.getKey();
-      ShowOptions.Builder showOptionsBuilder = entry.getValue();
-      if (actionGraph.isPresent()) {
-        BuildRule rule = buildRuleResolver.get().requireRule(target);
-        showOptionsBuilder.setRuleType(rule.getType());
-        if (isShowOutput() || isShowFullOutput()) {
-          getUserFacingOutputPath(
-                  DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver.get())),
-                  rule,
-                  params.getBuckConfig().getBuckOutCompatLink())
-              .map(
-                  path ->
-                      isShowFullOutput() ? path : params.getCell().getFilesystem().relativize(path))
-              .ifPresent(path -> showOptionsBuilder.setOutputPath(path.toString()));
-          // If the output dir is requested, also calculate the generated src dir
-          if (rule instanceof JavaLibrary) {
-            ((JavaLibrary) rule)
-                .getGeneratedSourcePath()
+      for (Map.Entry<BuildTarget, TargetResult.Builder> entry :
+          targetResultBuilders.map.entrySet()) {
+        BuildTarget target = entry.getKey();
+        TargetResult.Builder builder = entry.getValue();
+        if (buildRuleResolver.isPresent()) {
+          BuildRule rule = buildRuleResolver.get().requireRule(target);
+          builder.setRuleType(rule.getType());
+          if (isShowOutput() || isShowFullOutput()) {
+            getUserFacingOutputPath(
+                    DefaultSourcePathResolver.from(
+                        new SourcePathRuleFinder(buildRuleResolver.get())),
+                    rule,
+                    params.getBuckConfig().getBuckOutCompatLink())
                 .map(
-                    path -> {
-                      final Path rootPath = params.getCell().getFilesystem().getRootPath();
-                      Path sameFsPath = rootPath.resolve(path.toString());
-                      Path returnPath = isShowFullOutput() ? path : rootPath.relativize(sameFsPath);
-                      return returnPath.toString();
-                    })
-                .ifPresent(showOptionsBuilder::setGeneratedSourcePath);
+                    path ->
+                        isShowFullOutput()
+                            ? path
+                            : params.getCell().getFilesystem().relativize(path))
+                .ifPresent(path -> builder.setOutputPath(path.toString()));
+            // If the output dir is requested, also calculate the generated src dir
+            if (rule instanceof JavaLibrary) {
+              ((JavaLibrary) rule)
+                  .getGeneratedSourcePath()
+                  .map(
+                      path -> {
+                        final Path rootPath = params.getCell().getFilesystem().getRootPath();
+                        Path sameFsPath = rootPath.resolve(path.toString());
+                        Path returnPath =
+                            isShowFullOutput() ? path : rootPath.relativize(sameFsPath);
+                        return returnPath.toString();
+                      })
+                  .ifPresent(builder::setGeneratedSourcePath);
+            }
           }
         }
       }
-    }
 
-    ImmutableMap.Builder<BuildTarget, ShowOptions> builder = new ImmutableMap.Builder<>();
-    for (Entry<BuildTarget, ShowOptions.Builder> entry : showOptionBuilderMap.entrySet()) {
-      builder.put(entry.getKey(), entry.getValue().build());
+      ImmutableMap.Builder<BuildTarget, TargetResult> builder = new ImmutableMap.Builder<>();
+      for (Map.Entry<BuildTarget, TargetResult.Builder> entry :
+          targetResultBuilders.map.entrySet()) {
+        builder.put(entry.getKey(), entry.getValue().build());
+      }
+      return builder.build();
     }
-    return builder.build();
-  }
-
-  private void showTransitiveRuleKeys(
-      BuildRule root,
-      DefaultRuleKeyFactory ruleKeyFactory,
-      Map<BuildTarget, ShowOptions.Builder> optionsMap) {
-    AbstractBreadthFirstTraversal.traverse(
-        root,
-        r -> {
-          ShowOptions.Builder showOptionsBuilder =
-              getShowOptionBuilder(optionsMap, r.getBuildTarget());
-          showOptionsBuilder.setRuleKey(ruleKeyFactory.build(r).toString());
-          return r.getBuildDeps();
-        });
   }
 
   /** Returns absolute path to the output rule, if the rule has an output. */
@@ -1006,7 +1114,7 @@ public class TargetsCommand extends AbstractCommand {
       CommandRunnerParams params,
       ListeningExecutorService executor,
       Pair<TargetGraph, Iterable<TargetNode<?, ?>>> targetGraphAndTargetNodes,
-      Map<BuildTarget, ShowOptions.Builder> showRulesResult)
+      TargetResultBuilders resultBuilders)
       throws IOException, InterruptedException, BuildFileParseException, BuildTargetException,
           CycleException {
     LOG.debug("Getting target hash for %s", targetGraphAndTargetNodes.getSecond());
@@ -1033,7 +1141,10 @@ public class TargetsCommand extends AbstractCommand {
             targetGraphWithTests, targetGraphAndTargetNodes.getSecond(), buildTargetHashes);
 
     for (TargetNode<?, ?> targetNode : targetGraphAndTargetNodes.getSecond()) {
-      processTargetHash(targetNode.getBuildTarget(), showRulesResult, finalHashes);
+      BuildTarget buildTarget = targetNode.getBuildTarget();
+      resultBuilders
+          .getOrCreate(buildTarget)
+          .setTargetHash(getHashCodeOrThrow(finalHashes, buildTarget).toString());
     }
   }
 
@@ -1086,15 +1197,6 @@ public class TargetsCommand extends AbstractCommand {
     hashesWithTests.put(node.getBuildTarget(), hasher.hash());
   }
 
-  private void processTargetHash(
-      BuildTarget buildTarget,
-      Map<BuildTarget, ShowOptions.Builder> showRulesResult,
-      ImmutableMap<BuildTarget, HashCode> finalHashes) {
-    ShowOptions.Builder showOptionsBuilder = getShowOptionBuilder(showRulesResult, buildTarget);
-    HashCode hashCode = getHashCodeOrThrow(finalHashes, buildTarget);
-    showOptionsBuilder.setTargetHash(hashCode.toString());
-  }
-
   private static HashCode getHashCodeOrThrow(
       Map<BuildTarget, HashCode> buildTargetHashCodes, BuildTarget buildTarget) {
     HashCode hashCode = buildTargetHashCodes.get(buildTarget);
@@ -1125,7 +1227,7 @@ public class TargetsCommand extends AbstractCommand {
     }
 
     @Override
-    public boolean apply(TargetNode<?, ?> node) {
+    public boolean test(TargetNode<?, ?> node) {
       // For any referenced file, only those with the nearest target base path can
       // directly depend on that file.
       if (!basePathOfTargets.contains(node.getBuildTarget().getBasePath())) {
@@ -1144,19 +1246,21 @@ public class TargetsCommand extends AbstractCommand {
     }
   }
 
-  private ShowOptions.Builder getShowOptionBuilder(
-      Map<BuildTarget, ShowOptions.Builder> showRulesBuilderMap, BuildTarget buildTarget) {
-    if (!showRulesBuilderMap.containsKey(buildTarget)) {
-      ShowOptions.Builder builder = ShowOptions.builder();
-      showRulesBuilderMap.put(buildTarget, builder);
-      return builder;
+  /**
+   * Holds the output values for a build target. Handlers for different output types will accumulate
+   * their results in to result builder for each build target.
+   */
+  private static class TargetResultBuilders {
+    final Map<BuildTarget, TargetResult.Builder> map = new HashMap<>();
+
+    TargetResult.Builder getOrCreate(BuildTarget target) {
+      return map.computeIfAbsent(target, ignored -> TargetResult.builder());
     }
-    return showRulesBuilderMap.get(buildTarget);
   }
 
   @Value.Immutable
   @BuckStyleImmutable
-  abstract static class AbstractShowOptions {
+  abstract static class AbstractTargetResult {
     public abstract Optional<String> getOutputPath();
 
     public abstract Optional<String> getGeneratedSourcePath();
@@ -1168,21 +1272,19 @@ public class TargetsCommand extends AbstractCommand {
     public abstract Optional<String> getRuleType();
   }
 
-  private enum ShowOptionsName {
-    OUTPUT_PATH("buck.outputPath"),
-    GEN_SRC_PATH("buck.generatedSourcePath"),
-    TARGET_HASH("buck.targetHash"),
-    RULE_KEY("buck.ruleKey"),
-    RULE_TYPE("buck.ruleType");
+  private enum TargetResultFieldName {
+    OUTPUT_PATH("buck.outputPath", TargetResult::getOutputPath),
+    GEN_SRC_PATH("buck.generatedSourcePath", TargetResult::getGeneratedSourcePath),
+    TARGET_HASH("buck.targetHash", TargetResult::getTargetHash),
+    RULE_KEY("buck.ruleKey", TargetResult::getRuleKey),
+    RULE_TYPE("buck.ruleType", TargetResult::getRuleType);
 
     private String name;
+    private Function<TargetResult, Optional<String>> getter;
 
-    ShowOptionsName(String name) {
+    TargetResultFieldName(String name, Function<TargetResult, Optional<String>> getter) {
       this.name = name;
-    }
-
-    public String getName() {
-      return name;
+      this.getter = getter;
     }
   }
 }

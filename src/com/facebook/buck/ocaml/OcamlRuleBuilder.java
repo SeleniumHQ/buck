@@ -43,10 +43,10 @@ import com.facebook.buck.rules.coercer.OcamlSource;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
@@ -60,6 +60,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 /** Compute transitive dependencies and generate ocaml build rules */
@@ -114,12 +115,11 @@ public class OcamlRuleBuilder {
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
     boolean noYaccOrLexSources =
-        FluentIterable.from(srcs)
-            .transform(OcamlSource::getSource)
-            .filter(
+        srcs.stream()
+            .map(OcamlSource::getSource)
+            .noneMatch(
                 OcamlUtil.sourcePathExt(
-                    pathResolver, OcamlCompilables.OCAML_MLL, OcamlCompilables.OCAML_MLY))
-            .isEmpty();
+                    pathResolver, OcamlCompilables.OCAML_MLL, OcamlCompilables.OCAML_MLY));
     boolean noGeneratedSources =
         FluentIterable.from(srcs)
             .transform(OcamlSource::getSource)
@@ -186,7 +186,10 @@ public class OcamlRuleBuilder {
   private static NativeLinkableInput getCLinkableInput(
       CxxPlatform cxxPlatform, Iterable<BuildRule> deps) {
     return NativeLinkables.getTransitiveNativeLinkableInput(
-        cxxPlatform, deps, Linker.LinkableDepType.STATIC, OcamlLibrary.class::isInstance);
+        cxxPlatform,
+        deps,
+        Linker.LinkableDepType.STATIC,
+        r -> r instanceof OcamlLibrary ? Optional.of(r.getBuildDeps()) : Optional.empty());
   }
 
   public static BuildRule createBulkBuildRule(
@@ -212,11 +215,13 @@ public class OcamlRuleBuilder {
 
     ImmutableList<String> nativeIncludes =
         FluentIterable.from(params.getBuildDeps())
-            .transformAndConcat(getLibInclude(false))
+            .transformAndConcat(getLibInclude(false)::apply)
             .toList();
 
     ImmutableList<String> bytecodeIncludes =
-        FluentIterable.from(params.getBuildDeps()).transformAndConcat(getLibInclude(true)).toList();
+        FluentIterable.from(params.getBuildDeps())
+            .transformAndConcat(getLibInclude(true)::apply)
+            .toList();
 
     NativeLinkableInput nativeLinkableInput = getNativeLinkableInput(params.getBuildDeps());
     NativeLinkableInput bytecodeLinkableInput = getBytecodeLinkableInput(params.getBuildDeps());
@@ -315,13 +320,13 @@ public class OcamlRuleBuilder {
                       .add(ocamlLibraryBuild)
                       .build())),
           linkerFlags,
-          FluentIterable.from(srcs)
-              .transform(OcamlSource::getSource)
-              .transform(pathResolver::getAbsolutePath)
+          srcs.stream()
+              .map(OcamlSource::getSource)
+              .map(pathResolver::getAbsolutePath)
               .filter(OcamlUtil.ext(OcamlCompilables.OCAML_C))
-              .transform(ocamlContext::getCOutput)
-              .transform(input -> ExplicitBuildTargetSourcePath.of(compileBuildTarget, input))
-              .toList(),
+              .map(ocamlContext::getCOutput)
+              .map(input -> ExplicitBuildTargetSourcePath.of(compileBuildTarget, input))
+              .collect(MoreCollectors.toImmutableList()),
           ocamlContext,
           ocamlLibraryBuild,
           ImmutableSortedSet.of(ocamlLibraryBuild),
@@ -365,11 +370,13 @@ public class OcamlRuleBuilder {
 
     ImmutableList<String> nativeIncludes =
         FluentIterable.from(params.getBuildDeps())
-            .transformAndConcat(getLibInclude(false))
+            .transformAndConcat(getLibInclude(false)::apply)
             .toList();
 
     ImmutableList<String> bytecodeIncludes =
-        FluentIterable.from(params.getBuildDeps()).transformAndConcat(getLibInclude(true)).toList();
+        FluentIterable.from(params.getBuildDeps())
+            .transformAndConcat(getLibInclude(true)::apply)
+            .toList();
 
     NativeLinkableInput nativeLinkableInput = getNativeLinkableInput(params.getBuildDeps());
     NativeLinkableInput bytecodeLinkableInput = getBytecodeLinkableInput(params.getBuildDeps());
@@ -444,7 +451,8 @@ public class OcamlRuleBuilder {
             .build();
 
     Path baseDir = projectFilesystem.getRootPath().toAbsolutePath();
-    ImmutableMap<Path, ImmutableList<Path>> mlInput = getMLInputWithDeps(baseDir, ocamlContext);
+    ImmutableMap<Path, ImmutableList<Path>> mlInput =
+        getMLInputWithDeps(compileBuildTarget, baseDir, ocamlContext);
 
     ImmutableList<SourcePath> cInput = getCInput(pathResolver, getInput(srcs));
 
@@ -503,15 +511,17 @@ public class OcamlRuleBuilder {
 
   private static ImmutableList<SourcePath> getCInput(
       SourcePathResolver resolver, ImmutableList<SourcePath> input) {
-    return FluentIterable.from(input)
+    return input
+        .stream()
         .filter(OcamlUtil.sourcePathExt(resolver, OcamlCompilables.OCAML_C))
-        .toList();
+        .collect(MoreCollectors.toImmutableList());
   }
 
   private static ImmutableMap<Path, ImmutableList<Path>> getMLInputWithDeps(
-      Path baseDir, OcamlBuildContext ocamlContext) {
+      BuildTarget target, Path baseDir, OcamlBuildContext ocamlContext) {
     OcamlDepToolStep depToolStep =
         new OcamlDepToolStep(
+            target,
             baseDir,
             ocamlContext.getSourcePathResolver(),
             ocamlContext.getOcamlDepTool().get(),

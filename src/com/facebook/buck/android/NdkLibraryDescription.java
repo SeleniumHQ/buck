@@ -18,7 +18,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.toolchain.AndroidNdk;
 import com.facebook.buck.android.toolchain.AndroidToolchain;
 import com.facebook.buck.android.toolchain.NdkCxxPlatform;
-import com.facebook.buck.android.toolchain.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.cxx.CxxHeaders;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
@@ -202,7 +202,7 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
               cxxPlatform,
               params.getBuildDeps(),
               Linker.LinkableDepType.SHARED,
-              NdkLibrary.class::isInstance);
+              r -> r instanceof NdkLibrary ? Optional.of(r.getBuildDeps()) : Optional.empty());
 
       // We add any dependencies from the native linkable input to this rule, even though
       // it technically should be added to the top-level rule.
@@ -347,9 +347,13 @@ public class NdkLibraryDescription implements Description<NdkLibraryDescriptionA
     }
     AndroidToolchain androidToolchain =
         toolchainProvider.getByName(AndroidToolchain.DEFAULT_NAME, AndroidToolchain.class);
+    AndroidLegacyToolchain androidLegacyToolchain =
+        toolchainProvider.getByName(
+            AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
     return new NdkLibrary(
         buildTarget,
         projectFilesystem,
+        androidLegacyToolchain,
         params.copyAppendingExtraDeps(
             ImmutableSortedSet.<BuildRule>naturalOrder().addAll(makefilePair.getSecond()).build()),
         getGeneratedMakefilePath(buildTarget, projectFilesystem),

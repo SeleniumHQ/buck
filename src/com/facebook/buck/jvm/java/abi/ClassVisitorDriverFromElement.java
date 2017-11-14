@@ -50,21 +50,26 @@ class ClassVisitorDriverFromElement {
   private final SourceVersion targetVersion;
   private final Elements elements;
   private final AccessFlags accessFlagsUtils;
-  private final InnerClassesTable innerClassesTable;
+  private final boolean includeParameterMetadata;
 
   /**
    * @param targetVersion the class file version to target, expressed as the corresponding Java
    *     source version
    * @param messager
+   * @param includeParameterMetadata
    */
-  ClassVisitorDriverFromElement(SourceVersion targetVersion, Elements elements, Messager messager) {
+  ClassVisitorDriverFromElement(
+      SourceVersion targetVersion,
+      Elements elements,
+      Messager messager,
+      boolean includeParameterMetadata) {
     this.targetVersion = targetVersion;
     this.elements = elements;
     descriptorFactory = new DescriptorFactory(elements);
     this.messager = messager;
+    this.includeParameterMetadata = includeParameterMetadata;
     signatureFactory = new SignatureFactory(descriptorFactory);
     accessFlagsUtils = new AccessFlags(elements);
-    innerClassesTable = new InnerClassesTable(descriptorFactory, accessFlagsUtils);
   }
 
   public void driveVisitor(Element fullElement, ClassVisitor visitor) {
@@ -117,7 +122,8 @@ class ClassVisitorDriverFromElement {
 
       visitAnnotations(e, classVisitor::visitAnnotation);
 
-      innerClassesTable.reportInnerClassReferences(e, classVisitor);
+      new InnerClassesTable(descriptorFactory, accessFlagsUtils, e)
+          .reportInnerClassReferences(classVisitor);
 
       classVisitor.visitEnd();
 
@@ -155,7 +161,9 @@ class ClassVisitorDriverFromElement {
 
       super.visitType(e, visitor);
 
-      innerClassesTable.reportInnerClassReferences(e, visitor);
+      InnerClassesTable innerClassesTable =
+          new InnerClassesTable(descriptorFactory, accessFlagsUtils, e);
+      innerClassesTable.reportInnerClassReferences(visitor);
 
       return null;
     }
@@ -201,6 +209,11 @@ class ClassVisitorDriverFromElement {
       }
       for (int i = 0; i < parameters.size(); i++) {
         VariableElement parameter = parameters.get(i);
+        if (includeParameterMetadata) {
+          methodVisitor.visitParameter(
+              parameter.getSimpleName().toString(), accessFlagsUtils.getAccessFlags(parameter));
+        }
+
         for (AnnotationMirror annotationMirror : parameter.getAnnotationMirrors()) {
           if (MoreElements.isSourceRetention(annotationMirror)) {
             continue;

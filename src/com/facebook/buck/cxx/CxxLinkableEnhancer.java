@@ -41,12 +41,11 @@ import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.util.MoreCollectors;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.FluentIterable;
-import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -55,6 +54,8 @@ import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -77,7 +78,7 @@ public class CxxLinkableEnhancer {
       Path output,
       ImmutableList<Arg> args,
       Linker.LinkableDepType depType,
-      boolean thinLto,
+      CxxLinkOptions linkOptions,
       Optional<Linker.CxxRuntimeType> cxxRuntimeType,
       Optional<LinkOutputPostprocessor> postprocessor) {
 
@@ -92,7 +93,7 @@ public class CxxLinkableEnhancer {
     }
 
     // Add lto object path if thin LTO is on.
-    if (linker instanceof HasThinLTO && thinLto) {
+    if (linker instanceof HasThinLTO && linkOptions.getThinLto()) {
       argsBuilder.addAll(((HasThinLTO) linker).thinLTO(output));
     }
 
@@ -133,7 +134,7 @@ public class CxxLinkableEnhancer {
         postprocessor,
         cxxBuckConfig.getLinkScheduleInfo(),
         cxxBuckConfig.shouldCacheLinks(),
-        thinLto);
+        linkOptions.getThinLto());
   }
 
   /**
@@ -155,7 +156,7 @@ public class CxxLinkableEnhancer {
       Optional<String> soname,
       Path output,
       Linker.LinkableDepType depType,
-      boolean thinLto,
+      CxxLinkOptions linkOptions,
       Iterable<? extends NativeLinkable> nativeLinkableDeps,
       Optional<Linker.CxxRuntimeType> cxxRuntimeType,
       Optional<SourcePath> bundleLoader,
@@ -249,7 +250,7 @@ public class CxxLinkableEnhancer {
         output,
         allArgs,
         depType,
-        thinLto,
+        linkOptions,
         cxxRuntimeType,
         postprocessor);
   }
@@ -274,15 +275,16 @@ public class CxxLinkableEnhancer {
 
           @Override
           public void appendToCommandLine(
-              ImmutableCollection.Builder<String> builder, SourcePathResolver pathResolver) {
+              Consumer<String> consumer, SourcePathResolver pathResolver) {
             ImmutableSortedSet<Path> searchPaths =
-                FluentIterable.from(frameworkPaths)
-                    .transform(frameworkPathToSearchPath)
+                frameworkPaths
+                    .stream()
+                    .map(frameworkPathToSearchPath)
                     .filter(Objects::nonNull)
-                    .toSortedSet(Ordering.natural());
+                    .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural()));
             for (Path searchPath : searchPaths) {
-              builder.add("-L");
-              builder.add(searchPath.toString());
+              consumer.accept("-L");
+              consumer.accept(searchPath.toString());
             }
           }
         });
@@ -292,7 +294,7 @@ public class CxxLinkableEnhancer {
         new FrameworkPathArg(allLibraries) {
           @Override
           public void appendToCommandLine(
-              ImmutableCollection.Builder<String> builder, SourcePathResolver pathResolver) {
+              Consumer<String> consumer, SourcePathResolver pathResolver) {
             for (FrameworkPath frameworkPath : frameworkPaths) {
               String libName =
                   MorePaths.stripPathPrefixAndExtension(
@@ -303,7 +305,7 @@ public class CxxLinkableEnhancer {
               if (libName.isEmpty()) {
                 continue;
               }
-              builder.add("-l" + libName);
+              consumer.accept("-l" + libName);
             }
           }
         });
@@ -328,14 +330,15 @@ public class CxxLinkableEnhancer {
 
           @Override
           public void appendToCommandLine(
-              ImmutableCollection.Builder<String> builder, SourcePathResolver pathResolver) {
+              Consumer<String> consumer, SourcePathResolver pathResolver) {
             ImmutableSortedSet<Path> searchPaths =
-                FluentIterable.from(frameworkPaths)
-                    .transform(frameworkPathToSearchPath)
-                    .toSortedSet(Ordering.natural());
+                frameworkPaths
+                    .stream()
+                    .map(frameworkPathToSearchPath)
+                    .collect(MoreCollectors.toImmutableSortedSet(Ordering.natural()));
             for (Path searchPath : searchPaths) {
-              builder.add("-F");
-              builder.add(searchPath.toString());
+              consumer.accept("-F");
+              consumer.accept(searchPath.toString());
             }
           }
         });
@@ -348,11 +351,10 @@ public class CxxLinkableEnhancer {
   static Arg frameworksToLinkerArg(ImmutableSortedSet<FrameworkPath> frameworkPaths) {
     return new FrameworkPathArg(frameworkPaths) {
       @Override
-      public void appendToCommandLine(
-          ImmutableCollection.Builder<String> builder, SourcePathResolver pathResolver) {
+      public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver pathResolver) {
         for (FrameworkPath frameworkPath : frameworkPaths) {
-          builder.add("-framework");
-          builder.add(frameworkPath.getName(pathResolver::getAbsolutePath));
+          consumer.accept("-framework");
+          consumer.accept(frameworkPath.getName(pathResolver::getAbsolutePath));
         }
       }
     };
@@ -386,7 +388,7 @@ public class CxxLinkableEnhancer {
         output,
         linkArgs,
         Linker.LinkableDepType.SHARED,
-        /* thinLto */ false,
+        CxxLinkOptions.of(),
         Optional.empty(),
         Optional.empty());
   }

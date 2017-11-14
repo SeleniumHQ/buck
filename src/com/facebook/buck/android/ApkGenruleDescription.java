@@ -22,7 +22,9 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.shell.AbstractGenruleDescription;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Supplier;
@@ -33,6 +35,11 @@ import java.util.SortedSet;
 import org.immutables.value.Value;
 
 public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenruleDescriptionArg> {
+
+  public ApkGenruleDescription(
+      ToolchainProvider toolchainProvider, SandboxExecutionStrategy sandboxExecutionStrategy) {
+    super(toolchainProvider, sandboxExecutionStrategy, false);
+  }
 
   @Override
   public Class<ApkGenruleDescriptionArg> getConstructorArgType() {
@@ -58,12 +65,19 @@ public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenrule
           buildTarget, args.getApk().getFullyQualifiedName());
     }
 
+    AndroidLegacyToolchain androidLegacyToolchain =
+        toolchainProvider.getByName(
+            AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
+
     final Supplier<? extends SortedSet<BuildRule>> originalExtraDeps = params.getExtraDeps();
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     return new ApkGenrule(
         buildTarget,
         projectFilesystem,
+        androidLegacyToolchain,
+        sandboxExecutionStrategy,
+        resolver,
         params.withExtraDeps(
             Suppliers.memoize(
                 () ->

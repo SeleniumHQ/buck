@@ -17,6 +17,7 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
+import com.facebook.buck.command.BuildExecutorArgs;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.httpserver.WebServer;
@@ -27,7 +28,7 @@ import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildInfoStoreManager;
 import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
+import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -54,66 +55,85 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ScheduledExecutorService;
 import org.immutables.value.Value;
 
-@Value.Immutable()
+@Value.Immutable(copy = true)
 @BuckStyleImmutable
-public interface AbstractCommandRunnerParams {
-  Console getConsole();
+public abstract class AbstractCommandRunnerParams {
+  public abstract Console getConsole();
 
-  InputStream getStdIn();
+  public abstract InputStream getStdIn();
 
-  Cell getCell();
+  public abstract Cell getCell();
 
-  VersionedTargetGraphCache getVersionedTargetGraphCache();
+  public abstract VersionedTargetGraphCache getVersionedTargetGraphCache();
 
-  ArtifactCacheFactory getArtifactCacheFactory();
+  public abstract ArtifactCacheFactory getArtifactCacheFactory();
 
-  TypeCoercerFactory getTypeCoercerFactory();
+  public abstract TypeCoercerFactory getTypeCoercerFactory();
 
-  Parser getParser();
+  public abstract Parser getParser();
 
-  BuckEventBus getBuckEventBus();
+  public abstract BuckEventBus getBuckEventBus();
 
-  Supplier<AndroidPlatformTarget> getAndroidPlatformTargetSupplier();
+  public abstract Supplier<AndroidPlatformTarget> getAndroidPlatformTargetSupplier();
 
-  Platform getPlatform();
+  public abstract Platform getPlatform();
 
-  ImmutableMap<String, String> getEnvironment();
+  public abstract ImmutableMap<String, String> getEnvironment();
 
-  JavaPackageFinder getJavaPackageFinder();
+  public abstract JavaPackageFinder getJavaPackageFinder();
 
-  Clock getClock();
+  public abstract Clock getClock();
 
-  VersionControlStatsGenerator getVersionControlStatsGenerator();
+  public abstract VersionControlStatsGenerator getVersionControlStatsGenerator();
 
-  Optional<ProcessManager> getProcessManager();
+  public abstract Optional<ProcessManager> getProcessManager();
 
-  Optional<WebServer> getWebServer();
+  public abstract Optional<WebServer> getWebServer();
 
-  Optional<ConcurrentMap<String, WorkerProcessPool>> getPersistentWorkerPools();
+  public abstract Optional<ConcurrentMap<String, WorkerProcessPool>> getPersistentWorkerPools();
 
-  BuckConfig getBuckConfig();
+  public abstract BuckConfig getBuckConfig();
 
-  StackedFileHashCache getFileHashCache();
+  public abstract StackedFileHashCache getFileHashCache();
 
-  Map<ExecutorPool, ListeningExecutorService> getExecutors();
+  public abstract Map<ExecutorPool, ListeningExecutorService> getExecutors();
 
-  ScheduledExecutorService getScheduledExecutor();
+  public abstract ScheduledExecutorService getScheduledExecutor();
 
-  BuildEnvironmentDescription getBuildEnvironmentDescription();
+  public abstract BuildEnvironmentDescription getBuildEnvironmentDescription();
 
-  ActionGraphCache getActionGraphCache();
+  public abstract ActionGraphCache getActionGraphCache();
 
-  KnownBuildRuleTypesFactory getKnownBuildRuleTypesFactory();
+  public abstract KnownBuildRuleTypesProvider getKnownBuildRuleTypesProvider();
 
-  SdkEnvironment getSdkEnvironment();
+  public abstract SdkEnvironment getSdkEnvironment();
 
-  BuildInfoStoreManager getBuildInfoStoreManager();
+  public abstract BuildInfoStoreManager getBuildInfoStoreManager();
 
-  Optional<InvocationInfo> getInvocationInfo();
+  public abstract Optional<InvocationInfo> getInvocationInfo();
 
-  Optional<RuleKeyCacheRecycler<RuleKey>> getDefaultRuleKeyFactoryCacheRecycler();
+  public abstract Optional<RuleKeyCacheRecycler<RuleKey>> getDefaultRuleKeyFactoryCacheRecycler();
 
-  ProjectFilesystemFactory getProjectFilesystemFactory();
+  public abstract ProjectFilesystemFactory getProjectFilesystemFactory();
 
-  ToolchainProvider getToolchainProvider();
+  public abstract ToolchainProvider getToolchainProvider();
+
+  /**
+   * Create {@link BuildExecutorArgs} using this {@link CommandRunnerParams}.
+   *
+   * @return New instance of {@link BuildExecutorArgs}.
+   */
+  public BuildExecutorArgs createBuilderArgs() {
+    return BuildExecutorArgs.builder()
+        .setConsole(getConsole())
+        .setBuckEventBus(getBuckEventBus())
+        .setPlatform(getPlatform())
+        .setClock(getClock())
+        .setRootCell(getCell())
+        .setExecutors(getExecutors())
+        .setProjectFilesystemFactory(getProjectFilesystemFactory())
+        .setBuildInfoStoreManager(getBuildInfoStoreManager())
+        .setArtifactCacheFactory(getArtifactCacheFactory())
+        .build();
+  }
 }

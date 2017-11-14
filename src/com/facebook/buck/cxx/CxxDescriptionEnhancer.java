@@ -68,7 +68,6 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Functions;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -87,6 +86,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.SortedSet;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.StreamSupport;
@@ -286,7 +286,7 @@ public class CxxDescriptionEnhancer {
       PatternMatchedCollection<SourceList> platformHeaders) {
     ImmutableMap.Builder<String, SourcePath> parsed = ImmutableMap.builder();
 
-    java.util.function.Function<SourcePath, SourcePath> fixup =
+    Function<SourcePath, SourcePath> fixup =
         path -> {
           return CxxGenruleDescription.fixupSourcePath(resolver, ruleFinder, cxxPlatform, path);
         };
@@ -753,6 +753,7 @@ public class CxxDescriptionEnhancer {
     extraDeps.stream().map(resolver::getRule).forEach(depsBuilder::add);
     ImmutableSortedSet<BuildRule> deps = depsBuilder.build();
 
+    CxxLinkOptions linkOptions = CxxLinkOptions.of(args.getThinLto());
     return createBuildRulesForCxxBinary(
         target,
         projectFilesystem,
@@ -769,7 +770,7 @@ public class CxxDescriptionEnhancer {
         stripStyle,
         flavoredLinkerMapMode,
         args.getLinkStyle().orElse(Linker.LinkableDepType.STATIC),
-        args.getThinLto(),
+        linkOptions,
         args.getPreprocessorFlags(),
         args.getPlatformPreprocessorFlags(),
         args.getLangPreprocessorFlags(),
@@ -802,7 +803,7 @@ public class CxxDescriptionEnhancer {
       Optional<StripStyle> stripStyle,
       Optional<LinkerMapMode> flavoredLinkerMapMode,
       Linker.LinkableDepType linkStyle,
-      boolean thinLto,
+      CxxLinkOptions linkOptions,
       ImmutableList<StringWithMacros> preprocessorFlags,
       PatternMatchedCollection<ImmutableList<StringWithMacros>> platformPreprocessorFlags,
       ImmutableMap<CxxSource.Type, ImmutableList<StringWithMacros>> langPreprocessorFlags,
@@ -884,7 +885,7 @@ public class CxxDescriptionEnhancer {
             CxxFlags.getLanguageFlagsWithMacros(
                 compilerFlags, platformCompilerFlags, langCompilerFlags, cxxPlatform),
             f -> toStringWithMacrosArgs(target, cellRoots, resolver, cxxPlatform, f)));
-    if (thinLto) {
+    if (linkOptions.getThinLto()) {
       allCompilerFlagsBuilder.putAll(CxxFlags.toLanguageFlags(StringArg.from("-flto=thin")));
     }
     ImmutableListMultimap<CxxSource.Type, Arg> allCompilerFlags = allCompilerFlagsBuilder.build();
@@ -924,13 +925,7 @@ public class CxxDescriptionEnhancer {
 
       // Create a symlink tree with for all shared libraries needed by this binary.
       SymlinkTree sharedLibraries =
-          requireSharedLibrarySymlinkTree(
-              target,
-              projectFilesystem,
-              resolver,
-              cxxPlatform,
-              deps,
-              NativeLinkable.class::isInstance);
+          requireSharedLibrarySymlinkTree(target, projectFilesystem, resolver, cxxPlatform, deps);
 
       // Embed a origin-relative library path into the binary so it can find the shared libraries.
       // The shared libraries root is absolute. Also need an absolute path to the linkOutput
@@ -967,23 +962,36 @@ public class CxxDescriptionEnhancer {
     BuildTarget linkRuleTarget = createCxxLinkTarget(target, flavoredLinkerMapMode);
 
     CxxLink cxxLink =
-        createCxxLinkRule(
-            projectFilesystem,
-            resolver,
-            cxxBuckConfig,
-            cxxPlatform,
-            RichStream.from(deps).filter(NativeLinkable.class).toImmutableList(),
-            linkStyle,
-            thinLto,
-            frameworks,
-            libraries,
-            cxxRuntimeType,
-            sourcePathResolver,
-            ruleFinder,
-            linkOutput,
-            argsBuilder,
-            linkRuleTarget,
-            linkWholeDeps);
+        (CxxLink)
+            resolver.computeIfAbsent(
+                linkRuleTarget,
+                ignored ->
+                    // Generate the final link rule.  We use the top-level target as the link rule's
+                    // target, so that it corresponds to the actual binary we build.
+                    CxxLinkableEnhancer.createCxxLinkableBuildRule(
+                        cxxBuckConfig,
+                        cxxPlatform,
+                        projectFilesystem,
+                        resolver,
+                        sourcePathResolver,
+                        ruleFinder,
+                        linkRuleTarget,
+                        Linker.LinkType.EXECUTABLE,
+                        Optional.empty(),
+                        linkOutput,
+                        linkStyle,
+                        linkOptions,
+                        RichStream.from(deps).filter(NativeLinkable.class).toImmutableList(),
+                        cxxRuntimeType,
+                        Optional.empty(),
+                        ImmutableSet.of(),
+                        linkWholeDeps,
+                        NativeLinkableInput.builder()
+                            .setArgs(argsBuilder.build())
+                            .setFrameworks(frameworks)
+                            .setLibraries(libraries)
+                            .build(),
+                        Optional.empty()));
 
     BuildRule binaryRuleForExecutable;
     Optional<CxxStrip> cxxStrip = Optional.empty();
@@ -1010,55 +1018,6 @@ public class CxxDescriptionEnhancer {
         ImmutableSortedSet.copyOf(objects.keySet()),
         executableBuilder.build(),
         deps);
-  }
-
-  private static CxxLink createCxxLinkRule(
-      ProjectFilesystem projectFilesystem,
-      BuildRuleResolver resolver,
-      CxxBuckConfig cxxBuckConfig,
-      CxxPlatform cxxPlatform,
-      Iterable<? extends NativeLinkable> deps,
-      Linker.LinkableDepType linkStyle,
-      boolean thinLto,
-      ImmutableSortedSet<FrameworkPath> frameworks,
-      ImmutableSortedSet<FrameworkPath> libraries,
-      Optional<Linker.CxxRuntimeType> cxxRuntimeType,
-      SourcePathResolver sourcePathResolver,
-      SourcePathRuleFinder ruleFinder,
-      Path linkOutput,
-      ImmutableList.Builder<Arg> argsBuilder,
-      BuildTarget linkRuleTarget,
-      ImmutableSet<BuildTarget> linkWholeDeps) {
-    return (CxxLink)
-        resolver.computeIfAbsent(
-            linkRuleTarget,
-            ignored ->
-                // Generate the final link rule.  We use the top-level target as the link rule's
-                // target, so that it corresponds to the actual binary we build.
-                CxxLinkableEnhancer.createCxxLinkableBuildRule(
-                    cxxBuckConfig,
-                    cxxPlatform,
-                    projectFilesystem,
-                    resolver,
-                    sourcePathResolver,
-                    ruleFinder,
-                    linkRuleTarget,
-                    Linker.LinkType.EXECUTABLE,
-                    Optional.empty(),
-                    linkOutput,
-                    linkStyle,
-                    thinLto,
-                    deps,
-                    cxxRuntimeType,
-                    Optional.empty(),
-                    ImmutableSet.of(),
-                    linkWholeDeps,
-                    NativeLinkableInput.builder()
-                        .setArgs(argsBuilder.build())
-                        .setFrameworks(frameworks)
-                        .setLibraries(libraries)
-                        .build(),
-                    Optional.empty()));
   }
 
   public static CxxStrip createCxxStripRule(
@@ -1175,8 +1134,7 @@ public class CxxDescriptionEnhancer {
       ProjectFilesystem filesystem,
       CxxPlatform cxxPlatform,
       Iterable<? extends BuildRule> deps,
-      Predicate<Object> traverse,
-      Predicate<Object> skip) {
+      Function<? super BuildRule, Optional<Iterable<? extends BuildRule>>> passthrough) {
 
     BuildTarget symlinkTreeTarget =
         createSharedLibrarySymlinkTreeTarget(baseBuildTarget, cxxPlatform.getFlavor());
@@ -1184,7 +1142,7 @@ public class CxxDescriptionEnhancer {
         getSharedLibrarySymlinkTreePath(filesystem, baseBuildTarget, cxxPlatform.getFlavor());
 
     ImmutableSortedMap<String, SourcePath> libraries =
-        NativeLinkables.getTransitiveSharedLibraries(cxxPlatform, deps, traverse, skip);
+        NativeLinkables.getTransitiveSharedLibraries(cxxPlatform, deps, passthrough, false);
 
     ImmutableMap.Builder<Path, SourcePath> links = ImmutableMap.builder();
     for (Map.Entry<String, SourcePath> ent : libraries.entrySet()) {
@@ -1193,29 +1151,18 @@ public class CxxDescriptionEnhancer {
     return new SymlinkTree(symlinkTreeTarget, filesystem, symlinkTreeRoot, links.build());
   }
 
-  public static SymlinkTree createSharedLibrarySymlinkTree(
-      BuildTarget baseBuildTarget,
-      ProjectFilesystem filesystem,
-      CxxPlatform cxxPlatform,
-      Iterable<? extends BuildRule> deps,
-      Predicate<Object> traverse) {
-    return createSharedLibrarySymlinkTree(
-        baseBuildTarget, filesystem, cxxPlatform, deps, traverse, x -> false);
-  }
-
   public static SymlinkTree requireSharedLibrarySymlinkTree(
       BuildTarget buildTarget,
       ProjectFilesystem filesystem,
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
-      Iterable<? extends BuildRule> deps,
-      Predicate<Object> traverse) {
+      Iterable<? extends BuildRule> deps) {
     return (SymlinkTree)
         resolver.computeIfAbsent(
             createSharedLibrarySymlinkTreeTarget(buildTarget, cxxPlatform.getFlavor()),
             ignored ->
                 createSharedLibrarySymlinkTree(
-                    buildTarget, filesystem, cxxPlatform, deps, traverse));
+                    buildTarget, filesystem, cxxPlatform, deps, n -> Optional.empty()));
   }
 
   public static Flavor flavorForLinkableDepType(Linker.LinkableDepType linkableDepType) {
@@ -1305,6 +1252,8 @@ public class CxxDescriptionEnhancer {
     return StringWithMacrosArg.of(
         flag,
         ImmutableList.of(new CxxLocationMacroExpander(cxxPlatform)),
+        Optional.of(
+            s -> cxxPlatform.getCompilerDebugPathSanitizer().sanitize(Optional.empty()).apply(s)),
         target,
         cellPathResolver,
         resolver);

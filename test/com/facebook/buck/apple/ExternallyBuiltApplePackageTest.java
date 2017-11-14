@@ -25,6 +25,7 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.android.TestAndroidLegacyToolchainFactory;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -42,18 +43,20 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
+import com.facebook.buck.sandbox.NoSandboxExecutionStrategy;
 import com.facebook.buck.shell.AbstractGenruleStep;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.hash.HashCode;
 import java.nio.file.Paths;
+import java.util.function.Function;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -86,6 +89,9 @@ public class ExternallyBuiltApplePackageTest {
         new ExternallyBuiltApplePackage(
             buildTarget,
             projectFilesystem,
+            TestAndroidLegacyToolchainFactory.create(),
+            new NoSandboxExecutionStrategy(),
+            resolver,
             params,
             config,
             FakeSourcePath.of(bundleLocation),
@@ -112,6 +118,9 @@ public class ExternallyBuiltApplePackageTest {
         new ExternallyBuiltApplePackage(
             buildTarget,
             projectFilesystem,
+            TestAndroidLegacyToolchainFactory.create(),
+            new NoSandboxExecutionStrategy(),
+            resolver,
             params,
             config,
             FakeSourcePath.of("Fake/Bundle/Location"),
@@ -132,6 +141,9 @@ public class ExternallyBuiltApplePackageTest {
         new ExternallyBuiltApplePackage(
             buildTarget,
             projectFilesystem,
+            TestAndroidLegacyToolchainFactory.create(),
+            new NoSandboxExecutionStrategy(),
+            resolver,
             params,
             config,
             FakeSourcePath.of("Fake/Bundle/Location"),
@@ -156,6 +168,9 @@ public class ExternallyBuiltApplePackageTest {
             new ExternallyBuiltApplePackage(
                 buildTarget,
                 projectFilesystem,
+                TestAndroidLegacyToolchainFactory.create(),
+                new NoSandboxExecutionStrategy(),
+                resolver,
                 params,
                 config.withPlatform(config.getPlatform().withBuildVersion(input)),
                 FakeSourcePath.of("Fake/Bundle/Location"),
@@ -172,6 +187,9 @@ public class ExternallyBuiltApplePackageTest {
             new ExternallyBuiltApplePackage(
                 buildTarget,
                 projectFilesystem,
+                TestAndroidLegacyToolchainFactory.create(),
+                new NoSandboxExecutionStrategy(),
+                resolver,
                 params,
                 config.withPlatform(
                     config
@@ -186,8 +204,7 @@ public class ExternallyBuiltApplePackageTest {
 
   private DefaultRuleKeyFactory newRuleKeyFactory() {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    return new DefaultRuleKeyFactory(
-        0,
+    return new TestDefaultRuleKeyFactory(
         new FakeFileHashCache(
             ImmutableMap.of(Paths.get(bundleLocation).toAbsolutePath(), HashCode.fromInt(5))),
         DefaultSourcePathResolver.from(ruleFinder),

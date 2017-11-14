@@ -19,6 +19,9 @@ package com.facebook.buck.artifact_cache;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.artifact_cache.AbstractAsynchronousCache.CacheEventListener;
+import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
+import com.facebook.buck.artifact_cache.config.CacheReadMode;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.RuleKey;
@@ -86,7 +89,8 @@ public class AbstractAsynchronousCacheTest {
       MoreAsserts.assertIterablesEquals(
           ImmutableList.of(keys.get(7), keys.get(1)), requestedRuleKeys.get(7));
 
-      // And finally, there's less than concurrency left and it'll go to fetch() instead of multiFetch().
+      // And finally, there's less than concurrency left and it'll go to fetch() instead of
+      // multiFetch().
       MoreAsserts.assertIterablesEquals(ImmutableList.of(keys.get(5)), requestedRuleKeys.get(8));
       MoreAsserts.assertIterablesEquals(ImmutableList.of(keys.get(1)), requestedRuleKeys.get(9));
     }
@@ -110,7 +114,7 @@ public class AbstractAsynchronousCacheTest {
     public void fetchScheduled(RuleKey ruleKey) {}
 
     @Override
-    public FetchRequestEvents fetchStarted(RuleKey ruleKey) {
+    public CacheEventListener.FetchRequestEvents fetchStarted(RuleKey ruleKey) {
       return new FetchRequestEvents() {
         @Override
         public void finished(FetchResult result) {}
@@ -121,7 +125,8 @@ public class AbstractAsynchronousCacheTest {
     }
 
     @Override
-    public MultiFetchRequestEvents multiFetchStarted(ImmutableList<RuleKey> keys) {
+    public CacheEventListener.MultiFetchRequestEvents multiFetchStarted(
+        ImmutableList<RuleKey> keys) {
       return new MultiFetchRequestEvents() {
         @Override
         public void skipped(int keyIndex) {}

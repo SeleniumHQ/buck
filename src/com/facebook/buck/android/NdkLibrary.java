@@ -39,7 +39,6 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.step.fs.WriteFileStep;
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -48,6 +47,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /**
@@ -65,6 +65,8 @@ import javax.annotation.Nullable;
  */
 public class NdkLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements NativeLibraryBuildRule, AndroidPackageable {
+
+  private final AndroidLegacyToolchain androidLegacyToolchain;
 
   /** @see NativeLibraryBuildRule#isAsset() */
   @AddToRuleKey private final boolean isAsset;
@@ -92,6 +94,7 @@ public class NdkLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   protected NdkLibrary(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      AndroidLegacyToolchain androidLegacyToolchain,
       BuildRuleParams params,
       Path makefile,
       String makefileContents,
@@ -101,6 +104,7 @@ public class NdkLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
       Optional<String> ndkVersion,
       Function<String, String> macroExpander) {
     super(buildTarget, projectFilesystem, params);
+    this.androidLegacyToolchain = androidLegacyToolchain;
     this.isAsset = isAsset;
 
     this.root = buildTarget.getBasePath();
@@ -154,7 +158,9 @@ public class NdkLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     steps.add(new WriteFileStep(getProjectFilesystem(), makefileContents, makefile, false));
     steps.add(
         new NdkBuildStep(
+            getBuildTarget(),
             getProjectFilesystem(),
+            androidLegacyToolchain,
             root,
             makefile,
             buildArtifactsDirectory,

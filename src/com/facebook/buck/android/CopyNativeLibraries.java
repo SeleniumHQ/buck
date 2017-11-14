@@ -19,7 +19,7 @@ package com.facebook.buck.android;
 import com.android.common.SdkConstants;
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.exopackage.ExopackageInstaller;
-import com.facebook.buck.android.toolchain.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -92,7 +92,10 @@ public class CopyNativeLibraries extends AbstractBuildRule implements SupportsIn
       String moduleName) {
     super(buildTarget, projectFilesystem);
     Preconditions.checkArgument(
-        !nativeLibDirectories.isEmpty() || !strippedLibs.isEmpty() || !strippedLibsAssets.isEmpty(),
+        !nativeLibDirectories.isEmpty()
+            || !nativeLibAssetDirectories.isEmpty()
+            || !strippedLibs.isEmpty()
+            || !strippedLibsAssets.isEmpty(),
         "There should be at least one native library to copy.");
     this.nativeLibDirectories = nativeLibDirectories;
     this.nativeLibAssetDirectories = nativeLibAssetDirectories;

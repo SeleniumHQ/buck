@@ -1,3 +1,5 @@
+load("//tools/build_rules:java_rules.bzl", "standard_java_test")
+
 standard_java_test(
     name = "coercer",
     has_immutable_types = True,
@@ -10,7 +12,6 @@ standard_java_test(
         "//src/com/facebook/buck/android/aapt:aapt",
         "//src/com/facebook/buck/android/redex:options",
         "//src/com/facebook/buck/annotations:annotations",
-        "//src/com/facebook/buck/apple:platform",
         "//src/com/facebook/buck/apple/xcode:xcode",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
         "//src/com/facebook/buck/config:config",
@@ -70,7 +71,6 @@ standard_java_test(
         "//src/com/facebook/buck/shell:worker_tool",
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",
-        "//src/com/facebook/buck/swift:platform",
         "//src/com/facebook/buck/swift:swift",
         "//src/com/facebook/buck/test:test",
         "//src/com/facebook/buck/test/result/type:type",
@@ -107,6 +107,7 @@ standard_java_test(
         "//third-party/java/aosp:aosp",
         "//third-party/java/args4j:args4j",
         "//third-party/java/asm:asm",
+        "//third-party/java/bazel:skylark-lang",
         "//third-party/java/dd-plist:dd-plist",
         "//third-party/java/easymock:easymock",
         "//third-party/java/guava:guava",

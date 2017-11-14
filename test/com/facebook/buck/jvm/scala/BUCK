@@ -1,10 +1,11 @@
+load("//tools/build_rules:java_rules.bzl", "java_test")
+
 java_test(
     name = "scala",
     srcs = glob(["*Test.java"]),
     labels = ["long_running"],
     resources = glob(
         ["testdata/**"],
-        include_dotfiles = True,
     ),
     # Unfortunately the scala compiler is _really_ slow.
     run_test_separately = True,
@@ -20,8 +21,6 @@ java_test(
         "//src/com/facebook/buck/android/aapt:aapt",
         "//src/com/facebook/buck/android/redex:options",
         "//src/com/facebook/buck/annotations:annotations",
-        "//src/com/facebook/buck/apple:platform",
-        "//src/com/facebook/buck/apple:rules",
         "//src/com/facebook/buck/apple/project_generator:project_generator",
         "//src/com/facebook/buck/apple/xcode:xcode",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
@@ -92,7 +91,6 @@ java_test(
         "//src/com/facebook/buck/shell:worker_tool",
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",
-        "//src/com/facebook/buck/swift:platform",
         "//src/com/facebook/buck/swift:swift",
         "//src/com/facebook/buck/test:test",
         "//src/com/facebook/buck/test/result/type:type",

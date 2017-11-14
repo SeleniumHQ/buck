@@ -14,9 +14,9 @@ java_library(
     name = "bootstrapper_lib",
     srcs = glob(["*.java"]),
     visibility = [
-        "//src/com/facebook/buck/intellij/...",
         "//test/...",
         "//third-party/java/aosp:tests",
+        "//tools/...",
     ],
     deps = [
         # Be very careful what is added here, and leave comments justifying

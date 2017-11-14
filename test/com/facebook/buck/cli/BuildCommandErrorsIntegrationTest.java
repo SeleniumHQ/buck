@@ -18,7 +18,6 @@ package com.facebook.buck.cli;
 
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -33,7 +32,6 @@ import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.KnownBuildRuleTypes;
-import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.NoopBuildRule;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
@@ -44,7 +42,6 @@ import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -80,20 +77,19 @@ public class BuildCommandErrorsIntegrationTest {
     workspace.setUp();
     mockDescription = new MockDescription();
     workspace.setKnownBuildRuleTypesFactoryFactory(
-        (processExecutor, sdkEnvironment, toolchainProvider) ->
-            new KnownBuildRuleTypesFactory(
-                new FakeProcessExecutor(), sdkEnvironment, toolchainProvider) {
-              @Override
-              public KnownBuildRuleTypes create(BuckConfig config, ProjectFilesystem filesystem)
-                  throws IOException, InterruptedException {
-                FlavorDomain<CxxPlatform> cxxPlatforms = FlavorDomain.of("C/C++ platform");
-                CxxPlatform defaultPlatform = CxxPlatformUtils.DEFAULT_PLATFORM;
+        (processExecutor,
+            sdkEnvironment,
+            toolchainProvider,
+            pluginManager,
+            sandboxExecutionStrategyFactory) ->
+            cell -> {
+              FlavorDomain<CxxPlatform> cxxPlatforms = FlavorDomain.of("C/C++ platform");
+              CxxPlatform defaultPlatform = CxxPlatformUtils.DEFAULT_PLATFORM;
 
-                KnownBuildRuleTypes.Builder buildRuleTypesBuilder = KnownBuildRuleTypes.builder();
-                buildRuleTypesBuilder.setCxxPlatforms(cxxPlatforms);
-                buildRuleTypesBuilder.setDefaultCxxPlatform(defaultPlatform);
-                return buildRuleTypesBuilder.register(mockDescription).build();
-              }
+              KnownBuildRuleTypes.Builder buildRuleTypesBuilder = KnownBuildRuleTypes.builder();
+              buildRuleTypesBuilder.setCxxPlatforms(cxxPlatforms);
+              buildRuleTypesBuilder.setDefaultCxxPlatform(defaultPlatform);
+              return buildRuleTypesBuilder.addDescriptions(mockDescription).build();
             });
   }
 
@@ -286,7 +282,7 @@ public class BuildCommandErrorsIntegrationTest {
     result.assertFailure();
     assertEquals(
         " ** Summary of failures encountered during the build **\n"
-            + "Rule //:target_name FAILED because failure message\n"
+            + "Rule //:target_name FAILED because java.lang.RuntimeException: failure message\n"
             + "    When building rule //:target_name.\n"
             + "Not all rules succeeded.",
         getError(getStderr(result)));
@@ -300,7 +296,7 @@ public class BuildCommandErrorsIntegrationTest {
     result.assertFailure();
     assertEquals(
         " ** Summary of failures encountered during the build **\n"
-            + "Rule //:target_name FAILED because failure message\n"
+            + "Rule //:target_name FAILED because java.lang.RuntimeException: failure message\n"
             + "    When running <failing_step>.\n"
             + "    When building rule //:target_name.\n"
             + "Not all rules succeeded.",
@@ -315,7 +311,7 @@ public class BuildCommandErrorsIntegrationTest {
     result.assertFailure();
     assertEquals(
         " ** Summary of failures encountered during the build **\n"
-            + "Rule //:target_name FAILED because failure message\n"
+            + "Rule //:target_name FAILED because java.io.IOException: failure message\n"
             + "    When running <failing_step>.\n"
             + "    When building rule //:target_name.\n"
             + "Not all rules succeeded.",
@@ -329,7 +325,7 @@ public class BuildCommandErrorsIntegrationTest {
     result.assertFailure();
     assertEquals(
         " ** Summary of failures encountered during the build **\n"
-            + "Rule //:target_name FAILED because failure message\n"
+            + "Rule //:target_name FAILED because java.io.IOException: failure message\n"
             + "    When building rule //:target_name.\n"
             + "Not all rules succeeded.",
         getError(getStderr(result)));

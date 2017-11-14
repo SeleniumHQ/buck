@@ -22,6 +22,7 @@ import com.facebook.buck.cxx.toolchain.CxxFlavorSanitizer;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.InferBuckConfig;
+import com.facebook.buck.cxx.toolchain.PchUnavailableException;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -286,7 +287,7 @@ abstract class AbstractCxxSourceRuleFactory {
   // code for this object is important, and since `Function`s use object equality/hash-codes, we
   // need a stable object each time.
   @Value.Lazy
-  protected com.google.common.base.Function<String, String> getSanitizeFunction() {
+  protected Function<String, String> getSanitizeFunction() {
     return getCxxPlatform().getCompilerDebugPathSanitizer().sanitize(Optional.empty());
   }
 
@@ -493,25 +494,9 @@ abstract class AbstractCxxSourceRuleFactory {
 
     depsBuilder.add(source);
 
-    Preprocessor preprocessor = preprocessorDelegate.getPreprocessor();
-
-    if (getPrecompiledHeader().isPresent()
-        && !canUsePrecompiledHeaders(getCxxBuckConfig(), preprocessor, source.getType())) {
-      throw new HumanReadableException(
-          "Precompiled header was requested for rule \""
-              + this.getBaseBuildTarget().toString()
-              + "\", but PCH's are not possible under "
-              + "the current environment (preprocessor/compiler, source file's language, "
-              + "and/or 'cxx.pch_enabled' option).");
-    }
-
-    Optional<CxxPrecompiledHeader> precompiledHeaderRule = Optional.empty();
-    if (canUsePrecompiledHeaders(getCxxBuckConfig(), preprocessor, source.getType())
-        && (getPrefixHeader().isPresent() || getPrecompiledHeader().isPresent())) {
-      precompiledHeaderRule =
-          Optional.of(
-              requirePrecompiledHeaderBuildRule(
-                  preprocessorDelegateValue, source.getType(), source.getFlags()));
+    Optional<CxxPrecompiledHeader> precompiledHeaderRule =
+        getOptionalPrecompiledHeader(preprocessorDelegateValue, source);
+    if (precompiledHeaderRule.isPresent()) {
       depsBuilder.add(precompiledHeaderRule.get());
       if (getPrecompiledHeader().isPresent()) {
         // For a precompiled header (and not a prefix header), we may need extra include paths.
@@ -536,6 +521,47 @@ abstract class AbstractCxxSourceRuleFactory {
         precompiledHeaderRule,
         getSanitizerForSourceType(source.getType()),
         getSandboxTree());
+  }
+
+  Optional<CxxPrecompiledHeader> getOptionalPrecompiledHeader(
+      PreprocessorDelegateCacheValue preprocessorDelegateValue, CxxSource source) {
+
+    if (!(getPrefixHeader().isPresent() || getPrecompiledHeader().isPresent())) {
+      // Nothing to do.
+      return Optional.empty();
+    }
+
+    PreprocessorDelegate preprocessorDelegate = preprocessorDelegateValue.getPreprocessorDelegate();
+    Preprocessor preprocessor = preprocessorDelegate.getPreprocessor();
+
+    final boolean canPrecompile =
+        canUsePrecompiledHeaders(getCxxBuckConfig(), preprocessor, source.getType());
+
+    if (canPrecompile) {
+      return Optional.of(
+          requirePrecompiledHeaderBuildRule(
+              preprocessorDelegateValue, source.getType(), source.getFlags()));
+    } else {
+      // !canPrecompile: disabled w/ config, environment, etc.
+      if (getPrecompiledHeader().isPresent()) {
+        final String message =
+            "Precompiled header was requested for rule \""
+                + this.getBaseBuildTarget().toString()
+                + "\", but unavailable in current environment (not supported by preprocessor, "
+                + "source file language, 'cxx.pch_enabled' option).";
+        switch (getCxxBuckConfig().getPchUnavailableMode()) {
+          case ERROR:
+            throw new PchUnavailableException(message);
+
+          case WARN:
+            LOG.warn(message);
+            LOG.warn("Continuing without PCH.");
+        }
+      }
+
+      // Not a PCH (and is a prefix header, ok to use un-precompiled), or just warned about it.
+      return Optional.empty();
+    }
   }
 
   @VisibleForTesting
@@ -711,10 +737,14 @@ abstract class AbstractCxxSourceRuleFactory {
             .computeIfAbsent(
                 BuildTarget.of(templateTarget, flavors),
                 target -> {
-                  // Give the PCH a filename that looks like a header file with .gch appended to it, GCC-style.
-                  // GCC accepts an "-include" flag with the .h file as its arg, and auto-appends ".gch" to
-                  // automagically use the precompiled header in place of the original header.  Of course in
-                  // our case we'll only have the ".gch" file, which is alright; the ".h" isn't truly needed.
+                  // Give the PCH a filename that looks like a header file with .gch appended to it,
+                  // GCC-style.
+                  // GCC accepts an "-include" flag with the .h file as its arg, and auto-appends
+                  // ".gch" to
+                  // automagically use the precompiled header in place of the original header.  Of
+                  // course in
+                  // our case we'll only have the ".gch" file, which is alright; the ".h" isn't
+                  // truly needed.
                   Path output = BuildTargets.getGenPath(getProjectFilesystem(), target, "%s.h.gch");
 
                   CompilerDelegate compilerDelegate =
@@ -809,7 +839,7 @@ abstract class AbstractCxxSourceRuleFactory {
       ExplicitBuildTargetSourcePath path =
           ExplicitBuildTargetSourcePath.of(
               sandboxTree.getBuildTarget(), sandboxPath.resolve(sourcePath));
-      source = CxxSource.copyOf(source).withPath(path);
+      source = source.withPath(path);
     }
     return source;
   }

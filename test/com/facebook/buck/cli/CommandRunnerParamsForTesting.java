@@ -34,21 +34,25 @@ import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.plugin.BuckPluginManagerFactory;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildInfoStoreManager;
 import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
+import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
+import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.testutil.FakeExecutor;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
@@ -99,6 +103,14 @@ public class CommandRunnerParamsForTesting {
     TestToolchainProvider toolchainProvider = new TestToolchainProvider();
     SdkEnvironment sdkEnvironment =
         SdkEnvironment.create(config, processExecutor, toolchainProvider);
+    KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
+        KnownBuildRuleTypesProvider.of(
+            DefaultKnownBuildRuleTypesFactory.of(
+                new DefaultProcessExecutor(new TestConsole()),
+                sdkEnvironment,
+                toolchainProvider,
+                BuckPluginManagerFactory.createPluginManager(),
+                new TestSandboxExecutionStrategyFactory()));
 
     return CommandRunnerParams.builder()
         .setConsole(console)
@@ -117,7 +129,8 @@ public class CommandRunnerParamsForTesting {
                 new BroadcastEventListener(),
                 cell.getBuckConfig().getView(ParserConfig.class),
                 typeCoercerFactory,
-                new ConstructorArgMarshaller(typeCoercerFactory)))
+                new ConstructorArgMarshaller(typeCoercerFactory),
+                knownBuildRuleTypesProvider))
         .setPlatform(platform)
         .setEnvironment(environment)
         .setJavaPackageFinder(javaPackageFinder)
@@ -134,9 +147,8 @@ public class CommandRunnerParamsForTesting {
             new VersionControlStatsGenerator(new NoOpCmdLineInterface(), Optional.empty()))
         .setVersionedTargetGraphCache(new VersionedTargetGraphCache())
         .setInvocationInfo(Optional.empty())
-        .setActionGraphCache(new ActionGraphCache())
-        .setKnownBuildRuleTypesFactory(
-            new KnownBuildRuleTypesFactory(processExecutor, sdkEnvironment, toolchainProvider))
+        .setActionGraphCache(new ActionGraphCache(config.getMaxActionGraphCacheEntries()))
+        .setKnownBuildRuleTypesProvider(knownBuildRuleTypesProvider)
         .setSdkEnvironment(sdkEnvironment)
         .setProjectFilesystemFactory(new DefaultProjectFilesystemFactory())
         .setToolchainProvider(toolchainProvider)

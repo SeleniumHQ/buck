@@ -25,6 +25,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import javax.annotation.processing.Messager;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
@@ -32,7 +33,7 @@ import javax.lang.model.util.Elements;
 
 public class StubJar {
   private final Supplier<LibraryReader> libraryReaderSupplier;
-  private boolean sourceAbiCompatible;
+  @Nullable private AbiGenerationMode compatibilityMode = null;
 
   public StubJar(Path toMirror) {
     libraryReaderSupplier = () -> LibraryReader.of(toMirror);
@@ -42,21 +43,27 @@ public class StubJar {
    * @param targetVersion the class file version to output, expressed as the corresponding Java
    *     source version
    * @param messager
+   * @param includeParameterMetadata
    */
   public StubJar(
       SourceVersion targetVersion,
       Elements elements,
       Messager messager,
-      Iterable<Element> topLevelElements) {
+      Iterable<Element> topLevelElements,
+      boolean includeParameterMetadata) {
     libraryReaderSupplier =
-        () -> LibraryReader.of(targetVersion, elements, messager, topLevelElements);
+        () ->
+            LibraryReader.of(
+                targetVersion, elements, messager, topLevelElements, includeParameterMetadata);
   }
 
   /**
    * Filters the stub jar through {@link SourceAbiCompatibleVisitor}. See that class for details.
+   *
+   * @param compatibilityMode
    */
-  public StubJar setSourceAbiCompatible(boolean sourceAbiCompatible) {
-    this.sourceAbiCompatible = sourceAbiCompatible;
+  public StubJar setCompatibilityMode(AbiGenerationMode compatibilityMode) {
+    this.compatibilityMode = compatibilityMode;
     return this;
   }
 
@@ -86,7 +93,7 @@ public class StubJar {
             .collect(Collectors.toList());
 
     for (Path path : paths) {
-      StubJarEntry entry = StubJarEntry.of(input, path, sourceAbiCompatible);
+      StubJarEntry entry = StubJarEntry.of(input, path, compatibilityMode);
       if (entry == null) {
         continue;
       }

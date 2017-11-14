@@ -17,6 +17,7 @@
 package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
@@ -50,12 +51,7 @@ abstract class AbstractCompilerParameters {
 
   public abstract Path getWorkingDirectory();
 
-  public abstract Path getDepFilePath();
-
   public abstract Path getPathToSourcesList();
-
-  @Nullable
-  public abstract Path getAbiJarPath();
 
   @Value.Default
   public AbiGenerationMode getAbiGenerationMode() {
@@ -67,13 +63,12 @@ abstract class AbstractCompilerParameters {
     return false;
   }
 
-  @Value.Default
-  public boolean shouldGenerateAbiJar() {
-    return false;
-  }
-
   @Nullable
   public abstract SourceOnlyAbiRuleInfo getSourceOnlyAbiRuleInfo();
+
+  public static Path getDepFilePath(BuildTarget target, ProjectFilesystem filesystem) {
+    return getOutputJarDirPath(target, filesystem).resolve("used-classes.json");
+  }
 
   public static Path getClassesDir(BuildTarget target, ProjectFilesystem filesystem) {
     return BuildTargets.getScratchPath(filesystem, target, "lib__%s__classes");
@@ -98,7 +93,7 @@ abstract class AbstractCompilerParameters {
   }
 
   public abstract static class Builder {
-    public CompilerParameters.Builder setStandardPaths(
+    public CompilerParameters.Builder setScratchPaths(
         BuildTarget target, ProjectFilesystem projectFilesystem) {
       CompilerParameters.Builder builder = (CompilerParameters.Builder) this;
 
@@ -106,11 +101,8 @@ abstract class AbstractCompilerParameters {
           .setWorkingDirectory(
               BuildTargets.getGenPath(projectFilesystem, target, "lib__%s____working_directory"))
           .setGeneratedCodeDirectory(getAnnotationPath(projectFilesystem, target).get())
-          .setDepFilePath(
-              getOutputJarDirPath(target, projectFilesystem).resolve("used-classes.json"))
           .setPathToSourcesList(BuildTargets.getGenPath(projectFilesystem, target, "__%s__srcs"))
-          .setOutputDirectory(getClassesDir(target, projectFilesystem))
-          .setAbiJarPath(getAbiJarPath(target, projectFilesystem));
+          .setOutputDirectory(getClassesDir(target, projectFilesystem));
     }
 
     public CompilerParameters.Builder setSourceFileSourcePaths(

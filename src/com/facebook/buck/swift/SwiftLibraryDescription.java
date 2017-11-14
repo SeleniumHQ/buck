@@ -19,6 +19,7 @@ package com.facebook.buck.swift;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLibraryDescription;
+import com.facebook.buck.cxx.CxxLinkOptions;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
@@ -56,6 +57,7 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.swift.toolchain.SwiftPlatform;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
@@ -343,7 +345,7 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
                 swiftRuntimeLinkable.getNativeLinkableInput(
                     cxxPlatform, Linker.LinkableDepType.SHARED))
             .addAllArgs(rule.getAstLinkArgs())
-            .addArgs(rule.getFileListLinkArg());
+            .addAllArgs(rule.getFileListLinkArg());
     return resolver.addToIndex(
         CxxLinkableEnhancer.createCxxLinkableBuildRule(
             cxxBuckConfig,
@@ -357,7 +359,7 @@ public class SwiftLibraryDescription implements Description<SwiftLibraryDescript
             Optional.of(sharedLibrarySoname),
             sharedLibOutput,
             Linker.LinkableDepType.SHARED,
-            /* thinLto */ false,
+            CxxLinkOptions.of(),
             RichStream.from(params.getBuildDeps())
                 .filter(NativeLinkable.class)
                 .concat(RichStream.of(swiftRuntimeLinkable))

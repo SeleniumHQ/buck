@@ -1,27 +1,4 @@
-# BUILD FILE SYNTAX: SKYLARK
-
 load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
-
-java_library(
-    name = "metadata_checker",
-    srcs = [
-        "MetadataChecker.java",
-    ],
-    visibility = [
-        "PUBLIC",
-    ],
-    deps = [
-        "//src/com/facebook/buck/config:config",
-        "//src/com/facebook/buck/io:io",
-        "//src/com/facebook/buck/io/filesystem:filesystem",
-        "//src/com/facebook/buck/log:api",
-        "//src/com/facebook/buck/model:model",
-        "//src/com/facebook/buck/rules:rules",
-        "//src/com/facebook/buck/rules:types",
-        "//src/com/facebook/buck/util:process_executor",
-        "//third-party/java/guava:guava",
-    ],
-)
 
 CLI_EXCLUDES = glob(["parameter_extractors/*.*"])
 
@@ -31,6 +8,9 @@ java_immutables_library(
         ["*.java"],
         excludes = CLI_EXCLUDES,
     ),
+    exported_deps = [
+        "//third-party/java/pf4j:pf4j",
+    ],
     provided_deps = [
         # Event API is loaded by the bootstrapper at runtime; don't need to depend on it strongly
         "//src/com/facebook/buck/event/api:api",
@@ -44,6 +24,8 @@ java_immutables_library(
         "//test/com/facebook/buck/...",
     ],
     deps = [
+        "//src/com/facebook/buck/apple:apple",
+        "//src/com/facebook/buck/apple/toolchain:toolchain",
         "//src/com/facebook/buck/io/file:file",
         "//src-gen:thrift",
         "//src/com/facebook/buck/cli/output:output",
@@ -58,13 +40,13 @@ java_immutables_library(
         "//src/com/facebook/buck/android:utils",
         "//src/com/facebook/buck/annotations:annotations",
         "//src/com/facebook/buck/apple/device:device",
+        "//src/com/facebook/buck/sandbox:sandbox",
+        "//src/com/facebook/buck/sandbox/impl:impl",
         "//src/com/facebook/buck/apple/project_generator:project_generator",
         "//src/com/facebook/buck/apple/simulator:simulator",
         "//src/com/facebook/buck/apple/xcode:xcode",
-        "//src/com/facebook/buck/apple:platform",
-        "//src/com/facebook/buck/apple:rules",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
-        "//src/com/facebook/buck/artifact_cache:config",
+        "//src/com/facebook/buck/artifact_cache:impl",
         "//src/com/facebook/buck/charset:charset",
         "//src/com/facebook/buck/cli/parameter_extractors:parameter_extractors",
         "//src/com/facebook/buck/command:command",
@@ -72,7 +54,10 @@ java_immutables_library(
         "//src/com/facebook/buck/counters:counters",
         "//src/com/facebook/buck/cxx:rules",
         "//src/com/facebook/buck/dalvik:dalvik_stats_tool",
+        "//src/com/facebook/buck/distributed:common",
         "//src/com/facebook/buck/distributed:distributed",
+        "//src/com/facebook/buck/distributed/build_client:build_client",
+        "//src/com/facebook/buck/distributed/build_slave:build_slave",
         "//src/com/facebook/buck/event/external:external_lib",
         "//src/com/facebook/buck/event/listener:BroadcastEventListener",
         "//src/com/facebook/buck/event/listener:listener",
@@ -98,6 +83,7 @@ java_immutables_library(
         "//src/com/facebook/buck/jvm/java/autodeps:SymbolExtractor",
         "//src/com/facebook/buck/jvm/java/autodeps:autodeps",
         "//src/com/facebook/buck/jvm/java/classes:classes",
+        "//src/com/facebook/buck/jvm/java/rules:rules",
         "//src/com/facebook/buck/jvm/java:autodeps",
         "//src/com/facebook/buck/jvm/java:config",
         "//src/com/facebook/buck/jvm/java:javac-sink",
@@ -107,12 +93,13 @@ java_immutables_library(
         "//src/com/facebook/buck/jvm/java:support",
         "//src/com/facebook/buck/jvm/kotlin:kotlin",
         "//src/com/facebook/buck/jvm/scala:scala",
-        "//src/com/facebook/buck/log/memory:memory",
         "//src/com/facebook/buck/build_type:build_type",
         "//src/com/facebook/buck/doctor/config:config",
         "//src/com/facebook/buck/doctor:doctor",
         "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/log:log",
+        "//src/com/facebook/buck/log/memory:memory",
+        "//src/com/facebook/buck/log/thrift:thrift",
         "//src/com/facebook/buck/macho:macho",
         "//src/com/facebook/buck/maven:maven",
         "//src/com/facebook/buck/maven:util",
@@ -125,6 +112,7 @@ java_immutables_library(
         "//src/com/facebook/buck/parser:config",
         "//src/com/facebook/buck/parser:parser",
         "//src/com/facebook/buck/parser:rule_pattern",
+        "//src/com/facebook/buck/plugin:plugin",
         "//src/com/facebook/buck/python:config",
         "//src/com/facebook/buck/python:support",
         "//src/com/facebook/buck/query:query",
@@ -156,7 +144,6 @@ java_immutables_library(
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step/fs:fs",
         "//src/com/facebook/buck/step:step",
-        "//src/com/facebook/buck/swift:platform",
         "//src/com/facebook/buck/swift:swift",
         "//src/com/facebook/buck/test/result/type:type",
         "//src/com/facebook/buck/test/selectors:selectors",
@@ -200,6 +187,7 @@ java_immutables_library(
         "//third-party/java/aosp:aosp",
         "//third-party/java/args4j:args4j",
         "//third-party/java/asm:asm",
+        "//third-party/java/bazel:skylark-lang",
         "//third-party/java/dd-plist:dd-plist",
         "//third-party/java/android:ddmlib",
         "//third-party/java/guava:guava",
@@ -235,8 +223,6 @@ java_binary(
         "//src/com/facebook/buck/android/aapt:aapt",
         "//src/com/facebook/buck/android/redex:options",
         "//src/com/facebook/buck/annotations:annotations",
-        "//src/com/facebook/buck/apple:platform",
-        "//src/com/facebook/buck/apple:rules",
         "//src/com/facebook/buck/apple/project_generator:project_generator",
         "//src/com/facebook/buck/apple/xcode:xcode",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
@@ -305,7 +291,6 @@ java_binary(
         "//src/com/facebook/buck/shell:worker_tool",
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",
-        "//src/com/facebook/buck/swift:platform",
         "//src/com/facebook/buck/swift:swift",
         "//src/com/facebook/buck/test:test",
         "//src/com/facebook/buck/test/result/type:type",
@@ -336,6 +321,7 @@ java_binary(
         "//src/com/facebook/buck/worker:worker_job_params",
         "//src/com/facebook/buck/worker:worker_pool_factory",
         "//src/com/facebook/buck/worker:worker_process",
+        "//src/com/facebook/buck/zip/rules:rules",
         "//third-party/java/aether:aether-api",
         "//third-party/java/android:ddmlib",
         "//third-party/java/android:tools-sdk-common",

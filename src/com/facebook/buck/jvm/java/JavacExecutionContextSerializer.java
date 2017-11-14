@@ -34,7 +34,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 public class JavacExecutionContextSerializer {
 
@@ -44,11 +43,9 @@ public class JavacExecutionContextSerializer {
   private static final String CELL_PATH_RESOLVER = "cell_path_resolver";
   private static final String JAVA_PACKAGE_FINDER = "java_package_finder";
   private static final String PROJECT_FILE_SYSTEM_ROOT = "project_file_system_root";
-  private static final String CLASS_USAGE_FILE_WRITER = "class_usage_file_writer";
   private static final String ENVIRONMENT = "env";
   private static final String PROCESS_EXECUTOR = "process_executor";
   private static final String ABSOLUTE_PATHS_FOR_INPUTS = "absolute_paths_for_inputs";
-  private static final String DIRECT_TO_JAR_PARAMETERS = "direct_to_jar_parameters";
 
   public static ImmutableMap<String, Object> serialize(JavacExecutionContext context) {
     ImmutableMap.Builder<String, Object> builder = ImmutableMap.builder();
@@ -59,9 +56,6 @@ public class JavacExecutionContextSerializer {
     builder.put(
         JAVA_PACKAGE_FINDER, JavaPackageFinderSerializer.serialize(context.getJavaPackageFinder()));
     builder.put(PROJECT_FILE_SYSTEM_ROOT, context.getProjectFilesystem().getRootPath().toString());
-    builder.put(
-        CLASS_USAGE_FILE_WRITER,
-        ClassUsageFileWriterSerializer.serialize(context.getUsedClassesFileWriter()));
     builder.put(ENVIRONMENT, context.getEnvironment());
     builder.put(
         PROCESS_EXECUTOR, ProcessExecutorSerializer.serialize(context.getProcessExecutor()));
@@ -69,11 +63,6 @@ public class JavacExecutionContextSerializer {
         ABSOLUTE_PATHS_FOR_INPUTS,
         ImmutableList.copyOf(
             context.getAbsolutePathsForInputs().stream().map(Path::toString).iterator()));
-    if (context.getDirectToJarParameters().isPresent()) {
-      builder.put(
-          DIRECT_TO_JAR_PARAMETERS,
-          JarParametersSerializer.serialize(context.getDirectToJarParameters().get()));
-    }
 
     return builder.build();
   }
@@ -103,10 +92,6 @@ public class JavacExecutionContextSerializer {
         projectFilesystemFactory.createProjectFilesystem(
             Paths.get((String) Preconditions.checkNotNull(data.get(PROJECT_FILE_SYSTEM_ROOT))));
 
-    ClassUsageFileWriter classUsageFileWriter =
-        ClassUsageFileWriterSerializer.deserialize(
-            (Map<String, Object>) Preconditions.checkNotNull(data.get(CLASS_USAGE_FILE_WRITER)));
-
     ProcessExecutor processExecutor =
         ProcessExecutorSerializer.deserialize(
             (Map<String, Object>) Preconditions.checkNotNull(data.get(PROCESS_EXECUTOR)), console);
@@ -118,15 +103,6 @@ public class JavacExecutionContextSerializer {
                 .map(s -> Paths.get(s))
                 .iterator());
 
-    Optional<JarParameters> directToJarParameters = Optional.empty();
-    if (data.containsKey(DIRECT_TO_JAR_PARAMETERS)) {
-      directToJarParameters =
-          Optional.of(
-              JarParametersSerializer.deserialize(
-                  (Map<String, Object>)
-                      Preconditions.checkNotNull(data.get(DIRECT_TO_JAR_PARAMETERS))));
-    }
-
     return JavacExecutionContext.of(
         eventSink,
         stdErr,
@@ -136,13 +112,11 @@ public class JavacExecutionContextSerializer {
         javaPackageFinder,
         projectFilesystem,
         projectFilesystemFactory,
-        classUsageFileWriter,
         (Map<String, String>)
             Preconditions.checkNotNull(
                 data.get(ENVIRONMENT),
                 "Missing environment when deserializing JavacExectionContext"),
         processExecutor,
-        absolutePathsForInputs,
-        directToJarParameters);
+        absolutePathsForInputs);
   }
 }

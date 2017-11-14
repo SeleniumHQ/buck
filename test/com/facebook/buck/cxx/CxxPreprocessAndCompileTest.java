@@ -54,7 +54,7 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
-import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
+import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Strings;
@@ -66,18 +66,11 @@ import java.util.Optional;
 import org.junit.Test;
 
 public class CxxPreprocessAndCompileTest {
-
   private static class PreprocessorWithColorSupport extends GccPreprocessor {
-
     static final String COLOR_FLAG = "-use-color-in-preprocessor";
 
     public PreprocessorWithColorSupport(Tool tool) {
       super(tool);
-    }
-
-    @Override
-    public Optional<ImmutableList<String>> getFlagsForColorDiagnostics() {
-      return Optional.of(ImmutableList.of(COLOR_FLAG));
     }
   }
 
@@ -152,7 +145,7 @@ public class CxxPreprocessAndCompileTest {
     // Generate a rule key for the defaults.
 
     RuleKey defaultRuleKey =
-        new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
+        new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
             .build(
                 CxxPreprocessAndCompile.compile(
                     target,
@@ -172,7 +165,7 @@ public class CxxPreprocessAndCompileTest {
     // Verify that changing the compiler causes a rulekey change.
 
     RuleKey compilerChange =
-        new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
+        new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
             .build(
                 CxxPreprocessAndCompile.compile(
                     target,
@@ -193,7 +186,7 @@ public class CxxPreprocessAndCompileTest {
     // Verify that changing the operation causes a rulekey change.
 
     RuleKey operationChange =
-        new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
+        new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
             .build(
                 CxxPreprocessAndCompile.preprocessAndCompile(
                     target,
@@ -225,7 +218,7 @@ public class CxxPreprocessAndCompileTest {
     // Verify that changing the platform flags causes a rulekey change.
 
     RuleKey platformFlagsChange =
-        new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
+        new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
             .build(
                 CxxPreprocessAndCompile.compile(
                     target,
@@ -249,7 +242,7 @@ public class CxxPreprocessAndCompileTest {
     // Verify that changing the rule flags causes a rulekey change.
 
     RuleKey ruleFlagsChange =
-        new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
+        new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
             .build(
                 CxxPreprocessAndCompile.compile(
                     target,
@@ -273,7 +266,7 @@ public class CxxPreprocessAndCompileTest {
     // Verify that changing the input causes a rulekey change.
 
     RuleKey inputChange =
-        new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
+        new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
             .build(
                 CxxPreprocessAndCompile.compile(
                     target,
@@ -318,7 +311,7 @@ public class CxxPreprocessAndCompileTest {
 
     class TestData {
       public RuleKey generate(PreprocessorFlags flags) throws Exception {
-        return new DefaultRuleKeyFactory(0, hashCache, pathResolver, ruleFinder)
+        return new TestDefaultRuleKeyFactory(hashCache, pathResolver, ruleFinder)
             .build(
                 CxxPreprocessAndCompile.preprocessAndCompile(
                     target,

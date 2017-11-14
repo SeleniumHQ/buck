@@ -32,7 +32,6 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.InitializableFromDisk;
-import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
@@ -44,7 +43,6 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreMaps;
 import com.facebook.buck.util.RichStream;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -78,9 +76,6 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
         HasAndroidResourceDeps,
         InitializableFromDisk<String>,
         SupportsInputBasedRuleKey {
-
-  @VisibleForTesting
-  static final String METADATA_KEY_FOR_R_DOT_JAVA_PACKAGE = "METADATA_KEY_FOR_R_DOT_JAVA_PACKAGE";
 
   @AddToRuleKey @Nullable private final SourcePath res;
 
@@ -317,8 +312,6 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
           new ExtractFromAndroidManifestStep(
               context.getSourcePathResolver().getAbsolutePath(manifestFile),
               getProjectFilesystem(),
-              buildableContext,
-              METADATA_KEY_FOR_R_DOT_JAVA_PACKAGE,
               Preconditions.checkNotNull(pathToRDotJavaPackageFile)));
     } else {
       steps.add(
@@ -374,7 +367,7 @@ public class AndroidResource extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public String initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
+  public String initializeFromDisk() {
     String rDotJavaPackageFromFile =
         getProjectFilesystem().readFirstLine(pathToRDotJavaPackageFile).get();
     if (rDotJavaPackageArgument != null

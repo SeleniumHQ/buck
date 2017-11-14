@@ -19,6 +19,7 @@ package com.facebook.buck.apple;
 import static com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable.Linkage;
 import static com.facebook.buck.swift.SwiftLibraryDescription.isSwiftTarget;
 
+import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxHeaders;
@@ -65,8 +66,8 @@ import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftCompile;
 import com.facebook.buck.swift.SwiftLibraryDescription;
-import com.facebook.buck.swift.SwiftPlatform;
 import com.facebook.buck.swift.SwiftRuntimeNativeLinkable;
+import com.facebook.buck.swift.toolchain.SwiftPlatform;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -402,7 +403,10 @@ public class AppleLibraryDescription
         debugFormat,
         appleConfig.useDryRunCodeSigning(),
         appleConfig.cacheBundlesAndPackages(),
-        appleConfig.assetCatalogValidation());
+        appleConfig.assetCatalogValidation(),
+        ImmutableList.of(),
+        Optional.empty(),
+        Optional.empty());
   }
 
   /**
@@ -427,14 +431,15 @@ public class AppleLibraryDescription
     // We explicitly remove flavors from params to make sure rule
     // has the same output regardless if we will strip or not.
     Optional<StripStyle> flavoredStripStyle = StripStyle.FLAVOR_DOMAIN.getValue(buildTarget);
-    buildTarget = CxxStrip.removeStripStyleFlavorInTarget(buildTarget, flavoredStripStyle);
+    BuildTarget unstrippedBuildTarget =
+        CxxStrip.removeStripStyleFlavorInTarget(buildTarget, flavoredStripStyle);
 
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
 
     BuildRule unstrippedBinaryRule =
         requireUnstrippedBuildRule(
-            buildTarget,
+            unstrippedBuildTarget,
             projectFilesystem,
             params,
             resolver,
@@ -448,7 +453,7 @@ public class AppleLibraryDescription
             extraCxxDeps,
             transitiveCxxPreprocessorInput);
 
-    if (!shouldWrapIntoDebuggableBinary(buildTarget, unstrippedBinaryRule)) {
+    if (!shouldWrapIntoDebuggableBinary(unstrippedBuildTarget, unstrippedBinaryRule)) {
       return unstrippedBinaryRule;
     }
 
@@ -461,14 +466,16 @@ public class AppleLibraryDescription
             .getValue(
                 Iterables.getFirst(
                     Sets.intersection(
-                        delegate.getCxxPlatforms().getFlavors(), buildTarget.getFlavors()),
+                        delegate.getCxxPlatforms().getFlavors(),
+                        unstrippedBuildTarget.getFlavors()),
                     defaultCxxFlavor));
 
-    buildTarget = CxxStrip.restoreStripStyleFlavorInTarget(buildTarget, flavoredStripStyle);
+    BuildTarget strippedBuildTarget =
+        CxxStrip.restoreStripStyleFlavorInTarget(unstrippedBuildTarget, flavoredStripStyle);
 
     BuildRule strippedBinaryRule =
         CxxDescriptionEnhancer.createCxxStripRule(
-            buildTarget,
+            strippedBuildTarget,
             projectFilesystem,
             resolver,
             flavoredStripStyle.orElse(StripStyle.NON_GLOBAL_SYMBOLS),
@@ -476,7 +483,7 @@ public class AppleLibraryDescription
             representativePlatform);
 
     return AppleDescriptions.createAppleDebuggableBinary(
-        buildTarget,
+        unstrippedBuildTarget,
         projectFilesystem,
         resolver,
         strippedBinaryRule,
@@ -929,7 +936,7 @@ public class AppleLibraryDescription
     BuildTarget swiftTarget =
         AppleLibraryDescriptionSwiftEnhancer.createBuildTargetForSwiftCompile(target, cxxPlatform);
     SwiftCompile compile = (SwiftCompile) resolver.requireRule(swiftTarget);
-    return Optional.of(ImmutableList.of(compile.getObjectPath()));
+    return Optional.of(compile.getObjectPaths());
   }
 
   @Override

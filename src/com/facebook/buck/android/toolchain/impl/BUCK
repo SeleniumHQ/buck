@@ -10,8 +10,10 @@ java_library(
     ],
     deps = [
         "//src/com/facebook/buck/android:config",
+        "//src/com/facebook/buck/android:helpers",
         "//src/com/facebook/buck/android:steps",
         "//src/com/facebook/buck/android/toolchain:toolchain",
+        "//src/com/facebook/buck/android/toolchain/ndk:ndk",
         "//src/com/facebook/buck/config:config",
         "//src/com/facebook/buck/cxx/toolchain:toolchain",
         "//src/com/facebook/buck/io:io",

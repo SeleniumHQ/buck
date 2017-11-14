@@ -21,6 +21,7 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.file.Downloader;
 import com.facebook.buck.file.RemoteFileDescription;
 import com.facebook.buck.file.StackedDownloader;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.parser.ParserConfig;
@@ -32,10 +33,12 @@ import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
+import com.facebook.buck.rules.MetadataChecker;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
+import com.facebook.buck.rules.keys.RuleKeyConfiguration;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.util.MoreExceptions;
@@ -126,26 +129,27 @@ public class FetchCommand extends BuildCommand {
                   cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
                   cachingBuildEngineBuckConfig.getConsoleLogBuildRuleFailuresInline(),
                   RuleKeyFactories.of(
-                      params.getBuckConfig().getKeySeed(),
+                      RuleKeyConfiguration.of(params.getBuckConfig().getKeySeed()),
                       localCachingBuildEngineDelegate.getFileHashCache(),
                       actionGraphAndResolver.getResolver(),
                       cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
-                      ruleKeyCacheScope.getCache()),
-                  params.getBuckConfig().getFileHashCacheMode());
+                      ruleKeyCacheScope.getCache()));
           Build build =
-              createBuild(
-                  params.getBuckConfig(),
+              new Build(
                   actionGraphAndResolver.getResolver(),
                   params.getCell(),
                   buildEngine,
                   params.getArtifactCacheFactory().newInstance(),
-                  params.getConsole(),
+                  params
+                      .getBuckConfig()
+                      .getView(JavaBuckConfig.class)
+                      .createDefaultJavaPackageFinder(),
                   params.getClock(),
-                  getExecutionContext())) {
+                  getExecutionContext(),
+                  isKeepGoing())) {
         exitCode =
             build.executeAndPrintFailuresToEventBus(
                 buildTargets,
-                isKeepGoing(),
                 params.getBuckEventBus(),
                 params.getConsole(),
                 getPathToBuildReport(params.getBuckConfig()));

@@ -22,6 +22,7 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -127,11 +128,9 @@ public class Jsr199JavacIntegrationTest {
             executionContext.getJavaPackageFinder(),
             createProjectFilesystem(),
             executionContext.getProjectFilesystemFactory(),
-            NoOpClassUsageFileWriter.instance(),
             executionContext.getEnvironment(),
             executionContext.getProcessExecutor(),
-            ImmutableList.of(),
-            Optional.empty());
+            ImmutableList.of());
 
     int exitCode =
         javac
@@ -143,6 +142,9 @@ public class Jsr199JavacIntegrationTest {
                 SOURCE_PATHS,
                 pathToSrcsList,
                 Paths.get("working"),
+                false,
+                null,
+                null,
                 AbiGenerationMode.CLASS,
                 null)
             .buildClasses();
@@ -180,11 +182,9 @@ public class Jsr199JavacIntegrationTest {
             executionContext.getJavaPackageFinder(),
             createProjectFilesystem(),
             executionContext.getProjectFilesystemFactory(),
-            NoOpClassUsageFileWriter.instance(),
             executionContext.getEnvironment(),
             executionContext.getProcessExecutor(),
-            ImmutableList.of(),
-            Optional.empty());
+            ImmutableList.of());
 
     int exitCode =
         javac
@@ -196,6 +196,9 @@ public class Jsr199JavacIntegrationTest {
                 SOURCE_PATHS,
                 pathToSrcsList,
                 Paths.get("working"),
+                false,
+                null,
+                null,
                 AbiGenerationMode.CLASS,
                 null)
             .buildClasses();
@@ -280,11 +283,9 @@ public class Jsr199JavacIntegrationTest {
             executionContext.getJavaPackageFinder(),
             createProjectFilesystem(),
             executionContext.getProjectFilesystemFactory(),
-            NoOpClassUsageFileWriter.instance(),
             executionContext.getEnvironment(),
             executionContext.getProcessExecutor(),
-            ImmutableList.of(fakeJavacJar),
-            Optional.empty());
+            ImmutableList.of(fakeJavacJar));
 
     boolean caught = false;
 
@@ -298,6 +299,9 @@ public class Jsr199JavacIntegrationTest {
               SOURCE_PATHS,
               pathToSrcsList,
               Paths.get("working"),
+              false,
+              null,
+              null,
               AbiGenerationMode.CLASS,
               null)
           .buildClasses();

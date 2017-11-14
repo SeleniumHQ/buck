@@ -16,6 +16,8 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.FrameworkDependencies;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
@@ -173,7 +175,10 @@ public class AppleBundleDescription
         flavoredDebugFormat,
         appleConfig.useDryRunCodeSigning(),
         appleConfig.cacheBundlesAndPackages(),
-        appleConfig.assetCatalogValidation());
+        appleConfig.assetCatalogValidation(),
+        args.getCodesignFlags(),
+        args.getCodesignIdentity(),
+        args.getIbtoolModuleFlag());
   }
 
   /**
@@ -223,20 +228,20 @@ public class AppleBundleDescription
     // BuildTargets.propagateFlavorsInDomainIfNotPresent()
     {
       FluentIterable<BuildTarget> targetsWithPlatformFlavors =
-          depsExcludingBinary.filter(BuildTargets.containsFlavors(cxxPlatformFlavorDomain));
+          depsExcludingBinary.filter(BuildTargets.containsFlavors(cxxPlatformFlavorDomain)::test);
 
       FluentIterable<BuildTarget> targetsWithoutPlatformFlavors =
           depsExcludingBinary.filter(
-              Predicates.not(BuildTargets.containsFlavors(cxxPlatformFlavorDomain)));
+              BuildTargets.containsFlavors(cxxPlatformFlavorDomain).negate()::test);
 
       FluentIterable<BuildTarget> watchTargets =
           targetsWithoutPlatformFlavors
-              .filter(BuildTargets.containsFlavor(WATCH))
+              .filter(BuildTargets.containsFlavor(WATCH)::test)
               .transform(
                   input -> input.withoutFlavors(WATCH).withAppendedFlavors(actualWatchFlavor));
 
       targetsWithoutPlatformFlavors =
-          targetsWithoutPlatformFlavors.filter(Predicates.not(BuildTargets.containsFlavor(WATCH)));
+          targetsWithoutPlatformFlavors.filter(BuildTargets.containsFlavor(WATCH).negate()::test);
 
       // Gather all the deps now that we've added platform flavors to everything.
       depsExcludingBinary =
@@ -300,10 +305,17 @@ public class AppleBundleDescription
   interface AbstractAppleBundleDescriptionArg
       extends CommonDescriptionArg,
           HasAppleBundleFields,
+          HasAppleCodesignFields,
           HasDefaultPlatform,
           HasDeclaredDeps,
           HasTests {
     BuildTarget getBinary();
+
+    // ibtool take --module <PRODUCT_MODULE_NAME> arguments to override
+    // customModule field set on its elements. (only when customModuleProvider="target")
+    // Module (so far, it seems to only represent swift module) contains the
+    // implementation of the declared element in nib file.
+    Optional<Boolean> getIbtoolModuleFlag();
 
     @Override
     @Hint(isDep = false)

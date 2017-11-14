@@ -32,6 +32,7 @@ import com.dd.plist.NSDictionary;
 import com.dd.plist.NSNumber;
 import com.dd.plist.NSString;
 import com.dd.plist.PropertyListParser;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -1094,6 +1095,65 @@ public class AppleBundleIntegrationTest {
     assertThat(
         result.getStdout(),
         Matchers.startsWith(target.getFullyQualifiedName() + " " + appPath.toString()));
+  }
+
+  @Test
+  public void macAppWithExtraBinary() throws IOException, InterruptedException {
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "apple_osx_app_with_extra_binary", tmp);
+    workspace.setUp();
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:App#no-debug");
+    ProjectWorkspace.ProcessResult buildResult =
+        workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+    buildResult.assertSuccess();
+
+    Path appPath =
+        workspace.getPath(
+            BuildTargets.getGenPath(
+                    filesystem,
+                    target.withAppendedFlavors(
+                        AppleDebugFormat.NONE.getFlavor(),
+                        AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+                    "%s")
+                .resolve(target.getShortName() + ".app"));
+    Path AppBinaryPath = appPath.resolve("Contents/MacOS/App");
+    Path WorkerBinaryPath = appPath.resolve("Contents/MacOS/Worker");
+    assertTrue(Files.exists(AppBinaryPath));
+    assertTrue(Files.exists(WorkerBinaryPath));
+  }
+
+  @Test
+  public void macAppWithXPCService() throws IOException, InterruptedException {
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "apple_osx_app_with_xpc_service", tmp);
+    workspace.setUp();
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:App#no-debug");
+    ProjectWorkspace.ProcessResult buildResult =
+        workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+    buildResult.assertSuccess();
+
+    Path appPath =
+        workspace.getPath(
+            BuildTargets.getGenPath(
+                    filesystem,
+                    target.withAppendedFlavors(
+                        AppleDebugFormat.NONE.getFlavor(),
+                        AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+                    "%s")
+                .resolve(target.getShortName() + ".app"));
+    Path XPCServicePath = appPath.resolve("Contents/XPCServices/Service.xpc");
+    Path XPCServiceBinaryPath = XPCServicePath.resolve("Contents/MacOS/Service");
+    Path XPCServiceInfoPlistPath = XPCServicePath.resolve("Contents/Info.plist");
+    assertTrue(Files.exists(XPCServiceBinaryPath));
+    assertTrue(Files.exists(XPCServiceInfoPlistPath));
   }
 
   @Test

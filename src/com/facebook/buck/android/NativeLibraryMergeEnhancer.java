@@ -18,8 +18,9 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.toolchain.NdkCxxPlatform;
-import com.facebook.buck.android.toolchain.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.cxx.CxxLibrary;
+import com.facebook.buck.cxx.CxxLinkOptions;
 import com.facebook.buck.cxx.CxxLinkableEnhancer;
 import com.facebook.buck.cxx.LinkOutputPostprocessor;
 import com.facebook.buck.cxx.PrebuiltCxxLibrary;
@@ -546,7 +547,7 @@ class NativeLibraryMergeEnhancer {
     }
   }
 
-  @Value.Immutable
+  @Value.Immutable(copy = true)
   @BuckStyleImmutable
   abstract static class AbstractNativeLibraryMergeEnhancementResult {
     public abstract ImmutableMultimap<APKModule, NativeLinkable> getMergedLinkables();
@@ -894,7 +895,7 @@ class NativeLibraryMergeEnhancer {
                           projectFilesystem, target, "%s/" + getSoname(cxxPlatform)),
                       // Android Binaries will use share deps by default.
                       Linker.LinkableDepType.SHARED,
-                      /* thinLto */ false,
+                      CxxLinkOptions.of(),
                       Iterables.concat(
                           getNativeLinkableDepsForPlatform(cxxPlatform),
                           getNativeLinkableExportedDepsForPlatform(cxxPlatform)),
@@ -913,9 +914,7 @@ class NativeLibraryMergeEnhancer {
   private static class SymbolLocalizingPostprocessor implements LinkOutputPostprocessor {
     @AddToRuleKey private final ImmutableSortedSet<String> symbolsToLocalize;
 
-    @SuppressWarnings("unused")
-    @AddToRuleKey
-    private final String postprocessorType = "localize-dynamic-symbols";
+    @AddToRuleKey private final String postprocessorType = "localize-dynamic-symbols";
 
     SymbolLocalizingPostprocessor(ImmutableSortedSet<String> symbolsToLocalize) {
       this.symbolsToLocalize = symbolsToLocalize;

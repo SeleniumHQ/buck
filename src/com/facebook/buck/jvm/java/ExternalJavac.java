@@ -18,6 +18,7 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
+import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Either;
@@ -183,11 +184,17 @@ public class ExternalJavac implements Javac {
       ImmutableSortedSet<Path> javaSourceFilePaths,
       Path pathToSrcsList,
       Path workingDirectory,
+      boolean trackClassUsage,
+      @Nullable JarParameters abiJarParaameters,
+      @Nullable JarParameters libraryJarParameters,
       AbiGenerationMode abiGenerationMode,
       @Nullable SourceOnlyAbiRuleInfo ruleInfo) {
+    Preconditions.checkArgument(abiJarParaameters == null);
+    Preconditions.checkArgument(libraryJarParameters == null);
+
     return new Invocation() {
       @Override
-      public int buildSourceAbiJar(Path sourceAbiJar) throws InterruptedException {
+      public int buildSourceAbiJar() throws InterruptedException {
         throw new UnsupportedOperationException("Cannot build source ABI jar with external javac.");
       }
 
@@ -219,9 +226,9 @@ public class ExternalJavac implements Javac {
           FluentIterable<String> escapedPaths =
               FluentIterable.from(expandedSources)
                   .transform(Object::toString)
-                  .transform(ARGFILES_ESCAPER);
+                  .transform(ARGFILES_ESCAPER::apply);
           FluentIterable<String> escapedArgs =
-              FluentIterable.from(options).transform(ARGFILES_ESCAPER);
+              FluentIterable.from(options).transform(ARGFILES_ESCAPER::apply);
 
           context
               .getProjectFilesystem()

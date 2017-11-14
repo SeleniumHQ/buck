@@ -16,15 +16,18 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.android.AndroidLegacyToolchain;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
+import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import java.util.List;
 import java.util.Optional;
 
@@ -33,6 +36,9 @@ public class GenruleBinary extends Genrule implements BinaryBuildRule {
   protected GenruleBinary(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      AndroidLegacyToolchain androidLegacyToolchain,
+      SandboxExecutionStrategy sandboxExecutionStrategy,
+      BuildRuleResolver resolver,
       BuildRuleParams params,
       List<SourcePath> srcs,
       Optional<Arg> cmd,
@@ -40,7 +46,20 @@ public class GenruleBinary extends Genrule implements BinaryBuildRule {
       Optional<Arg> cmdExe,
       Optional<String> type,
       String out) {
-    super(buildTarget, projectFilesystem, params, srcs, cmd, bash, cmdExe, type, out);
+    super(
+        buildTarget,
+        projectFilesystem,
+        androidLegacyToolchain,
+        resolver,
+        params,
+        sandboxExecutionStrategy,
+        srcs,
+        cmd,
+        bash,
+        cmdExe,
+        type,
+        out,
+        false);
   }
 
   @Override

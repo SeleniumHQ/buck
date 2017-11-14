@@ -21,8 +21,8 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
-import com.facebook.buck.apple.ApplePlatform;
 import com.facebook.buck.apple.FakeAppleRuleDescriptions;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.FakeCxxLibrary;
@@ -175,7 +175,7 @@ public class SwiftLibraryIntegrationTest {
                     .getRelativePath(buildRule.getSourcePathToOutput())
                     .resolve("bar.swiftmodule"))));
 
-    Arg objArg = buildRule.getFileListLinkArg();
+    Arg objArg = buildRule.getFileListLinkArg().get(0);
     assertThat(objArg, Matchers.instanceOf(FileListableLinkerInputArg.class));
     FileListableLinkerInputArg fileListArg = (FileListableLinkerInputArg) objArg;
     ExplicitBuildTargetSourcePath fileListSourcePath =

@@ -19,6 +19,8 @@ package com.facebook.buck.artifact_cache;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
+import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
+import com.facebook.buck.artifact_cache.config.CacheReadMode;
 import com.facebook.buck.artifact_cache.thrift.ArtifactMetadata;
 import com.facebook.buck.artifact_cache.thrift.BuckCacheFetchResponse;
 import com.facebook.buck.artifact_cache.thrift.BuckCacheMultiFetchResponse;
@@ -141,8 +143,6 @@ public class ThriftArtifactCacheTest {
                   new com.facebook.buck.rules.RuleKey(HashCode.fromInt(42)),
                   LazyPath.ofInstance(artifactPath)));
       assertEquals(CacheResultType.ERROR, result.getType());
-    } catch (IOException e) {
-      e.printStackTrace();
     }
 
     EasyMock.verify(fetchClient);

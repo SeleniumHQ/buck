@@ -40,8 +40,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
-import java.util.Optional;
-import java.util.regex.Pattern;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -63,7 +61,6 @@ public class JavacExecutionContextSerializerTest {
         new DefaultJavaPackageFinder(
             ImmutableSortedSet.of("paths", "from", "root"), ImmutableSet.of("path", "elements"));
     ProjectFilesystem projectFilesystem = TestProjectFilesystems.createProjectFilesystem(tmp);
-    NoOpClassUsageFileWriter classUsageFileWriter = NoOpClassUsageFileWriter.instance();
     ImmutableMap<String, String> environment = ImmutableMap.of("k1", "v1", "k2", "v2");
     ImmutableMap<String, String> processExecutorContext =
         ImmutableMap.of("pek1", "pev1", "pek2", "pev2");
@@ -72,18 +69,6 @@ public class JavacExecutionContextSerializerTest {
             new DefaultProcessExecutor(new TestConsole()), processExecutorContext);
     ImmutableList<Path> pathToInputs =
         ImmutableList.of(Paths.get("/path/one"), Paths.get("/path/two"));
-    JarParameters directToJarParameters =
-        JarParameters.builder()
-            .setJarPath(Paths.get("/some/path"))
-            .setRemoveEntryPredicate(
-                new RemoveClassesPatternsMatcher(
-                    ImmutableSet.of(
-                        Pattern.compile("[a-z]"), Pattern.compile("[0-9]", Pattern.MULTILINE))))
-            .setEntriesToJar(
-                ImmutableSortedSet.of(Paths.get("some/path"), Paths.get("/other path/")))
-            .setMainClass(Optional.of("hello I am main class"))
-            .setManifestFile(Optional.of(Paths.get("/MANIFEST/FILE.TXT")))
-            .build();
 
     ProjectFilesystemFactory projectFilesystemFactory = new DefaultProjectFilesystemFactory();
     JavacExecutionContext input =
@@ -96,11 +81,9 @@ public class JavacExecutionContextSerializerTest {
             javaPackageFinder,
             projectFilesystem,
             projectFilesystemFactory,
-            classUsageFileWriter,
             environment,
             processExecutor,
-            pathToInputs,
-            Optional.of(directToJarParameters));
+            pathToInputs);
     Map<String, Object> data = JavacExecutionContextSerializer.serialize(input);
     JavacExecutionContext output =
         JavacExecutionContextSerializer.deserialize(
@@ -139,50 +122,8 @@ public class JavacExecutionContextSerializerTest {
         output.getProjectFilesystem().getRootPath(),
         Matchers.equalToObject(projectFilesystem.getRootPath()));
 
-    assertThat(
-        output.getUsedClassesFileWriter(), Matchers.instanceOf(NoOpClassUsageFileWriter.class));
-
     assertThat(output.getEnvironment(), Matchers.equalToObject(environment));
 
     assertThat(output.getAbsolutePathsForInputs(), Matchers.equalToObject(pathToInputs));
-
-    assertThat(
-        output.getDirectToJarParameters().get().getJarPath(),
-        Matchers.equalToObject(directToJarParameters.getJarPath()));
-    assertThat(
-        output.getDirectToJarParameters().get().getEntriesToJar(),
-        Matchers.equalToObject(directToJarParameters.getEntriesToJar()));
-    assertThat(
-        output.getDirectToJarParameters().get().getMainClass(),
-        Matchers.equalToObject(directToJarParameters.getMainClass()));
-    assertThat(
-        output.getDirectToJarParameters().get().getManifestFile(),
-        Matchers.equalToObject(directToJarParameters.getManifestFile()));
-    assertThat(
-        ((RemoveClassesPatternsMatcher)
-                output.getDirectToJarParameters().get().getRemoveEntryPredicate())
-            .getPatterns()
-            .size(),
-        Matchers.equalToObject(
-            ((RemoveClassesPatternsMatcher) directToJarParameters.getRemoveEntryPredicate())
-                .getPatterns()
-                .size()));
-
-    ImmutableList<Pattern> inputPatterns =
-        ((RemoveClassesPatternsMatcher) directToJarParameters.getRemoveEntryPredicate())
-            .getPatterns()
-            .asList();
-    ImmutableList<Pattern> outputPatterns =
-        ((RemoveClassesPatternsMatcher)
-                output.getDirectToJarParameters().get().getRemoveEntryPredicate())
-            .getPatterns()
-            .asList();
-
-    for (int i = 0; i < inputPatterns.size(); i++) {
-      Pattern inputPattern = inputPatterns.get(i);
-      Pattern outputPattern = outputPatterns.get(i);
-      assertThat(outputPattern.pattern(), Matchers.equalToObject(inputPattern.pattern()));
-      assertThat(outputPattern.flags(), Matchers.equalTo(inputPattern.flags()));
-    }
   }
 }

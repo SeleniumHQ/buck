@@ -18,7 +18,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.AnnotationProcessingParams;
-import com.facebook.buck.jvm.java.ExtraClasspathFromContextFunction;
+import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import com.facebook.buck.jvm.java.HasJavaAbi;
 import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
@@ -28,6 +28,7 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.DependencyMode;
 import com.facebook.buck.util.RichStream;
@@ -125,7 +126,12 @@ public class AndroidLibraryGraphEnhancer {
 
               JavacToJarStepFactory compileToJarStepFactory =
                   new JavacToJarStepFactory(
-                      javac, javacOptions, ExtraClasspathFromContextFunction.EMPTY);
+                      DefaultSourcePathResolver.from(ruleFinder),
+                      ruleFinder,
+                      projectFilesystem,
+                      javac,
+                      javacOptions,
+                      ExtraClasspathProvider.EMPTY);
 
               return new DummyRDotJava(
                   dummyRDotJavaBuildTarget,

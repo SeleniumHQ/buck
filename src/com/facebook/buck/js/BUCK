@@ -1,3 +1,5 @@
+load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
+
 java_immutables_library(
     name = "js",
     srcs = glob(["*.java"]),
@@ -6,9 +8,10 @@ java_immutables_library(
     ],
     visibility = ["PUBLIC"],
     deps = [
+        "//src/com/facebook/buck/android:helpers",
         "//src/com/facebook/buck/android:rules",
         "//src/com/facebook/buck/android/packageable:packageable",
-        "//src/com/facebook/buck/apple:rules",
+        "//src/com/facebook/buck/apple:apple",
         "//src/com/facebook/buck/config:config",
         "//src/com/facebook/buck/graph:graph",
         "//src/com/facebook/buck/io:io",
@@ -26,17 +29,20 @@ java_immutables_library(
         "//src/com/facebook/buck/rules/query:query",
         "//src/com/facebook/buck/rules/query:types",
         "//src/com/facebook/buck/rules/tool/config:config",
+        "//src/com/facebook/buck/sandbox:sandbox",
         "//src/com/facebook/buck/shell:rules",
         "//src/com/facebook/buck/shell:worker",
         "//src/com/facebook/buck/shell:worker_tool",
         "//src/com/facebook/buck/step:step",
         "//src/com/facebook/buck/step/fs:fs",
+        "//src/com/facebook/buck/toolchain:toolchain",
         "//src/com/facebook/buck/util:exceptions",
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/worker:worker_job_params",
         "//src/com/facebook/buck/worker:worker_pool_factory",
         "//third-party/java/guava:guava",
         "//third-party/java/infer-annotations:infer-annotations",
+        "//third-party/java/jackson:jackson-core",
         "//third-party/java/jsr:jsr305",
     ],
 )

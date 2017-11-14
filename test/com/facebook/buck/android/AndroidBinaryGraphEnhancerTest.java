@@ -28,10 +28,10 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.facebook.buck.android.AndroidBinary.ExopackageMode;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
+import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.config.FakeBuckConfig;
@@ -131,6 +131,7 @@ public class AndroidBinaryGraphEnhancerTest {
         new AndroidBinaryGraphEnhancer(
             apkTarget,
             filesystem,
+            TestAndroidLegacyToolchainFactory.create(),
             originalParams,
             ruleResolver,
             AndroidBinary.AaptMode.AAPT1,
@@ -172,6 +173,7 @@ public class AndroidBinaryGraphEnhancerTest {
             CxxPlatformUtils.DEFAULT_CONFIG,
             new APKModuleGraph(TargetGraph.EMPTY, apkTarget, Optional.empty()),
             new DxConfig(FakeBuckConfig.builder().build()),
+            DxStep.DX,
             Optional.empty(),
             defaultNonPredexedArgs(),
             ImmutableSortedSet.of());
@@ -182,6 +184,7 @@ public class AndroidBinaryGraphEnhancerTest {
         new AaptPackageResources(
             aaptPackageResourcesTarget,
             filesystem,
+            TestAndroidLegacyToolchainFactory.create(),
             ruleFinder,
             ruleResolver,
             /* manifest */ FakeSourcePath.of("java/src/com/facebook/base/AndroidManifest.xml"),
@@ -218,13 +221,15 @@ public class AndroidBinaryGraphEnhancerTest {
         new DexProducedFromJavaLibrary(
             fakeUberRDotJavaDexTarget,
             filesystem,
+            TestAndroidLegacyToolchainFactory.create(),
             TestBuildRuleParams.create(),
             fakeUberRDotJavaCompile);
     ruleResolver.addToIndex(fakeUberRDotJavaDex);
 
     BuildRule preDexMergeRule =
         graphEnhancer.createPreDexMergeRule(preDexedLibraries, fakeUberRDotJavaDex);
-    BuildTarget dexMergeTarget = BuildTargetFactory.newInstance("//java/com/example:apk#dex_merge");
+    BuildTarget dexMergeTarget =
+        BuildTargetFactory.newInstance("//java/com/example:apk#dex,dex_merge");
     BuildRule dexMergeRule = ruleResolver.getRule(dexMergeTarget);
 
     assertEquals(dexMergeRule, preDexMergeRule);
@@ -281,6 +286,7 @@ public class AndroidBinaryGraphEnhancerTest {
         new AndroidBinaryGraphEnhancer(
             apkTarget,
             projectFilesystem,
+            TestAndroidLegacyToolchainFactory.create(),
             originalParams,
             ruleResolver,
             AndroidBinary.AaptMode.AAPT1,
@@ -322,6 +328,7 @@ public class AndroidBinaryGraphEnhancerTest {
             CxxPlatformUtils.DEFAULT_CONFIG,
             new APKModuleGraph(TargetGraph.EMPTY, apkTarget, Optional.empty()),
             new DxConfig(FakeBuckConfig.builder().build()),
+            DxStep.DX,
             Optional.empty(),
             defaultNonPredexedArgs(),
             ImmutableSortedSet.of());
@@ -405,6 +412,7 @@ public class AndroidBinaryGraphEnhancerTest {
         new AndroidBinaryGraphEnhancer(
             target,
             projectFilesystem,
+            TestAndroidLegacyToolchainFactory.create(),
             originalParams,
             ruleResolver,
             AndroidBinary.AaptMode.AAPT1,
@@ -446,6 +454,7 @@ public class AndroidBinaryGraphEnhancerTest {
             CxxPlatformUtils.DEFAULT_CONFIG,
             new APKModuleGraph(TargetGraph.EMPTY, target, Optional.empty()),
             new DxConfig(FakeBuckConfig.builder().build()),
+            DxStep.DX,
             Optional.empty(),
             defaultNonPredexedArgs(),
             ImmutableSortedSet.of());
@@ -470,6 +479,7 @@ public class AndroidBinaryGraphEnhancerTest {
         new AndroidBinaryGraphEnhancer(
             target,
             projectFilesystem,
+            TestAndroidLegacyToolchainFactory.create(),
             originalParams,
             ruleResolver,
             AndroidBinary.AaptMode.AAPT1,
@@ -511,6 +521,7 @@ public class AndroidBinaryGraphEnhancerTest {
             CxxPlatformUtils.DEFAULT_CONFIG,
             new APKModuleGraph(TargetGraph.EMPTY, target, Optional.empty()),
             new DxConfig(FakeBuckConfig.builder().build()),
+            DxStep.DX,
             Optional.empty(),
             defaultNonPredexedArgs(),
             ImmutableSortedSet.of());
@@ -564,6 +575,7 @@ public class AndroidBinaryGraphEnhancerTest {
         new AndroidBinaryGraphEnhancer(
             target,
             projectFilesystem,
+            TestAndroidLegacyToolchainFactory.create(),
             originalParams,
             ruleResolver,
             AndroidBinary.AaptMode.AAPT1,
@@ -605,6 +617,7 @@ public class AndroidBinaryGraphEnhancerTest {
             CxxPlatformUtils.DEFAULT_CONFIG,
             new APKModuleGraph(TargetGraph.EMPTY, target, Optional.empty()),
             new DxConfig(FakeBuckConfig.builder().build()),
+            DxStep.DX,
             Optional.empty(),
             defaultNonPredexedArgs(),
             ImmutableSortedSet.of());

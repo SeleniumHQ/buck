@@ -1,5 +1,4 @@
-# TODO(mbolin): Replace this with standard_java_test() until prebuilt_jar() supports exported_deps.
-# See //third-party/java/maven:maven-model for an explanation of why this causes issues.
+load("//tools/build_rules:java_rules.bzl", "java_test")
 
 java_library(
     name = "testutil",
@@ -20,8 +19,6 @@ java_library(
         "//src/com/facebook/buck/android/aapt:aapt",
         "//src/com/facebook/buck/android/redex:options",
         "//src/com/facebook/buck/annotations:annotations",
-        "//src/com/facebook/buck/apple:platform",
-        "//src/com/facebook/buck/apple:rules",
         "//src/com/facebook/buck/apple/project_generator:project_generator",
         "//src/com/facebook/buck/apple/xcode:xcode",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
@@ -93,7 +90,6 @@ java_library(
         "//src/com/facebook/buck/shell:worker_tool",
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",
-        "//src/com/facebook/buck/swift:platform",
         "//src/com/facebook/buck/swift:swift",
         "//src/com/facebook/buck/test:test",
         "//src/com/facebook/buck/test/result/type:type",
@@ -156,7 +152,6 @@ java_test(
     srcs = glob(["*Test.java"]),
     resources = glob(
         ["testdata/**"],
-        include_dotfiles = True,
     ),
     deps = [
         "//test/com/facebook/buck/config:FakeBuckConfig",
@@ -172,8 +167,6 @@ java_test(
         "//src/com/facebook/buck/annotations:annotations",
         "//src/com/facebook/buck/apple/project_generator:project_generator",
         "//src/com/facebook/buck/apple/xcode:xcode",
-        "//src/com/facebook/buck/apple:platform",
-        "//src/com/facebook/buck/apple:rules",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
         "//src/com/facebook/buck/charset:charset",
         "//src/com/facebook/buck/config:config",
@@ -251,7 +244,6 @@ java_test(
         "//src/com/facebook/buck/parser/exceptions:exceptions",
         "//src/com/facebook/buck/parser/options:options",
         "//src/com/facebook/buck/parser/api:api",
-        "//src/com/facebook/buck/swift:platform",
         "//src/com/facebook/buck/swift:swift",
         "//src/com/facebook/buck/test/result/type:type",
         "//src/com/facebook/buck/test/selectors:selectors",

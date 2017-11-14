@@ -64,8 +64,6 @@ import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionPropagator;
-import com.google.common.base.Predicate;
-import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -82,6 +80,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SortedSet;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.immutables.value.Value;
@@ -152,6 +151,7 @@ public class CxxLibraryDescription
   private final Flavor defaultCxxFlavor;
   private final InferBuckConfig inferBuckConfig;
   private final FlavorDomain<CxxPlatform> cxxPlatforms;
+  private final ImmutableSet<Flavor> declaredPlatforms;
 
   public CxxLibraryDescription(
       CxxBuckConfig cxxBuckConfig,
@@ -162,6 +162,7 @@ public class CxxLibraryDescription
     this.defaultCxxFlavor = defaultCxxFlavor;
     this.inferBuckConfig = inferBuckConfig;
     this.cxxPlatforms = cxxPlatforms;
+    this.declaredPlatforms = cxxBuckConfig.getDeclaredPlatforms();
   }
 
   @Override
@@ -183,7 +184,8 @@ public class CxxLibraryDescription
         || flavors.contains(CxxInferEnhancer.InferFlavors.INFER_ANALYZE.getFlavor())
         || flavors.contains(CxxInferEnhancer.InferFlavors.INFER_CAPTURE_ALL.getFlavor())
         || flavors.contains(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR)
-        || LinkerMapMode.FLAVOR_DOMAIN.containsAnyOf(flavors);
+        || LinkerMapMode.FLAVOR_DOMAIN.containsAnyOf(flavors)
+        || !Sets.intersection(declaredPlatforms, flavors).isEmpty();
   }
 
   /**
@@ -488,6 +490,7 @@ public class CxxLibraryDescription
             .concat(RichStream.from(delegateNativeLinkables))
             .toImmutableList();
 
+    CxxLinkOptions linkOptions = CxxLinkOptions.of(args.getThinLto());
     return CxxLinkableEnhancer.createCxxLinkableBuildRule(
         cxxBuckConfig,
         cxxPlatform,
@@ -500,7 +503,7 @@ public class CxxLibraryDescription
         Optional.of(sharedLibrarySoname),
         sharedLibraryPath,
         linkableDepType,
-        args.getThinLto(),
+        linkOptions,
         allNativeLinkables,
         cxxRuntimeType,
         bundleLoader,
@@ -951,7 +954,7 @@ public class CxxLibraryDescription
         resolver,
         args.getPrivateCxxDeps(),
         args.getExportedCxxDeps(),
-        Predicates.not(hasObjects),
+        hasObjects.negate(),
         input -> {
           ImmutableList<StringWithMacros> flags =
               CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(

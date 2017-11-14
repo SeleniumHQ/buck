@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.PathShortener;
@@ -63,8 +64,10 @@ import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.rules.macros.SimpleMacroExpander;
 import com.facebook.buck.rules.macros.StringExpander;
+import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.shell.Genrule;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
@@ -74,7 +77,6 @@ import com.facebook.buck.versions.TargetNodeTranslator;
 import com.facebook.buck.versions.TargetTranslatorOverridingDescription;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.base.CaseFormat;
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableCollection;
@@ -84,6 +86,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Ordering;
+import com.google.common.collect.Sets;
+import com.google.common.collect.Streams;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Iterator;
@@ -102,9 +106,16 @@ public class CxxGenruleDescription extends AbstractGenruleDescription<CxxGenrule
   private static final MacroFinder MACRO_FINDER = new MacroFinder();
 
   private final FlavorDomain<CxxPlatform> cxxPlatforms;
+  private final ImmutableSet<Flavor> declaredPlatforms;
 
-  public CxxGenruleDescription(FlavorDomain<CxxPlatform> cxxPlatforms) {
+  public CxxGenruleDescription(
+      CxxBuckConfig cxxBuckConfig,
+      ToolchainProvider toolchainProvider,
+      SandboxExecutionStrategy sandboxExecutionStrategy,
+      FlavorDomain<CxxPlatform> cxxPlatforms) {
+    super(toolchainProvider, sandboxExecutionStrategy, false);
     this.cxxPlatforms = cxxPlatforms;
+    this.declaredPlatforms = cxxBuckConfig.getDeclaredPlatforms();
   }
 
   public static boolean wrapsCxxGenrule(SourcePathRuleFinder ruleFinder, SourcePath path) {
@@ -171,7 +182,7 @@ public class CxxGenruleDescription extends AbstractGenruleDescription<CxxGenrule
   }
 
   private static String shquoteJoin(Iterable<String> args) {
-    return Joiner.on(' ').join(Iterables.transform(args, Escaper.SHELL_ESCAPER));
+    return Streams.stream(args).map(Escaper.SHELL_ESCAPER).collect(Collectors.joining(" "));
   }
 
   @Override
@@ -181,7 +192,8 @@ public class CxxGenruleDescription extends AbstractGenruleDescription<CxxGenrule
 
   @Override
   public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
-    return cxxPlatforms.containsAnyOf(flavors);
+    return cxxPlatforms.containsAnyOf(flavors)
+        || !Sets.intersection(declaredPlatforms, flavors).isEmpty();
   }
 
   @Override
@@ -620,11 +632,10 @@ public class CxxGenruleDescription extends AbstractGenruleDescription<CxxGenrule
               CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, pathResolver),
               preprocessor,
               /* pch */ Optional.empty());
-      return Joiner.on(' ')
-          .join(
-              Iterables.transform(
-                  com.facebook.buck.rules.args.Arg.stringify(flags.getAllFlags(), pathResolver),
-                  Escaper.SHELL_ESCAPER));
+      return com.facebook.buck.rules.args.Arg.stringify(flags.getAllFlags(), pathResolver)
+          .stream()
+          .map(Escaper.SHELL_ESCAPER)
+          .collect(Collectors.joining(" "));
     }
 
     @Override
@@ -701,7 +712,7 @@ public class CxxGenruleDescription extends AbstractGenruleDescription<CxxGenrule
     private SymlinkTree requireSymlinkTree(
         BuildRuleResolver resolver, ImmutableList<BuildRule> rules) {
       return CxxDescriptionEnhancer.requireSharedLibrarySymlinkTree(
-          buildTarget, filesystem, resolver, cxxPlatform, rules, NativeLinkable.class::isInstance);
+          buildTarget, filesystem, resolver, cxxPlatform, rules);
     }
 
     /**

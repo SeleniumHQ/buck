@@ -295,7 +295,6 @@ public abstract class AbstractCommand implements Command {
   protected ExecutionContext.Builder getExecutionContextBuilder(CommandRunnerParams params) {
     return ExecutionContext.builder()
         .setConsole(params.getConsole())
-        .setAndroidPlatformTargetSupplier(params.getAndroidPlatformTargetSupplier())
         .setBuckEventBus(params.getBuckEventBus())
         .setPlatform(params.getPlatform())
         .setEnvironment(params.getEnvironment())
@@ -314,13 +313,7 @@ public abstract class AbstractCommand implements Command {
   }
 
   public ConcurrencyLimit getConcurrencyLimit(BuckConfig buckConfig) {
-    ResourcesConfig resourcesConfig = buckConfig.getView(ResourcesConfig.class);
-    return new ConcurrencyLimit(
-        buckConfig.getNumThreads(),
-        resourcesConfig.getResourceAllocationFairness(),
-        resourcesConfig.getManagedThreadCount(),
-        resourcesConfig.getDefaultResourceAmounts(),
-        resourcesConfig.getMaximumResourceAmounts());
+    return buckConfig.getView(ResourcesConfig.class).getConcurrencyLimit();
   }
 
   @Override

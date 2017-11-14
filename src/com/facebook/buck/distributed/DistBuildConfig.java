@@ -62,9 +62,6 @@ public class DistBuildConfig {
 
   private static final String MINION_QUEUE = "minion_queue";
 
-  private static final String MAX_BUILD_NODES_PER_MINION = "max_build_nodes_per_minion";
-  private static final int DEFAULT_MAX_BUILD_NODES_PER_MINION = 100;
-
   private static final String SOURCE_FILE_MULTI_FETCH_BUFFER_PERIOD_MS =
       "source_file_multi_fetch_buffer_period_ms";
   private static final String SOURCE_FILE_MULTI_FETCH_MAX_BUFFER_SIZE =
@@ -73,7 +70,18 @@ public class DistBuildConfig {
   private static final String MATERIALIZE_SOURCE_FILES_ON_DEMAND =
       "materialize_source_files_on_demand";
 
+  private static final String MAX_WAIT_FOR_REMOTE_LOGS_TO_BE_AVAILABLE_MILLIS =
+      "max_wait_for_remote_logs_to_be_available_millis";
+  private static final long DEFAULT_MAX_WAIT_FOR_REMOTE_LOGS_TO_BE_AVAILABLE_MILLIS =
+      TimeUnit.MINUTES.toMillis(5);
+
+  private static final String LOG_MATERIALIZATION_ENABLED = "log_materialization_enabled";
+  private static final boolean DEFAULT_LOG_MATERIALIZATION_ENABLED = false;
+
   @VisibleForTesting static final String SERVER_BUCKCONFIG_OVERRIDE = "server_buckconfig_override";
+
+  private static final String MINION_POLL_LOOP_INTERVAL_MILLIS = "minion_poll_loop_interval_millis";
+  private static final long DEFAULT_MINION_POLL_LOOP_INTERVAL_MILLIS = 10;
 
   private final SlbBuckConfig frontendConfig;
   private final BuckConfig buckConfig;
@@ -156,12 +164,6 @@ public class DistBuildConfig {
     return buckConfig.getValue(STAMPEDE_SECTION, MINION_QUEUE);
   }
 
-  public int getMaxBuildNodesPerMinion() {
-    return buckConfig
-        .getInteger(STAMPEDE_SECTION, MAX_BUILD_NODES_PER_MINION)
-        .orElse(DEFAULT_MAX_BUILD_NODES_PER_MINION);
-  }
-
   public String getRepository() {
     return buckConfig.getValue(STAMPEDE_SECTION, REPOSITORY).orElse(DEFAULT_REPOSITORY);
   }
@@ -172,6 +174,24 @@ public class DistBuildConfig {
 
   public String getBuildLabel() {
     return buckConfig.getValue(STAMPEDE_SECTION, BUILD_LABEL).orElse(DEFAULT_BUILD_LABEL);
+  }
+
+  public long getMaxWaitForRemoteLogsToBeAvailableMillis() {
+    return buckConfig
+        .getLong(STAMPEDE_SECTION, MAX_WAIT_FOR_REMOTE_LOGS_TO_BE_AVAILABLE_MILLIS)
+        .orElse(DEFAULT_MAX_WAIT_FOR_REMOTE_LOGS_TO_BE_AVAILABLE_MILLIS);
+  }
+
+  public boolean getLogMaterializationEnabled() {
+    return buckConfig
+        .getBoolean(STAMPEDE_SECTION, LOG_MATERIALIZATION_ENABLED)
+        .orElse(DEFAULT_LOG_MATERIALIZATION_ENABLED);
+  }
+
+  public long getMinionPollLoopIntervalMillis() {
+    return buckConfig
+        .getLong(STAMPEDE_SECTION, MINION_POLL_LOOP_INTERVAL_MILLIS)
+        .orElse(DEFAULT_MINION_POLL_LOOP_INTERVAL_MILLIS);
   }
 
   /**

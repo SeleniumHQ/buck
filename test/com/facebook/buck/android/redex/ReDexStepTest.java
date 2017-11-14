@@ -20,6 +20,8 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.android.KeystoreProperties;
+import com.facebook.buck.android.TestAndroidLegacyToolchainFactory;
+import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
@@ -68,9 +70,16 @@ public class ReDexStepTest {
                 new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
 
+    AndroidPlatformTarget androidPlatform = EasyMock.createMock(AndroidPlatformTarget.class);
+    Path sdkDirectory = Paths.get("/Users/user/android-sdk-macosx");
+    EasyMock.expect(androidPlatform.checkSdkDirectory()).andReturn(sdkDirectory);
+    EasyMock.replay(androidPlatform);
+
     ReDexStep redex =
         new ReDexStep(
+            BuildTargetFactory.newInstance("//dummy:target"),
             workingDirectory,
+            TestAndroidLegacyToolchainFactory.create(androidPlatform),
             redexBinaryArgs,
             redexEnvironmentVariables,
             inputApkPath,
@@ -85,15 +94,7 @@ public class ReDexStepTest {
 
     assertEquals("redex", redex.getShortName());
 
-    AndroidPlatformTarget androidPlatform = EasyMock.createMock(AndroidPlatformTarget.class);
-    Path sdkDirectory = Paths.get("/Users/user/android-sdk-macosx");
-    EasyMock.expect(androidPlatform.checkSdkDirectory()).andReturn(sdkDirectory);
-    EasyMock.replay(androidPlatform);
-
-    ExecutionContext context =
-        TestExecutionContext.newBuilder()
-            .setAndroidPlatformTargetSupplier(Suppliers.ofInstance(androidPlatform))
-            .build();
+    ExecutionContext context = TestExecutionContext.newBuilder().build();
     assertEquals(
         ImmutableMap.of("ANDROID_SDK", sdkDirectory.toString(), "REDEX_DEBUG", "1"),
         redex.getEnvironmentVariables(context));

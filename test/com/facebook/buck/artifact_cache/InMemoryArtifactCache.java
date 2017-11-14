@@ -16,6 +16,8 @@
 
 package com.facebook.buck.artifact_cache;
 
+import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
+import com.facebook.buck.artifact_cache.config.CacheReadMode;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.rules.RuleKey;
@@ -77,6 +79,9 @@ public class InMemoryArtifactCache implements ArtifactCache {
   public ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output) {
     try (InputStream inputStream = Files.newInputStream(output.getPath())) {
       store(info, ByteStreams.toByteArray(inputStream));
+      if (output.canBorrow()) {
+        Files.delete(output.getPath());
+      }
     } catch (IOException e) {
       throw new RuntimeException(e);
     }

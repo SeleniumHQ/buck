@@ -26,13 +26,11 @@ import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.MoreCollectors;
-import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
@@ -72,11 +70,9 @@ public class JavaLibraryRules {
     buildableContext.recordArtifact(pathToClassHashes);
   }
 
-  static JavaLibrary.Data initializeFromDisk(
-      BuildTarget buildTarget, ProjectFilesystem filesystem, OnDiskBuildInfo onDiskBuildInfo)
+  static JavaLibrary.Data initializeFromDisk(BuildTarget buildTarget, ProjectFilesystem filesystem)
       throws IOException {
-    List<String> lines =
-        onDiskBuildInfo.getOutputFileContentsByLine(getPathToClassHashes(buildTarget, filesystem));
+    List<String> lines = filesystem.readLines(getPathToClassHashes(buildTarget, filesystem));
     ImmutableSortedMap<String, HashCode> classHashes =
         AccumulateClassNamesStep.parseClassHashes(lines);
 
@@ -96,8 +92,14 @@ public class JavaLibraryRules {
     // Allow the transitive walk to find NativeLinkables through the BuildRuleParams deps of a
     // JavaLibrary or CalculateAbi object. The deps may be either one depending if we're compiling
     // against ABI rules or full rules
-    Predicate<Object> traverse = r -> r instanceof JavaLibrary || r instanceof CalculateAbi;
-    return NativeLinkables.getTransitiveSharedLibraries(cxxPlatform, deps, traverse);
+    return NativeLinkables.getTransitiveSharedLibraries(
+        cxxPlatform,
+        deps,
+        r ->
+            r instanceof JavaLibrary || r instanceof CalculateAbi
+                ? Optional.of(r.getBuildDeps())
+                : Optional.empty(),
+        true);
   }
 
   public static ImmutableSortedSet<BuildRule> getAbiRules(

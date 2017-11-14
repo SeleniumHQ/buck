@@ -28,7 +28,6 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.InitializableFromDisk;
-import com.facebook.buck.rules.OnDiskBuildInfo;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.Step;
@@ -131,15 +130,12 @@ public class JsLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps impleme
     return builder.build();
   }
 
+
   @Override
-  public JavascriptDependencies initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
-    try {
-      List<String> allLines = onDiskBuildInfo.getOutputFileContentsByLine(output);
-      joy = JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
-      return joy;
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
+  public JavascriptDependencies initializeFromDisk() throws IOException {
+    List<String> allLines = getProjectFilesystem().readLines(output);
+    joy = JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
+    return joy;
   }
 
   @Override

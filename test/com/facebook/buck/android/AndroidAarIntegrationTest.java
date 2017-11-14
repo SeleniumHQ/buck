@@ -25,19 +25,21 @@ import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
+import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.zip.Unzip;
+import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.Optional;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import org.hamcrest.Matchers;
@@ -231,11 +233,33 @@ public class AndroidAarIntegrationTest {
   @Test
   public void testNativeLibraryDependent() throws InterruptedException, IOException {
     Main.KnownBuildRuleTypesFactoryFactory factoryFactory =
-        (processExecutor, sdkEnvironment, toolchainProvider) -> {
+        (processExecutor,
+            sdkEnvironment,
+            toolchainProvider,
+            pluginManager,
+            sandboxExecutionStrategyFactory) -> {
+          AndroidDirectoryResolver androidDirectoryResolver =
+              new DefaultAndroidDirectoryResolver(
+                  filesystem.getRootPath().getFileSystem(),
+                  ImmutableMap.copyOf(System.getenv()),
+                  AndroidNdkHelper.DEFAULT_CONFIG);
+
+          AndroidPlatformTarget androidPlatformTarget =
+              AndroidPlatformTarget.getDefaultPlatformTarget(
+                  androidDirectoryResolver, Optional.empty(), Optional.empty());
+
           TestToolchainProvider testToolchainProvider = new TestToolchainProvider();
           testToolchainProvider.addAndroidToolchain(new TestAndroidToolchain());
-          return new KnownBuildRuleTypesFactory(
-              processExecutor, sdkEnvironment, testToolchainProvider);
+          testToolchainProvider.addToolchain(
+              AndroidLegacyToolchain.DEFAULT_NAME,
+              new DefaultAndroidLegacyToolchain(
+                  () -> androidPlatformTarget, androidDirectoryResolver));
+          return DefaultKnownBuildRuleTypesFactory.of(
+              processExecutor,
+              sdkEnvironment,
+              testToolchainProvider,
+              pluginManager,
+              sandboxExecutionStrategyFactory);
         };
 
     AssumeAndroidPlatform.assumeNdkIsAvailable();

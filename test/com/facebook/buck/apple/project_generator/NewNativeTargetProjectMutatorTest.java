@@ -23,7 +23,6 @@ import static com.facebook.buck.apple.project_generator.ProjectGeneratorTestUtil
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.lessThan;
-import static org.hamcrest.Matchers.startsWith;
 import static org.hamcrest.collection.IsCollectionWithSize.hasSize;
 import static org.hamcrest.collection.IsEmptyIterable.emptyIterable;
 import static org.hamcrest.core.IsNot.not;
@@ -49,11 +48,8 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXResourcesBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXShellScriptBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.ProductType;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
-import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.js.IosReactNativeLibraryBuilder;
+import com.facebook.buck.js.JsBundleGenruleBuilder;
 import com.facebook.buck.js.JsTestScenario;
-import com.facebook.buck.js.ReactNativeBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
@@ -69,11 +65,9 @@ import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.FrameworkPath;
-import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -374,43 +368,6 @@ public class NewNativeTargetProjectMutatorTest {
   }
 
   @Test
-  public void testScriptBuildPhaseWithReactNative() throws NoSuchBuildTargetException {
-    NewNativeTargetProjectMutator mutator = mutatorWithCommonDefaults();
-
-    BuildTarget depBuildTarget = BuildTargetFactory.newInstance("//foo:dep");
-    ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
-    ReactNativeBuckConfig buckConfig =
-        new ReactNativeBuckConfig(
-            FakeBuckConfig.builder()
-                .setSections(
-                    ImmutableMap.of(
-                        "react-native",
-                        ImmutableMap.of("packager_worker", "react-native/packager.sh")))
-                .setFilesystem(filesystem)
-                .build());
-    TargetNode<?, ?> reactNativeNode =
-        IosReactNativeLibraryBuilder.builder(depBuildTarget, buckConfig)
-            .setBundleName("Apps/Foo/FooBundle.js")
-            .setEntryPath(FakeSourcePath.of(filesystem, "js/FooApp.js"))
-            .build();
-
-    mutator.setPostBuildRunScriptPhasesFromTargetNodes(
-        ImmutableList.of(reactNativeNode), x -> buildRuleResolver);
-    NewNativeTargetProjectMutator.Result result =
-        mutator.buildTargetAndAddToProject(generatedProject, true);
-
-    PBXShellScriptBuildPhase phase =
-        getSingletonPhaseByType(result.target, PBXShellScriptBuildPhase.class);
-    String shellScript = phase.getShellScript();
-    assertThat(
-        shellScript,
-        startsWith(
-            "BASE_DIR=${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\n"
-                + "JS_OUT=${BASE_DIR}/Apps/Foo/FooBundle.js\n"
-                + "SOURCE_MAP=${TEMP_DIR}/rn_source_map/Apps/Foo/FooBundle.js.map\n"));
-  }
-
-  @Test
   public void testScriptBuildPhaseWithJsBundle() throws NoSuchBuildTargetException {
     BuildTarget depBuildTarget = BuildTargetFactory.newInstance("//foo:dep");
     JsTestScenario scenario =
@@ -436,6 +393,40 @@ public class NewNativeTargetProjectMutatorTest {
                 + "mkdir -p \"${BASE_DIR}\"\n\n"
                 + "cp -a \"%s/foo/dep/js/\" \"${BASE_DIR}/\"\n"
                 + "cp -a \"%s/foo/dep/res/\" \"${BASE_DIR}/\"\n",
+            genDir, genDir),
+        shellScript);
+  }
+
+  @Test
+  public void testScriptBuildPhaseWithJsBundleGenrule() throws NoSuchBuildTargetException {
+    BuildTarget bundleBuildTarget = BuildTargetFactory.newInstance("//foo:bundle");
+    BuildTarget depBuildTarget = BuildTargetFactory.newInstance("//foo:dep");
+    JsTestScenario scenario =
+        JsTestScenario.builder()
+            .bundle(bundleBuildTarget, ImmutableSortedSet.of())
+            .bundleGenrule(JsBundleGenruleBuilder.Options.of(depBuildTarget, bundleBuildTarget))
+            .build();
+
+    NewNativeTargetProjectMutator mutator =
+        mutator(DefaultSourcePathResolver.from(new SourcePathRuleFinder(scenario.resolver)));
+
+    TargetNode<?, ?> jsBundleGenruleNode = scenario.targetGraph.get(depBuildTarget);
+
+    mutator.setPostBuildRunScriptPhasesFromTargetNodes(
+        ImmutableList.of(jsBundleGenruleNode), x -> scenario.resolver);
+    NewNativeTargetProjectMutator.Result result =
+        mutator.buildTargetAndAddToProject(generatedProject, true);
+
+    PBXShellScriptBuildPhase phase =
+        getSingletonPhaseByType(result.target, PBXShellScriptBuildPhase.class);
+    String shellScript = phase.getShellScript();
+    Path genDir = scenario.filesystem.getBuckPaths().getGenDir().toAbsolutePath();
+    assertEquals(
+        String.format(
+            "BASE_DIR=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n"
+                + "mkdir -p \"${BASE_DIR}\"\n\n"
+                + "cp -a \"%s/foo/dep/js/\" \"${BASE_DIR}/\"\n"
+                + "cp -a \"%s/foo/bundle/res/\" \"${BASE_DIR}/\"\n",
             genDir, genDir),
         shellScript);
   }

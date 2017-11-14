@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Optional;
 
 public class ClosureCompilerStep extends ShellStep {
 
@@ -37,7 +38,7 @@ public class ClosureCompilerStep extends ShellStep {
   private final ImmutableList<String> cmd;
 
   private ClosureCompilerStep(Path workingDirectory, Path output, ImmutableList<String> cmd) {
-    super(workingDirectory);
+    super(Optional.empty(), workingDirectory);
     this.output = Preconditions.checkNotNull(output);
     this.cmd = cmd;
   }

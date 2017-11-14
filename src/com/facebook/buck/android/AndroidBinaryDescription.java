@@ -18,16 +18,16 @@ package com.facebook.buck.android;
 
 import static com.facebook.buck.android.AndroidBinaryResourcesGraphEnhancer.PACKAGE_STRING_ASSETS_FLAVOR;
 
-import com.facebook.buck.android.AndroidBinary.ExopackageMode;
 import com.facebook.buck.android.AndroidBinary.PackageType;
 import com.facebook.buck.android.AndroidBinary.RelinkerMode;
 import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
+import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.redex.RedexOptions;
 import com.facebook.buck.android.toolchain.NdkCxxPlatform;
-import com.facebook.buck.android.toolchain.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.dalvik.ZipSplitter.DexSplitStrategy;
@@ -68,6 +68,7 @@ import com.facebook.buck.rules.macros.ExecutableMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.rules.tool.config.ToolConfig;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
@@ -85,6 +86,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -123,8 +125,9 @@ public class AndroidBinaryDescription
           PACKAGE_STRING_ASSETS_FLAVOR,
           AndroidBinaryResourcesGraphEnhancer.AAPT2_LINK_FLAVOR,
           AndroidBinaryGraphEnhancer.UNSTRIPPED_NATIVE_LIBRARIES_FLAVOR,
-          AndroidBinaryResourcesGraphEnhancer.GENERATE_STRING_SOURCE_MAP_FLAVOR);
+          AndroidBinaryResourcesGraphEnhancer.GENERATE_STRING_RESOURCES_FLAVOR);
 
+  private final ToolchainProvider toolchainProvider;
   private final JavaBuckConfig javaBuckConfig;
   private final JavaOptions javaOptions;
   private final JavacOptions javacOptions;
@@ -137,6 +140,7 @@ public class AndroidBinaryDescription
   private final AndroidInstallConfig androidInstallConfig;
 
   public AndroidBinaryDescription(
+      ToolchainProvider toolchainProvider,
       JavaBuckConfig javaBuckConfig,
       JavaOptions javaOptions,
       JavacOptions javacOptions,
@@ -146,6 +150,7 @@ public class AndroidBinaryDescription
       BuckConfig buckConfig,
       CxxBuckConfig cxxBuckConfig,
       DxConfig dxConfig) {
+    this.toolchainProvider = toolchainProvider;
     this.javaBuckConfig = javaBuckConfig;
     this.javaOptions = javaOptions;
     this.javacOptions = javacOptions;
@@ -281,10 +286,15 @@ public class AndroidBinaryDescription
       ResourceFilter resourceFilter = new ResourceFilter(args.getResourceFilter());
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
+      AndroidLegacyToolchain androidLegacyToolchain =
+          toolchainProvider.getByName(
+              AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
+
       AndroidBinaryGraphEnhancer graphEnhancer =
           new AndroidBinaryGraphEnhancer(
               buildTarget,
               projectFilesystem,
+              androidLegacyToolchain,
               params,
               resolver,
               args.getAaptMode(),
@@ -326,6 +336,7 @@ public class AndroidBinaryDescription
               cxxBuckConfig,
               apkModuleGraph,
               dxConfig,
+              args.getDexTool(),
               getPostFilterResourcesArgs(args, buildTarget, resolver, cellRoots),
               nonPreDexedDexBuildableArgs,
               rulesToExcludeFromDex);
@@ -348,10 +359,14 @@ public class AndroidBinaryDescription
         moduleVerification = Optional.empty();
       }
 
+      AndroidBinaryFilesInfo filesInfo =
+          new AndroidBinaryFilesInfo(result, exopackageModes, args.isPackageAssetLibraries());
+
       AndroidBinary androidBinary =
           new AndroidBinary(
               buildTarget,
               projectFilesystem,
+              androidLegacyToolchain,
               params,
               ruleFinder,
               Optional.of(args.getProguardJvmArgs()),
@@ -375,7 +390,12 @@ public class AndroidBinaryDescription
               args.getManifestEntries(),
               javaOptions.getJavaRuntimeLauncher(),
               args.getIsCacheable(),
-              moduleVerification);
+              moduleVerification,
+              filesInfo.getDexFilesInfo(),
+              filesInfo.getNativeFilesInfo(),
+              filesInfo.getResourceFilesInfo(),
+              ImmutableSortedSet.copyOf(result.getAPKModuleGraph().getAPKModules()),
+              filesInfo.getExopackageInfo());
       // The exo installer is always added to the index so that the action graph is the same
       // between build and install calls.
       new AndroidBinaryInstallGraphEnhancer(
@@ -480,7 +500,7 @@ public class AndroidBinaryDescription
       BuildRuleResolver resolver,
       CellPathResolver cellRoots) {
     return arg.getPostFilterResourcesCmd()
-        .map(MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver)::apply);
+        .map(MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver));
   }
 
   private Optional<Arg> getPreprocessJavaClassesBash(
@@ -489,7 +509,7 @@ public class AndroidBinaryDescription
       BuildRuleResolver resolver,
       CellPathResolver cellRoots) {
     return arg.getPreprocessJavaClassesBash()
-        .map(MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver)::apply);
+        .map(MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver));
   }
 
   private Optional<RedexOptions> getRedexOptions(
@@ -511,8 +531,8 @@ public class AndroidBinaryDescription
           buildTarget, SECTION, CONFIG_PARAM_REDEX);
     }
 
-    java.util.function.Function<String, Arg> macroArgFunction =
-        MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver)::apply;
+    Function<String, Arg> macroArgFunction =
+        MacroArg.toMacroArgFunction(MACRO_HANDLER, buildTarget, cellRoots, resolver);
     List<Arg> redexExtraArgs =
         arg.getRedexExtraArgs().stream().map(macroArgFunction).collect(Collectors.toList());
 
@@ -620,8 +640,8 @@ public class AndroidBinaryDescription
       return true;
     }
 
-    // Do not inspect this, getAllowedDuplicateResourcesTypes, or getBannedDuplicateResourceTypes directly, use
-    // getEffectiveBannedDuplicateResourceTypes.
+    // Do not inspect this, getAllowedDuplicateResourcesTypes, or getBannedDuplicateResourceTypes
+    // directly, use getEffectiveBannedDuplicateResourceTypes.
     // Ideally these should be private, but Arg-population doesn't allow that.
     //
     // If set to ALLOW_BY_DEFAULT, bannedDuplicateResourceTypes is used and setting
@@ -670,6 +690,11 @@ public class AndroidBinaryDescription
     @Value.Default
     default boolean isReorderClassesIntraDex() {
       return false;
+    }
+
+    @Value.Default
+    default String getDexTool() {
+      return DxStep.DX;
     }
 
     Optional<SourcePath> getDexReorderToolFile();

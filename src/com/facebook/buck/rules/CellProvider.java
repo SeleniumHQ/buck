@@ -88,7 +88,6 @@ public final class CellProvider {
       Watchman watchman,
       BuckConfig rootConfig,
       CellConfig rootCellConfigOverrides,
-      KnownBuildRuleTypesFactory knownBuildRuleTypesFactory,
       SdkEnvironment sdkEnvironment,
       ProjectFilesystemFactory projectFilesystemFactory) {
 
@@ -168,13 +167,12 @@ public final class CellProvider {
 
                 // TODO(13777679): cells in other watchman roots do not work correctly.
 
-                return new Cell(
+                return Cell.of(
                     getKnownRoots(cellPathResolver),
                     cellPathResolver.getCanonicalCellName(normalizedCellPath),
                     cellFilesystem,
                     watchman,
                     buckConfig,
-                    knownBuildRuleTypesFactory,
                     cellProvider,
                     sdkEnvironment);
               }
@@ -185,37 +183,33 @@ public final class CellProvider {
                   .getCanonicalCellName(rootFilesystem.getRootPath())
                   .isPresent(),
               "Root cell should be nameless");
-          return new Cell(
+          return Cell.of(
               getKnownRoots(rootCellCellPathResolver),
               Optional.empty(),
               rootFilesystem,
               watchman,
               rootConfig,
-              knownBuildRuleTypesFactory,
               cellProvider,
               sdkEnvironment);
         });
   }
 
   public static CellProvider createForDistributedBuild(
-      ImmutableMap<Path, DistBuildCellParams> cellParams,
-      KnownBuildRuleTypesFactory knownBuildRuleTypesFactory,
-      SdkEnvironment sdkEnvironment) {
+      ImmutableMap<Path, DistBuildCellParams> cellParams, SdkEnvironment sdkEnvironment) {
     return new CellProvider(
         cellProvider ->
             CacheLoader.from(
                 cellPath -> {
                   DistBuildCellParams cellParam =
                       Preconditions.checkNotNull(cellParams.get(cellPath));
-                  return new Cell(
+                  return Cell.of(
                       cellParams.keySet(),
-                      // Distributed builds don't care about cell names, use a sentinel value that will
-                      // show up if it actually does care about them.
+                      // Distributed builds don't care about cell names, use a sentinel value that
+                      // will show up if it actually does care about them.
                       cellParam.getCanonicalName(),
                       cellParam.getFilesystem(),
                       Watchman.NULL_WATCHMAN,
                       cellParam.getConfig(),
-                      knownBuildRuleTypesFactory,
                       cellProvider,
                       sdkEnvironment);
                 }),
@@ -235,7 +229,10 @@ public final class CellProvider {
   private static ImmutableSet<Path> getKnownRoots(CellPathResolver resolver) {
     return ImmutableSet.<Path>builder()
         .addAll(resolver.getCellPaths().values())
-        .add(resolver.getCellPath(Optional.empty()))
+        .add(
+            resolver
+                .getCellPath(Optional.empty())
+                .orElseThrow(() -> new AssertionError("Root cell path should always be known.")))
         .build();
   }
 }

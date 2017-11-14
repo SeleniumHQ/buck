@@ -47,7 +47,6 @@ import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellConfig;
 import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.DefaultCellPathResolver;
-import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.toolchain.impl.TestToolchainProvider;
@@ -69,7 +68,6 @@ import com.facebook.buck.util.trace.ChromeTraceParser.ChromeTraceEventMatcher;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
@@ -101,6 +99,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 import javax.tools.ToolProvider;
 import org.hamcrest.Matchers;
@@ -150,7 +149,7 @@ public class ProjectWorkspace {
         }
       };
 
-  private static final String TEST_CELL_LOCATION =
+  public static final String TEST_CELL_LOCATION =
       "test/com/facebook/buck/testutil/integration/testlibs";
 
   private boolean isSetUp = false;
@@ -215,8 +214,10 @@ public class ProjectWorkspace {
             public FileVisitResult visitFile(Path path, BasicFileAttributes attrs)
                 throws IOException {
               // On Windows, symbolic links from git repository are checked out as normal files
-              // containing a one-line path. In order to distinguish them, paths are read and pointed
-              // files are trued to locate. Once the pointed file is found, it will be copied to target.
+              // containing a one-line path. In order to distinguish them, paths are read and
+              // pointed
+              // files are trued to locate. Once the pointed file is found, it will be copied to
+              // target.
               // On NTFS length of path must be greater than 0 and less than 4096.
               if (attrs.size() > 0 && attrs.size() <= 4096) {
                 String linkTo = new String(Files.readAllBytes(path), UTF_8);
@@ -224,7 +225,8 @@ public class ProjectWorkspace {
                 try {
                   linkToFile = templatePath.resolve(linkTo);
                 } catch (InvalidPathException e) {
-                  // Let's assume we were reading a normal text file, and not something meant to be a
+                  // Let's assume we were reading a normal text file, and not something meant to be
+                  // a
                   // link.
                   return FileVisitResult.CONTINUE;
                 }
@@ -328,6 +330,13 @@ public class ProjectWorkspace {
   public ProcessResult runBuckBuild(String... args) throws IOException {
     String[] totalArgs = new String[args.length + 1];
     totalArgs[0] = "build";
+    System.arraycopy(args, 0, totalArgs, 1, args.length);
+    return runBuckCommand(totalArgs);
+  }
+
+  public ProcessResult runBuckTest(String... args) throws IOException {
+    String[] totalArgs = new String[args.length + 1];
+    totalArgs[0] = "test";
     System.arraycopy(args, 0, totalArgs, 1, args.length);
     return runBuckCommand(totalArgs);
   }
@@ -770,7 +779,6 @@ public class ProjectWorkspace {
             Watchman.NULL_WATCHMAN,
             buckConfig,
             CellConfig.of(),
-            new KnownBuildRuleTypesFactory(processExecutor, sdkEnvironment, toolchainProvider),
             sdkEnvironment,
             new DefaultProjectFilesystemFactory())
         .getCellByPath(filesystem.getRootPath());

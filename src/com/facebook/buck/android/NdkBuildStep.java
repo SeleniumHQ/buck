@@ -18,23 +18,24 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
+import java.util.function.Function;
 
 public class NdkBuildStep extends ShellStep {
 
   private final ProjectFilesystem filesystem;
+  private final AndroidLegacyToolchain androidLegacyToolchain;
   private final Path root;
   private final Path makefile;
   private final Path buildArtifactsDirectory;
@@ -43,16 +44,19 @@ public class NdkBuildStep extends ShellStep {
   private final Function<String, String> macroExpander;
 
   public NdkBuildStep(
+      BuildTarget buildTarget,
       ProjectFilesystem filesystem,
+      AndroidLegacyToolchain androidLegacyToolchain,
       Path root,
       Path makefile,
       Path buildArtifactsDirectory,
       Path binDirectory,
       Iterable<String> flags,
       Function<String, String> macroExpander) {
-    super(filesystem.getRootPath());
+    super(Optional.of(buildTarget), filesystem.getRootPath());
 
     this.filesystem = filesystem;
+    this.androidLegacyToolchain = androidLegacyToolchain;
     this.root = root;
     this.makefile = makefile;
     this.buildArtifactsDirectory = buildArtifactsDirectory;
@@ -76,7 +80,8 @@ public class NdkBuildStep extends ShellStep {
     Optional<Path> ndkBuild =
         new ExecutableFinder()
             .getOptionalExecutable(
-                Paths.get("ndk-build"), context.getAndroidPlatformTarget().checkNdkDirectory());
+                Paths.get("ndk-build"),
+                androidLegacyToolchain.getAndroidPlatformTarget().checkNdkDirectory());
     if (!ndkBuild.isPresent()) {
       throw new HumanReadableException("Unable to find ndk-build");
     }
@@ -94,8 +99,7 @@ public class NdkBuildStep extends ShellStep {
         "-C",
         this.root.toString());
 
-    Iterable<String> flags = Iterables.transform(this.flags, macroExpander);
-    builder.addAll(flags);
+    this.flags.stream().map(macroExpander).forEach(builder::add);
 
     // We want relative, not absolute, paths in the debug-info for binaries we build using
     // ndk_library.  Absolute paths are machine-specific, but relative ones should be the

@@ -37,7 +37,6 @@ public class TestCellBuilder {
   private BuckConfig buckConfig;
   private Watchman watchman = NULL_WATCHMAN;
   private CellConfig cellConfig;
-  private KnownBuildRuleTypesFactory knownBuildRuleTypesFactory;
   private SdkEnvironment sdkEnvironment;
 
   public TestCellBuilder() throws InterruptedException, IOException {
@@ -65,12 +64,6 @@ public class TestCellBuilder {
     return this;
   }
 
-  public TestCellBuilder setKnownBuildRuleTypesFactory(
-      KnownBuildRuleTypesFactory knownBuildRuleTypesFactory) {
-    this.knownBuildRuleTypesFactory = knownBuildRuleTypesFactory;
-    return this;
-  }
-
   public TestCellBuilder setSdkEnvironment(SdkEnvironment sdkEnvironment) {
     this.sdkEnvironment = sdkEnvironment;
     return this;
@@ -91,17 +84,11 @@ public class TestCellBuilder {
             ? SdkEnvironment.create(config, executor, toolchainProvider)
             : this.sdkEnvironment;
 
-    KnownBuildRuleTypesFactory typesFactory =
-        knownBuildRuleTypesFactory == null
-            ? new KnownBuildRuleTypesFactory(executor, sdkEnvironment, toolchainProvider)
-            : knownBuildRuleTypesFactory;
-
     return CellProvider.createForLocalBuild(
             filesystem,
             watchman,
             config,
             cellConfig,
-            typesFactory,
             sdkEnvironment,
             new DefaultProjectFilesystemFactory())
         .getCellByPath(filesystem.getRootPath());

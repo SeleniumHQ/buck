@@ -16,11 +16,13 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.android.AndroidLegacyToolchain;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelperFactory;
 import com.facebook.buck.command.Build;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.resources.ResourcesConfig;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
@@ -39,6 +41,7 @@ import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
+import com.facebook.buck.rules.MetadataChecker;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -48,6 +51,7 @@ import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
+import com.facebook.buck.rules.keys.RuleKeyConfiguration;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.DefaultStepRunner;
@@ -583,22 +587,24 @@ public class TestCommand extends BuildCommand {
                     cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
                     cachingBuildEngineBuckConfig.getConsoleLogBuildRuleFailuresInline(),
                     RuleKeyFactories.of(
-                        params.getBuckConfig().getKeySeed(),
+                        RuleKeyConfiguration.of(params.getBuckConfig().getKeySeed()),
                         localCachingBuildEngineDelegate.getFileHashCache(),
                         actionGraphAndResolver.getResolver(),
                         cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
-                        ruleKeyCacheScope.getCache()),
-                    params.getBuckConfig().getFileHashCacheMode());
+                        ruleKeyCacheScope.getCache()));
             Build build =
-                createBuild(
-                    params.getBuckConfig(),
+                new Build(
                     actionGraphAndResolver.getResolver(),
                     params.getCell(),
                     cachingBuildEngine,
                     params.getArtifactCacheFactory().newInstance(),
-                    params.getConsole(),
+                    params
+                        .getBuckConfig()
+                        .getView(JavaBuckConfig.class)
+                        .createDefaultJavaPackageFinder(),
                     params.getClock(),
-                    getExecutionContext())) {
+                    getExecutionContext(),
+                    isKeepGoing())) {
 
           // Build all of the test rules.
           int exitCode =
@@ -606,7 +612,6 @@ public class TestCommand extends BuildCommand {
                   RichStream.from(testRules)
                       .map(TestRule::getBuildTarget)
                       .collect(MoreCollectors.toImmutableList()),
-                  isKeepGoing(),
                   params.getBuckEventBus(),
                   params.getConsole(),
                   getPathToBuildReport(params.getBuckConfig()));
@@ -633,7 +638,6 @@ public class TestCommand extends BuildCommand {
                   .setBuildCellRootPath(params.getCell().getRoot())
                   .setJavaPackageFinder(params.getJavaPackageFinder())
                   .setEventBus(params.getBuckEventBus())
-                  .setAndroidPlatformTargetSupplier(params.getAndroidPlatformTargetSupplier())
                   .build();
 
           // Once all of the rules are built, then run the tests.
@@ -655,6 +659,9 @@ public class TestCommand extends BuildCommand {
         .setTargetDevice(getTargetDeviceOptional())
         .setAndroidDevicesHelper(
             AndroidDevicesHelperFactory.get(
+                params
+                    .getToolchainProvider()
+                    .getByName(AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class),
                 this::getExecutionContext,
                 params.getBuckConfig(),
                 getAdbOptions(params.getBuckConfig()),

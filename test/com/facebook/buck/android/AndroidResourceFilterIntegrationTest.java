@@ -74,8 +74,7 @@ public class AndroidResourceFilterIntegrationTest {
         new DefaultAndroidDirectoryResolver(
             filesystem.getRootPath().getFileSystem(),
             ImmutableMap.copyOf(System.getenv()),
-            Optional.empty(),
-            Optional.empty());
+            AndroidNdkHelper.DEFAULT_CONFIG);
     pathToAapt =
         AndroidPlatformTarget.getDefaultPlatformTarget(resolver, Optional.empty(), Optional.empty())
             .getAaptExecutable();
@@ -260,7 +259,6 @@ public class AndroidResourceFilterIntegrationTest {
 
   @Test
   public void testStringArtifactsAreCached() throws InterruptedException, IOException {
-    Assume.assumeFalse(true);
     workspace.enableDirCache();
     workspace.runBuckBuild("//apps/sample:app_comp_str").assertSuccess();
     BuckBuildLog buildLog = workspace.getBuildLog();

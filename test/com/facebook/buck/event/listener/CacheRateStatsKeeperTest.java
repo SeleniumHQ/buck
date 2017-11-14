@@ -18,8 +18,8 @@ package com.facebook.buck.event.listener;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.artifact_cache.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.CacheResult;
+import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.event.TestEventConfigurator;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
@@ -61,6 +61,8 @@ public class CacheRateStatsKeeperTest {
         Optional.empty(),
         Optional.empty(),
         false,
+        Optional.empty(),
+        Optional.empty(),
         Optional.empty(),
         Optional.empty(),
         Optional.empty());

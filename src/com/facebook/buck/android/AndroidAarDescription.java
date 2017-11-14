@@ -19,10 +19,11 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.aapt.MergeAndroidResourceSources;
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
+import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.android.toolchain.NdkCxxPlatform;
-import com.facebook.buck.android.toolchain.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
@@ -221,7 +222,7 @@ public class AndroidAarDescription implements Description<AndroidAarDescriptionA
               buildTarget,
               projectFilesystem,
               AndroidBinary.PackageType.RELEASE,
-              EnumSet.noneOf(AndroidBinary.ExopackageMode.class),
+              EnumSet.noneOf(ExopackageMode.class),
               args.getBuildConfigValues(),
               Optional.empty(),
               resolver,
@@ -288,7 +289,7 @@ public class AndroidAarDescription implements Description<AndroidAarDescriptionA
   }
 
   @BuckStyleImmutable
-  @Value.Immutable
+  @Value.Immutable(copy = true)
   interface AbstractAndroidAarDescriptionArg extends AndroidLibraryDescription.CoreArg {
     SourcePath getManifestSkeleton();
 

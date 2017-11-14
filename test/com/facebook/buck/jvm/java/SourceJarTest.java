@@ -11,23 +11,24 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.Zip;
+import com.facebook.buck.testutil.ZipArchive;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.google.common.collect.ImmutableSortedSet;
-import org.junit.Rule;
-import org.junit.Test;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import org.junit.Rule;
+import org.junit.Test;
 
 public class SourceJarTest {
 
@@ -36,7 +37,7 @@ public class SourceJarTest {
 
   @Test
   public void outputNameShouldIndicateThatTheOutputIsASrcJar() throws InterruptedException {
-    BuildRuleResolver resolver = new BuildRuleResolver(
+    BuildRuleResolver resolver = new SingleThreadedBuildRuleResolver(
         TargetGraph.EMPTY,
         new DefaultTargetNodeToBuildRuleTransformer());
 
@@ -68,7 +69,7 @@ public class SourceJarTest {
     Path output = workspace.buildAndReturnOutput("//:lib#src");
 
 
-    Zip zip = new Zip(output, /* for writing? */ false);
+    ZipArchive zip = new ZipArchive(output, /* for writing? */ false);
     Set<String> fileNames = zip.getFileNames();
 
     assertTrue(fileNames.contains("com/example/Direct.java"));
@@ -89,7 +90,7 @@ public class SourceJarTest {
     Path output = workspace.buildAndReturnOutput("//:lib#src");
 
 
-    Zip zip = new Zip(output, /* for writing? */ false);
+    ZipArchive zip = new ZipArchive(output, /* for writing? */ false);
     Set<String> fileNames = zip.getFileNames();
 
     assertFalse(fileNames.contains("com/example/hello.txt"));
@@ -106,7 +107,7 @@ public class SourceJarTest {
     Path output = workspace.buildAndReturnOutput("//:lib#maven,src");
 
 
-    Zip zip = new Zip(output, /* for writing? */ false);
+    ZipArchive zip = new ZipArchive(output, /* for writing? */ false);
     Set<String> fileNames = zip.getFileNames();
 
     // output should not contain any files from "//:mvn-dep"

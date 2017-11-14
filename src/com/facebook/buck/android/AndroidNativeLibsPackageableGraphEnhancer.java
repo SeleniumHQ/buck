@@ -22,8 +22,8 @@ import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.relinker.NativeRelinker;
 import com.facebook.buck.android.toolchain.NdkCxxPlatform;
-import com.facebook.buck.android.toolchain.NdkCxxRuntime;
-import com.facebook.buck.android.toolchain.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
+import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
@@ -312,7 +312,8 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
 
       if (filteredStrippedLibsMap.isEmpty()
           && filteredStrippedLibsAssetsMap.isEmpty()
-          && nativeLibsDirectories.isEmpty()) {
+          && nativeLibsDirectories.isEmpty()
+          && nativeLibsAssetsDirectories.isEmpty()) {
         continue;
       }
 

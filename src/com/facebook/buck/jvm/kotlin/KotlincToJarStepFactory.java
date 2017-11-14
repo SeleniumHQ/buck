@@ -20,7 +20,7 @@ import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.CompilerParameters;
-import com.facebook.buck.jvm.java.ExtraClasspathFromContextFunction;
+import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
@@ -30,10 +30,12 @@ import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -46,16 +48,20 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
 
   @AddToRuleKey private final Kotlinc kotlinc;
   @AddToRuleKey private final ImmutableList<String> extraArguments;
-  @AddToRuleKey private final ExtraClasspathFromContextFunction extraClassPath;
+  @AddToRuleKey private final ExtraClasspathProvider extraClassPath;
   private final Javac javac;
   private final JavacOptions javacOptions;
 
   public KotlincToJarStepFactory(
+      SourcePathResolver resolver,
+      SourcePathRuleFinder ruleFinder,
+      ProjectFilesystem projectFilesystem,
       Kotlinc kotlinc,
       ImmutableList<String> extraArguments,
-      ExtraClasspathFromContextFunction extraClassPath,
+      ExtraClasspathProvider extraClassPath,
       Javac javac,
       JavacOptions javacOptions) {
+    super(resolver, ruleFinder, projectFilesystem);
     this.kotlinc = kotlinc;
     this.extraArguments = extraArguments;
     this.extraClassPath = extraClassPath;
@@ -67,11 +73,9 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
   public void createCompileStep(
       BuildContext buildContext,
       BuildTarget invokingRule,
-      SourcePathResolver resolver,
-      ProjectFilesystem filesystem,
       CompilerParameters parameters,
       /* output params */
-      ImmutableList.Builder<Step> steps,
+      Builder<Step> steps,
       BuildableContext buildableContext) {
 
     ImmutableSortedSet<Path> declaredClasspathEntries = parameters.getClasspathEntries();
@@ -89,13 +93,13 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
               pathToSrcsList,
               ImmutableSortedSet.<Path>naturalOrder()
                   .addAll(
-                      Optional.ofNullable(extraClassPath.apply(buildContext))
+                      Optional.ofNullable(extraClassPath.getExtraClasspath())
                           .orElse(ImmutableList.of()))
                   .addAll(declaredClasspathEntries)
                   .build(),
               kotlinc,
               extraArguments,
-              filesystem));
+              projectFilesystem));
     }
 
     ImmutableSortedSet<Path> javaSourceFiles =
@@ -114,27 +118,21 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
                   ImmutableSortedSet.<Path>naturalOrder()
                       .add(outputDirectory)
                       .addAll(
-                          Optional.ofNullable(extraClassPath.apply(buildContext))
+                          Optional.ofNullable(extraClassPath.getExtraClasspath())
                               .orElse(ImmutableList.of()))
                       .addAll(declaredClasspathEntries)
                       .build())
               .setSourceFilePaths(javaSourceFiles)
               .build();
-      new JavacToJarStepFactory(javac, javacOptions, extraClassPath)
-          .createCompileStep(
-              buildContext,
-              invokingRule,
-              resolver,
-              filesystem,
-              javacParameters,
-              steps,
-              buildableContext);
+      new JavacToJarStepFactory(
+              resolver, ruleFinder, projectFilesystem, javac, javacOptions, extraClassPath)
+          .createCompileStep(buildContext, invokingRule, javacParameters, steps, buildableContext);
     }
   }
 
   @Override
   protected Optional<String> getBootClasspath(BuildContext context) {
-    return javacOptions.withBootclasspathFromContext(extraClassPath, context).getBootclasspath();
+    return javacOptions.withBootclasspathFromContext(extraClassPath).getBootclasspath();
   }
 
   @Override

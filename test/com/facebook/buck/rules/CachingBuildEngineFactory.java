@@ -17,10 +17,10 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
+import com.facebook.buck.rules.keys.RuleKeyConfiguration;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.testutil.DummyFileHashCache;
-import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.concurrent.ListeningMultiSemaphore;
 import com.facebook.buck.util.concurrent.ResourceAllocationFairness;
 import com.facebook.buck.util.concurrent.ResourceAmounts;
@@ -47,7 +47,6 @@ public class CachingBuildEngineFactory {
       ResourceAwareSchedulingInfo.NON_AWARE_SCHEDULING_INFO;
   private boolean logBuildRuleFailuresInline = true;
   private BuildInfoStoreManager buildInfoStoreManager;
-  private FileHashCacheMode fileHashCacheMode = FileHashCacheMode.DEFAULT;
 
   public CachingBuildEngineFactory(
       BuildRuleResolver buildRuleResolver, BuildInfoStoreManager buildInfoStoreManager) {
@@ -59,11 +58,6 @@ public class CachingBuildEngineFactory {
 
   public CachingBuildEngineFactory setBuildMode(CachingBuildEngine.BuildMode buildMode) {
     this.buildMode = buildMode;
-    return this;
-  }
-
-  public CachingBuildEngineFactory setFileHashCachMode(FileHashCacheMode fileHashCachMode) {
-    this.fileHashCacheMode = fileHashCachMode;
     return this;
   }
 
@@ -129,8 +123,7 @@ public class CachingBuildEngineFactory {
           DefaultSourcePathResolver.from(ruleFinder),
           ruleKeyFactories.get(),
           resourceAwareSchedulingInfo,
-          logBuildRuleFailuresInline,
-          fileHashCacheMode);
+          logBuildRuleFailuresInline);
     }
 
     return new CachingBuildEngine(
@@ -147,12 +140,11 @@ public class CachingBuildEngineFactory {
         resourceAwareSchedulingInfo,
         logBuildRuleFailuresInline,
         RuleKeyFactories.of(
-            0,
+            RuleKeyConfiguration.of(0),
             cachingBuildEngineDelegate.getFileHashCache(),
             buildRuleResolver,
             inputFileSizeLimit,
-            new DefaultRuleKeyCache<>()),
-        fileHashCacheMode);
+            new DefaultRuleKeyCache<>()));
   }
 
   private static WeightedListeningExecutorService toWeighted(ListeningExecutorService service) {

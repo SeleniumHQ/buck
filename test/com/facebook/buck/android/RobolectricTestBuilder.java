@@ -27,6 +27,7 @@ import com.facebook.buck.jvm.kotlin.KotlinBuckConfig;
 import com.facebook.buck.jvm.scala.ScalaBuckConfig;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import java.util.Optional;
 
 public class RobolectricTestBuilder
@@ -36,6 +37,7 @@ public class RobolectricTestBuilder
 
   public static final AndroidLibraryCompilerFactory DEFAULT_ANDROID_COMPILER_FACTORY =
       new DefaultAndroidLibraryCompilerFactory(
+          new TestToolchainProvider(),
           DEFAULT_JAVA_CONFIG,
           new ScalaBuckConfig(FakeBuckConfig.builder().build()),
           new KotlinBuckConfig(FakeBuckConfig.builder().build()));
@@ -43,6 +45,7 @@ public class RobolectricTestBuilder
   private RobolectricTestBuilder(BuildTarget target, JavaBuckConfig javaBuckConfig) {
     super(
         new RobolectricTestDescription(
+            new TestToolchainProvider(),
             javaBuckConfig,
             DEFAULT_JAVA_OPTIONS,
             ANDROID_JAVAC_OPTIONS,
@@ -55,6 +58,7 @@ public class RobolectricTestBuilder
   private RobolectricTestBuilder(BuildTarget target, ProjectFilesystem filesystem) {
     super(
         new RobolectricTestDescription(
+            new TestToolchainProvider(),
             DEFAULT_JAVA_CONFIG,
             DEFAULT_JAVA_OPTIONS,
             ANDROID_JAVAC_OPTIONS,
@@ -69,6 +73,7 @@ public class RobolectricTestBuilder
       BuildTarget target, ProjectFilesystem filesystem, JavaBuckConfig javaBuckConfig) {
     super(
         new RobolectricTestDescription(
+            new TestToolchainProvider(),
             javaBuckConfig,
             DEFAULT_JAVA_OPTIONS,
             ANDROID_JAVAC_OPTIONS,

@@ -22,6 +22,7 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -37,7 +38,6 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.sha1.Sha1HashCode;
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.FluentIterable;
@@ -59,7 +59,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Stream;
 import javax.annotation.Nullable;
+
 /**
  * Buildable that is responsible for:
  *
@@ -89,6 +92,9 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
           DxStep.Option.NO_OPTIMIZE);
 
   @AddToRuleKey private final DexSplitMode dexSplitMode;
+  @AddToRuleKey private final String dexTool;
+
+  private final AndroidLegacyToolchain androidLegacyToolchain;
   private final APKModuleGraph apkModuleGraph;
   private final ImmutableMultimap<APKModule, DexProducedFromJavaLibrary> preDexDeps;
   private final DexProducedFromJavaLibrary dexForUberRDotJava;
@@ -99,6 +105,7 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   public PreDexMerge(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      AndroidLegacyToolchain androidLegacyToolchain,
       BuildRuleParams params,
       DexSplitMode dexSplitMode,
       APKModuleGraph apkModuleGraph,
@@ -106,8 +113,10 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       DexProducedFromJavaLibrary dexForUberRDotJava,
       ListeningExecutorService dxExecutorService,
       Optional<Integer> xzCompressionLevel,
-      Optional<String> dxMaxHeapSize) {
+      Optional<String> dxMaxHeapSize,
+      String dexTool) {
     super(buildTarget, projectFilesystem, params);
+    this.androidLegacyToolchain = androidLegacyToolchain;
     this.dexSplitMode = dexSplitMode;
     this.apkModuleGraph = apkModuleGraph;
     this.preDexDeps = preDexDeps;
@@ -115,6 +124,7 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     this.dxExecutorService = dxExecutorService;
     this.xzCompressionLevel = xzCompressionLevel;
     this.dxMaxHeapSize = dxMaxHeapSize;
+    this.dexTool = dexTool;
   }
 
   @Override
@@ -205,7 +215,7 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       secondaryDexDirectories.add(
           ExplicitBuildTargetSourcePath.of(getBuildTarget(), paths.jarfilesDir));
     }
-    //always add additional dex stores and metadata as assets
+    // always add additional dex stores and metadata as assets
     secondaryDexDirectories.add(
         ExplicitBuildTargetSourcePath.of(getBuildTarget(), paths.additionalJarfilesDir));
     return secondaryDexDirectories.build();
@@ -301,6 +311,8 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     Path primaryDexPath = getPrimaryDexPath();
     steps.add(
         new SmartDexingStep(
+            getBuildTarget(),
+            androidLegacyToolchain,
             context,
             getProjectFilesystem(),
             primaryDexPath,
@@ -312,7 +324,8 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
             DX_MERGE_OPTIONS,
             dxExecutorService,
             xzCompressionLevel,
-            dxMaxHeapSize));
+            dxMaxHeapSize,
+            dexTool));
 
     for (PreDexedFilesSorter.Result result : sortResults.values()) {
       if (!result.apkModule.equals(apkModuleGraph.getRootAPKModule())) {
@@ -384,16 +397,17 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         FluentIterable.from(preDexDeps.values())
             .transform(
                 new Function<DexProducedFromJavaLibrary, Path>() {
-                  @Override
-                  @Nullable
-                  public Path apply(DexProducedFromJavaLibrary preDex) {
-                    if (preDex.hasOutput()) {
-                      return preDex.getPathToDex();
-                    } else {
-                      return null;
+                      @Override
+                      @Nullable
+                      public Path apply(DexProducedFromJavaLibrary preDex) {
+                        if (preDex.hasOutput()) {
+                          return preDex.getPathToDex();
+                        } else {
+                          return null;
+                        }
+                      }
                     }
-                  }
-                })
+                    ::apply)
             .filter(Objects::nonNull);
 
     // If this APK has Android resources, then the generated R.class files also need to be dexed.
@@ -409,7 +423,15 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     buildableContext.recordArtifact(primaryDexPath);
 
     // This will combine the pre-dexed files and the R.class files into a single classes.dex file.
-    steps.add(new DxStep(getProjectFilesystem(), primaryDexPath, filesToDex, DX_MERGE_OPTIONS));
+    steps.add(
+        new DxStep(
+            getBuildTarget(),
+            getProjectFilesystem(),
+            androidLegacyToolchain,
+            primaryDexPath,
+            filesToDex,
+            DX_MERGE_OPTIONS,
+            dexTool));
   }
 
   public Path getMetadataTxtPath() {
@@ -422,12 +444,36 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     return new SplitDexPaths().jarfilesSubdir;
   }
 
+  /** @return the output directories for modular dex files */
+  Stream<Path> getModuleDexPaths() {
+    final SplitDexPaths paths = new SplitDexPaths();
+    return apkModuleGraph
+        .getAPKModules()
+        .stream()
+        .filter(module -> !module.isRootModule())
+        .map(module -> paths.additionalJarfilesSubdir.resolve(module.getName()));
+  }
+
   public SourcePath getMetadataTxtSourcePath() {
     return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getMetadataTxtPath());
   }
 
   public SourcePath getDexDirectorySourcePath() {
     return ExplicitBuildTargetSourcePath.of(getBuildTarget(), getDexDirectory());
+  }
+
+  /**
+   * @return a Stream containing pairs of: 1. the metadata describing the output dex files of a
+   *     module 2. the directory containing the corresponding dex files
+   */
+  Stream<Pair<SourcePath, SourcePath>> getModuleMetadataAndDexSourcePaths() {
+    return getModuleDexPaths()
+        .map(
+            directory ->
+                new Pair<>(
+                    ExplicitBuildTargetSourcePath.of(
+                        getBuildTarget(), directory.resolve("metadata.txt")),
+                    ExplicitBuildTargetSourcePath.of(getBuildTarget(), directory)));
   }
 
   @Nullable

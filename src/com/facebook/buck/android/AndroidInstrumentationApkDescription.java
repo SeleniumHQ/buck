@@ -18,14 +18,14 @@ package com.facebook.buck.android;
 
 import static com.facebook.buck.jvm.java.JavaLibraryClasspathProvider.getClasspathDeps;
 
-import com.facebook.buck.android.AndroidBinary.ExopackageMode;
 import com.facebook.buck.android.AndroidBinary.PackageType;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
+import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.toolchain.NdkCxxPlatform;
-import com.facebook.buck.android.toolchain.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
@@ -44,6 +44,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -61,6 +62,7 @@ import org.immutables.value.Value;
 public class AndroidInstrumentationApkDescription
     implements Description<AndroidInstrumentationApkDescriptionArg> {
 
+  private final ToolchainProvider toolchainProvider;
   private final JavaBuckConfig javaBuckConfig;
   private final ProGuardConfig proGuardConfig;
   private final JavacOptions javacOptions;
@@ -70,6 +72,7 @@ public class AndroidInstrumentationApkDescription
   private final DxConfig dxConfig;
 
   public AndroidInstrumentationApkDescription(
+      ToolchainProvider toolchainProvider,
       JavaBuckConfig javaBuckConfig,
       ProGuardConfig proGuardConfig,
       JavacOptions androidJavacOptions,
@@ -77,6 +80,7 @@ public class AndroidInstrumentationApkDescription
       ListeningExecutorService dxExecutorService,
       CxxBuckConfig cxxBuckConfig,
       DxConfig dxConfig) {
+    this.toolchainProvider = toolchainProvider;
     this.javaBuckConfig = javaBuckConfig;
     this.proGuardConfig = proGuardConfig;
     this.javacOptions = androidJavacOptions;
@@ -152,10 +156,15 @@ public class AndroidInstrumentationApkDescription
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
+    AndroidLegacyToolchain androidLegacyToolchain =
+        toolchainProvider.getByName(
+            AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
+
     AndroidBinaryGraphEnhancer graphEnhancer =
         new AndroidBinaryGraphEnhancer(
             buildTarget,
             projectFilesystem,
+            androidLegacyToolchain,
             params,
             resolver,
             AndroidBinary.AaptMode.AAPT1,
@@ -200,20 +209,27 @@ public class AndroidInstrumentationApkDescription
             cxxBuckConfig,
             new APKModuleGraph(targetGraph, buildTarget, Optional.empty()),
             dxConfig,
+            args.getDexTool(),
             /* postFilterResourcesCommands */ Optional.empty(),
             nonPreDexedDexBuildableArgs,
             rulesToExcludeFromDex);
 
     AndroidGraphEnhancementResult enhancementResult = graphEnhancer.createAdditionalBuildables();
-
+    AndroidBinaryFilesInfo filesInfo =
+        new AndroidBinaryFilesInfo(enhancementResult, EnumSet.noneOf(ExopackageMode.class), false);
     return new AndroidInstrumentationApk(
         buildTarget,
         projectFilesystem,
+        androidLegacyToolchain,
         params,
         ruleFinder,
         apkUnderTest,
         rulesToExcludeFromDex,
-        enhancementResult);
+        enhancementResult,
+        filesInfo.getDexFilesInfo(),
+        filesInfo.getNativeFilesInfo(),
+        filesInfo.getResourceFilesInfo(),
+        filesInfo.getExopackageInfo());
   }
 
   @BuckStyleImmutable
@@ -227,6 +243,11 @@ public class AndroidInstrumentationApkDescription
     @Value.Default
     default boolean getIncludesVectorDrawables() {
       return false;
+    }
+
+    @Value.Default
+    default String getDexTool() {
+      return DxStep.DX;
     }
   }
 }

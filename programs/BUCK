@@ -52,6 +52,7 @@ genrule(
 
 BUCK_CORE_RESOURCES = {
     "android_agent_path": "//assets/android:agent.apk",
+    "fix_script": "//programs/fixes/source_only_abi:fix",
     "bootstrapper_jar": "//src/com/facebook/buck/cli/bootstrapper:bootstrapper",
     "buck_package_info": ":gen_buck_package_info",
     "buck_server": "//src/com/facebook/buck/cli:main-fixed",
@@ -62,7 +63,6 @@ BUCK_CORE_RESOURCES = {
     "libjcocoa.dylib": "//third-party/java/ObjCBridge:libjcocoa.dylib",
     "logging_config_file": "//config:logging.properties",
     "native_exopackage_fake_path": "//assets/android:native-exopackage-fakes.apk",
-    "path_to_asm_jar": "//third-party/java/asm:asm",
     "path_to_rawmanifest_py": "//src/com/facebook/buck/util/versioncontrol:rawmanifest",
     "path_to_pathlib_py": "//third-party/py/pathlib:pathlib.py",
     "path_to_pex": "//src/com/facebook/buck/python:pex",
@@ -94,7 +94,7 @@ python_library(
     ],
 )
 
-load("//programs:macro_defs", "interpreter_override_args")
+load("//tools/build_rules:python_rules.bzl", "interpreter_override_args")
 
 python_binary(
     name = "buck",
@@ -103,6 +103,7 @@ python_binary(
     visibility = [
         "//scripts/packages/debian:debian",
         "//test/com/facebook/buck/testutil/integration:integration-py",
+        "//tools/...",
     ],
     deps = [
         ":bucklib",

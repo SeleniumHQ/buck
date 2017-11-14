@@ -46,6 +46,7 @@ import com.google.common.collect.Lists;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Optional;
 import java.util.SortedSet;
 import javax.annotation.Nullable;
 
@@ -56,11 +57,13 @@ public class Aapt2Link extends AbstractBuildRule {
   @AddToRuleKey private final SourcePath manifest;
   @AddToRuleKey private final ManifestEntries manifestEntries;
 
+  private final AndroidLegacyToolchain androidLegacyToolchain;
   private final Supplier<ImmutableSortedSet<BuildRule>> buildDepsSupplier;
 
   Aapt2Link(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      AndroidLegacyToolchain androidLegacyToolchain,
       SourcePathRuleFinder ruleFinder,
       ImmutableList<Aapt2Compile> compileRules,
       ImmutableList<HasAndroidResourceDeps> resourceRules,
@@ -68,6 +71,7 @@ public class Aapt2Link extends AbstractBuildRule {
       ManifestEntries manifestEntries,
       boolean noAutoVersion) {
     super(buildTarget, projectFilesystem);
+    this.androidLegacyToolchain = androidLegacyToolchain;
     this.compileRules = compileRules;
     this.manifest = manifest;
     this.manifestEntries = manifestEntries;
@@ -137,7 +141,8 @@ public class Aapt2Link extends AbstractBuildRule {
     steps.add(new SymlinkTreeStep(getProjectFilesystem(), linkTreePath, symlinkMap.build()));
 
     steps.add(
-        new Aapt2LinkStep(getProjectFilesystem().resolve(linkTreePath), symlinkPaths.build()));
+        new Aapt2LinkStep(
+            getBuildTarget(), getProjectFilesystem().resolve(linkTreePath), symlinkPaths.build()));
     steps.add(ZipScrubberStep.of(getProjectFilesystem().resolve(getResourceApkPath())));
 
     buildableContext.recordArtifact(getFinalManifestPath());
@@ -194,8 +199,9 @@ public class Aapt2Link extends AbstractBuildRule {
   class Aapt2LinkStep extends ShellStep {
     private final List<Path> compiledResourcePaths;
 
-    Aapt2LinkStep(Path workingDirectory, List<Path> compiledResourcePaths) {
-      super(workingDirectory);
+    Aapt2LinkStep(
+        BuildTarget buildTarget, Path workingDirectory, List<Path> compiledResourcePaths) {
+      super(Optional.of(buildTarget), workingDirectory);
       this.compiledResourcePaths = compiledResourcePaths;
     }
 
@@ -206,7 +212,8 @@ public class Aapt2Link extends AbstractBuildRule {
 
     @Override
     protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
-      AndroidPlatformTarget androidPlatformTarget = context.getAndroidPlatformTarget();
+      AndroidPlatformTarget androidPlatformTarget =
+          androidLegacyToolchain.getAndroidPlatformTarget();
 
       ImmutableList.Builder<String> builder = ImmutableList.builder();
 

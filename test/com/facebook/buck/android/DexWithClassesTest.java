@@ -45,7 +45,12 @@ public class DexWithClassesTest {
     BuildRuleParams params = TestBuildRuleParams.create();
     DexProducedFromJavaLibrary dexFromJavaLibrary =
         new DexProducedFromJavaLibrary(
-            buildTarget, new FakeProjectFilesystem(), params, javaLibrary);
+            buildTarget,
+            new FakeProjectFilesystem(),
+            TestAndroidLegacyToolchainFactory.create(),
+            params,
+            javaLibrary,
+            DxStep.DX);
     dexFromJavaLibrary
         .getBuildOutputInitializer()
         .setBuildOutputForTests(
@@ -72,7 +77,12 @@ public class DexWithClassesTest {
     BuildRuleParams params = TestBuildRuleParams.create();
     DexProducedFromJavaLibrary dexFromJavaLibrary =
         new DexProducedFromJavaLibrary(
-            buildTarget, new FakeProjectFilesystem(), params, javaLibrary);
+            buildTarget,
+            new FakeProjectFilesystem(),
+            TestAndroidLegacyToolchainFactory.create(),
+            params,
+            javaLibrary,
+            DxStep.DX);
     dexFromJavaLibrary
         .getBuildOutputInitializer()
         .setBuildOutputForTests(

@@ -16,7 +16,6 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.android.AndroidBinary.ExopackageMode;
 import com.facebook.buck.android.AndroidBinary.PackageType;
 import com.facebook.buck.android.AndroidBinary.RelinkerMode;
 import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
@@ -24,10 +23,11 @@ import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
+import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.android.toolchain.NdkCxxPlatform;
-import com.facebook.buck.android.toolchain.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
@@ -76,8 +76,9 @@ import java.util.stream.Collectors;
 
 public class AndroidBinaryGraphEnhancer {
 
-  public static final Flavor DEX_FLAVOR = InternalFlavor.of("dex");
-  public static final Flavor DEX_MERGE_FLAVOR = InternalFlavor.of("dex_merge");
+  static final Flavor DEX_FLAVOR = InternalFlavor.of("dex");
+  static final Flavor D8_FLAVOR = InternalFlavor.of("d8");
+  private static final Flavor DEX_MERGE_FLAVOR = InternalFlavor.of("dex_merge");
   private static final Flavor TRIM_UBER_R_DOT_JAVA_FLAVOR =
       InternalFlavor.of("trim_uber_r_dot_java");
   private static final Flavor COMPILE_UBER_R_DOT_JAVA_FLAVOR =
@@ -87,9 +88,9 @@ public class AndroidBinaryGraphEnhancer {
       InternalFlavor.of("generate_native_lib_merge_map_generated_code");
   private static final Flavor COMPILE_NATIVE_LIB_MERGE_MAP_GENERATED_CODE_FLAVOR =
       InternalFlavor.of("compile_native_lib_merge_map_generated_code");
-  public static final Flavor NATIVE_LIBRARY_PROGUARD_FLAVOR =
+  static final Flavor NATIVE_LIBRARY_PROGUARD_FLAVOR =
       InternalFlavor.of("generate_proguard_config_from_native_libs");
-  public static final Flavor UNSTRIPPED_NATIVE_LIBRARIES_FLAVOR =
+  static final Flavor UNSTRIPPED_NATIVE_LIBRARIES_FLAVOR =
       InternalFlavor.of("unstripped_native_libraries");
   static final Flavor NON_PREDEXED_DEX_BUILDABLE_FLAVOR =
       InternalFlavor.of("class_file_to_dex_processing");
@@ -97,6 +98,7 @@ public class AndroidBinaryGraphEnhancer {
   private final BuildTarget originalBuildTarget;
   private final SortedSet<BuildRule> originalDeps;
   private final ProjectFilesystem projectFilesystem;
+  private final AndroidLegacyToolchain androidLegacyToolchain;
   private final BuildRuleParams buildRuleParams;
   private final boolean trimResourceIds;
   private final Optional<String> keepResourcePattern;
@@ -120,6 +122,7 @@ public class AndroidBinaryGraphEnhancer {
   private final Optional<BuildTarget> nativeLibraryProguardConfigGenerator;
   private final ListeningExecutorService dxExecutorService;
   private final DxConfig dxConfig;
+  private final String dexTool;
   private final AndroidBinaryResourcesGraphEnhancer androidBinaryResourcesGraphEnhancer;
   private final NonPredexedDexBuildableArgs nonPreDexedDexBuildableArgs;
   private final ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex;
@@ -127,6 +130,7 @@ public class AndroidBinaryGraphEnhancer {
   AndroidBinaryGraphEnhancer(
       BuildTarget originalBuildTarget,
       ProjectFilesystem projectFilesystem,
+      AndroidLegacyToolchain androidLegacyToolchain,
       BuildRuleParams originalParams,
       BuildRuleResolver ruleResolver,
       AndroidBinary.AaptMode aaptMode,
@@ -168,11 +172,13 @@ public class AndroidBinaryGraphEnhancer {
       CxxBuckConfig cxxBuckConfig,
       APKModuleGraph apkModuleGraph,
       DxConfig dxConfig,
+      String dexTool,
       Optional<Arg> postFilterResourcesCmd,
       NonPredexedDexBuildableArgs nonPreDexedDexBuildableArgs,
       ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex) {
     Preconditions.checkArgument(originalParams.getExtraDeps().get().isEmpty());
     this.projectFilesystem = projectFilesystem;
+    this.androidLegacyToolchain = androidLegacyToolchain;
     this.buildRuleParams = originalParams;
     this.originalBuildTarget = originalBuildTarget;
     this.originalDeps = originalParams.getBuildDeps();
@@ -214,6 +220,7 @@ public class AndroidBinaryGraphEnhancer {
         new AndroidBinaryResourcesGraphEnhancer(
             originalBuildTarget,
             projectFilesystem,
+            androidLegacyToolchain,
             ruleResolver,
             originalBuildTarget,
             ExopackageMode.enabledForResources(exopackageModes),
@@ -234,6 +241,7 @@ public class AndroidBinaryGraphEnhancer {
     this.dxConfig = dxConfig;
     this.nonPreDexedDexBuildableArgs = nonPreDexedDexBuildableArgs;
     this.rulesToExcludeFromDex = rulesToExcludeFromDex;
+    this.dexTool = dexTool;
   }
 
   AndroidGraphEnhancementResult createAdditionalBuildables() {
@@ -418,10 +426,13 @@ public class AndroidBinaryGraphEnhancer {
         buildRuleParams.withDeclaredDeps(ImmutableSortedSet.of(compileUberRDotJava));
     DexProducedFromJavaLibrary dexUberRDotJava =
         new DexProducedFromJavaLibrary(
-            originalBuildTarget.withAppendedFlavors(DEX_UBER_R_DOT_JAVA_FLAVOR),
+            originalBuildTarget.withAppendedFlavors(
+                DEX_UBER_R_DOT_JAVA_FLAVOR, getDexFlavor(dexTool)),
             projectFilesystem,
+            androidLegacyToolchain,
             paramsForDexUberRDotJava,
-            compileUberRDotJava);
+            compileUberRDotJava,
+            dexTool);
     ruleResolver.addToIndex(dexUberRDotJava);
 
     ImmutableSet<SourcePath> classpathEntriesToDex =
@@ -572,10 +583,12 @@ public class AndroidBinaryGraphEnhancer {
                     getDexMergeDeps(
                         dexForUberRDotJava, ImmutableSet.copyOf(allPreDexDeps.values())))
                 .build());
+
     PreDexMerge preDexMerge =
         new PreDexMerge(
-            originalBuildTarget.withAppendedFlavors(DEX_MERGE_FLAVOR),
+            originalBuildTarget.withAppendedFlavors(DEX_MERGE_FLAVOR, getDexFlavor(dexTool)),
             projectFilesystem,
+            androidLegacyToolchain,
             paramsForPreDexMerge,
             dexSplitMode,
             apkModuleGraph,
@@ -583,7 +596,8 @@ public class AndroidBinaryGraphEnhancer {
             dexForUberRDotJava,
             dxExecutorService,
             xzCompressionLevel,
-            dxConfig.getDxMaxHeapSize());
+            dxConfig.getDxMaxHeapSize(),
+            dexTool);
     ruleResolver.addToIndex(preDexMerge);
 
     return preDexMerge;
@@ -618,12 +632,17 @@ public class AndroidBinaryGraphEnhancer {
 
       BuildRule preDexRule =
           ruleResolver.computeIfAbsent(
-              javaLibrary.getBuildTarget().withAppendedFlavors(DEX_FLAVOR),
+              javaLibrary.getBuildTarget().withAppendedFlavors(getDexFlavor(dexTool)),
               preDexTarget -> {
                 BuildRuleParams paramsForPreDex =
                     buildRuleParams.withDeclaredDeps(ImmutableSortedSet.of(javaLibrary));
                 return new DexProducedFromJavaLibrary(
-                    preDexTarget, projectFilesystem, paramsForPreDex, javaLibrary);
+                    preDexTarget,
+                    projectFilesystem,
+                    androidLegacyToolchain,
+                    paramsForPreDex,
+                    javaLibrary,
+                    dexTool);
               });
       preDexDeps.put(
           apkModuleGraph.findModuleForTarget(buildTarget), (DexProducedFromJavaLibrary) preDexRule);
@@ -662,6 +681,7 @@ public class AndroidBinaryGraphEnhancer {
                     packageableCollection.getModuleMappedClasspathEntriesToDex()));
     NonPreDexedDexBuildable nonPreDexedDexBuildable =
         new NonPreDexedDexBuildable(
+            androidLegacyToolchain,
             ruleFinder,
             aaptGeneratedProguardConfigFile,
             additionalJarsForProguard,
@@ -675,7 +695,8 @@ public class AndroidBinaryGraphEnhancer {
             dexSplitMode.isShouldSplitDex(),
             nonPreDexedDexBuildableArgs,
             projectFilesystem,
-            originalBuildTarget.withFlavors(NON_PREDEXED_DEX_BUILDABLE_FLAVOR));
+            originalBuildTarget.withFlavors(NON_PREDEXED_DEX_BUILDABLE_FLAVOR),
+            dexTool);
     ruleResolver.addToIndex(nonPreDexedDexBuildable);
     return nonPreDexedDexBuildable;
   }
@@ -693,5 +714,14 @@ public class AndroidBinaryGraphEnhancer {
 
   private ImmutableSortedSet<BuildRule> getTargetsAsRules(Collection<BuildTarget> buildTargets) {
     return BuildRules.toBuildRulesFor(originalBuildTarget, ruleResolver, buildTargets);
+  }
+
+  private static Flavor getDexFlavor(String dexTool) {
+    switch (dexTool) {
+      case DxStep.D8:
+        return D8_FLAVOR;
+      default:
+        return DEX_FLAVOR;
+    }
   }
 }

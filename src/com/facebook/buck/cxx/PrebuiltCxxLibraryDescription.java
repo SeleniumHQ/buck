@@ -294,7 +294,7 @@ public class PrebuiltCxxLibraryDescription
         Optional.of(soname),
         builtSharedLibraryPath,
         Linker.LinkableDepType.SHARED,
-        /* thinLto */ false,
+        CxxLinkOptions.of(),
         FluentIterable.from(params.getBuildDeps()).filter(NativeLinkable.class),
         Optional.empty(),
         Optional.empty(),
@@ -413,7 +413,11 @@ public class PrebuiltCxxLibraryDescription
     final Optional<String> versionSubdir =
         selectedVersions.isPresent() && args.getVersionedSubDir().isPresent()
             ? Optional.of(
-                args.getVersionedSubDir().get().getOnlyMatchingValue(selectedVersions.get()))
+                args.getVersionedSubDir()
+                    .get()
+                    .getOnlyMatchingValue(
+                        String.format("%s: %s", buildTarget, "versioned_sub_dir"),
+                        selectedVersions.get()))
             : Optional.empty();
 
     // If we *are* building a specific type of this lib, call into the type specific

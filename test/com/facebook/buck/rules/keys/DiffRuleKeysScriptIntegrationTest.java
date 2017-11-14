@@ -16,6 +16,7 @@
 
 package com.facebook.buck.rules.keys;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.log.LogFormatter;
@@ -219,23 +220,44 @@ public class DiffRuleKeysScriptIntegrationTest {
 
     assertThat(
         runRuleKeyDiffer(workspace, ""),
+        // TODO: The fact that it shows only the rule key difference for jarBuildStepsFactory
+        // rather than the change in the srcs property of that class is a bug in the differ.
+        Matchers.allOf(
+            Matchers.containsString(
+                "Change details for [//:java_lib_all]\n"
+                    + "  (jarBuildStepsFactory):\n"
+                    + "    -[ruleKey(sha1=07a5295e2ed9db630c5727280fa677235f2ef3b9)]\n"
+                    + "    +[ruleKey(sha1=0563a239c22974069bc3f62df26591f5fb0213fc)]\n"),
+            Matchers.containsString(
+                "Change details for [//:java_lib_2->jarBuildStepsFactory]\n"
+                    + "  (srcs):\n"
+                    + "    -[<missing>]\n"
+                    + "    -[container(LIST,len=1)]\n"
+                    + "    +[container(LIST,len=2)]\n"
+                    + "    +[path(JavaLib3.java:3396c5e71e9fad8e8f177af9d842f1b9b67bfb46)]\n"),
+            Matchers.containsString(
+                "Change details for [//:java_lib_1->jarBuildStepsFactory]\n"
+                    + "  (srcs):\n"
+                    + "    -[path(JavaLib1.java:e3506ff7c11f638458d08120d54f186dc79ddada)]\n"
+                    + "    +[path(JavaLib1.java:7d82c86f964af479abefa21da1f19b1030649314)]")));
+  }
+
+  @Test
+  public void testPreprocessorSanitization() throws Exception {
+    Assume.assumeTrue(Platform.detect() == Platform.MACOS);
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "diff_rulekeys_script", tmp);
+    workspace.setUp();
+
+    invokeBuckCommand(workspace, ImmutableList.of("//apple:cxx_bin"), "buck-0.log");
+
+    Path logPath = tmp.getRoot().resolve("buck-0.log");
+    String expectedFileContent = new String(Files.readAllBytes(logPath), UTF_8);
+    assertThat(
+        expectedFileContent,
         Matchers.containsString(
-            // TODO: The fact that it shows only the rule key difference for jarBuildStepsFactory
-            // rather than the change in the srcs property of that class is a bug in the differ.
-            "Change details for [//:java_lib_all]\n"
-                + "  (jarBuildStepsFactory):\n"
-                + "    -[ruleKey(sha1=d03b45658c41d6068553d40a648682fdffbba013)]\n"
-                + "    +[ruleKey(sha1=40358b32a8871a24789d1359228f16ab2d5e8953)]\n"
-                + "Change details for [//:java_lib_2->jarBuildStepsFactory]\n"
-                + "  (srcs):\n"
-                + "    -[<missing>]\n"
-                + "    -[container(LIST,len=1)]\n"
-                + "    +[container(LIST,len=2)]\n"
-                + "    +[path(JavaLib3.java:3396c5e71e9fad8e8f177af9d842f1b9b67bfb46)]\n"
-                + "Change details for [//:java_lib_1->jarBuildStepsFactory]\n"
-                + "  (srcs):\n"
-                + "    -[path(JavaLib1.java:e3506ff7c11f638458d08120d54f186dc79ddada)]\n"
-                + "    +[path(JavaLib1.java:7d82c86f964af479abefa21da1f19b1030649314)]"));
+            "string(\"-I$SDKROOT/usr/include/libxml2\"):container(LIST,len=1):key(macros):"));
   }
 
   private void writeBuckConfig(ProjectWorkspace projectWorkspace, String javaVersion)

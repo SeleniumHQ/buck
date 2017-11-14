@@ -1,3 +1,5 @@
+load("//tools/build_rules:java_rules.bzl", "java_test")
+
 java_library(
     name = "testutil",
     srcs = [
@@ -27,8 +29,6 @@ java_library(
         "//src/com/facebook/buck/android/aapt:aapt",
         "//src/com/facebook/buck/android/redex:options",
         "//src/com/facebook/buck/annotations:annotations",
-        "//src/com/facebook/buck/apple:platform",
-        "//src/com/facebook/buck/apple:rules",
         "//src/com/facebook/buck/apple/project_generator:project_generator",
         "//src/com/facebook/buck/apple/xcode:xcode",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
@@ -100,7 +100,6 @@ java_library(
         "//src/com/facebook/buck/shell:worker_tool",
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",
-        "//src/com/facebook/buck/swift:platform",
         "//src/com/facebook/buck/swift:swift",
         "//src/com/facebook/buck/test:test",
         "//src/com/facebook/buck/test/result/type:type",
@@ -282,7 +281,6 @@ java_test(
     srcs = SLOW_INTEGRATION_TESTS,
     resources = glob(
         ["testdata/**"],
-        include_dotfiles = True,
     ),
     run_test_separately = True,
     deps = [
@@ -295,8 +293,6 @@ java_test(
         "//src/com/facebook/buck/android/aapt:aapt",
         "//src/com/facebook/buck/android/redex:options",
         "//src/com/facebook/buck/annotations:annotations",
-        "//src/com/facebook/buck/apple:platform",
-        "//src/com/facebook/buck/apple:rules",
         "//src/com/facebook/buck/apple/project_generator:project_generator",
         "//src/com/facebook/buck/apple/xcode:xcode",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
@@ -368,7 +364,6 @@ java_test(
         "//src/com/facebook/buck/shell:worker_tool",
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",
-        "//src/com/facebook/buck/swift:platform",
         "//src/com/facebook/buck/swift:swift",
         "//src/com/facebook/buck/test:test",
         "//src/com/facebook/buck/test/result/type:type",
@@ -435,7 +430,6 @@ java_test(
     labels = ["long_running"],
     resources = glob(
         ["testdata/**"],
-        include_dotfiles = True,
     ),
     deps = [
         "//src-gen:thrift",
@@ -447,8 +441,6 @@ java_test(
         "//src/com/facebook/buck/android/aapt:aapt",
         "//src/com/facebook/buck/android/redex:options",
         "//src/com/facebook/buck/annotations:annotations",
-        "//src/com/facebook/buck/apple:platform",
-        "//src/com/facebook/buck/apple:rules",
         "//src/com/facebook/buck/apple/project_generator:project_generator",
         "//src/com/facebook/buck/apple/xcode:xcode",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
@@ -529,7 +521,6 @@ java_test(
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",
         "//src/com/facebook/buck/step/fs:fs",
-        "//src/com/facebook/buck/swift:platform",
         "//src/com/facebook/buck/swift:swift",
         "//src/com/facebook/buck/test:report-format",
         "//src/com/facebook/buck/test:test",
@@ -579,6 +570,7 @@ java_test(
         "//test/com/facebook/buck/model:testutil",
         "//test/com/facebook/buck/python:builders",
         "//test/com/facebook/buck/rules:testutil",
+        "//test/com/facebook/buck/rules/keys:testutil",
         "//test/com/facebook/buck/shell:testutil",
         "//test/com/facebook/buck/step:testutil",
         "//test/com/facebook/buck/testutil:testutil",

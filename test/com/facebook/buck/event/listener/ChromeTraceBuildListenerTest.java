@@ -23,18 +23,18 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheConnectEvent;
-import com.facebook.buck.artifact_cache.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.ChromeTraceEvent;
+import com.facebook.buck.event.ChromeTraceEvent.Phase;
 import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.CompilerPluginDurationEvent;
 import com.facebook.buck.event.DefaultBuckEventBus;
@@ -77,6 +77,8 @@ import com.google.common.collect.Iterables;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadMXBean;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -87,6 +89,7 @@ import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPInputStream;
+import org.easymock.EasyMock;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
@@ -145,7 +148,7 @@ public class ChromeTraceBuildListenerTest {
             tmpDir.getRoot().toPath().resolve("buck-out").resolve("log").resolve("build.trace"),
             new TypeReference<List<ChromeTraceEvent>>() {});
 
-    assertThat(originalResultList, Matchers.hasSize(4));
+    assertThat(originalResultList, Matchers.hasSize(6));
 
     ChromeTraceEvent testEvent = originalResultList.get(3);
     assertThat(testEvent.getName(), Matchers.equalTo(event.getEventName()));
@@ -188,6 +191,49 @@ public class ChromeTraceBuildListenerTest {
   }
 
   @Test
+  public void testWritesSortIndexEvenIfThreadInfoNull() throws InterruptedException, IOException {
+    ProjectFilesystem projectFilesystem =
+        TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot().toPath());
+
+    ThreadMXBean threadMXBean = EasyMock.createMock(ThreadMXBean.class);
+    EasyMock.expect(threadMXBean.getThreadInfo(EasyMock.anyLong())).andReturn(null).anyTimes();
+    EasyMock.replay();
+
+    ChromeTraceBuildListener listener =
+        new ChromeTraceBuildListener(
+            projectFilesystem,
+            invocationInfo,
+            FAKE_CLOCK,
+            Locale.US,
+            TimeZone.getTimeZone("America/Los_Angeles"),
+            threadMXBean,
+            chromeTraceConfig(3, false));
+
+    FakeBuckEvent event = new FakeBuckEvent();
+    final int threadId = 1;
+    event.configure(1, 1, 1, threadId, invocationInfo.getBuildId());
+    listener.writeChromeTraceEvent("category", "name", Phase.METADATA, ImmutableMap.of(), event);
+
+    listener.outputTrace(new BuildId("BUILD_ID"));
+
+    List<ChromeTraceEvent> originalResultList =
+        ObjectMappers.readValue(
+            tmpDir.getRoot().toPath().resolve("buck-out").resolve("log").resolve("build.trace"),
+            new TypeReference<List<ChromeTraceEvent>>() {});
+    List<ChromeTraceEvent> resultListCopy = new ArrayList<>();
+    resultListCopy.addAll(originalResultList);
+
+    assertPreambleEvents(resultListCopy, projectFilesystem);
+
+    assertNextResult(resultListCopy, "name", Phase.METADATA, ImmutableMap.of());
+    assertNextResult(
+        resultListCopy,
+        "thread_sort_index",
+        Phase.METADATA,
+        ImmutableMap.of("sort_index", threadId));
+  }
+
+  @Test
   public void testDeleteFiles() throws InterruptedException, IOException {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot().toPath());
@@ -213,6 +259,7 @@ public class ChromeTraceBuildListenerTest {
             FAKE_CLOCK,
             Locale.US,
             TimeZone.getTimeZone("America/Los_Angeles"),
+            ManagementFactory.getThreadMXBean(),
             chromeTraceConfig(3, false));
 
     listener.outputTrace(invocationInfo.getBuildId());
@@ -248,6 +295,7 @@ public class ChromeTraceBuildListenerTest {
             FAKE_CLOCK,
             Locale.US,
             TimeZone.getTimeZone("America/Los_Angeles"),
+            ManagementFactory.getThreadMXBean(),
             chromeTraceConfig(42, false));
 
     BuildTarget target = BuildTargetFactory.newInstance("//fake:rule");
@@ -344,6 +392,8 @@ public class ChromeTraceBuildListenerTest {
             false,
             Optional.empty(),
             Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
             Optional.empty()));
 
     try (final SimplePerfEvent.Scope scope1 =
@@ -384,38 +434,25 @@ public class ChromeTraceBuildListenerTest {
     resultListCopy.addAll(originalResultList);
     ImmutableMap<String, String> emptyArgs = ImmutableMap.of();
 
-    assertNextResult(
-        resultListCopy,
-        "process_name",
-        ChromeTraceEvent.Phase.METADATA,
-        ImmutableMap.<String, Object>builder().put("name", "BUILD_ID").build());
-
-    assertNextResult(
-        resultListCopy,
-        "process_labels",
-        ChromeTraceEvent.Phase.METADATA,
-        ImmutableMap.<String, Object>builder()
-            .put(
-                "labels",
-                String.format(
-                    "user_args=[@mode/arglist, --foo, --bar], is_daemon=false, timestamp=%d",
-                    invocationInfo.getTimestampMillis()))
-            .build());
-
-    assertNextResult(
-        resultListCopy,
-        "ProjectFilesystemDelegate",
-        ChromeTraceEvent.Phase.METADATA,
-        ImmutableMap.of(
-            "details",
-            String.format(
-                "DefaultProjectFilesystemDelegate{root=%s}", projectFilesystem.getRootPath())));
+    assertPreambleEvents(resultListCopy, projectFilesystem);
 
     assertNextResult(
         resultListCopy,
         "party",
         ChromeTraceEvent.Phase.BEGIN,
         ImmutableMap.of("command_args", "arg1 arg2"));
+
+    assertNextResult(
+        resultListCopy,
+        "thread_name",
+        ChromeTraceEvent.Phase.METADATA,
+        ImmutableMap.of("name", Thread.currentThread().getName()));
+
+    assertNextResult(
+        resultListCopy,
+        "thread_sort_index",
+        ChromeTraceEvent.Phase.METADATA,
+        ImmutableMap.of("sort_index", (int) Thread.currentThread().getId()));
 
     assertNextResult(
         resultListCopy,
@@ -569,6 +606,42 @@ public class ChromeTraceBuildListenerTest {
     assertEquals(0, resultListCopy.size());
   }
 
+  private void assertPreambleEvents(
+      List<ChromeTraceEvent> resultListCopy, ProjectFilesystem projectFilesystem) {
+    assertNextResult(
+        resultListCopy,
+        "process_name",
+        Phase.METADATA,
+        ImmutableMap.<String, Object>builder()
+            .put("name", "BUILD_ID")
+            .put("user_args", ImmutableList.of("@mode/arglist", "--foo", "--bar"))
+            .put("is_daemon", false)
+            .put("timestamp", invocationInfo.getTimestampMillis())
+            .build());
+
+    assertNextResult(
+        resultListCopy,
+        "process_labels",
+        Phase.METADATA,
+        ImmutableMap.<String, Object>builder()
+            .put(
+                "labels",
+                String.format(
+                    "user_args=[@mode/arglist, --foo, --bar], is_daemon=false, timestamp=%d",
+                    invocationInfo.getTimestampMillis()))
+            .build());
+
+    assertNextResult(
+        resultListCopy,
+        "ProjectFilesystemDelegate",
+        Phase.METADATA,
+        ImmutableMap.of(
+            "filesystem",
+            "default",
+            "filesystem.root",
+            projectFilesystem.getRootPath().toString()));
+  }
+
   private static void assertNextResult(
       List<ChromeTraceEvent> resultList,
       String expectedName,
@@ -583,9 +656,12 @@ public class ChromeTraceBuildListenerTest {
 
   @Test
   public void testOutputFailed() throws InterruptedException, IOException {
+    File folder = tmpDir.newFolder();
     ProjectFilesystem projectFilesystem =
-        TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot().toPath());
-    assumeTrue("Can make the root directory read-only", tmpDir.getRoot().setReadOnly());
+        TestProjectFilesystems.createProjectFilesystem(folder.toPath());
+
+    // delete the folder after creating file system so write there would fail
+    folder.delete();
 
     try {
       ChromeTraceBuildListener listener =
@@ -595,16 +671,12 @@ public class ChromeTraceBuildListenerTest {
               FAKE_CLOCK,
               Locale.US,
               TimeZone.getTimeZone("America/Los_Angeles"),
+              ManagementFactory.getThreadMXBean(),
               chromeTraceConfig(3, false));
       listener.outputTrace(invocationInfo.getBuildId());
       fail("Expected an exception.");
     } catch (HumanReadableException e) {
-      assertEquals(
-          "Unable to write trace file: java.nio.file.AccessDeniedException: "
-              + projectFilesystem.resolve(projectFilesystem.getBuckPaths().getBuckOut()),
-          e.getMessage());
-    } finally {
-      tmpDir.getRoot().setWritable(true);
+      assertTrue(e.getMessage().contains("Unable to write trace file"));
     }
   }
 
@@ -620,6 +692,7 @@ public class ChromeTraceBuildListenerTest {
             FAKE_CLOCK,
             Locale.US,
             TimeZone.getTimeZone("America/Los_Angeles"),
+            ManagementFactory.getThreadMXBean(),
             chromeTraceConfig(1, false));
     listener.outputTrace(invocationInfo.getBuildId());
     assertTrue(
@@ -639,6 +712,7 @@ public class ChromeTraceBuildListenerTest {
             FAKE_CLOCK,
             Locale.US,
             TimeZone.getTimeZone("America/Los_Angeles"),
+            ManagementFactory.getThreadMXBean(),
             chromeTraceConfig(1, true));
     listener.outputTrace(invocationInfo.getBuildId());
 
@@ -681,7 +755,7 @@ public class ChromeTraceBuildListenerTest {
     }
 
     @Override
-    protected String getValueString() {
+    public String getValueString() {
       return "fake";
     }
   }

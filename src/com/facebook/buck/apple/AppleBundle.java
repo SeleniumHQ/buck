@@ -21,6 +21,9 @@ import com.dd.plist.NSNumber;
 import com.dd.plist.NSObject;
 import com.dd.plist.NSString;
 import com.facebook.buck.apple.platform_type.ApplePlatformType;
+import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.apple.toolchain.AppleSdk;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.HasAppleDebugSymbolDeps;
 import com.facebook.buck.cxx.NativeTestable;
@@ -107,6 +110,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @AddToRuleKey private final Optional<AppleDsym> appleDsym;
 
+  @AddToRuleKey private final ImmutableSet<BuildRule> extraBinaries;
+
   @AddToRuleKey private final AppleBundleDestinations destinations;
 
   @AddToRuleKey private final AppleBundleResources resources;
@@ -135,6 +140,10 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @AddToRuleKey private final boolean dryRunCodeSigning;
 
+  @AddToRuleKey private final ImmutableList<String> codesignFlags;
+
+  @AddToRuleKey private final Optional<String> codesignIdentitySubjectName;
+
   // Need to use String here as RuleKeyBuilder requires that paths exist to compute hashes.
   @AddToRuleKey private final ImmutableMap<SourcePath, String> extensionBundlePaths;
 
@@ -152,6 +161,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private final Path binaryPath;
   private final Path bundleBinaryPath;
 
+  private final ImmutableList<String> ibtoolModuleParams;
+
   private final boolean hasBinary;
   private final boolean cacheable;
 
@@ -166,6 +177,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       Map<String, String> infoPlistSubstitutions,
       Optional<BuildRule> binary,
       Optional<AppleDsym> appleDsym,
+      ImmutableSet<BuildRule> extraBinaries,
       AppleBundleDestinations destinations,
       AppleBundleResources resources,
       ImmutableMap<SourcePath, String> extensionBundlePaths,
@@ -178,7 +190,10 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       CodeSignIdentityStore codeSignIdentityStore,
       ProvisioningProfileStore provisioningProfileStore,
       boolean dryRunCodeSigning,
-      boolean cacheable) {
+      boolean cacheable,
+      ImmutableList<String> codesignFlags,
+      Optional<String> codesignIdentity,
+      Optional<Boolean> ibtoolModuleFlag) {
     super(buildTarget, projectFilesystem, params);
     this.extension =
         extension.isLeft() ? extension.getLeft().toFileExtension() : extension.getRight();
@@ -187,6 +202,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.infoPlistSubstitutions = ImmutableMap.copyOf(infoPlistSubstitutions);
     this.binary = binary;
     this.appleDsym = appleDsym;
+    this.extraBinaries = extraBinaries;
     this.destinations = destinations;
     this.resources = resources;
     this.extensionBundlePaths = extensionBundlePaths;
@@ -211,6 +227,12 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.xcodeVersion = appleCxxPlatform.getXcodeVersion();
     this.dryRunCodeSigning = dryRunCodeSigning;
     this.cacheable = cacheable;
+    this.codesignFlags = codesignFlags;
+    this.codesignIdentitySubjectName = codesignIdentity;
+    this.ibtoolModuleParams =
+        ibtoolModuleFlag.orElse(false)
+            ? ImmutableList.of("--module", this.binaryName)
+            : ImmutableList.of();
 
     bundleBinaryPath = bundleRoot.resolve(binaryPath);
     hasBinary = binary.isPresent() && binary.get().getSourcePathToOutput() != null;
@@ -355,13 +377,19 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
     stepsBuilder.add(
         MkdirStep.of(
             BuildCellRelativePath.fromCellRelativePath(
-                context.getBuildCellRootPath(), getProjectFilesystem(), metadataPath)),
-        // TODO(bhamiltoncx): This is only appropriate for .app bundles.
-        new WriteFileStep(
-            getProjectFilesystem(),
-            "APPLWRUN",
-            metadataPath.resolve("PkgInfo"),
-            /* executable */ false),
+                context.getBuildCellRootPath(), getProjectFilesystem(), metadataPath)));
+
+    if (needsPkgInfoFile()) {
+      // TODO(bhamiltoncx): This is only appropriate for .app bundles.
+      stepsBuilder.add(
+          new WriteFileStep(
+              getProjectFilesystem(),
+              "APPLWRUN",
+              metadataPath.resolve("PkgInfo"),
+              /* executable */ false));
+    }
+
+    stepsBuilder.add(
         MkdirStep.of(
             BuildCellRelativePath.fromCellRelativePath(
                 context.getBuildCellRootPath(),
@@ -483,7 +511,11 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
       if (adHocCodeSignIsSufficient()) {
         signingEntitlementsTempPath = Optional.empty();
-        codeSignIdentitySupplier = () -> CodeSignIdentity.AD_HOC;
+        CodeSignIdentity identity =
+            codesignIdentitySubjectName
+                .map(id -> CodeSignIdentity.ofAdhocSignedWithSubjectCommonName(id))
+                .orElse(CodeSignIdentity.AD_HOC);
+        codeSignIdentitySupplier = () -> identity;
       } else {
         // Copy the .mobileprovision file if the platform requires it, and sign the executable.
         Optional<Path> entitlementsPlist = Optional.empty();
@@ -588,6 +620,11 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
           stepsBuilder,
           false /* is for packaging? */);
 
+      for (BuildRule extraBinary : extraBinaries) {
+        Path outputPath = getBundleBinaryPathForBuildRule(extraBinary);
+        codeSignOnCopyPathsBuilder.add(outputPath);
+      }
+
       for (Path codeSignOnCopyPath : codeSignOnCopyPathsBuilder.build()) {
         stepsBuilder.add(
             new CodeSignStep(
@@ -600,7 +637,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 codesignAllocatePath,
                 dryRunCodeSigning
                     ? Optional.of(codeSignOnCopyPath.resolve(CODE_SIGN_DRY_RUN_ARGS_FILE))
-                    : Optional.empty()));
+                    : Optional.empty(),
+                codesignFlags));
       }
 
       stepsBuilder.add(
@@ -614,7 +652,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
               codesignAllocatePath,
               dryRunCodeSigning
                   ? Optional.of(bundleRoot.resolve(CODE_SIGN_DRY_RUN_ARGS_FILE))
-                  : Optional.empty()));
+                  : Optional.empty(),
+              codesignFlags));
     } else {
       addSwiftStdlibStepIfNeeded(
           context.getSourcePathResolver(),
@@ -631,6 +670,14 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
     return stepsBuilder.build();
   }
 
+  private boolean needsPkgInfoFile() {
+    if (extension.equals(AppleBundleExtension.XPC.toFileExtension())) {
+      return false;
+    }
+
+    return true;
+  }
+
   private void appendCopyBinarySteps(
       ImmutableList.Builder<Step> stepsBuilder, BuildContext context) {
     Preconditions.checkArgument(hasBinary);
@@ -640,19 +687,47 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
             .getSourcePathResolver()
             .getRelativePath(Preconditions.checkNotNull(binary.get().getSourcePathToOutput()));
 
-    copyBinaryIntoBundle(stepsBuilder, context, binaryOutputPath);
+    ImmutableMap.Builder<Path, Path> binariesBuilder = ImmutableMap.builder();
+    binariesBuilder.put(bundleBinaryPath, binaryOutputPath);
+
+    for (BuildRule extraBinary : extraBinaries) {
+      Path outputPath =
+          context.getSourcePathResolver().getRelativePath(extraBinary.getSourcePathToOutput());
+      Path bundlePath = getBundleBinaryPathForBuildRule(extraBinary);
+      binariesBuilder.put(bundlePath, outputPath);
+    }
+
+    copyBinariesIntoBundle(stepsBuilder, context, binariesBuilder.build());
     copyAnotherCopyOfWatchKitStub(stepsBuilder, context, binaryOutputPath);
   }
 
-  private void copyBinaryIntoBundle(
-      ImmutableList.Builder<Step> stepsBuilder, BuildContext context, Path binaryOutputPath) {
+  private Path getBundleBinaryPathForBuildRule(BuildRule buildRule) {
+    BuildTarget unflavoredTarget = buildRule.getBuildTarget().withFlavors();
+    String binaryName = getBinaryName(unflavoredTarget, Optional.empty());
+    Path pathRelativeToBundleRoot = destinations.getExecutablesPath().resolve(binaryName);
+    return bundleRoot.resolve(pathRelativeToBundleRoot);
+  }
+
+  /**
+   * @param binariesMap A map from destination to source. Destination is deliberately used as a key
+   *     prevent multiple sources overwriting the same destination.
+   */
+  private void copyBinariesIntoBundle(
+      ImmutableList.Builder<Step> stepsBuilder,
+      BuildContext context,
+      ImmutableMap<Path, Path> binariesMap) {
     stepsBuilder.add(
         MkdirStep.of(
             BuildCellRelativePath.fromCellRelativePath(
                 context.getBuildCellRootPath(),
                 getProjectFilesystem(),
                 bundleRoot.resolve(this.destinations.getExecutablesPath()))));
-    stepsBuilder.add(CopyStep.forFile(getProjectFilesystem(), binaryOutputPath, bundleBinaryPath));
+
+    binariesMap.forEach(
+        (binaryBundlePath, binaryOutputPath) -> {
+          stepsBuilder.add(
+              CopyStep.forFile(getProjectFilesystem(), binaryOutputPath, binaryBundlePath));
+        });
   }
 
   private void copyAnotherCopyOfWatchKitStub(
@@ -759,11 +834,17 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
     return builder.build();
   }
 
+  private boolean needsLSRequiresIPhoneOSInfoPlistKeyOnMac() {
+    return !extension.equals(AppleBundleExtension.XPC.toFileExtension());
+  }
+
   private ImmutableMap<String, NSObject> getInfoPlistOverrideKeys() {
     ImmutableMap.Builder<String, NSObject> keys = ImmutableMap.builder();
 
     if (platform.getType() == ApplePlatformType.MAC) {
-      keys.put("LSRequiresIPhoneOS", new NSNumber(false));
+      if (needsLSRequiresIPhoneOSInfoPlistKeyOnMac()) {
+        keys.put("LSRequiresIPhoneOS", new NSNumber(false));
+      }
     } else if (!platform.getType().isWatch() && !isLegacyWatchApp()) {
       keys.put("LSRequiresIPhoneOS", new NSNumber(true));
     }
@@ -771,13 +852,25 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
     return keys.build();
   }
 
+  private boolean needsAppInfoPlistKeysOnMac() {
+    if (extension.equals(AppleBundleExtension.XPC.toFileExtension())) {
+      // XPC bundles on macOS don't require app-specific keys
+      // (which also confuses Finder in displaying the XPC bundles as apps)
+      return false;
+    }
+
+    return true;
+  }
+
   private ImmutableMap<String, NSObject> getInfoPlistAdditionalKeys() {
     ImmutableMap.Builder<String, NSObject> keys = ImmutableMap.builder();
 
     switch (platform.getType()) {
       case MAC:
-        keys.put("NSHighResolutionCapable", new NSNumber(true));
-        keys.put("NSSupportsAutomaticGraphicsSwitching", new NSNumber(true));
+        if (needsAppInfoPlistKeysOnMac()) {
+          keys.put("NSHighResolutionCapable", new NSNumber(true));
+          keys.put("NSSupportsAutomaticGraphicsSwitching", new NSNumber(true));
+        }
         keys.put("CFBundleSupportedPlatforms", new NSArray(new NSString("MacOSX")));
         break;
       case IOS_DEVICE:
@@ -866,18 +959,22 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
           BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.storyboardc");
       stepsBuilder.add(
           new IbtoolStep(
+              getBuildTarget(),
               getProjectFilesystem(),
               ibtool.getEnvironment(resolver),
               ibtool.getCommandPrefix(resolver),
+              ibtoolModuleParams,
               ImmutableList.of("--target-device", "watch", "--compile"),
               sourcePath,
               compiledStoryboardPath));
 
       stepsBuilder.add(
           new IbtoolStep(
+              getBuildTarget(),
               getProjectFilesystem(),
               ibtool.getEnvironment(resolver),
               ibtool.getCommandPrefix(resolver),
+              ibtoolModuleParams,
               ImmutableList.of("--target-device", "watch", "--link"),
               compiledStoryboardPath,
               destinationPath.getParent()));
@@ -891,9 +988,11 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       Path compiledStoryboardPath = destinationPath.getParent().resolve(compiledStoryboardFilename);
       stepsBuilder.add(
           new IbtoolStep(
+              getBuildTarget(),
               getProjectFilesystem(),
               ibtool.getEnvironment(resolver),
               ibtool.getCommandPrefix(resolver),
+              ibtoolModuleParams,
               ImmutableList.of("--compile"),
               sourcePath,
               compiledStoryboardPath));
@@ -931,9 +1030,11 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
         LOG.debug("Compiling XIB %s to NIB %s", sourcePath, destinationPath);
         stepsBuilder.add(
             new IbtoolStep(
+                getBuildTarget(),
                 getProjectFilesystem(),
                 ibtool.getEnvironment(resolver),
                 ibtool.getCommandPrefix(resolver),
+                ibtoolModuleParams,
                 ImmutableList.of("--compile"),
                 sourcePath,
                 compiledNibPath));
@@ -968,7 +1069,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
         return ((NativeTestable) binaryRule).getPrivateCxxPreprocessorInput(cxxPlatform);
       }
     }
-    return CxxPreprocessorInput.EMPTY;
+    return CxxPreprocessorInput.of();
   }
 
   private boolean adHocCodeSignIsSufficient() {

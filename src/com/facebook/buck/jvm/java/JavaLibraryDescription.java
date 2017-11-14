@@ -246,6 +246,9 @@ public class JavaLibraryDescription
 
     @Value.NaturalOrder
     ImmutableSortedSet<BuildTarget> getExportedDeps();
+
+    @Value.NaturalOrder
+    ImmutableSortedSet<BuildTarget> getSourceOnlyAbiDeps();
   }
 
   @BuckStyleImmutable

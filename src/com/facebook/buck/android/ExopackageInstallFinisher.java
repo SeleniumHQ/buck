@@ -51,6 +51,9 @@ import javax.annotation.Nullable;
  * <li>killing the app/process
  */
 public class ExopackageInstallFinisher extends AbstractBuildRule {
+  // Due to the InstallTrigger, this rule will run on every build. The @AddToRuleKey fields and any
+  // additional deps are required to just ensure that inputs are ready and that certain work (like
+  // installing files) has already happened.
   @AddToRuleKey private final InstallTrigger trigger;
   @AddToRuleKey private final SourcePath deviceExoContents;
   @AddToRuleKey private final SourcePath apkPath;
@@ -65,7 +68,7 @@ public class ExopackageInstallFinisher extends AbstractBuildRule {
       SourcePathRuleFinder sourcePathRuleFinder,
       ApkInfo apkInfo,
       ExopackageDeviceDirectoryLister directoryLister,
-      ExopackageFilesInstaller fileInstaller) {
+      ImmutableList<BuildRule> extraDeps) {
     super(installerTarget, projectFilesystem);
     this.trigger = new InstallTrigger(projectFilesystem);
     this.deviceExoContents = directoryLister.getSourcePathToOutput();
@@ -78,7 +81,7 @@ public class ExopackageInstallFinisher extends AbstractBuildRule {
             () ->
                 ImmutableSortedSet.<BuildRule>naturalOrder()
                     .add(directoryLister)
-                    .add(fileInstaller)
+                    .addAll(extraDeps)
                     .addAll(
                         sourcePathRuleFinder.filterBuildRuleInputs(
                             Arrays.asList(apkPath, manifestPath)))
@@ -111,7 +114,7 @@ public class ExopackageInstallFinisher extends AbstractBuildRule {
             context
                 .getAndroidDevicesHelper()
                 .get()
-                .adbCall(
+                .adbCallOrThrow(
                     "finishing_apk_installation_call",
                     device -> {
                       ExopackageInstaller installer =

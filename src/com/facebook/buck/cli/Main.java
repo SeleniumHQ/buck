@@ -25,9 +25,9 @@ import com.facebook.buck.android.AndroidDirectoryResolver;
 import com.facebook.buck.android.AndroidPlatformTarget;
 import com.facebook.buck.android.AndroidPlatformTargetSupplier;
 import com.facebook.buck.android.DefaultAndroidDirectoryResolver;
-import com.facebook.buck.artifact_cache.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.counters.CounterRegistry;
 import com.facebook.buck.counters.CounterRegistryImpl;
@@ -80,12 +80,15 @@ import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.plugin.BuckPluginManagerFactory;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildInfoStoreManager;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.DefaultCellPathResolver;
+import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
+import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.RelativeCellName;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SdkEnvironment;
@@ -93,6 +96,8 @@ import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
+import com.facebook.buck.sandbox.SandboxExecutionStrategyFactory;
+import com.facebook.buck.sandbox.impl.PlatformSandboxExecutionStrategyFactory;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.test.TestConfig;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
@@ -204,6 +209,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.annotation.Nullable;
 import org.kohsuke.args4j.CmdLineException;
+import org.pf4j.PluginManager;
 
 public final class Main {
 
@@ -329,7 +335,9 @@ public final class Main {
     KnownBuildRuleTypesFactory create(
         ProcessExecutor processExecutor,
         SdkEnvironment sdkEnvironment,
-        ToolchainProvider toolchainProvider);
+        ToolchainProvider toolchainProvider,
+        PluginManager pluginManager,
+        SandboxExecutionStrategyFactory sandboxExecutionStrategyFactory);
   }
 
   private final KnownBuildRuleTypesFactoryFactory knownBuildRuleTypesFactoryFactory;
@@ -358,7 +366,7 @@ public final class Main {
 
   @VisibleForTesting
   public Main(PrintStream stdOut, PrintStream stdErr, InputStream stdIn) {
-    this(stdOut, stdErr, stdIn, KnownBuildRuleTypesFactory::new);
+    this(stdOut, stdErr, stdIn, DefaultKnownBuildRuleTypesFactory::of);
   }
 
   /* Define all error handling surrounding main command */
@@ -552,7 +560,18 @@ public final class Main {
       return returnCode.getAsInt();
     }
 
-    setupLogging(commandMode, command, args);
+    try {
+      setupLogging(commandMode, command, args);
+    } catch (Throwable e) {
+      // Explicitly catch error and print to stderr
+      // because it is possible that logger is partially initialized
+      // and exception will be logged nowhere.
+      System.err.println("Failed to initialize logger");
+      e.printStackTrace();
+      return INTERNAL_ERROR_EXIT_CODE;
+    }
+
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
 
     // Setup filesystem and buck config.
     Path canonicalRootPath = projectRoot.toRealPath().normalize();
@@ -628,15 +647,15 @@ public final class Main {
       AndroidBuckConfig androidBuckConfig = new AndroidBuckConfig(buckConfig, platform);
       AndroidDirectoryResolver androidDirectoryResolver =
           new DefaultAndroidDirectoryResolver(
-              filesystem.getRootPath().getFileSystem(),
-              clientEnvironment,
-              androidBuckConfig.getBuildToolsVersion(),
-              androidBuckConfig.getNdkVersion());
+              filesystem.getRootPath().getFileSystem(), clientEnvironment, androidBuckConfig);
 
       ProcessExecutor processExecutor = new DefaultProcessExecutor(console);
 
       SdkEnvironment sdkEnvironment =
           SdkEnvironment.create(buckConfig, processExecutor, toolchainProvider);
+
+      SandboxExecutionStrategyFactory sandboxExecutionStrategyFactory =
+          new PlatformSandboxExecutionStrategyFactory();
 
       Clock clock;
       boolean enableThreadCpuTime =
@@ -654,9 +673,14 @@ public final class Main {
           buildWatchman(
               context, parserConfig, projectWatchList, clientEnvironment, console, clock)) {
 
-        KnownBuildRuleTypesFactory factory =
-            knownBuildRuleTypesFactoryFactory.create(
-                processExecutor, sdkEnvironment, toolchainProvider);
+        KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
+            KnownBuildRuleTypesProvider.of(
+                knownBuildRuleTypesFactoryFactory.create(
+                    processExecutor,
+                    sdkEnvironment,
+                    toolchainProvider,
+                    pluginManager,
+                    sandboxExecutionStrategyFactory));
 
         Cell rootCell =
             CellProvider.createForLocalBuild(
@@ -664,15 +688,19 @@ public final class Main {
                     watchman,
                     buckConfig,
                     command.getConfigOverrides(),
-                    factory,
                     sdkEnvironment,
                     projectFilesystemFactory)
                 .getCellByPath(filesystem.getRootPath());
 
         Optional<Daemon> daemon =
             context.isPresent() && (watchman != Watchman.NULL_WATCHMAN)
-                ? Optional.of(daemonLifecycleManager.getDaemon(rootCell))
+                ? Optional.of(
+                    daemonLifecycleManager.getDaemon(rootCell, knownBuildRuleTypesProvider))
                 : Optional.empty();
+
+        // Used the cached provider, if present.
+        knownBuildRuleTypesProvider =
+            daemon.map(Daemon::getKnownBuildRuleTypesProvider).orElse(knownBuildRuleTypesProvider);
 
         if (!daemon.isPresent() && shouldCleanUpTrash) {
           // Clean up the trash on a background thread if this was a
@@ -710,7 +738,8 @@ public final class Main {
                       DefaultFileHashCache.createDefaultFileHashCache(
                           cell.getFilesystem(), rootCell.getBuckConfig().getFileHashCacheMode()))
               .forEach(allCaches::add);
-          // The Daemon caches a buck-out filehashcache for the root cell, so the non-daemon case needs to create that itself.
+          // The Daemon caches a buck-out filehashcache for the root cell, so the non-daemon case
+          // needs to create that itself.
           allCaches.add(
               DefaultFileHashCache.createBuckOutFileHashCache(
                   rootCell.getFilesystem(), rootCell.getBuckConfig().getFileHashCacheMode()));
@@ -746,6 +775,8 @@ public final class Main {
         TestConfig testConfig = new TestConfig(buckConfig);
         ArtifactCacheBuckConfig cacheBuckConfig = new ArtifactCacheBuckConfig(buckConfig);
 
+        SuperConsoleConfig superConsoleConfig = new SuperConsoleConfig(buckConfig);
+
         // Eventually, we'll want to get allow websocket and/or nailgun clients to specify locale
         // when connecting. For now, we'll use the default from the server environment.
         Locale locale = Locale.getDefault();
@@ -753,7 +784,7 @@ public final class Main {
         InvocationInfo invocationInfo =
             InvocationInfo.of(
                 buildId,
-                isSuperConsoleEnabled(console),
+                superConsoleConfig.isEnabled(console, Platform.detect()),
                 daemon.isPresent(),
                 command.getSubCommandNameForLogging(),
                 args,
@@ -801,7 +832,7 @@ public final class Main {
             AbstractConsoleEventBusListener consoleListener =
                 createConsoleEventListener(
                     clock,
-                    new SuperConsoleConfig(buckConfig),
+                    superConsoleConfig,
                     console,
                     testConfig.getResultSummaryVerbosity(),
                     executionEnvironment,
@@ -1012,7 +1043,7 @@ public final class Main {
           }
 
           if (actionGraphCache == null) {
-            actionGraphCache = new ActionGraphCache();
+            actionGraphCache = new ActionGraphCache(buckConfig.getMaxActionGraphCacheEntries());
           }
 
           if (typeCoercerFactory == null || parser == null) {
@@ -1022,7 +1053,8 @@ public final class Main {
                     broadcastEventListener,
                     rootCell.getBuckConfig().getView(ParserConfig.class),
                     typeCoercerFactory,
-                    new ConstructorArgMarshaller(typeCoercerFactory));
+                    new ConstructorArgMarshaller(typeCoercerFactory),
+                    knownBuildRuleTypesProvider);
           }
 
           // Because the Parser is potentially constructed before the CounterRegistry,
@@ -1091,13 +1123,13 @@ public final class Main {
                         .setBuildEnvironmentDescription(buildEnvironmentDescription)
                         .setVersionedTargetGraphCache(versionedTargetGraphCache)
                         .setActionGraphCache(actionGraphCache)
-                        .setKnownBuildRuleTypesFactory(factory)
+                        .setKnownBuildRuleTypesProvider(knownBuildRuleTypesProvider)
                         .setSdkEnvironment(sdkEnvironment)
                         .setInvocationInfo(Optional.of(invocationInfo))
                         .setDefaultRuleKeyFactoryCacheRecycler(defaultRuleKeyFactoryCacheRecycler)
                         .setBuildInfoStoreManager(storeManager)
                         .setProjectFilesystemFactory(projectFilesystemFactory)
-                        .setToolchainProvider(factory.getToolchainProvider())
+                        .setToolchainProvider(toolchainProvider)
                         .build());
           } catch (InterruptedException | ClosedByInterruptException e) {
             buildEventBus.post(CommandEvent.interrupted(startedEvent, INTERRUPTED_EXIT_CODE));
@@ -1540,7 +1572,7 @@ public final class Main {
       Locale locale,
       Path testLogPath,
       Optional<BuildId> buildId) {
-    if (isSuperConsoleEnabled(console)) {
+    if (config.isEnabled(console, Platform.detect())) {
       SuperConsoleEventBusListener superConsole =
           new SuperConsoleEventBusListener(
               config,
@@ -1571,13 +1603,6 @@ public final class Main {
     simpleConsole.startRenderScheduler(1, TimeUnit.SECONDS);
 
     return simpleConsole;
-  }
-
-  private boolean isSuperConsoleEnabled(Console console) {
-    return Platform.WINDOWS != Platform.detect()
-        && console.getAnsi().isAnsiTerminal()
-        && !console.getVerbosity().shouldPrintCommand()
-        && console.getVerbosity().shouldPrintStandardInformation();
   }
 
   /**

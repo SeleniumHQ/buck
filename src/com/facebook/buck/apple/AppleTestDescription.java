@@ -16,6 +16,7 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
@@ -292,7 +293,10 @@ public class AppleTestDescription
             debugFormat,
             appleConfig.useDryRunCodeSigning(),
             appleConfig.cacheBundlesAndPackages(),
-            appleConfig.assetCatalogValidation());
+            appleConfig.assetCatalogValidation(),
+            args.getCodesignFlags(),
+            args.getCodesignIdentity(),
+            Optional.empty());
     resolver.addToIndex(bundle);
 
     Optional<SourcePath> xctool = getXctool(projectFilesystem, params, resolver);
@@ -470,7 +474,8 @@ public class AppleTestDescription
 
     ImmutableMap<BuildTarget, NativeLinkable> roots =
         NativeLinkables.getNativeLinkableRoots(
-            testHostApp.getBinary().get().getBuildDeps(), x -> true);
+            testHostApp.getBinary().get().getBuildDeps(),
+            r -> !(r instanceof NativeLinkable) ? Optional.of(r.getBuildDeps()) : Optional.empty());
 
     // Union the blacklist of all the platforms. This should give a superset for each particular
     // platform, which should be acceptable as items in the blacklist thare are unmatched are simply
@@ -513,7 +518,11 @@ public class AppleTestDescription
   @BuckStyleImmutable
   @Value.Immutable
   interface AbstractAppleTestDescriptionArg
-      extends AppleNativeTargetDescriptionArg, HasAppleBundleFields, HasContacts, HasTestTimeout {
+      extends AppleNativeTargetDescriptionArg,
+          HasAppleBundleFields,
+          HasAppleCodesignFields,
+          HasContacts,
+          HasTestTimeout {
     @Value.Default
     default boolean getRunTestSeparately() {
       return false;

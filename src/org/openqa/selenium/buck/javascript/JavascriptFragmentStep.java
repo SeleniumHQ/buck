@@ -21,8 +21,8 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.google.common.collect.ImmutableList;
-
 import java.nio.file.Path;
+import java.util.Optional;
 
 class JavascriptFragmentStep extends ShellStep {
 
@@ -41,7 +41,7 @@ class JavascriptFragmentStep extends ShellStep {
       Path temp,
       Path output,
       Iterable<Path> jsDeps) {
-    super(workingDirectory);
+    super(Optional.empty(), workingDirectory);
     this.resolver = resolver;
     this.compiler = compiler;
     this.flags = flags;

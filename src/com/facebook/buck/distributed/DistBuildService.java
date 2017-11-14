@@ -16,7 +16,7 @@
 
 package com.facebook.buck.distributed;
 
-import static com.facebook.buck.distributed.DistBuildClientStatsTracker.DistBuildClientStat.*;
+import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientStat.*;
 
 import com.facebook.buck.distributed.thrift.AppendBuildSlaveEventsRequest;
 import com.facebook.buck.distributed.thrift.BuckVersion;
@@ -33,6 +33,7 @@ import com.facebook.buck.distributed.thrift.BuildSlaveEventsRange;
 import com.facebook.buck.distributed.thrift.BuildSlaveFinishedStats;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
+import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.BuildStatusRequest;
 import com.facebook.buck.distributed.thrift.CASContainsRequest;
 import com.facebook.buck.distributed.thrift.CreateBuildRequest;
@@ -59,6 +60,7 @@ import com.facebook.buck.distributed.thrift.SequencedBuildSlaveEvent;
 import com.facebook.buck.distributed.thrift.SetBuckDotFilePathsRequest;
 import com.facebook.buck.distributed.thrift.SetBuckVersionRequest;
 import com.facebook.buck.distributed.thrift.SetCoordinatorRequest;
+import com.facebook.buck.distributed.thrift.SetFinalBuildStatusRequest;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.distributed.thrift.StartBuildRequest;
 import com.facebook.buck.distributed.thrift.StoreBuildGraphRequest;
@@ -139,7 +141,7 @@ public class DistBuildService implements Closeable {
   public void uploadTargetGraph(
       final BuildJobState buildJobState,
       final StampedeId stampedeId,
-      final DistBuildClientStatsTracker distBuildClientStats)
+      final ClientStatsTracker distBuildClientStats)
       throws IOException {
     distBuildClientStats.startTimer(UPLOAD_TARGET_GRAPH);
 
@@ -159,7 +161,7 @@ public class DistBuildService implements Closeable {
   public ListenableFuture<Void> uploadMissingFilesAsync(
       final Map<Integer, ProjectFilesystem> localFilesystemsByCell,
       final List<BuildJobStateFileHashes> fileHashes,
-      final DistBuildClientStatsTracker distBuildClientStats,
+      final ClientStatsTracker distBuildClientStats,
       final ListeningExecutorService executorService) {
     distBuildClientStats.startTimer(UPLOAD_MISSING_FILES);
     List<PathInfo> requiredFiles = new ArrayList<>();
@@ -217,7 +219,6 @@ public class DistBuildService implements Closeable {
    * @param executorService Executor to enable concurrent file reads and upload request.
    * @return A Future containing the number of missing files which were uploaded to the CAS. This
    *     future completes when the upload finishes.
-   * @throws IOException
    */
   private ListenableFuture<Integer> uploadMissingFilesAsync(
       final List<PathInfo> absPathsAndHashes, final ListeningExecutorService executorService) {
@@ -343,9 +344,21 @@ public class DistBuildService implements Closeable {
   }
 
   public BuildJob startBuild(StampedeId id) throws IOException {
+    return startBuild(id, true);
+  }
+
+  /**
+   * Make a start-build request with custom value for {@param enqueueJob}.
+   *
+   * @param id - Stampede id for the build you want to start.
+   * @param enqueueJob - Whether or not this job should be enqueued on the coordinator queue.
+   * @return - Latest BuildJob spec.
+   */
+  public BuildJob startBuild(StampedeId id, boolean enqueueJob) throws IOException {
     // Start the build
     StartBuildRequest startRequest = new StartBuildRequest();
     startRequest.setStampedeId(id);
+    startRequest.setEnqueueJob(enqueueJob);
     FrontendRequest request = new FrontendRequest();
     request.setType(FrontendRequestType.START_BUILD);
     request.setStartBuildRequest(startRequest);
@@ -435,7 +448,7 @@ public class DistBuildService implements Closeable {
   }
 
   public void setBuckVersion(
-      StampedeId id, BuckVersion buckVersion, DistBuildClientStatsTracker distBuildClientStats)
+      StampedeId id, BuckVersion buckVersion, ClientStatsTracker distBuildClientStats)
       throws IOException {
     distBuildClientStats.startTimer(SET_BUCK_VERSION);
     SetBuckVersionRequest setBuckVersionRequest = new SetBuckVersionRequest();
@@ -463,7 +476,7 @@ public class DistBuildService implements Closeable {
       final StampedeId id,
       final ProjectFilesystem filesystem,
       FileHashCache fileHashCache,
-      DistBuildClientStatsTracker distBuildClientStats,
+      ClientStatsTracker distBuildClientStats,
       ListeningExecutorService executorService) {
     distBuildClientStats.startTimer(UPLOAD_BUCK_DOT_FILES);
     ListenableFuture<List<Path>> pathsFuture =
@@ -681,6 +694,21 @@ public class DistBuildService implements Closeable {
     Preconditions.checkState(response.getFetchRuleKeyLogsResponse().isSetRuleKeyLogs());
 
     return response.getFetchRuleKeyLogsResponse().getRuleKeyLogs();
+  }
+
+  /** Sets the final BuildStatus of the BuildJob. */
+  public void setFinalBuildStatus(StampedeId stampedeId, BuildStatus status, String statusMessage)
+      throws IOException {
+    SetFinalBuildStatusRequest request =
+        new SetFinalBuildStatusRequest()
+            .setStampedeId(stampedeId)
+            .setBuildStatus(status)
+            .setBuildStatusMessage(statusMessage);
+    FrontendRequest frontendRequest =
+        new FrontendRequest()
+            .setType(FrontendRequestType.SET_FINAL_BUILD_STATUS)
+            .setSetFinalBuildStatusRequest(request);
+    makeRequestChecked(frontendRequest);
   }
 
   @Override

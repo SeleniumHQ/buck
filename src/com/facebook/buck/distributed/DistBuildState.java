@@ -29,7 +29,7 @@ import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.rules.DistBuildCellParams;
-import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
+import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
@@ -38,12 +38,12 @@ import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.RawConfig;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -98,7 +98,6 @@ public class DistBuildState {
       BuckConfig localBuckConfig, // e.g. the slave's .buckconfig
       BuildJobState jobState,
       Cell rootCell,
-      KnownBuildRuleTypesFactory knownBuildRuleTypesFactory,
       SdkEnvironment sdkEnvironment,
       ProjectFilesystemFactory projectFilesystemFactory)
       throws InterruptedException, IOException {
@@ -137,8 +136,7 @@ public class DistBuildState {
     }
 
     CellProvider cellProvider =
-        CellProvider.createForDistributedBuild(
-            cellParams.build(), knownBuildRuleTypesFactory, sdkEnvironment);
+        CellProvider.createForDistributedBuild(cellParams.build(), sdkEnvironment);
 
     ImmutableBiMap<Integer, Cell> cells =
         ImmutableBiMap.copyOf(Maps.transformValues(cellIndex.build(), cellProvider::getCellByPath));
@@ -192,9 +190,13 @@ public class DistBuildState {
     return Preconditions.checkNotNull(cells.get(DistBuildCellIndexer.ROOT_CELL_INDEX));
   }
 
-  public TargetGraphAndBuildTargets createTargetGraph(DistBuildTargetGraphCodec codec)
+  public TargetGraphAndBuildTargets createTargetGraph(
+      DistBuildTargetGraphCodec codec, KnownBuildRuleTypesProvider knownBuildRuleTypesProvider)
       throws IOException {
-    return codec.createTargetGraph(remoteState.getTargetGraph(), Functions.forMap(cells));
+    return codec.createTargetGraph(
+        remoteState.getTargetGraph(),
+        key -> Preconditions.checkNotNull(cells.get(key)),
+        knownBuildRuleTypesProvider);
   }
 
   public ProjectFileHashCache createRemoteFileHashCache(ProjectFileHashCache decoratedCache) {
@@ -211,7 +213,10 @@ public class DistBuildState {
   }
 
   public ProjectFileHashCache createMaterializerAndPreload(
-      ProjectFileHashCache decoratedCache, FileContentsProvider provider) throws IOException {
+      ProjectFileHashCache decoratedCache,
+      FileContentsProvider provider,
+      ListeningExecutorService executorService)
+      throws IOException {
     BuildJobStateFileHashes remoteFileHashes = fileHashes.get(decoratedCache.getFilesystem());
     if (remoteFileHashes == null) {
       // Roots that have no BuildJobStateFileHashes are deemed as not being Cells and don't get
@@ -220,7 +225,8 @@ public class DistBuildState {
     }
 
     MaterializerDummyFileHashCache materializer =
-        new MaterializerDummyFileHashCache(decoratedCache, remoteFileHashes, provider);
+        new MaterializerDummyFileHashCache(
+            decoratedCache, remoteFileHashes, provider, executorService);
 
     // Create all symlinks and touch all other files.
     DistBuildConfig remoteConfig = new DistBuildConfig(getRootCell().getBuckConfig());
@@ -228,5 +234,10 @@ public class DistBuildState {
     materializer.preloadAllFiles(materializeAllFilesDuringPreload);
 
     return materializer;
+  }
+
+  /** The RootCell of the Remote machine. */
+  public BuckConfig getRemoteRootCellConfig() {
+    return getRootCell().getBuckConfig();
   }
 }

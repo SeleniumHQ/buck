@@ -48,6 +48,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 /** Generate a rustc command line with all appropriate dependencies in place. */
@@ -64,6 +65,7 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @AddToRuleKey private final SourcePath rootModule;
 
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> srcs;
+  @AddToRuleKey private final RustBuckConfig.RemapSrcPaths remapSrcPaths;
 
   private final Path scratchDir;
   private final String filename;
@@ -99,7 +101,8 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ImmutableList<Arg> linkerArgs,
       ImmutableSortedSet<SourcePath> srcs,
       SourcePath rootModule,
-      boolean hasOutput) {
+      boolean hasOutput,
+      RustBuckConfig.RemapSrcPaths remapSrcPaths) {
     super(buildTarget, projectFilesystem, buildRuleParams);
 
     this.filename = filename;
@@ -113,6 +116,7 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.scratchDir =
         BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-container");
     this.hasOutput = hasOutput;
+    this.remapSrcPaths = remapSrcPaths;
   }
 
   public static RustCompileRule from(
@@ -128,7 +132,8 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ImmutableList<Arg> linkerArgs,
       ImmutableSortedSet<SourcePath> sources,
       SourcePath rootModule,
-      boolean hasOutput) {
+      boolean hasOutput,
+      RustBuckConfig.RemapSrcPaths remapSrcPaths) {
     return new RustCompileRule(
         buildTarget,
         projectFilesystem,
@@ -155,7 +160,8 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
         linkerArgs,
         sources,
         rootModule,
-        hasOutput);
+        hasOutput,
+        remapSrcPaths);
   }
 
   protected static Path getOutputDir(BuildTarget target, ProjectFilesystem filesystem) {
@@ -221,7 +227,7 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 getBuildTarget().getCellPath(),
                 resolver))
         .add(
-            new ShellStep(getProjectFilesystem().getRootPath()) {
+            new ShellStep(Optional.of(getBuildTarget()), getProjectFilesystem().getRootPath()) {
 
               @Override
               protected ImmutableList<String> getShellCommandInternal(
@@ -243,8 +249,17 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 if (executionContext.getAnsi().isAnsiTerminal()) {
                   cmd.add("--color=always");
                 }
+
+                remapSrcPaths.addRemapOption(cmd, scratchDir.toString() + "/");
+
+                // Generate a target-unique string to distinguish distinct crates with the same
+                // name.
+                String metadata =
+                    RustCompileUtils.hashForTarget(RustCompileRule.this.getBuildTarget());
+
                 cmd.add(String.format("-Clinker=%s", linkerCmd.get(0)))
                     .add(String.format("-Clink-arg=@%s", argFilePath))
+                    .add(String.format("-Cmetadata=%s", metadata))
                     .addAll(Arg.stringify(args, buildContext.getSourcePathResolver()))
                     .addAll(dedupArgs.build())
                     .add("-o", output.toString())
@@ -266,7 +281,23 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
               @Override
               public ImmutableMap<String, String> getEnvironmentVariables(
                   ExecutionContext context) {
-                return compiler.getEnvironment(buildContext.getSourcePathResolver());
+                ImmutableMap.Builder<String, String> env = ImmutableMap.builder();
+                env.putAll(compiler.getEnvironment(buildContext.getSourcePathResolver()));
+
+                Path root = getProjectFilesystem().getRootPath();
+                Path basePath = getBuildTarget().get().getBasePath();
+
+                // These need to be set as absolute paths - the intended use
+                // is within an `include!(concat!(env!("..."), "...")`
+                // invocation in Rust source, and if the path isn't absolute
+                // it will be treated as relative to the current file including
+                // it. The trailing '/' is also to assist this use-case.
+                env.put("RUSTC_BUILD_CONTAINER", root.resolve(scratchDir).toString() + "/");
+                env.put(
+                    "RUSTC_BUILD_CONTAINER_BASE_PATH",
+                    root.resolve(scratchDir.resolve(basePath)).toString() + "/");
+
+                return env.build();
               }
 
               @Override

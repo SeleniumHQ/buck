@@ -32,10 +32,12 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.HasDefaultFlavors;
+import com.facebook.buck.model.MissingBuildFileException;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.thrift.RemoteDaemonicParserState;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.ImplicitFlavorsInferringDescription;
+import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.TargetNode;
@@ -83,17 +85,20 @@ public class Parser {
   private final DaemonicParserState permState;
   private final ConstructorArgMarshaller marshaller;
   private final TypeCoercerFactory typeCoercerFactory;
+  private final KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
 
   public Parser(
       BroadcastEventListener broadcastEventListener,
       ParserConfig parserConfig,
       TypeCoercerFactory typeCoercerFactory,
-      ConstructorArgMarshaller marshaller) {
+      ConstructorArgMarshaller marshaller,
+      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider) {
     this.typeCoercerFactory = typeCoercerFactory;
     this.permState =
         new DaemonicParserState(
             broadcastEventListener, typeCoercerFactory, parserConfig.getNumParsingThreads());
     this.marshaller = marshaller;
+    this.knownBuildRuleTypesProvider = knownBuildRuleTypesProvider;
   }
 
   protected DaemonicParserState getPermState() {
@@ -139,6 +144,7 @@ public class Parser {
             eventBus,
             executor,
             cell,
+            knownBuildRuleTypesProvider,
             enableProfiling,
             PerBuildState.SpeculativeParsing.ENABLED)) {
       return state.getAllTargetNodes(cell, buildFile);
@@ -158,6 +164,7 @@ public class Parser {
             eventBus,
             executor,
             cell,
+            knownBuildRuleTypesProvider,
             enableProfiling,
             PerBuildState.SpeculativeParsing.DISABLED)) {
       return state.getTargetNode(target);
@@ -189,13 +196,18 @@ public class Parser {
           return toReturn;
         }
       }
-    } catch (Cell.MissingBuildFileException e) {
+    } catch (MissingBuildFileException e) {
       throw new RuntimeException("Deeply unlikely to be true: the cell is missing: " + targetNode);
     }
     return null;
   }
 
+  /**
+   * @deprecated Prefer {@link #getRawTargetNode(PerBuildState, Cell, TargetNode)} and reusing a
+   *     PerBuildState instance, especially when calling in a loop.
+   */
   @Nullable
+  @Deprecated
   public SortedMap<String, Object> getRawTargetNode(
       BuckEventBus eventBus,
       Cell cell,
@@ -210,6 +222,7 @@ public class Parser {
             eventBus,
             executor,
             cell,
+            knownBuildRuleTypesProvider,
             enableProfiling,
             PerBuildState.SpeculativeParsing.DISABLED)) {
       return getRawTargetNode(state, cell, targetNode);
@@ -247,6 +260,7 @@ public class Parser {
             eventBus,
             executor,
             rootCell,
+            knownBuildRuleTypesProvider,
             enableProfiling,
             PerBuildState.SpeculativeParsing.ENABLED)) {
       return buildTargetGraph(state, eventBus, toExplore);
@@ -371,6 +385,7 @@ public class Parser {
             eventBus,
             executor,
             rootCell,
+            knownBuildRuleTypesProvider,
             enableProfiling,
             PerBuildState.SpeculativeParsing.ENABLED)) {
 
@@ -405,7 +420,13 @@ public class Parser {
 
     try (PerBuildState state =
         new PerBuildState(
-            this, eventBus, executor, rootCell, enableProfiling, speculativeParsing)) {
+            this,
+            eventBus,
+            executor,
+            rootCell,
+            knownBuildRuleTypesProvider,
+            enableProfiling,
+            speculativeParsing)) {
       return resolveTargetSpecs(state, eventBus, rootCell, specs, applyDefaultFlavorsMode);
     }
   }
@@ -464,7 +485,7 @@ public class Parser {
       // Format a proper error message for non-existent build files.
       if (!cell.getFilesystem().isFile(buildFile)) {
         throw new MissingBuildFileException(
-            firstSpec, cell.getFilesystem().getRootPath().relativize(buildFile));
+            firstSpec.toString(), cell.getFilesystem().getRootPath().relativize(buildFile));
       }
 
       for (int index : buildFileSpecs) {

@@ -34,6 +34,9 @@ import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import java.util.Optional;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import javax.annotation.Nullable;
 import org.immutables.value.Value;
 
@@ -49,6 +52,8 @@ abstract class AbstractStringWithMacrosArg implements Arg {
 
   abstract ImmutableList<AbstractMacroExpanderWithoutPrecomputedWork<? extends Macro>>
       getExpanders();
+
+  abstract Optional<Function<String, String>> getSanitizer();
 
   abstract BuildTarget getBuildTarget();
 
@@ -134,15 +139,24 @@ abstract class AbstractStringWithMacrosArg implements Arg {
 
   /** Expands all macros to strings and append them to the given builder. */
   @Override
-  public void appendToCommandLine(
-      ImmutableCollection.Builder<String> builder, SourcePathResolver pathResolver) {
-    builder.add(getStringWithMacros().format(this::expand));
+  public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver pathResolver) {
+    consumer.accept(getStringWithMacros().format(this::expand));
   }
 
   /** Add the macros to the rule key. */
   @Override
   public void appendToRuleKey(RuleKeyObjectSink sink) {
     sink.setReflectively(
-        "macros", getStringWithMacros().map(s -> s, this::extractRuleKeyAppendables));
+        "macros",
+        getStringWithMacros()
+            .map(
+                s -> {
+                  if (getSanitizer().isPresent()) {
+                    return getSanitizer().get().apply(s);
+                  } else {
+                    return s;
+                  }
+                },
+                this::extractRuleKeyAppendables));
   }
 }

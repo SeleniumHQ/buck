@@ -17,6 +17,7 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.platform_type.ApplePlatformType;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -59,6 +60,10 @@ abstract class AbstractAppleBundleDestinations implements AddsToRuleKey {
   @Value.Parameter
   public abstract Path getModulesPath();
 
+  @AddToRuleKey(stringify = true)
+  @Value.Parameter
+  public abstract Path getXPCServicesPath();
+
   private static final Path OSX_CONTENTS_PATH = Paths.get("Contents");
   public static final AppleBundleDestinations OSX_DESTINATIONS =
       AppleBundleDestinations.builder()
@@ -70,6 +75,7 @@ abstract class AbstractAppleBundleDestinations implements AddsToRuleKey {
           .setWatchAppPath(OSX_CONTENTS_PATH)
           .setHeadersPath(OSX_CONTENTS_PATH)
           .setModulesPath(OSX_CONTENTS_PATH)
+          .setXPCServicesPath(OSX_CONTENTS_PATH.resolve("XPCServices"))
           .build();
 
   private static final Path OSX_FRAMEWORK_CONTENTS_PATH = Paths.get("");
@@ -83,6 +89,7 @@ abstract class AbstractAppleBundleDestinations implements AddsToRuleKey {
           .setWatchAppPath(OSX_FRAMEWORK_CONTENTS_PATH)
           .setHeadersPath(OSX_FRAMEWORK_CONTENTS_PATH.resolve("Headers"))
           .setModulesPath(OSX_FRAMEWORK_CONTENTS_PATH.resolve("Modules"))
+          .setXPCServicesPath(OSX_FRAMEWORK_CONTENTS_PATH.resolve("XPCServices"))
           .build();
 
   private static final Path IOS_CONTENTS_PATH = Paths.get("");
@@ -96,6 +103,7 @@ abstract class AbstractAppleBundleDestinations implements AddsToRuleKey {
           .setWatchAppPath(IOS_CONTENTS_PATH.resolve("Watch"))
           .setHeadersPath(IOS_CONTENTS_PATH)
           .setModulesPath(IOS_CONTENTS_PATH)
+          .setXPCServicesPath(IOS_CONTENTS_PATH.resolve("XPCServices"))
           .build();
 
   private static final Path IOS_FRAMEWORK_CONTENTS_PATH = Paths.get("");
@@ -109,6 +117,7 @@ abstract class AbstractAppleBundleDestinations implements AddsToRuleKey {
           .setWatchAppPath(IOS_FRAMEWORK_CONTENTS_PATH)
           .setHeadersPath(IOS_FRAMEWORK_CONTENTS_PATH.resolve("Headers"))
           .setModulesPath(IOS_FRAMEWORK_CONTENTS_PATH.resolve("Modules"))
+          .setXPCServicesPath(IOS_FRAMEWORK_CONTENTS_PATH.resolve("XPCServices"))
           .build();
 
   public static AppleBundleDestinations platformDestinations(ApplePlatform platform) {

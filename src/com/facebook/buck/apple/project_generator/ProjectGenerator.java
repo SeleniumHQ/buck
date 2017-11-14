@@ -49,6 +49,9 @@ import com.facebook.buck.apple.SceneKitAssetsDescription;
 import com.facebook.buck.apple.XcodePostbuildScriptDescription;
 import com.facebook.buck.apple.XcodePrebuildScriptDescription;
 import com.facebook.buck.apple.clang.HeaderMap;
+import com.facebook.buck.apple.clang.ModuleMap;
+import com.facebook.buck.apple.clang.UmbrellaHeader;
+import com.facebook.buck.apple.clang.VFSOverlay;
 import com.facebook.buck.apple.xcode.GidGenerator;
 import com.facebook.buck.apple.xcode.XcodeprojSerializer;
 import com.facebook.buck.apple.xcode.xcodeproj.CopyFilePhaseDestinationSpec;
@@ -70,6 +73,7 @@ import com.facebook.buck.apple.xcode.xcodeproj.XCBuildConfiguration;
 import com.facebook.buck.apple.xcode.xcodeproj.XCVersionGroup;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
+import com.facebook.buck.cxx.CxxLibraryDescription.CommonArg;
 import com.facebook.buck.cxx.CxxPrecompiledHeaderTemplate;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
@@ -90,8 +94,7 @@ import com.facebook.buck.halide.HalideLibraryDescriptionArg;
 import com.facebook.buck.io.MoreProjectFilesystems;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.js.IosReactNativeLibraryDescription;
-import com.facebook.buck.js.JsBundleDescription;
+import com.facebook.buck.js.JsBundleOutputsDescription;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.model.BuildTarget;
@@ -126,6 +129,7 @@ import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.shell.ExportFileDescriptionArg;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftCommonArg;
+import com.facebook.buck.swift.SwiftLibraryDescriptionArg;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
@@ -133,7 +137,6 @@ import com.facebook.buck.util.MoreMaps;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
@@ -150,6 +153,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.common.collect.Streams;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
@@ -177,7 +181,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /** Generator for xcode project and associated files from a set of xcode/ios rules. */
@@ -226,6 +232,9 @@ public class ProjectGenerator {
 
     /** Generates only headers symlink trees. */
     GENERATE_HEADERS_SYMLINK_TREES_ONLY,
+
+    /** Generate an umbrella header for modular targets without one for use in a modulemap */
+    GENERATE_MISSING_UMBRELLA_HEADER,
   }
 
   /** Standard options for generating a separated project */
@@ -393,6 +402,10 @@ public class ProjectGenerator {
     return options.contains(Option.GENERATE_HEADERS_SYMLINK_TREES_ONLY);
   }
 
+  private boolean shouldGenerateMissingUmbrellaHeaders() {
+    return options.contains(Option.GENERATE_MISSING_UMBRELLA_HEADER);
+  }
+
   public ImmutableMap<BuildTarget, PBXTarget> getBuildTargetToGeneratedTargetMap() {
     Preconditions.checkState(projectGenerated, "Must have called createXcodeProjects");
     ImmutableMap.Builder<BuildTarget, PBXTarget> buildTargetToPbxTargetMap = ImmutableMap.builder();
@@ -481,12 +494,6 @@ public class ProjectGenerator {
         throw originalException;
       }
     }
-  }
-
-  private static Optional<String> getProductNameForTargetNode(TargetNode<?, ?> targetNode) {
-    return targetNode
-        .castArg(AppleBundleDescriptionArg.class)
-        .flatMap(node -> node.getConstructorArg().getProductName());
   }
 
   @SuppressWarnings("unchecked")
@@ -918,10 +925,11 @@ public class ProjectGenerator {
       StringWithMacrosArg.of(
               flag,
               ImmutableList.of(locationMacroExpander),
+              Optional.empty(),
               node.getBuildTarget(),
               node.getCellNames(),
               emptyBuildRuleResolver)
-          .appendToCommandLine(result, defaultPathResolver);
+          .appendToCommandLine(result::add, defaultPathResolver);
     }
     return result.build();
   }
@@ -979,6 +987,8 @@ public class ProjectGenerator {
 
     boolean isModularAppleLibrary = isModularAppleLibrary(targetNode) && isFocusedOnTarget;
     mutator.setFrameworkHeadersEnabled(isModularAppleLibrary);
+
+    Optional<ImmutableMap<String, String>> swiftDepsSettings = Optional.empty();
 
     if (!shouldGenerateHeaderSymlinkTreesOnly()) {
       if (isFocusedOnTarget) {
@@ -1054,8 +1064,8 @@ public class ProjectGenerator {
         // which depends on the outputs of the deps (i.e., the static libs). The copy phase
         // will effectively say "Copy libX.a from Products Dir into Products Dir" which is a nop.
         // To be on the safe side, we're explicitly marking the copy phase as only running for
-        // deployment postprocessing (i.e., "Copy only when installing") which is activated
-        // via Product -> Archive in Xcode.
+        // deployment postprocessing (i.e., "Copy only when installing") and disabling
+        // deployment postprocessing (it's enabled by default for release builds).
         ImmutableSet<PBXFileReference> swiftDeps =
             collectRecursiveLibraryDependenciesWithSwiftSources(targetNode);
         if (!swiftDeps.isEmpty()) {
@@ -1070,6 +1080,8 @@ public class ProjectGenerator {
             PBXBuildFile buildFile = new PBXBuildFile(fileRef);
             copyFiles.getFiles().add(buildFile);
           }
+
+          swiftDepsSettings = Optional.of(ImmutableMap.of("DEPLOYMENT_POSTPROCESSING", "NO"));
 
           mutator.setSwiftDependenciesBuildPhase(copyFiles);
         }
@@ -1116,6 +1128,17 @@ public class ProjectGenerator {
 
     ImmutableMap.Builder<String, String> extraSettingsBuilder = ImmutableMap.builder();
     ImmutableMap.Builder<String, String> defaultSettingsBuilder = ImmutableMap.builder();
+
+    swiftDepsSettings.ifPresent(settings -> extraSettingsBuilder.putAll(settings));
+
+    ImmutableSortedMap<Path, SourcePath> publicCxxHeaders = getPublicCxxHeaders(targetNode);
+    if (isModularAppleLibrary(targetNode) && isFrameworkProductType(productType)) {
+      // Modular frameworks should not include Buck-generated hmaps as they break the VFS overlay
+      // that's generated by Xcode and consequently, all headers part of a framework's umbrella
+      // header fail the modularity test, as they're expected to be mapped by the VFS layer under
+      // $BUILT_PRODUCTS_DIR/Module.framework/Versions/A/Headers.
+      publicCxxHeaders = ImmutableSortedMap.of();
+    }
 
     if (!shouldGenerateHeaderSymlinkTreesOnly()) {
       if (isFocusedOnTarget) {
@@ -1314,6 +1337,10 @@ public class ProjectGenerator {
                             targetNode, x.getConstructorArg().getSwiftCompilerFlags()))
                 .orElse(ImmutableList.of()));
 
+        if (containsSwiftCode && isModularAppleLibrary && publicCxxHeaders.size() > 0) {
+          targetSpecificSwiftFlags.addAll(collectModularTargetSpecificSwiftFlags(targetNode));
+        }
+
         Iterable<String> otherSwiftFlags =
             Iterables.concat(
                 swiftBuckConfig.getCompilerFlags().orElse(DEFAULT_SWIFTFLAGS),
@@ -1346,16 +1373,22 @@ public class ProjectGenerator {
         appendConfigsBuilder
             .put(
                 "OTHER_SWIFT_FLAGS",
-                Joiner.on(' ').join(Iterables.transform(otherSwiftFlags, Escaper.BASH_ESCAPER)))
+                Streams.stream(otherSwiftFlags)
+                    .map(Escaper.BASH_ESCAPER)
+                    .collect(Collectors.joining(" ")))
             .put(
                 "OTHER_CFLAGS",
-                Joiner.on(' ').join(Iterables.transform(otherCFlags, Escaper.BASH_ESCAPER)))
+                Streams.stream(otherCFlags)
+                    .map(Escaper.BASH_ESCAPER)
+                    .collect(Collectors.joining(" ")))
             .put(
                 "OTHER_CPLUSPLUSFLAGS",
-                Joiner.on(' ').join(Iterables.transform(otherCxxFlags, Escaper.BASH_ESCAPER)))
+                Streams.stream(otherCxxFlags)
+                    .map(Escaper.BASH_ESCAPER)
+                    .collect(Collectors.joining(" ")))
             .put(
                 "OTHER_LDFLAGS",
-                Joiner.on(' ').join(Iterables.transform(otherLdFlags, Escaper.BASH_ESCAPER)));
+                otherLdFlags.stream().map(Escaper.BASH_ESCAPER).collect(Collectors.joining(" ")));
 
         ImmutableMultimap.Builder<String, ImmutableList<String>> platformFlagsBuilder =
             ImmutableMultimap.builder();
@@ -1376,20 +1409,20 @@ public class ProjectGenerator {
           appendConfigsBuilder
               .put(
                   String.format("OTHER_CFLAGS[sdk=*%s*]", sdk),
-                  Joiner.on(' ')
-                      .join(
+                  Streams.stream(
                           Iterables.transform(
                               Iterables.concat(
                                   otherCFlags, Iterables.concat(platformFlags.get(sdk))),
-                              Escaper.BASH_ESCAPER)))
+                              Escaper.BASH_ESCAPER::apply))
+                      .collect(Collectors.joining(" ")))
               .put(
                   String.format("OTHER_CPLUSPLUSFLAGS[sdk=*%s*]", sdk),
-                  Joiner.on(' ')
-                      .join(
+                  Streams.stream(
                           Iterables.transform(
                               Iterables.concat(
                                   otherCxxFlags, Iterables.concat(platformFlags.get(sdk))),
-                              Escaper.BASH_ESCAPER)));
+                              Escaper.BASH_ESCAPER::apply))
+                      .collect(Collectors.joining(" ")));
         }
 
         ImmutableMultimap.Builder<String, ImmutableList<String>> platformLinkerFlagsBuilder =
@@ -1407,12 +1440,12 @@ public class ProjectGenerator {
         for (String sdk : platformLinkerFlags.keySet()) {
           appendConfigsBuilder.put(
               String.format("OTHER_LDFLAGS[sdk=*%s*]", sdk),
-              Joiner.on(' ')
-                  .join(
+              Streams.stream(
                       Iterables.transform(
                           Iterables.concat(
                               otherLdFlags, Iterables.concat(platformLinkerFlags.get(sdk))),
-                          Escaper.BASH_ESCAPER)));
+                          Escaper.BASH_ESCAPER::apply))
+                  .collect(Collectors.joining(" ")));
         }
 
         ImmutableMap<String, String> appendedConfig = appendConfigsBuilder.build();
@@ -1430,32 +1463,29 @@ public class ProjectGenerator {
       }
     }
 
+    Optional<String> moduleName =
+        isModularAppleLibrary ? Optional.of(getModuleName(targetNode)) : Optional.empty();
     // -- phases
-    ImmutableSortedMap<Path, SourcePath> publicCxxHeaders = getPublicCxxHeaders(targetNode);
-    if (isModularAppleLibrary(targetNode) && isFrameworkProductType(productType)) {
-      // Modular frameworks should not include Buck-generated hmaps as they break the VFS overlay
-      // that's generated by Xcode and consequently, all headers part of a framework's umbrella
-      // header fail the modularity test, as they're expected to be mapped by the VFS layer under
-      // $BUILT_PRODUCTS_DIR/Module.framework/Versions/A/Headers.
-      publicCxxHeaders = ImmutableSortedMap.of();
-    }
-
     createHeaderSymlinkTree(
         publicCxxHeaders,
         getSwiftPublicHeaderMapEntriesForTarget(targetNode, isFocusedOnTarget, hasSwiftVersionArg),
+        moduleName,
         getPathToHeaderSymlinkTree(targetNode, HeaderVisibility.PUBLIC),
         arg.getXcodePublicHeadersSymlinks().orElse(cxxBuckConfig.getPublicHeadersSymlinksEnabled())
             || isHeaderMapDisabled(),
-        !shouldMergeHeaderMaps());
+        !shouldMergeHeaderMaps(),
+        shouldGenerateMissingUmbrellaHeaders());
     if (isFocusedOnTarget) {
       createHeaderSymlinkTree(
           getPrivateCxxHeaders(targetNode),
-          ImmutableMap.of(),
+          ImmutableMap.of(), // private interfaces never have a modulemap
+          Optional.empty(),
           getPathToHeaderSymlinkTree(targetNode, HeaderVisibility.PRIVATE),
           arg.getXcodePrivateHeadersSymlinks()
                   .orElse(cxxBuckConfig.getPrivateHeadersSymlinksEnabled())
               || isHeaderMapDisabled(),
-          !isHeaderMapDisabled());
+          !isHeaderMapDisabled(),
+          shouldGenerateMissingUmbrellaHeaders());
     }
     if (shouldMergeHeaderMaps() && isMainProject) {
       createMergedHeaderMap();
@@ -1640,11 +1670,6 @@ public class ProjectGenerator {
       sourceGroup.getOrCreateFileReferenceBySourceTreePath(
           new SourceTreePath(PBXReference.SourceTree.SOURCE_ROOT, path, Optional.empty()));
     }
-  }
-
-  private String getProductName(TargetNode<?, ?> buildTargetNode) {
-    return getProductNameForTargetNode(buildTargetNode)
-        .orElse(getProductNameForBuildTargetNode(buildTargetNode));
   }
 
   private ImmutableSortedMap<Path, SourcePath> getPublicCxxHeaders(
@@ -1900,8 +1925,7 @@ public class ProjectGenerator {
       ImmutableList.Builder<TargetNode<?, ?>> preRules,
       ImmutableList.Builder<TargetNode<?, ?>> postRules) {
     for (TargetNode<?, ?> targetNode : targetNodes) {
-      if (targetNode.getDescription() instanceof IosReactNativeLibraryDescription
-          || targetNode.getDescription() instanceof JsBundleDescription) {
+      if (targetNode.getDescription() instanceof JsBundleOutputsDescription) {
         postRules.add(targetNode);
         requiredBuildTargetsBuilder.add(targetNode.getBuildTarget());
       } else if (targetNode.getDescription() instanceof XcodePostbuildScriptDescription) {
@@ -1976,9 +2000,11 @@ public class ProjectGenerator {
   private void createHeaderSymlinkTree(
       Map<Path, SourcePath> contents,
       ImmutableMap<Path, Path> nonSourcePaths,
+      Optional<String> moduleName,
       Path headerSymlinkTreeRoot,
       boolean shouldCreateHeadersSymlinks,
-      boolean shouldCreateHeaderMap)
+      boolean shouldCreateHeaderMap,
+      boolean shouldGenerateUmbrellaHeaderIfMissing)
       throws IOException {
     if (!shouldCreateHeaderMap && !shouldCreateHeadersSymlinks) {
       return;
@@ -2004,7 +2030,7 @@ public class ProjectGenerator {
     Optional<String> currentHashCode = projectFilesystem.readFileIfItExists(hashCodeFilePath);
     String newHashCode =
         getHeaderSymlinkTreeHashCode(
-                resolvedContents, shouldCreateHeadersSymlinks, shouldCreateHeaderMap)
+                resolvedContents, moduleName, shouldCreateHeadersSymlinks, shouldCreateHeaderMap)
             .toString();
     if (Optional.of(newHashCode).equals(currentHashCode)) {
       LOG.debug(
@@ -2052,8 +2078,57 @@ public class ProjectGenerator {
 
         projectFilesystem.writeBytesToPath(headerMapBuilder.build().getBytes(), headerMapLocation);
       }
+      if (moduleName.isPresent() && resolvedContents.size() > 0) {
+        if (shouldGenerateUmbrellaHeaderIfMissing) {
+          writeUmbrellaHeaderIfNeeded(
+              moduleName.get(), resolvedContents.keySet(), headerSymlinkTreeRoot);
+        }
+        boolean containsSwift = !nonSourcePaths.isEmpty();
+        if (containsSwift) {
+          projectFilesystem.writeContentsToPath(
+              new ModuleMap(moduleName.get(), ModuleMap.SwiftMode.INCLUDE_SWIFT_HEADER).render(),
+              headerSymlinkTreeRoot.resolve(moduleName.get()).resolve("module.modulemap"));
+          projectFilesystem.writeContentsToPath(
+              new ModuleMap(moduleName.get(), ModuleMap.SwiftMode.EXCLUDE_SWIFT_HEADER).render(),
+              headerSymlinkTreeRoot.resolve(moduleName.get()).resolve("objc.modulemap"));
+
+          Path absoluteModuleRoot =
+              projectFilesystem
+                  .getRootPath()
+                  .resolve(headerSymlinkTreeRoot.resolve(moduleName.get()));
+          VFSOverlay vfsOverlay =
+              new VFSOverlay(
+                  ImmutableSortedMap.of(
+                      absoluteModuleRoot.resolve("module.modulemap"),
+                      absoluteModuleRoot.resolve("objc.modulemap")));
+
+          projectFilesystem.writeContentsToPath(
+              vfsOverlay.render(),
+              getObjcModulemapVFSOverlayLocationFromSymlinkTreeRoot(headerSymlinkTreeRoot));
+        } else {
+          projectFilesystem.writeContentsToPath(
+              new ModuleMap(moduleName.get(), ModuleMap.SwiftMode.NO_SWIFT).render(),
+              headerSymlinkTreeRoot.resolve(moduleName.get()).resolve("module.modulemap"));
+        }
+      }
     }
     headerSymlinkTrees.add(headerSymlinkTreeRoot);
+  }
+
+  private void writeUmbrellaHeaderIfNeeded(
+      String moduleName, ImmutableSortedSet<Path> headerPaths, Path headerSymlinkTreeRoot)
+      throws IOException {
+    ImmutableList<String> headerPathStrings =
+        headerPaths
+            .stream()
+            .map(Path::getFileName)
+            .map(Path::toString)
+            .collect(MoreCollectors.toImmutableList());
+    if (!headerPaths.contains(moduleName + ".h")) {
+      projectFilesystem.writeContentsToPath(
+          new UmbrellaHeader(moduleName, headerPathStrings).render(),
+          headerSymlinkTreeRoot.resolve(Paths.get(moduleName, moduleName + ".h")));
+    }
   }
 
   private Path getHeaderMapRelativeSymlinkPathForEntry(
@@ -2066,6 +2141,7 @@ public class ProjectGenerator {
 
   private HashCode getHeaderSymlinkTreeHashCode(
       ImmutableSortedMap<Path, Path> contents,
+      Optional<String> moduleName,
       boolean shouldCreateHeadersSymlinks,
       boolean shouldCreateHeaderMap) {
     Hasher hasher = Hashing.sha1().newHasher();
@@ -2078,6 +2154,11 @@ public class ProjectGenerator {
     byte[] hmapStateValue = hmapState.getBytes(Charsets.UTF_8);
     hasher.putInt(hmapStateValue.length);
     hasher.putBytes(hmapStateValue);
+    if (moduleName.isPresent()) {
+      byte[] moduleNameValue = moduleName.get().getBytes(Charsets.UTF_8);
+      hasher.putInt(moduleNameValue.length);
+      hasher.putBytes(moduleNameValue);
+    }
     hasher.putInt(0);
     for (Map.Entry<Path, Path> entry : contents.entrySet()) {
       byte[] key = entry.getKey().toString().getBytes(Charsets.UTF_8);
@@ -2316,6 +2397,28 @@ public class ProjectGenerator {
     }
   }
 
+  private String getModuleName(TargetNode<?, ?> buildTargetNode) {
+    Optional<String> swiftName =
+        buildTargetNode
+            .castArg(SwiftLibraryDescriptionArg.class)
+            .flatMap(node -> node.getConstructorArg().getModuleName());
+    if (swiftName.isPresent()) {
+      return swiftName.get();
+    }
+
+    return buildTargetNode
+        .castArg(CommonArg.class)
+        .flatMap(node -> node.getConstructorArg().getModuleName())
+        .orElse(buildTargetNode.getBuildTarget().getShortName());
+  }
+
+  private String getProductName(TargetNode<?, ?> buildTargetNode) {
+    return buildTargetNode
+        .castArg(AppleBundleDescriptionArg.class)
+        .flatMap(node -> node.getConstructorArg().getProductName())
+        .orElse(getProductNameForBuildTargetNode(buildTargetNode));
+  }
+
   private String getProductNameForBuildTargetNode(TargetNode<?, ?> targetNode) {
     Optional<TargetNode<CxxLibraryDescription.CommonArg, ?>> library =
         getLibraryNode(targetGraph, targetNode);
@@ -2402,6 +2505,10 @@ public class ProjectGenerator {
       HeaderVisibility headerVisibility) {
     Path treeRoot = getPathToHeaderSymlinkTree(targetNode, headerVisibility);
     return getRelativeToProjectPathForTargetNode(targetNode, treeRoot);
+  }
+
+  private Path getObjcModulemapVFSOverlayLocationFromSymlinkTreeRoot(Path headerSymlinkTreeRoot) {
+    return headerSymlinkTreeRoot.resolve("objc-module-overlay.yaml");
   }
 
   private Path getHeaderMapLocationFromSymlinkTreeRoot(Path headerSymlinkTreeRoot) {
@@ -2733,6 +2840,20 @@ public class ProjectGenerator {
                                 .getExportedPlatformLinkerFlags()
                                 .getPatternsAndValues())
                     .orElse(ImmutableList.of()));
+  }
+
+  private Iterable<String> collectModularTargetSpecificSwiftFlags(
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode) {
+    ImmutableList.Builder<String> targetSpecificSwiftFlags = ImmutableList.builder();
+    targetSpecificSwiftFlags.add("-import-underlying-module");
+    Path vfsOverlay =
+        getObjcModulemapVFSOverlayLocationFromSymlinkTreeRoot(
+            getHeaderSymlinkTreeRelativePath(targetNode, HeaderVisibility.PUBLIC));
+    targetSpecificSwiftFlags.add("-Xcc");
+    targetSpecificSwiftFlags.add("-ivfsoverlay");
+    targetSpecificSwiftFlags.add("-Xcc");
+    targetSpecificSwiftFlags.add(vfsOverlay.toString());
+    return targetSpecificSwiftFlags.build();
   }
 
   private ImmutableSet<PBXFileReference> collectRecursiveLibraryDependenciesWithOptions(

@@ -18,10 +18,10 @@ package com.facebook.buck.event.listener;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 
-import com.facebook.buck.artifact_cache.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.CacheCountersSummary;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
+import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.log.PerfTimesStats;
@@ -164,6 +164,8 @@ public class MachineReadableLogJsonViewTest {
             Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
             false,
             Optional.of(HashCode.fromString("abcd42")),
+            Optional.empty(),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty());
     event.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);

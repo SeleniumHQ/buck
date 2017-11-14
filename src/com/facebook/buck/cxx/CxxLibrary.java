@@ -40,9 +40,7 @@ import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.RichStream;
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -53,6 +51,8 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -273,7 +273,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
                     d.getShouldProduceLibraryArtifact(
                         getBuildTarget(), ruleResolver, cxxPlatform, type, forceLinkWhole))
             .orElse(false);
-    final boolean headersOnly = headerOnly.apply(cxxPlatform);
+    final boolean headersOnly = headerOnly.test(cxxPlatform);
     final boolean shouldProduceArtifact =
         (!headersOnly || delegateWantsArtifact) && propagateLinkables;
 
@@ -380,7 +380,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
-    if (headerOnly.apply(cxxPlatform)) {
+    if (headerOnly.test(cxxPlatform)) {
       return ImmutableMap.of();
     }
     if (!isPlatformSupported(cxxPlatform)) {

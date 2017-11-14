@@ -281,8 +281,7 @@ public class PythonTestDescription
                 .stream()
                 .map(
                     MacroArg.toMacroArgFunction(
-                            PythonUtil.MACRO_HANDLER, buildTarget, cellRoots, resolver)
-                        ::apply)
+                        PythonUtil.MACRO_HANDLER, buildTarget, cellRoots, resolver))
                 .collect(MoreCollectors.toImmutableList()),
             pythonBuckConfig.getNativeLinkStrategy(),
             args.getPreloadDeps());
@@ -347,7 +346,8 @@ public class PythonTestDescription
         () ->
             ImmutableMap.copyOf(
                 Maps.transformValues(
-                    args.getEnv(), MACRO_HANDLER.getExpander(buildTarget, cellRoots, resolver)));
+                    args.getEnv(),
+                    MACRO_HANDLER.getExpander(buildTarget, cellRoots, resolver)::apply));
 
     // Generate and return the python test rule, which depends on the python binary rule above.
     return PythonTest.from(

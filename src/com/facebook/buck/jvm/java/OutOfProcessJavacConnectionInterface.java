@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
@@ -45,10 +46,13 @@ public interface OutOfProcessJavacConnectionInterface {
       List<String> sortedSetOfJavaSourceFilePathsAsStringsAsList,
       String pathToSrcsListAsString,
       @Nullable String workingDirectory,
+      boolean trackClassUsage,
+      @Nullable Map<String, Object> serializedAbiJarParameters,
+      @Nullable Map<String, Object> serializedLibraryJarParameters,
       List<Map<String, Object>> pluginFields,
       String abiGenerationModeAsString);
 
-  int buildSourceAbiJar(int invocationId, String abiJarPath);
+  int buildSourceAbiJar(int invocationId);
 
   int buildClasses(int invocationId);
 

@@ -42,13 +42,13 @@ import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Function;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 import java.util.Optional;
+import java.util.function.Function;
 import org.immutables.value.Value;
 
 public class GroovyTestDescription
@@ -91,13 +91,16 @@ public class GroovyTestDescription
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       GroovyTestDescriptionArg args) {
+    BuildTarget testsLibraryBuildTarget =
+        buildTarget.withAppendedFlavors(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR);
+
     JavacOptions javacOptions =
         JavacOptionsFactory.create(
             defaultJavacOptions, buildTarget, projectFilesystem, resolver, args);
 
     DefaultJavaLibraryRules defaultJavaLibraryRules =
         new DefaultJavaLibraryRules.Builder(
-                buildTarget,
+                testsLibraryBuildTarget,
                 projectFilesystem,
                 params,
                 resolver,

@@ -35,6 +35,7 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -64,7 +65,7 @@ public class ContentAgnosticRuleKeyFactoryTest {
 
   private RuleKey createRuleKey(ProjectFilesystem fileSystem, String filename, String fileContents)
       throws Exception {
-    RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(0);
+    RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(RuleKeyConfiguration.of(0));
     BuildRuleResolver resolver =
         new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
@@ -85,6 +86,8 @@ public class ContentAgnosticRuleKeyFactoryTest {
             .setSrcs(ImmutableList.of(dep.getSourcePathToOutput()))
             .build(resolver, fileSystem);
 
-    return new ContentAgnosticRuleKeyFactory(fieldLoader, pathResolver, ruleFinder).build(rule);
+    return new ContentAgnosticRuleKeyFactory(
+            fieldLoader, pathResolver, ruleFinder, Optional.empty())
+        .build(rule);
   }
 }

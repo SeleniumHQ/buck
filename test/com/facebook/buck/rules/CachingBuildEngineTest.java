@@ -32,13 +32,13 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
-import com.facebook.buck.artifact_cache.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.ArtifactInfo;
-import com.facebook.buck.artifact_cache.CacheReadMode;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.artifact_cache.InMemoryArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
+import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
+import com.facebook.buck.artifact_cache.config.CacheReadMode;
 import com.facebook.buck.cli.CommandThreadManager;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBus;
@@ -54,6 +54,7 @@ import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.keys.DefaultDependencyFileRuleKeyFactory;
@@ -63,10 +64,12 @@ import com.facebook.buck.rules.keys.DependencyFileRuleKeyFactory;
 import com.facebook.buck.rules.keys.FakeRuleKeyFactory;
 import com.facebook.buck.rules.keys.InputBasedRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyAndInputs;
+import com.facebook.buck.rules.keys.RuleKeyConfiguration;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
+import com.facebook.buck.rules.keys.TestInputBasedRuleKeyFactory;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -78,7 +81,6 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.facebook.buck.testutil.DummyFileHashCache;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.timing.DefaultClock;
@@ -110,6 +112,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Sets;
 import com.google.common.hash.HashCode;
 import com.google.common.util.concurrent.AbstractListeningExecutorService;
 import com.google.common.util.concurrent.Futures;
@@ -167,7 +170,7 @@ import org.junit.runners.Parameterized;
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 @RunWith(Enclosed.class)
 public class CachingBuildEngineTest {
-
+  private static final boolean DEBUG = false;
   private static final BuildTarget BUILD_TARGET =
       BuildTargetFactory.newInstance("//src/com/facebook/orca:orca");
   private static final SourcePathRuleFinder DEFAULT_RULE_FINDER =
@@ -177,7 +180,8 @@ public class CachingBuildEngineTest {
   private static final SourcePathResolver DEFAULT_SOURCE_PATH_RESOLVER =
       DefaultSourcePathResolver.from(DEFAULT_RULE_FINDER);
   private static final long NO_INPUT_FILE_SIZE_LIMIT = Long.MAX_VALUE;
-  private static final RuleKeyFieldLoader FIELD_LOADER = new RuleKeyFieldLoader(0);
+  private static final RuleKeyFieldLoader FIELD_LOADER =
+      new RuleKeyFieldLoader(RuleKeyConfiguration.of(0));
   private static final DefaultRuleKeyFactory NOOP_RULE_KEY_FACTORY =
       new DefaultRuleKeyFactory(
           FIELD_LOADER,
@@ -185,7 +189,7 @@ public class CachingBuildEngineTest {
           DEFAULT_SOURCE_PATH_RESOLVER,
           DEFAULT_RULE_FINDER);
   private static final InputBasedRuleKeyFactory NOOP_INPUT_BASED_RULE_KEY_FACTORY =
-      new InputBasedRuleKeyFactory(
+      new TestInputBasedRuleKeyFactory(
           FIELD_LOADER,
           new DummyFileHashCache(),
           DEFAULT_SOURCE_PATH_RESOLVER,
@@ -252,7 +256,7 @@ public class CachingBuildEngineTest {
       defaultRuleKeyFactory =
           new DefaultRuleKeyFactory(FIELD_LOADER, fileHashCache, pathResolver, ruleFinder);
       inputBasedRuleKeyFactory =
-          new InputBasedRuleKeyFactory(
+          new TestInputBasedRuleKeyFactory(
               FIELD_LOADER, fileHashCache, pathResolver, ruleFinder, NO_INPUT_FILE_SIZE_LIMIT);
       durationTracker = new BuildRuleDurationTracker();
     }
@@ -383,6 +387,8 @@ public class CachingBuildEngineTest {
                   false,
                   Optional.empty(),
                   Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty(),
                   Optional.empty())));
     }
 
@@ -439,6 +445,8 @@ public class CachingBuildEngineTest {
                   false,
                   Optional.empty(),
                   Optional.empty(),
+                  Optional.empty(),
+                  Optional.empty(),
                   Optional.empty())));
     }
 
@@ -473,13 +481,20 @@ public class CachingBuildEngineTest {
               buildContext.getBuildId().toString(),
               BuildInfo.MetadataKey.ORIGIN_BUILD_ID,
               buildContext.getBuildId().toString());
+      Path metadataDirectory =
+          BuildInfo.getPathToArtifactMetadataDirectory(buildRule.getBuildTarget(), filesystem);
       ImmutableMap<Path, String> desiredZipEntries =
           ImmutableMap.of(
-              BuildInfo.getPathToMetadataDirectory(buildRule.getBuildTarget(), filesystem)
-                  .resolve(BuildInfo.MetadataKey.RECORDED_PATHS),
+              metadataDirectory.resolve(BuildInfo.MetadataKey.RECORDED_PATHS),
               ObjectMappers.WRITER.writeValueAsString(ImmutableList.of()),
+              metadataDirectory.resolve(BuildInfo.MetadataKey.RECORDED_PATH_HASHES),
+              ObjectMappers.WRITER.writeValueAsString(ImmutableMap.of()),
               Paths.get("buck-out/gen/src/com/facebook/orca/orca.jar"),
-              "Imagine this is the contents of a valid JAR file.");
+              "Imagine this is the contents of a valid JAR file.",
+              metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_SIZE),
+              "123",
+              metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_HASH),
+              HashCode.fromInt(123).toString());
       expect(
               artifactCache.fetchAsync(
                   eq(defaultRuleKeyFactory.build(buildRule)), isA(LazyPath.class)))
@@ -554,11 +569,18 @@ public class CachingBuildEngineTest {
               buildContext.getBuildId().toString(),
               BuildInfo.MetadataKey.ORIGIN_BUILD_ID,
               buildContext.getBuildId().toString());
+      Path metadataDirectory =
+          BuildInfo.getPathToArtifactMetadataDirectory(buildRule.getBuildTarget(), filesystem);
       ImmutableMap<Path, String> desiredZipEntries =
           ImmutableMap.of(
-              BuildInfo.getPathToMetadataDirectory(buildRule.getBuildTarget(), filesystem)
-                  .resolve(BuildInfo.MetadataKey.RECORDED_PATHS),
+              metadataDirectory.resolve(BuildInfo.MetadataKey.RECORDED_PATHS),
               ObjectMappers.WRITER.writeValueAsString(ImmutableList.of()),
+              metadataDirectory.resolve(BuildInfo.MetadataKey.RECORDED_PATH_HASHES),
+              ObjectMappers.WRITER.writeValueAsString(ImmutableMap.of()),
+              metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_SIZE),
+              "123",
+              metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_HASH),
+              HashCode.fromInt(123).toString(),
               Paths.get("buck-out/gen/src/com/facebook/orca/orca.jar"),
               "Imagine this is the contents of a valid JAR file.");
       expect(
@@ -647,6 +669,8 @@ public class CachingBuildEngineTest {
                     false,
                     Optional.empty(),
                     Optional.empty(),
+                    Optional.empty(),
+                    Optional.empty(),
                     Optional.empty())));
       }
     }
@@ -701,6 +725,8 @@ public class CachingBuildEngineTest {
                     false,
                     Optional.empty(),
                     Optional.empty(),
+                    Optional.empty(),
+                    Optional.empty(),
                     Optional.empty())));
         BuildRuleEvent.Started started =
             TestEventConfigurator.configureTestEvent(
@@ -717,6 +743,8 @@ public class CachingBuildEngineTest {
                     Optional.empty(),
                     Optional.of(BuildRuleSuccessType.MATCHING_RULE_KEY),
                     false,
+                    Optional.empty(),
+                    Optional.empty(),
                     Optional.empty(),
                     Optional.empty(),
                     Optional.empty())));
@@ -785,6 +813,8 @@ public class CachingBuildEngineTest {
                     false,
                     Optional.empty(),
                     Optional.empty(),
+                    Optional.empty(),
+                    Optional.empty(),
                     Optional.empty())));
         BuildRuleEvent.Started startedDep =
             TestEventConfigurator.configureTestEvent(
@@ -803,6 +833,8 @@ public class CachingBuildEngineTest {
                     false,
                     Optional.empty(),
                     Optional.empty(),
+                    Optional.empty(),
+                    Optional.empty(),
                     Optional.empty())));
         BuildRuleEvent.Started startedTransitive =
             TestEventConfigurator.configureTestEvent(
@@ -819,6 +851,8 @@ public class CachingBuildEngineTest {
                     Optional.empty(),
                     Optional.of(BuildRuleSuccessType.MATCHING_RULE_KEY),
                     false,
+                    Optional.empty(),
+                    Optional.empty(),
                     Optional.empty(),
                     Optional.empty(),
                     Optional.empty())));
@@ -863,7 +897,8 @@ public class CachingBuildEngineTest {
               ImmutableList.of(InternalFlavor.of("interleaved-2")));
       resolver.addToIndex(interleavedRuleTwo);
 
-      // The engine needs a couple of threads to ensure that it can schedule multiple steps at the same time.
+      // The engine needs a couple of threads to ensure that it can schedule multiple steps at the
+      // same time.
       ListeningExecutorService executorService =
           listeningDecorator(Executors.newFixedThreadPool(4));
       try (CachingBuildEngine cachingBuildEngine =
@@ -1085,7 +1120,9 @@ public class CachingBuildEngineTest {
                 .getResult()
                 .get();
         assertThat(result.getSuccess(), equalTo(BuildRuleSuccessType.BUILT_LOCALLY));
-        assertThat(result.getCacheResult().getType(), equalTo(CacheResultType.ERROR));
+        assertThat(
+            result.getCacheResult().map(CacheResult::getType),
+            equalTo(Optional.of(CacheResultType.ERROR)));
       }
     }
 
@@ -1379,8 +1416,7 @@ public class CachingBuildEngineTest {
       // Create the build engine.
       try (CachingBuildEngine cachingBuildEngine =
           cachingBuildEngineFactory()
-              .setCachingBuildEngineDelegate(
-                  new LocalCachingBuildEngineDelegate(new DummyFileHashCache()))
+              .setCachingBuildEngineDelegate(new LocalCachingBuildEngineDelegate(fileHashCache))
               .build()) {
         assertThat(cachingBuildEngine.getNumRulesToBuild(ImmutableList.of(rule1)), equalTo(3));
       }
@@ -1403,8 +1439,7 @@ public class CachingBuildEngineTest {
       // rule.
       try (CachingBuildEngine cachingBuildEngine =
           cachingBuildEngineFactory()
-              .setCachingBuildEngineDelegate(
-                  new LocalCachingBuildEngineDelegate(new DummyFileHashCache()))
+              .setCachingBuildEngineDelegate(new LocalCachingBuildEngineDelegate(fileHashCache))
               .setArtifactCacheSizeLimit(Optional.of(2L))
               .build()) {
         // Verify that after building successfully, nothing is cached.
@@ -1586,12 +1621,11 @@ public class CachingBuildEngineTest {
       resolver.addToIndex(rule);
 
       // Prepopulate the recorded paths metadata.
-      Path metadataDirectory = BuildInfo.getPathToMetadataDirectory(target, filesystem);
+      Path metadataDirectory = BuildInfo.getPathToArtifactMetadataDirectory(target, filesystem);
       filesystem.mkdirs(metadataDirectory);
+      Path outputPath = pathResolver.getRelativePath(rule.getSourcePathToOutput());
       filesystem.writeContentsToPath(
-          ObjectMappers.WRITER.writeValueAsString(
-              ImmutableList.of(
-                  pathResolver.getRelativePath(rule.getSourcePathToOutput()).toString())),
+          ObjectMappers.WRITER.writeValueAsString(ImmutableList.of(outputPath.toString())),
           metadataDirectory.resolve(BuildInfo.MetadataKey.RECORDED_PATHS));
 
       // Prepopulate the cache with an artifact indexed by the input-based rule key.
@@ -1600,11 +1634,17 @@ public class CachingBuildEngineTest {
           artifact,
           ImmutableMap.of(
               metadataDirectory.resolve(BuildInfo.MetadataKey.RECORDED_PATHS),
+              ObjectMappers.WRITER.writeValueAsString(ImmutableList.of(outputPath.toString())),
+              metadataDirectory.resolve(BuildInfo.MetadataKey.RECORDED_PATH_HASHES),
               ObjectMappers.WRITER.writeValueAsString(
-                  ImmutableList.of(
-                      pathResolver.getRelativePath(rule.getSourcePathToOutput()).toString())),
-              pathResolver.getRelativePath(rule.getSourcePathToOutput()),
-              "stuff"));
+                  ImmutableMap.of(outputPath.toString(), HashCode.fromInt(123).toString())),
+              metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_SIZE),
+              "123",
+              metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_HASH),
+              HashCode.fromInt(123).toString(),
+              outputPath,
+              "stuff"),
+          ImmutableList.of(metadataDirectory));
       cache.store(
           ArtifactInfo.builder()
               .addRuleKeys(inputRuleKey)
@@ -1652,10 +1692,13 @@ public class CachingBuildEngineTest {
                 .getType(),
             equalTo(CacheResultType.HIT));
         assertEquals(
-            new ZipInspector(artifact).getZipFileEntries(),
+            Sets.union(
+                ImmutableSet.of(metadataDirectory + "/"),
+                new ZipInspector(artifact).getZipFileEntries()),
             new ZipInspector(fetchedArtifact).getZipFileEntries());
-
-        MoreAsserts.assertContentsEqual(artifact, fetchedArtifact);
+        new ZipInspector(fetchedArtifact)
+            .assertFileContents(
+                pathResolver.getRelativePath(rule.getSourcePathToOutput()), "stuff");
       }
     }
 
@@ -1695,7 +1738,7 @@ public class CachingBuildEngineTest {
           "stuff", pathResolver.getRelativePath(rule.getSourcePathToOutput()));
 
       // Prepopulate the recorded paths metadata.
-      Path metadataDirectory = BuildInfo.getPathToMetadataDirectory(target, filesystem);
+      Path metadataDirectory = BuildInfo.getPathToArtifactMetadataDirectory(target, filesystem);
       filesystem.mkdirs(metadataDirectory);
       filesystem.writeContentsToPath(
           ObjectMappers.WRITER.writeValueAsString(
@@ -1871,7 +1914,7 @@ public class CachingBuildEngineTest {
           equalTo(depFileRuleKey.toString()));
       ZipInspector inspector = new ZipInspector(fetchedArtifact);
       inspector.assertFileContents(
-          BuildInfo.getPathToMetadataDirectory(target, filesystem)
+          BuildInfo.getPathToArtifactMetadataDirectory(target, filesystem)
               .resolve(BuildInfo.MetadataKey.DEP_FILE),
           ObjectMappers.WRITER.writeValueAsString(
               ImmutableList.of(fileToDepFileEntryString(input))));
@@ -1973,9 +2016,6 @@ public class CachingBuildEngineTest {
             @Override
             public ImmutableList<Step> getBuildSteps(
                 BuildContext context, BuildableContext buildableContext) {
-              buildableContext.addMetadata(
-                  BuildInfo.MetadataKey.DEP_FILE,
-                  ImmutableList.of(fileToDepFileEntryString(input)));
               return ImmutableList.of(
                   new WriteFileStep(filesystem, "", output, /* executable */ false));
             }
@@ -2053,7 +2093,6 @@ public class CachingBuildEngineTest {
             @Override
             public ImmutableList<Step> getBuildSteps(
                 BuildContext context, BuildableContext buildableContext) {
-              buildableContext.addMetadata(BuildInfo.MetadataKey.DEP_FILE, ImmutableList.of());
               return ImmutableList.of(
                   new WriteFileStep(filesystem, "", output, /* executable */ false));
             }
@@ -2089,7 +2128,7 @@ public class CachingBuildEngineTest {
       // Prepopulate the dep file rule key and dep file.
       RuleKey depFileRuleKey = depFileFactory.build(rule, ImmutableList.of()).getRuleKey();
 
-      Path metadataDirectory = BuildInfo.getPathToMetadataDirectory(target, filesystem);
+      Path metadataDirectory = BuildInfo.getPathToArtifactMetadataDirectory(target, filesystem);
       filesystem.mkdirs(metadataDirectory);
       filesystem.writeContentsToPath(
           depFileRuleKey.toString(),
@@ -2144,9 +2183,6 @@ public class CachingBuildEngineTest {
             @Override
             public ImmutableList<Step> getBuildSteps(
                 BuildContext context, BuildableContext buildableContext) {
-              buildableContext.addMetadata(
-                  BuildInfo.MetadataKey.DEP_FILE,
-                  ImmutableList.of(fileToDepFileEntryString(input)));
               return ImmutableList.of(
                   new WriteFileStep(filesystem, "", output, /* executable */ false));
             }
@@ -2184,7 +2220,7 @@ public class CachingBuildEngineTest {
               .getRuleKey();
 
       // Prepopulate the dep file rule key and dep file.
-      Path metadataDirectory = BuildInfo.getPathToMetadataDirectory(target, filesystem);
+      Path metadataDirectory = BuildInfo.getPathToArtifactMetadataDirectory(target, filesystem);
       filesystem.mkdirs(metadataDirectory);
       filesystem.writeContentsToPath(
           depFileRuleKey.toString(),
@@ -2234,9 +2270,6 @@ public class CachingBuildEngineTest {
             @Override
             public ImmutableList<Step> getBuildSteps(
                 BuildContext context, BuildableContext buildableContext) {
-              buildableContext.addMetadata(
-                  BuildInfo.MetadataKey.DEP_FILE,
-                  ImmutableList.of(fileToDepFileEntryString(input)));
               return ImmutableList.of(
                   new WriteFileStep(filesystem, "", output, /* executable */ false));
             }
@@ -2278,7 +2311,7 @@ public class CachingBuildEngineTest {
               .getRuleKey();
 
       // Prepopulate the dep file rule key and dep file.
-      Path metadataDirectory = BuildInfo.getPathToMetadataDirectory(target, filesystem);
+      Path metadataDirectory = BuildInfo.getPathToArtifactMetadataDirectory(target, filesystem);
       filesystem.mkdirs(metadataDirectory);
       filesystem.writeContentsToPath(
           depFileRuleKey.toString(),
@@ -2695,7 +2728,7 @@ public class CachingBuildEngineTest {
       final SourcePath input =
           PathSourcePath.of(filesystem, filesystem.getRootPath().getFileSystem().getPath("input"));
       filesystem.touch(pathResolver.getRelativePath(input));
-      final Path output = Paths.get("output");
+      final Path output = BuildTargets.getGenPath(filesystem, target, "%s/output");
       DepFileBuildRule rule =
           new DepFileBuildRule(target, filesystem, params) {
             @AddToRuleKey private final SourcePath path = input;
@@ -2703,6 +2736,7 @@ public class CachingBuildEngineTest {
             @Override
             public ImmutableList<Step> getBuildSteps(
                 BuildContext context, BuildableContext buildableContext) {
+              buildableContext.recordArtifact(output);
               return ImmutableList.of(
                   new WriteFileStep(filesystem, "", output, /* executable */ false));
             }
@@ -2767,14 +2801,22 @@ public class CachingBuildEngineTest {
               .build(),
           byteArrayOutputStream.toByteArray());
       Path artifact = tmp.newFile("artifact.zip");
+      Path metadataDirectory = BuildInfo.getPathToArtifactMetadataDirectory(target, filesystem);
       writeEntriesToZip(
           artifact,
           ImmutableMap.of(
-              BuildInfo.getPathToMetadataDirectory(target, filesystem)
-                  .resolve(BuildInfo.MetadataKey.RECORDED_PATHS),
-              ObjectMappers.WRITER.writeValueAsString(ImmutableList.of(output.toString())),
               output,
-              "stuff"));
+              "stuff",
+              metadataDirectory.resolve(BuildInfo.MetadataKey.RECORDED_PATHS),
+              ObjectMappers.WRITER.writeValueAsString(ImmutableList.of(output.toString())),
+              metadataDirectory.resolve(BuildInfo.MetadataKey.RECORDED_PATH_HASHES),
+              ObjectMappers.WRITER.writeValueAsString(
+                  ImmutableMap.of(output.toString(), HashCode.fromInt(123).toString())),
+              metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_SIZE),
+              "123",
+              metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_HASH),
+              HashCode.fromInt(123).toString()),
+          ImmutableList.of());
       cache.store(
           ArtifactInfo.builder()
               .addRuleKeys(depFileKey.getRuleKey())
@@ -2945,10 +2987,10 @@ public class CachingBuildEngineTest {
               .getResult()
               .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
-      assertEquals(
+      assertThat(
           "Should not attempt to fetch from cache",
-          CacheResultType.IGNORED,
-          result.getCacheResult().getType());
+          result.getCacheResult().map(CacheResult::getType),
+          equalTo(Optional.of(CacheResultType.IGNORED)));
       assertEquals("should not have written to the cache", 0, cache.getArtifactCount());
     }
 
@@ -3718,7 +3760,7 @@ public class CachingBuildEngineTest {
                   RuleKeyFactories.of(
                       new DefaultRuleKeyFactory(
                           FIELD_LOADER, fileHashCache, pathResolver, ruleFinder),
-                      new InputBasedRuleKeyFactory(
+                      new TestInputBasedRuleKeyFactory(
                           FIELD_LOADER,
                           fileHashCache,
                           pathResolver,
@@ -3735,6 +3777,9 @@ public class CachingBuildEngineTest {
                     buildRule)
                 .getResult()
                 .get();
+        if (DEBUG && !result.isSuccess()) {
+          result.getFailure().printStackTrace();
+        }
         lastSuccessType = result.getSuccess();
         return result;
       }
@@ -3890,7 +3935,7 @@ public class CachingBuildEngineTest {
     }
 
     @Override
-    public Object initializeFromDisk(OnDiskBuildInfo onDiskBuildInfo) {
+    public Object initializeFromDisk() {
       return new Object();
     }
 
@@ -3968,7 +4013,7 @@ public class CachingBuildEngineTest {
     @Override
     public ListenableFuture<CacheResult> fetchAsync(RuleKey ruleKey, LazyPath output) {
       try {
-        writeEntriesToZip(output.get(), ImmutableMap.copyOf(desiredEntries));
+        writeEntriesToZip(output.get(), ImmutableMap.copyOf(desiredEntries), ImmutableList.of());
       } catch (IOException e) {
         throw new RuntimeException(e);
       }
@@ -4095,7 +4140,8 @@ public class CachingBuildEngineTest {
     }
   }
 
-  private static void writeEntriesToZip(Path file, ImmutableMap<Path, String> entries)
+  private static void writeEntriesToZip(
+      Path file, ImmutableMap<Path, String> entries, ImmutableList<Path> directories)
       throws IOException {
     try (CustomZipOutputStream zip = ZipOutputStreams.newOutputStream(file)) {
       for (Map.Entry<Path, String> mapEntry : entries.entrySet()) {
@@ -4107,6 +4153,16 @@ public class CachingBuildEngineTest {
         entry.setExternalAttributes(33188L << 16);
         zip.putNextEntry(entry);
         zip.write(mapEntry.getValue().getBytes());
+        zip.closeEntry();
+      }
+      for (Path dir : directories) {
+        CustomZipEntry entry = new CustomZipEntry(dir.toString() + "/");
+        // We want deterministic ZIPs, so avoid mtimes. -1 is timzeone independent, 0 is not.
+        entry.setTime(ZipConstants.getFakeTime());
+        // We set the external attributes to this magic value which seems to match the attributes
+        // of entries created by {@link InMemoryArtifactCache}.
+        entry.setExternalAttributes(33188L << 16);
+        zip.putNextEntry(entry);
         zip.closeEntry();
       }
     }

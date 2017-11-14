@@ -1,3 +1,5 @@
+load("//tools/build_rules:java_rules.bzl", "java_test")
+
 # These are separate from the rest of the tests so we can run
 # them separately, avoiding the 20 second timeout in the iOS simulator.
 STANDARD_TEST_SRCS = [
@@ -24,8 +26,6 @@ java_test(
         "//src/com/facebook/buck/android/aapt:aapt",
         "//src/com/facebook/buck/android/redex:options",
         "//src/com/facebook/buck/annotations:annotations",
-        "//src/com/facebook/buck/apple:platform",
-        "//src/com/facebook/buck/apple:rules",
         "//src/com/facebook/buck/apple/project_generator:project_generator",
         "//src/com/facebook/buck/apple/xcode:xcode",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
@@ -100,8 +100,9 @@ java_test(
         "//src/com/facebook/buck/shell:worker_tool",
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",
-        "//src/com/facebook/buck/swift:platform",
         "//src/com/facebook/buck/swift:swift",
+        "//src/com/facebook/buck/swift/toolchain:toolchain",
+        "//src/com/facebook/buck/swift/toolchain/impl:impl",
         "//src/com/facebook/buck/test:test",
         "//src/com/facebook/buck/test/result/type:type",
         "//src/com/facebook/buck/test/selectors:selectors",
@@ -179,9 +180,8 @@ java_test(
         "//src/com/facebook/buck/android/aapt:aapt",
         "//src/com/facebook/buck/android/redex:options",
         "//src/com/facebook/buck/annotations:annotations",
-        "//src/com/facebook/buck/apple:platform",
-        "//src/com/facebook/buck/apple:rules",
         "//src/com/facebook/buck/apple/project_generator:project_generator",
+        "//src/com/facebook/buck/apple/toolchain:toolchain",
         "//src/com/facebook/buck/apple/xcode:xcode",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
         "//src/com/facebook/buck/charset:charset",
@@ -253,8 +253,8 @@ java_test(
         "//src/com/facebook/buck/shell:worker_tool",
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",
-        "//src/com/facebook/buck/swift:platform",
         "//src/com/facebook/buck/swift:swift",
+        "//src/com/facebook/buck/swift/toolchain:toolchain",
         "//src/com/facebook/buck/test:test",
         "//src/com/facebook/buck/test/result/type:type",
         "//src/com/facebook/buck/test/selectors:selectors",

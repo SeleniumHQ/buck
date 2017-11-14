@@ -16,21 +16,24 @@
 
 package com.facebook.buck.apple;
 
+import com.facebook.buck.android.AndroidLegacyToolchain;
+import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.shell.Genrule;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
-import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.function.Function;
 import org.immutables.value.Value;
 
 /** Rule for generating an apple package via external script. */
@@ -41,6 +44,9 @@ public class ExternallyBuiltApplePackage extends Genrule {
   public ExternallyBuiltApplePackage(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      AndroidLegacyToolchain androidLegacyToolchain,
+      SandboxExecutionStrategy sandboxExecutionStrategy,
+      BuildRuleResolver resolver,
       BuildRuleParams params,
       ApplePackageConfigAndPlatformInfo packageConfigAndPlatformInfo,
       SourcePath bundle,
@@ -48,13 +54,17 @@ public class ExternallyBuiltApplePackage extends Genrule {
     super(
         buildTarget,
         projectFilesystem,
+        androidLegacyToolchain,
+        resolver,
         params,
+        sandboxExecutionStrategy,
         ImmutableList.of(bundle),
         Optional.of(packageConfigAndPlatformInfo.getExpandedArg()),
         /* bash */ Optional.empty(),
         /* cmdExe */ Optional.empty(),
         /* type */ Optional.empty(),
-        buildTarget.getShortName() + "." + packageConfigAndPlatformInfo.getConfig().getExtension());
+        buildTarget.getShortName() + "." + packageConfigAndPlatformInfo.getConfig().getExtension(),
+        false);
     this.packageConfigAndPlatformInfo = packageConfigAndPlatformInfo;
     this.cacheable = cacheable;
   }
@@ -62,9 +72,8 @@ public class ExternallyBuiltApplePackage extends Genrule {
   @Override
   protected void addEnvironmentVariables(
       SourcePathResolver pathResolver,
-      ExecutionContext context,
       ImmutableMap.Builder<String, String> environmentVariablesBuilder) {
-    super.addEnvironmentVariables(pathResolver, context, environmentVariablesBuilder);
+    super.addEnvironmentVariables(pathResolver, environmentVariablesBuilder);
     environmentVariablesBuilder.put(
         "SDKROOT", packageConfigAndPlatformInfo.getSdkPath().toString());
   }

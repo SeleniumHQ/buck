@@ -19,6 +19,7 @@ package com.facebook.buck.cli;
 import com.facebook.buck.android.AdbHelper;
 import com.facebook.buck.android.AndroidBinary;
 import com.facebook.buck.android.AndroidInstallConfig;
+import com.facebook.buck.android.AndroidLegacyToolchain;
 import com.facebook.buck.android.HasInstallableApk;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelperFactory;
@@ -26,12 +27,12 @@ import com.facebook.buck.apple.AppleBundle;
 import com.facebook.buck.apple.AppleBundleDescription;
 import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleInfoPlistParsing;
-import com.facebook.buck.apple.ApplePlatform;
 import com.facebook.buck.apple.device.AppleDeviceHelper;
 import com.facebook.buck.apple.simulator.AppleCoreSimulatorServiceController;
 import com.facebook.buck.apple.simulator.AppleSimulator;
 import com.facebook.buck.apple.simulator.AppleSimulatorController;
 import com.facebook.buck.apple.simulator.AppleSimulatorDiscovery;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.cli.UninstallCommand.UninstallOptions;
 import com.facebook.buck.command.Build;
 import com.facebook.buck.config.BuckConfig;
@@ -67,6 +68,7 @@ import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.UnixUserIdFetcher;
+import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.infer.annotation.Assertions;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
@@ -329,6 +331,9 @@ public class InstallCommand extends BuildCommand {
     return super.getExecutionContextBuilder(params)
         .setAndroidDevicesHelper(
             AndroidDevicesHelperFactory.get(
+                params
+                    .getToolchainProvider()
+                    .getByName(AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class),
                 this::getExecutionContext,
                 params.getBuckConfig(),
                 adbOptions(params.getBuckConfig()),
@@ -442,7 +447,7 @@ public class InstallCommand extends BuildCommand {
       // TODO(cjhopman): Figure out what to do about killing a process.
       InstallEvent.Started started = InstallEvent.started(hasInstallableApk.getBuildTarget());
       params.getBuckEventBus().post(started);
-      adbHelper.adbCall("concurrent install", (device) -> true, false);
+      adbHelper.adbCallOrThrow("concurrent install", (device) -> true, false);
       InstallEvent.Finished finished =
           InstallEvent.finished(
               started,
@@ -457,12 +462,11 @@ public class InstallCommand extends BuildCommand {
     // We've installed the application successfully.
     // Are any of --activity, --process, or --run present?
     if (shouldStartActivity()) {
-      int exitCode =
-          adbHelper.startActivity(
-              pathResolver, hasInstallableApk, getActivityToStart(), waitForDebugger);
-      if (exitCode != 0) {
-        params.getConsole().printBuildFailure("Starting activity failed.");
-        return exitCode;
+      try {
+        adbHelper.startActivity(
+            pathResolver, hasInstallableApk, getActivityToStart(), waitForDebugger);
+      } catch (Exception e) {
+        throw new BuckUncheckedExecutionException("When starting activity.");
       }
     }
 

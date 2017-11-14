@@ -45,6 +45,7 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.swift.toolchain.SwiftPlatform;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
 import com.google.common.cache.LoadingCache;
@@ -172,7 +173,7 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
           FileListableLinkerInputArg.withSourcePathArg(
               SourcePathArg.of(swiftLinkRule.getSourcePathToOutput())));
     } else {
-      inputBuilder.addArgs(rule.getFileListLinkArg());
+      inputBuilder.addAllArgs(rule.getFileListLinkArg());
     }
     return inputBuilder.build();
   }
@@ -262,7 +263,7 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   @Override
   public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform) {
     if (!isPlatformSupported(cxxPlatform)) {
-      return CxxPreprocessorInput.EMPTY;
+      return CxxPreprocessorInput.of();
     }
 
     BuildRule rule = requireSwiftCompileRule(cxxPlatform.getFlavor());

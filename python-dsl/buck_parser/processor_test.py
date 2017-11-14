@@ -79,6 +79,7 @@ class ProjectFile(object):
         """
         self.path = path
         self.name = '//{0}'.format(path)
+        self.load_name = '//{0}:{1}'.format(*os.path.split(path))
         self.root = root
         self.prefix = None
         if isinstance(contents, (tuple, list)):
@@ -1231,6 +1232,53 @@ foo_rule(
             '"visibility": []}, {"__includes": ["BUCK"]}, {"__configs": {}}, '
             '{"__env": {}}]}',
             result)
+
+    def test_file_parsed_as_build_file_and_include_def(self):
+        """
+        Test that paths can be parsed as both build files and include defs.
+        """
+
+        # Setup a build file, foo, and another build file bar which includes
+        # the former.
+        foo = ProjectFile(self.project_root, path='foo', contents=('FOO = 1',))
+        bar = (
+            ProjectFile(
+                self.project_root,
+                path='bar',
+                contents=('include_defs({0!r})'.format(foo.name))))
+        self.write_files(foo, bar)
+
+        # Parse bar, which parses foo as an include def, then parse foo as a
+        # build file.
+        build_file_processor = self.create_build_file_processor()
+        build_file_processor.process(bar.root, bar.prefix, bar.path, [])
+        build_file_processor.process(foo.root, foo.prefix, foo.path, [])
+
+    def test_load_with_implicit_includes(self):
+        """
+        Test a `load()` statement inside an implicit include.
+        """
+
+        # Setup the includes defs.  The second just includes the first one via
+        # the `load()` function.
+        include_def1 = ProjectFile(self.project_root, path='inc_def1', contents=())
+        include_def2 = (
+            ProjectFile(
+                self.project_root,
+                path='inc_def2',
+                contents=(
+                    'load({0!r})'.format(include_def1.load_name),
+                )))
+        self.write_files(include_def1, include_def2)
+
+        # Construct a processor using the above as default includes, and run
+        # it to verify nothing crashes.
+        build_file = ProjectFile(self.project_root, path='BUCK', contents='')
+        self.write_file(build_file)
+        build_file_processor = (
+            self.create_build_file_processor(includes=[include_def2.name]))
+        build_file_processor.process(build_file.root, build_file.prefix, build_file.path, [])
+
 
 if __name__ == '__main__':
     unittest.main()
