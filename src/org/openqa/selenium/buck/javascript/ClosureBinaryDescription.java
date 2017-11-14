@@ -36,9 +36,9 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
+import java.util.function.Supplier;
 import org.immutables.value.Value;
 import java.util.Optional;
 import java.util.SortedSet;
@@ -69,7 +69,8 @@ public class ClosureBinaryDescription implements
       JsBinaryArg args) {
     SourcePathRuleFinder finder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(finder);
-    Supplier<? extends SortedSet<BuildRule>> declaredDeps = params.getDeclaredDeps();
+    Supplier<? extends SortedSet<BuildRule>> declaredDeps = params
+        .getDeclaredDeps();
     return new JsBinary(
         buildTarget,
         projectFilesystem,
