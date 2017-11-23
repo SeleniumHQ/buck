@@ -17,6 +17,7 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.apple.project_generator.XCodeProjectCommandHelper;
+import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.artifact_cache.NoopArtifactCache.NoopArtifactCacheFactory;
 import com.facebook.buck.cli.output.PrintStreamPathOutputPresenter;
 import com.facebook.buck.cli.parameter_extractors.ProjectGeneratorParameters;
@@ -28,6 +29,7 @@ import com.facebook.buck.ide.intellij.IjProjectCommandHelper;
 import com.facebook.buck.ide.intellij.aggregation.AggregationMode;
 import com.facebook.buck.ide.intellij.model.IjProjectConfig;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.model.Flavor;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.ForwardingProcessListener;
 import com.facebook.buck.util.HumanReadableException;
@@ -314,6 +316,12 @@ public class ProjectCommand extends BuildCommand {
             result = projectCommandHelper.parseTargetsAndRunProjectGenerator(getArguments());
             break;
           case XCODE:
+            AppleCxxPlatformsProvider appleCxxPlatformsProvider =
+                params
+                    .getCell()
+                    .getToolchainProvider()
+                    .getByName(
+                        AppleCxxPlatformsProvider.DEFAULT_NAME, AppleCxxPlatformsProvider.class);
             XCodeProjectCommandHelper xcodeProjectCommandHelper =
                 new XCodeProjectCommandHelper(
                     params.getBuckEventBus(),
@@ -322,13 +330,18 @@ public class ProjectCommand extends BuildCommand {
                     params.getVersionedTargetGraphCache(),
                     params.getTypeCoercerFactory(),
                     params.getCell(),
-                    params.getKnownBuildRuleTypesProvider(),
                     params.getRuleKeyConfiguration(),
                     params.getConsole(),
                     params.getProcessManager(),
                     params.getEnvironment(),
                     params.getExecutors().get(ExecutorPool.PROJECT),
                     getArguments(),
+                    appleCxxPlatformsProvider
+                        .getAppleCxxPlatforms()
+                        .getFlavors()
+                        .stream()
+                        .map(Flavor::toString)
+                        .collect(MoreCollectors.toImmutableSet()),
                     getEnableParserProfiling(),
                     withTests,
                     withoutTests,

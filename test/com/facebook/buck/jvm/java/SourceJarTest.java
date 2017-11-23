@@ -45,7 +45,6 @@ public class SourceJarTest {
         BuildTargetFactory.newInstance("//example:target"),
         FakeProjectFilesystem.createJavaOnlyFilesystem(),
         new BuildRuleParams(TreeSet::new, TreeSet::new, ImmutableSortedSet.of()),
-        "8",
         ImmutableSortedSet.of(),
         Optional.empty(),
         Optional.empty(),

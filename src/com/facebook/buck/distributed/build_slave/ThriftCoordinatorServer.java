@@ -16,18 +16,25 @@
 
 package com.facebook.buck.distributed.build_slave;
 
+import com.facebook.buck.distributed.BuildStatusUtil;
+import com.facebook.buck.distributed.DistBuildService;
+import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.CoordinatorService;
 import com.facebook.buck.distributed.thrift.GetWorkRequest;
 import com.facebook.buck.distributed.thrift.GetWorkResponse;
+import com.facebook.buck.distributed.thrift.ReportMinionAliveRequest;
+import com.facebook.buck.distributed.thrift.ReportMinionAliveResponse;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.slb.ThriftException;
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.util.List;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -42,17 +49,66 @@ import org.apache.thrift.transport.TTransportException;
 
 public class ThriftCoordinatorServer implements Closeable {
 
+  /** Information about the exit state of the Coordinator. */
+  public static class ExitState {
+
+    private final int exitCode;
+    private final String exitMessage;
+    private final boolean wasExitCodeSetByServers;
+
+    private ExitState(int exitCode, String exitMessage, boolean wasExitCodeSetByServers) {
+      this.exitCode = exitCode;
+      this.exitMessage = exitMessage;
+      this.wasExitCodeSetByServers = wasExitCodeSetByServers;
+    }
+
+    public static ExitState setLocally(int exitCode, String exitMessage) {
+      return new ExitState(exitCode, exitMessage, false);
+    }
+
+    public static ExitState setByServers(int exitCode, String exitMessage) {
+      return new ExitState(exitCode, exitMessage, true);
+    }
+
+    public int getExitCode() {
+      return exitCode;
+    }
+
+    public boolean wasExitCodeSetByServers() {
+      return wasExitCodeSetByServers;
+    }
+
+    public String getExitMessage() {
+      return exitMessage;
+    }
+
+    @Override
+    public String toString() {
+      return "ExitState{"
+          + "exitCode="
+          + exitCode
+          + ", exitMessage='"
+          + exitMessage
+          + '\''
+          + ", wasExitCodeSetByServers="
+          + wasExitCodeSetByServers
+          + '}';
+    }
+  }
+
   /** Listen to ThriftCoordinatorServer events. */
   public interface EventListener {
 
     void onThriftServerStarted(String address, int port) throws IOException;
 
-    void onThriftServerClosing(int buildExitCode) throws IOException;
+    void onThriftServerClosing(ThriftCoordinatorServer.ExitState exitState) throws IOException;
   }
 
   public static final int UNEXPECTED_STOP_EXIT_CODE = 42;
   public static final int GET_WORK_FAILED_EXIT_CODE = 43;
-  public static final int TEXCEPTION_EXIT_CODE = 44;
+  public static final int I_AM_ALIVE_FAILED_EXIT_CODE = 45;
+  public static final int DEAD_MINION_FOUND_EXIT_CODE = 46;
+  public static final int BUILD_TERMINATED_REMOTELY_EXIT_CODE = 47;
 
   private static final Logger LOG = Logger.get(ThriftCoordinatorServer.class);
 
@@ -62,9 +118,12 @@ public class ThriftCoordinatorServer implements Closeable {
   private final DistBuildTraceTracker chromeTraceTracker;
   private final CoordinatorService.Processor<CoordinatorService.Iface> processor;
   private final Object lock;
-  private final CompletableFuture<Integer> exitCodeFuture;
+  private final CompletableFuture<ExitState> exitCodeFuture;
   private final StampedeId stampedeId;
   private final ThriftCoordinatorServer.EventListener eventListener;
+  private final BuildRuleFinishedPublisher buildRuleFinishedPublisher;
+  private final MinionHealthTracker minionHealthTracker;
+  private final DistBuildService distBuildService;
 
   private volatile OptionalInt port;
 
@@ -77,9 +136,15 @@ public class ThriftCoordinatorServer implements Closeable {
       OptionalInt port,
       ListenableFuture<BuildTargetsQueue> queue,
       StampedeId stampedeId,
-      EventListener eventListener) {
+      EventListener eventListener,
+      BuildRuleFinishedPublisher buildRuleFinishedPublisher,
+      MinionHealthTracker minionHealthTracker,
+      DistBuildService distBuildService) {
     this.eventListener = eventListener;
     this.stampedeId = stampedeId;
+    this.buildRuleFinishedPublisher = buildRuleFinishedPublisher;
+    this.minionHealthTracker = minionHealthTracker;
+    this.distBuildService = distBuildService;
     this.lock = new Object();
     this.exitCodeFuture = new CompletableFuture<>();
     this.chromeTraceTracker = new DistBuildTraceTracker(stampedeId);
@@ -112,8 +177,34 @@ public class ThriftCoordinatorServer implements Closeable {
     return this;
   }
 
+  /** Checks if all minions are alive. Fails the distributed build if they are not. */
+  public void checkAllMinionsAreAlive() {
+    List<String> deadMinions = minionHealthTracker.getDeadMinions();
+    if (!deadMinions.isEmpty()) {
+      String msg =
+          String.format(
+              "Failing the build due to dead minions: [%s].", Joiner.on(", ").join(deadMinions));
+      LOG.error(msg);
+      exitCodeFuture.complete(ExitState.setLocally(DEAD_MINION_FOUND_EXIT_CODE, msg));
+    }
+  }
+
+  /** Checks whether the BuildStatus has not been set to terminated remotely. */
+  public void checkBuildStatusIsNotTerminated() throws IOException {
+    BuildJob buildJob = distBuildService.getCurrentBuildJobState(stampedeId);
+    if (buildJob.isSetStatus() && BuildStatusUtil.isTerminalBuildStatus(buildJob.getStatus())) {
+      exitCodeFuture.complete(
+          ExitState.setByServers(
+              BUILD_TERMINATED_REMOTELY_EXIT_CODE, "Build finalised externally."));
+    }
+  }
+
   private ThriftCoordinatorServer stop() throws IOException {
-    eventListener.onThriftServerClosing(exitCodeFuture.getNow(UNEXPECTED_STOP_EXIT_CODE));
+    ExitState exitState =
+        exitCodeFuture.getNow(
+            ExitState.setLocally(
+                UNEXPECTED_STOP_EXIT_CODE, "Forced unexpected Coordinator shutdown."));
+    eventListener.onThriftServerClosing(exitState);
     synchronized (lock) {
       Preconditions.checkNotNull(server, "Server has already been stopped.").stop();
       server = null;
@@ -150,14 +241,16 @@ public class ThriftCoordinatorServer implements Closeable {
     }
   }
 
-  public Future<Integer> getExitCode() {
+  public Future<ExitState> getExitState() {
     return exitCodeFuture;
   }
 
   public int waitUntilBuildCompletesAndReturnExitCode() {
     try {
       LOG.verbose("Coordinator going into blocking wait mode...");
-      return getExitCode().get(MAX_DIST_BUILD_DURATION_MILLIS, TimeUnit.MILLISECONDS);
+      return getExitState()
+          .get(MAX_DIST_BUILD_DURATION_MILLIS, TimeUnit.MILLISECONDS)
+          .getExitCode();
     } catch (ExecutionException | TimeoutException | InterruptedException e) {
       LOG.error(e);
       throw new RuntimeException("The distributed build Coordinator was interrupted.", e);
@@ -168,7 +261,13 @@ public class ThriftCoordinatorServer implements Closeable {
     Preconditions.checkState(queue.isDone());
     try {
       MinionWorkloadAllocator allocator = new MinionWorkloadAllocator(queue.get());
-      this.handler = new ActiveCoordinatorService(allocator, exitCodeFuture, chromeTraceTracker);
+      this.handler =
+          new ActiveCoordinatorService(
+              allocator,
+              exitCodeFuture,
+              chromeTraceTracker,
+              buildRuleFinishedPublisher,
+              minionHealthTracker);
     } catch (InterruptedException | ExecutionException e) {
       String msg = "Failed to create the BuildTargetsQueue.";
       LOG.error(msg);
@@ -179,20 +278,39 @@ public class ThriftCoordinatorServer implements Closeable {
   private class CoordinatorServiceHandler implements CoordinatorService.Iface {
 
     @Override
-    public GetWorkResponse getWork(GetWorkRequest request) {
+    public ReportMinionAliveResponse reportMinionAlive(ReportMinionAliveRequest request)
+        throws TException {
       try {
-        return getWorkUnsafe(request);
+        checkBuildId(request.getStampedeId());
+        Preconditions.checkArgument(request.isSetMinionId());
+        return handler.reportMinionAlive(request);
       } catch (Throwable e) {
         LOG.error(
-            "getWork failed, but it shouldn't;"
-                + " internal state may be corrupted, so exiting coordinator",
-            e);
-        exitCodeFuture.complete(GET_WORK_FAILED_EXIT_CODE);
+            "reportIAmAlive() failed: internal state may be corrupted, so exiting coordinator.", e);
+        String msg =
+            String.format(
+                "Failed to handle ReportMinionAliveRequest for minion [%s].",
+                request.getMinionId());
+        exitCodeFuture.complete(ExitState.setLocally(I_AM_ALIVE_FAILED_EXIT_CODE, msg));
         throw e;
       }
     }
 
-    private GetWorkResponse getWorkUnsafe(GetWorkRequest request) {
+    @Override
+    public GetWorkResponse getWork(GetWorkRequest request) throws TException {
+      try {
+        return getWorkUnsafe(request);
+      } catch (Throwable e) {
+        LOG.error("getWork() failed: internal state may be corrupted, so exiting coordinator.", e);
+        String msg =
+            String.format(
+                "Failed to handle GetWorkRequest for minion [%s].", request.getMinionId());
+        exitCodeFuture.complete(ExitState.setLocally(GET_WORK_FAILED_EXIT_CODE, msg));
+        throw e;
+      }
+    }
+
+    private GetWorkResponse getWorkUnsafe(GetWorkRequest request) throws TException {
       LOG.info(
           String.format(
               "Got GetWorkRequest from minion [%s]. [%s] targets finished. [%s] units requested",
@@ -205,12 +323,7 @@ public class ThriftCoordinatorServer implements Closeable {
       Preconditions.checkArgument(request.isSetLastExitCode());
 
       synchronized (lock) {
-        try {
-          return handler.getWork(request);
-        } catch (TException e) {
-          exitCodeFuture.complete(TEXCEPTION_EXIT_CODE);
-          throw new RuntimeException(e);
-        }
+        return handler.getWork(request);
       }
     }
 

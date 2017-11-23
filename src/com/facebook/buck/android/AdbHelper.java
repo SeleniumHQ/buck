@@ -27,7 +27,6 @@ import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
 import com.facebook.buck.android.exopackage.ExopackageInfo;
 import com.facebook.buck.android.exopackage.ExopackageInstaller;
 import com.facebook.buck.android.exopackage.RealAndroidDevice;
-import com.facebook.buck.annotations.SuppressForbidden;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
@@ -45,12 +44,12 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.InterruptionFailedException;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.Threads;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Futures;
@@ -118,7 +117,7 @@ public class AdbHelper implements AndroidDevicesHelper {
     this.contextSupplier = contextSupplier;
     this.restartAdbOnFailure = restartAdbOnFailure;
     this.rapidInstallTypes = rapidInstallTypes;
-    this.devicesSupplier = Suppliers.memoize(this::getDevicesImpl);
+    this.devicesSupplier = MoreSuppliers.memoize(this::getDevicesImpl);
   }
 
   @VisibleForTesting
@@ -150,7 +149,6 @@ public class AdbHelper implements AndroidDevicesHelper {
    * be used to install the apk if needed.
    */
   @SuppressWarnings("PMD.EmptyCatchBlock")
-  @SuppressForbidden
   @Override
   public synchronized boolean adbCall(String description, AdbDeviceCallable func, boolean quiet)
       throws InterruptedException {
@@ -261,7 +259,6 @@ public class AdbHelper implements AndroidDevicesHelper {
   }
 
   @Override
-  @SuppressForbidden
   public boolean installApk(
       SourcePathResolver pathResolver,
       HasInstallableApk hasInstallableApk,
@@ -296,7 +293,6 @@ public class AdbHelper implements AndroidDevicesHelper {
   }
 
   @Override
-  @SuppressForbidden
   public void startActivity(
       SourcePathResolver pathResolver,
       HasInstallableApk hasInstallableApk,
@@ -405,7 +401,6 @@ public class AdbHelper implements AndroidDevicesHelper {
    */
   @Nullable
   @VisibleForTesting
-  @SuppressForbidden
   List<IDevice> filterDevices(IDevice[] allDevices) {
     if (allDevices.length == 0) {
       printError("No devices are found.");
@@ -525,7 +520,6 @@ public class AdbHelper implements AndroidDevicesHelper {
     return isAdbInitialized(adb) ? adb : null;
   }
 
-  @SuppressForbidden
   private ImmutableList<AndroidDevice> getDevicesImpl() {
     if (devicesSupplierForTests.isPresent()) {
       return devicesSupplierForTests.get().get();

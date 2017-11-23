@@ -41,8 +41,8 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.Verbosity;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -138,7 +138,7 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
         buildTarget,
         projectFilesystem,
         params.withExtraDeps(
-            Suppliers.memoize(
+            MoreSuppliers.memoize(
                 () ->
                     ImmutableSortedSet.<BuildRule>naturalOrder()
                         .addAll(compiler.getDeps(ruleFinder))
@@ -250,7 +250,8 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
                   cmd.add("--color=always");
                 }
 
-                remapSrcPaths.addRemapOption(cmd, scratchDir.toString() + "/");
+                remapSrcPaths.addRemapOption(
+                    cmd, workingDirectory.toString(), scratchDir.toString() + "/");
 
                 // Generate a target-unique string to distinguish distinct crates with the same
                 // name.
@@ -260,9 +261,10 @@ public class RustCompileRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 cmd.add(String.format("-Clinker=%s", linkerCmd.get(0)))
                     .add(String.format("-Clink-arg=@%s", argFilePath))
                     .add(String.format("-Cmetadata=%s", metadata))
+                    .add(String.format("-Cextra-filename=-%s", metadata))
                     .addAll(Arg.stringify(args, buildContext.getSourcePathResolver()))
                     .addAll(dedupArgs.build())
-                    .add("-o", output.toString())
+                    .add("--out-dir", output.getParent().toString())
                     .add(src.toString());
 
                 return cmd.build();

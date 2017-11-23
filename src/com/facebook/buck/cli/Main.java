@@ -38,10 +38,10 @@ import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.DaemonEvent;
 import com.facebook.buck.event.DefaultBuckEventBus;
+import com.facebook.buck.event.chrome_trace.ChromeTraceBuckConfig;
 import com.facebook.buck.event.listener.AbstractConsoleEventBusListener;
 import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.event.listener.CacheRateStatsListener;
-import com.facebook.buck.event.listener.ChromeTraceBuckConfig;
 import com.facebook.buck.event.listener.ChromeTraceBuildListener;
 import com.facebook.buck.event.listener.FileSerializationEventBusListener;
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
@@ -60,7 +60,9 @@ import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.AsynchronousDirectoryContentsCleaner;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.WatchmanDiagnosticEventListener;
+import com.facebook.buck.io.WatchmanFactory;
 import com.facebook.buck.io.WatchmanWatcher;
+import com.facebook.buck.io.WatchmanWatcher.FreshInstanceAction;
 import com.facebook.buck.io.WatchmanWatcherException;
 import com.facebook.buck.io.file.MoreFiles;
 import com.facebook.buck.io.filesystem.BuckPaths;
@@ -76,7 +78,6 @@ import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.LogConfig;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.plugin.BuckPluginManagerFactory;
@@ -90,7 +91,6 @@ import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.RelativeCellName;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -102,11 +102,6 @@ import com.facebook.buck.sandbox.impl.PlatformSandboxExecutionStrategyFactory;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.test.TestConfig;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
-import com.facebook.buck.timing.Clock;
-import com.facebook.buck.timing.DefaultClock;
-import com.facebook.buck.timing.NanosAdjustedClock;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.toolchain.impl.DefaultToolchainProvider;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
 import com.facebook.buck.util.AsyncCloseable;
@@ -139,11 +134,15 @@ import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.environment.NetworkInfo;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.facebook.buck.util.network.MacIpv6BugWorkaround;
 import com.facebook.buck.util.network.RemoteLogBuckConfig;
 import com.facebook.buck.util.perf.PerfStatsTracking;
 import com.facebook.buck.util.perf.ProcessTracker;
 import com.facebook.buck.util.shutdown.NonReentrantSystemExit;
+import com.facebook.buck.util.timing.Clock;
+import com.facebook.buck.util.timing.DefaultClock;
+import com.facebook.buck.util.timing.NanosAdjustedClock;
 import com.facebook.buck.util.versioncontrol.DelegatingVersionControlCmdLineInterface;
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
@@ -209,6 +208,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import javax.annotation.Nullable;
+import org.immutables.value.Value;
 import org.kohsuke.args4j.CmdLineException;
 import org.pf4j.PluginManager;
 
@@ -335,8 +335,6 @@ public final class Main {
   public interface KnownBuildRuleTypesFactoryFactory {
     KnownBuildRuleTypesFactory create(
         ProcessExecutor processExecutor,
-        SdkEnvironment sdkEnvironment,
-        ToolchainProvider toolchainProvider,
         PluginManager pluginManager,
         SandboxExecutionStrategyFactory sandboxExecutionStrategyFactory);
   }
@@ -613,6 +611,7 @@ public final class Main {
     RuleKeyConfiguration ruleKeyConfiguration =
         ConfigRuleKeyConfigurationFactory.create(buckConfig);
 
+    String previousBuckCoreKey;
     try (Closer closeables = Closer.create()) {
       if (commandSemaphoreAcquired) {
         commandSemaphoreNgClient = context;
@@ -623,6 +622,9 @@ public final class Main {
             filesystem.readFileIfItExists(filesystem.getBuckPaths().getCurrentVersionFile());
         BuckPaths unconfiguredPaths =
             filesystem.getBuckPaths().withConfiguredBuckOut(filesystem.getBuckPaths().getBuckOut());
+
+        previousBuckCoreKey = currentBuckCoreKey.orElse("<NOT_FOUND>");
+
         if (!currentBuckCoreKey.isPresent()
             || !currentBuckCoreKey.get().equals(ruleKeyConfiguration.getCoreKey())
             || (filesystem.exists(unconfiguredPaths.getGenDir(), LinkOption.NOFOLLOW_LINKS)
@@ -643,20 +645,18 @@ public final class Main {
           filesystem.writeContentsToPath(
               ruleKeyConfiguration.getCoreKey(), filesystem.getBuckPaths().getCurrentVersionFile());
         }
+      } else {
+        previousBuckCoreKey = "";
       }
 
-      ToolchainProvider toolchainProvider =
-          new DefaultToolchainProvider(clientEnvironment, buckConfig, filesystem);
+      LOG.verbose("Buck core key from the previous Buck instance: %s", previousBuckCoreKey);
+
+      ProcessExecutor processExecutor = new DefaultProcessExecutor(console);
 
       AndroidBuckConfig androidBuckConfig = new AndroidBuckConfig(buckConfig, platform);
       AndroidDirectoryResolver androidDirectoryResolver =
           new DefaultAndroidDirectoryResolver(
               filesystem.getRootPath().getFileSystem(), clientEnvironment, androidBuckConfig);
-
-      ProcessExecutor processExecutor = new DefaultProcessExecutor(console);
-
-      SdkEnvironment sdkEnvironment =
-          SdkEnvironment.create(buckConfig, processExecutor, toolchainProvider);
 
       SandboxExecutionStrategyFactory sandboxExecutionStrategyFactory =
           new PlatformSandboxExecutionStrategyFactory();
@@ -680,11 +680,7 @@ public final class Main {
         KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
             KnownBuildRuleTypesProvider.of(
                 knownBuildRuleTypesFactoryFactory.create(
-                    processExecutor,
-                    sdkEnvironment,
-                    toolchainProvider,
-                    pluginManager,
-                    sandboxExecutionStrategyFactory));
+                    processExecutor, pluginManager, sandboxExecutionStrategyFactory));
 
         Cell rootCell =
             CellProvider.createForLocalBuild(
@@ -692,12 +688,13 @@ public final class Main {
                     watchman,
                     buckConfig,
                     command.getConfigOverrides(),
-                    sdkEnvironment,
+                    clientEnvironment,
+                    processExecutor,
                     projectFilesystemFactory)
                 .getCellByPath(filesystem.getRootPath());
 
         Optional<Daemon> daemon =
-            context.isPresent() && (watchman != Watchman.NULL_WATCHMAN)
+            context.isPresent() && (watchman != WatchmanFactory.NULL_WATCHMAN)
                 ? Optional.of(
                     daemonLifecycleManager.getDaemon(rootCell, knownBuildRuleTypesProvider))
                 : Optional.empty();
@@ -998,74 +995,24 @@ public final class Main {
                   getBuckPID());
           buildEventBus.post(startedEvent);
 
-          // Create or get Parser and invalidate cached command parameters.
-          TypeCoercerFactory typeCoercerFactory = null;
-          Parser parser = null;
-          VersionedTargetGraphCache versionedTargetGraphCache = null;
-          ActionGraphCache actionGraphCache = null;
-          Optional<RuleKeyCacheRecycler<RuleKey>> defaultRuleKeyFactoryCacheRecycler =
-              Optional.empty();
-
-          if (daemon.isPresent()) {
-            try {
-              WatchmanWatcher watchmanWatcher =
-                  new WatchmanWatcher(
-                      watchman.getProjectWatches(),
-                      daemon.get().getFileEventBus(),
-                      ImmutableSet.<PathOrGlobMatcher>builder()
-                          .addAll(filesystem.getIgnorePaths())
-                          .addAll(DEFAULT_IGNORE_GLOBS)
-                          .build(),
-                      watchman,
-                      daemon.get().getWatchmanCursor());
-              Pair<TypeCoercerFactory, Parser> pair =
-                  getParserFromDaemon(
-                      daemon.get(),
-                      context.get(),
-                      buildEventBus,
-                      watchmanWatcher,
-                      watchmanFreshInstanceAction);
-              typeCoercerFactory = pair.getFirst();
-              parser = pair.getSecond();
-              versionedTargetGraphCache = daemon.get().getVersionedTargetGraphCache();
-              actionGraphCache = daemon.get().getActionGraphCache();
-              if (buckConfig.getRuleKeyCaching()) {
-                LOG.debug("Using rule key calculation caching");
-                defaultRuleKeyFactoryCacheRecycler =
-                    Optional.of(daemon.get().getDefaultRuleKeyFactoryCacheRecycler());
-              }
-            } catch (WatchmanWatcherException | IOException e) {
-              buildEventBus.post(
-                  ConsoleEvent.warning(
-                      "Watchman threw an exception while parsing file changes.\n%s",
-                      e.getMessage()));
-            }
-          }
-
-          if (versionedTargetGraphCache == null) {
-            versionedTargetGraphCache = new VersionedTargetGraphCache();
-          }
-
-          if (actionGraphCache == null) {
-            actionGraphCache = new ActionGraphCache(buckConfig.getMaxActionGraphCacheEntries());
-          }
-
-          if (typeCoercerFactory == null || parser == null) {
-            typeCoercerFactory = new DefaultTypeCoercerFactory();
-            parser =
-                new Parser(
-                    broadcastEventListener,
-                    rootCell.getBuckConfig().getView(ParserConfig.class),
-                    typeCoercerFactory,
-                    new ConstructorArgMarshaller(typeCoercerFactory),
-                    knownBuildRuleTypesProvider);
-          }
+          ParserAndCaches parserAndCaches =
+              getParserAndCaches(
+                  context,
+                  watchmanFreshInstanceAction,
+                  filesystem,
+                  buckConfig,
+                  watchman,
+                  knownBuildRuleTypesProvider,
+                  rootCell,
+                  daemon,
+                  broadcastEventListener,
+                  buildEventBus);
 
           // Because the Parser is potentially constructed before the CounterRegistry,
           // we need to manually register its counters after it's created.
           //
           // The counters will be unregistered once the counter registry is closed.
-          counterRegistry.registerCounters(parser.getCounters());
+          counterRegistry.registerCounters(parserAndCaches.getParser().getCounters());
 
           JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(rootCell.getFilesystem());
 
@@ -1106,8 +1053,8 @@ public final class Main {
                         .setAndroidPlatformTargetSupplier(androidPlatformTargetSupplier)
                         .setArtifactCacheFactory(artifactCacheFactory)
                         .setBuckEventBus(buildEventBus)
-                        .setTypeCoercerFactory(typeCoercerFactory)
-                        .setParser(parser)
+                        .setTypeCoercerFactory(parserAndCaches.getTypeCoercerFactory())
+                        .setParser(parserAndCaches.getParser())
                         .setPlatform(platform)
                         .setEnvironment(clientEnvironment)
                         .setJavaPackageFinder(
@@ -1125,16 +1072,17 @@ public final class Main {
                         .setExecutors(executors)
                         .setScheduledExecutor(scheduledExecutorPool)
                         .setBuildEnvironmentDescription(buildEnvironmentDescription)
-                        .setVersionedTargetGraphCache(versionedTargetGraphCache)
-                        .setActionGraphCache(actionGraphCache)
+                        .setVersionedTargetGraphCache(
+                            parserAndCaches.getVersionedTargetGraphCache())
+                        .setActionGraphCache(parserAndCaches.getActionGraphCache())
                         .setKnownBuildRuleTypesProvider(knownBuildRuleTypesProvider)
-                        .setSdkEnvironment(sdkEnvironment)
                         .setInvocationInfo(Optional.of(invocationInfo))
-                        .setDefaultRuleKeyFactoryCacheRecycler(defaultRuleKeyFactoryCacheRecycler)
+                        .setDefaultRuleKeyFactoryCacheRecycler(
+                            parserAndCaches.getDefaultRuleKeyFactoryCacheRecycler())
                         .setBuildInfoStoreManager(storeManager)
                         .setProjectFilesystemFactory(projectFilesystemFactory)
-                        .setToolchainProvider(toolchainProvider)
                         .setRuleKeyConfiguration(ruleKeyConfiguration)
+                        .setProcessExecutor(processExecutor)
                         .build());
           } catch (InterruptedException | ClosedByInterruptException e) {
             buildEventBus.post(CommandEvent.interrupted(startedEvent, INTERRUPTED_EXIT_CODE));
@@ -1201,6 +1149,110 @@ public final class Main {
         commandSemaphore.release();
       }
     }
+  }
+
+  /** Struct for the multiple values returned by {@link #getParserAndCaches}. */
+  @Value.Immutable(copy = false, builder = false)
+  @BuckStyleTuple
+  abstract static class AbstractParserAndCaches {
+    public abstract Parser getParser();
+
+    public abstract TypeCoercerFactory getTypeCoercerFactory();
+
+    public abstract VersionedTargetGraphCache getVersionedTargetGraphCache();
+
+    public abstract ActionGraphCache getActionGraphCache();
+
+    public abstract Optional<RuleKeyCacheRecycler<RuleKey>> getDefaultRuleKeyFactoryCacheRecycler();
+  }
+
+  private static ParserAndCaches getParserAndCaches(
+      Optional<NGContext> context,
+      FreshInstanceAction watchmanFreshInstanceAction,
+      ProjectFilesystem filesystem,
+      BuckConfig buckConfig,
+      Watchman watchman,
+      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
+      Cell rootCell,
+      Optional<Daemon> daemonOptional,
+      BroadcastEventListener broadcastEventListener,
+      BuckEventBus buildEventBus)
+      throws IOException, InterruptedException {
+    WatchmanWatcher watchmanWatcher = null;
+    if (daemonOptional.isPresent()) {
+      Daemon daemon = daemonOptional.get();
+      try {
+        watchmanWatcher =
+            new WatchmanWatcher(
+                watchman.getProjectWatches(),
+                daemon.getFileEventBus(),
+                ImmutableSet.<PathOrGlobMatcher>builder()
+                    .addAll(filesystem.getIgnorePaths())
+                    .addAll(DEFAULT_IGNORE_GLOBS)
+                    .build(),
+                watchman,
+                daemon.getWatchmanCursor());
+      } catch (WatchmanWatcherException e) {
+        buildEventBus.post(
+            ConsoleEvent.warning(
+                "Watchman threw an exception while parsing file changes.\n%s", e.getMessage()));
+      }
+    }
+
+    // Create or get Parser and invalidate cached command parameters.
+    ParserAndCaches parserAndCaches;
+    if (watchmanWatcher != null) {
+      // Note that watchmanWatcher is non-null only when daemon.isPresent().
+      Daemon daemon = daemonOptional.get();
+      registerClientDisconnectedListener(context.get(), daemon);
+      daemon.watchFileSystem(buildEventBus, watchmanWatcher, watchmanFreshInstanceAction);
+      Optional<RuleKeyCacheRecycler<RuleKey>> defaultRuleKeyFactoryCacheRecycler;
+      if (buckConfig.getRuleKeyCaching()) {
+        LOG.debug("Using rule key calculation caching");
+        defaultRuleKeyFactoryCacheRecycler =
+            Optional.of(daemon.getDefaultRuleKeyFactoryCacheRecycler());
+      } else {
+        defaultRuleKeyFactoryCacheRecycler = Optional.empty();
+      }
+      parserAndCaches =
+          ParserAndCaches.of(
+              daemon.getParser(),
+              daemon.getTypeCoercerFactory(),
+              daemon.getVersionedTargetGraphCache(),
+              daemon.getActionGraphCache(),
+              defaultRuleKeyFactoryCacheRecycler);
+    } else {
+      TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
+      parserAndCaches =
+          ParserAndCaches.of(
+              new Parser(
+                  broadcastEventListener,
+                  rootCell.getBuckConfig().getView(ParserConfig.class),
+                  typeCoercerFactory,
+                  new ConstructorArgMarshaller(typeCoercerFactory),
+                  knownBuildRuleTypesProvider),
+              typeCoercerFactory,
+              new VersionedTargetGraphCache(),
+              new ActionGraphCache(buckConfig.getMaxActionGraphCacheEntries()),
+              /* defaultRuleKeyFactoryCacheRecycler */ Optional.empty());
+    }
+    return parserAndCaches;
+  }
+
+  private static void registerClientDisconnectedListener(NGContext context, Daemon daemon)
+      throws IOException, InterruptedException {
+    context.addClientListener(
+        () -> {
+          if (Main.isSessionLeader && Main.commandSemaphoreNgClient.orElse(null) == context) {
+            LOG.info(
+                "BuckIsDyingException: killing background processes on client disconnection"
+                    + Throwables.getStackTraceAsString(new Throwable()));
+            // Process no longer wants work done on its behalf.
+            BgProcessKiller.killBgProcesses();
+          }
+
+          daemon.interruptOnClientExit(context.err);
+        });
   }
 
   private Console makeCustomConsole(
@@ -1271,7 +1323,7 @@ public final class Main {
     Watchman watchman;
     if (context.isPresent() || parserConfig.getGlobHandler() == ParserConfig.GlobHandler.WATCHMAN) {
       watchman =
-          Watchman.build(
+          WatchmanFactory.build(
               projectWatchList,
               clientEnvironment,
               console,
@@ -1287,7 +1339,7 @@ public final class Main {
           parserConfig.getWatchmanQueryTimeoutMs());
 
     } else {
-      watchman = Watchman.NULL_WATCHMAN;
+      watchman = WatchmanFactory.NULL_WATCHMAN;
       LOG.debug(
           "Not using Watchman, context present: %s, glob handler: %s",
           context.isPresent(), parserConfig.getGlobHandler());
@@ -1385,31 +1437,6 @@ public final class Main {
     } else {
       return ImmutableMap.copyOf(System.getenv());
     }
-  }
-
-  /** Wire up daemon to new client and get cached Parser. */
-  private Pair<TypeCoercerFactory, Parser> getParserFromDaemon(
-      Daemon daemonForParser,
-      NGContext context,
-      BuckEventBus eventBus,
-      WatchmanWatcher watchmanWatcher,
-      WatchmanWatcher.FreshInstanceAction watchmanFreshInstanceAction)
-      throws IOException, InterruptedException {
-    context.addClientListener(
-        () -> {
-          if (Main.isSessionLeader && Main.commandSemaphoreNgClient.orElse(null) == context) {
-            LOG.info(
-                "BuckIsDyingException: killing background processes on client disconnection"
-                    + Throwables.getStackTraceAsString(new Throwable()));
-            // Process no longer wants work done on its behalf.
-            BgProcessKiller.killBgProcesses();
-          }
-
-          daemonForParser.interruptOnClientExit(context.err);
-        });
-
-    daemonForParser.watchFileSystem(eventBus, watchmanWatcher, watchmanFreshInstanceAction);
-    return new Pair<>(daemonForParser.getTypeCoercerFactory(), daemonForParser.getParser());
   }
 
   private ImmutableList<ProjectFileHashCache> getFileHashCachesFromDaemon(Daemon daemon) {
@@ -1605,7 +1632,7 @@ public final class Main {
         testLogPath,
         executionEnvironment,
         buildId);
-    simpleConsole.startRenderScheduler(1, TimeUnit.SECONDS);
+//    simpleConsole.startRenderScheduler(1, TimeUnit.SECONDS);
 
     return simpleConsole;
   }

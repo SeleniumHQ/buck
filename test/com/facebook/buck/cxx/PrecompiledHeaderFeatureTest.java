@@ -25,6 +25,7 @@ import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxToolProvider;
 import com.facebook.buck.cxx.toolchain.MungingDebugPathSanitizer;
+import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.cxx.toolchain.PreprocessorProvider;
 import com.facebook.buck.model.BuildTarget;
@@ -34,6 +35,7 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -177,7 +179,7 @@ public class PrecompiledHeaderFeatureTest {
             // The default platform we're testing with doesn't include preprocessors for these.
             continue;
 
-            //$CASES-OMITTED$
+            // $CASES-OMITTED$
           default:
             Preprocessor preprocessor =
                 CxxSourceTypes.getPreprocessor(platform, sourceType).resolve(resolver);
@@ -408,7 +410,7 @@ public class PrecompiledHeaderFeatureTest {
         .setResolver(ruleResolver)
         .setPathResolver(pathResolver)
         .setRuleFinder(ruleFinder)
-        .setPicType(AbstractCxxSourceRuleFactory.PicType.PDC);
+        .setPicType(PicType.PDC);
   }
 
   private static CxxSourceRuleFactory.Builder preconfiguredSourceRuleFactoryBuilder(
@@ -434,7 +436,10 @@ public class PrecompiledHeaderFeatureTest {
    */
   private static CxxPlatform buildPlatform(CxxToolProvider.Type type, boolean pchEnabled) {
     return CxxPlatformUtils.build(buildConfig(pchEnabled))
-        .withCpp(new PreprocessorProvider(Paths.get("/usr/bin/foopp"), Optional.of(type)));
+        .withCpp(
+            new PreprocessorProvider(
+                PathSourcePath.of(new FakeProjectFilesystem(), Paths.get("/usr/bin/foopp")),
+                Optional.of(type)));
   }
 
   private static final CxxPlatform PLATFORM_SUPPORTING_PCH =

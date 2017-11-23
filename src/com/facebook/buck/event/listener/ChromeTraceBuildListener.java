@@ -22,9 +22,6 @@ import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventListener;
-import com.facebook.buck.event.ChromeTraceEvent;
-import com.facebook.buck.event.ChromeTraceEvent.Phase;
-import com.facebook.buck.event.ChromeTraceWriter;
 import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.CompilerPluginDurationEvent;
 import com.facebook.buck.event.InstallEvent;
@@ -33,6 +30,10 @@ import com.facebook.buck.event.RuleKeyCalculationEvent;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.event.StartActivityEvent;
 import com.facebook.buck.event.UninstallEvent;
+import com.facebook.buck.event.chrome_trace.ChromeTraceBuckConfig;
+import com.facebook.buck.event.chrome_trace.ChromeTraceEvent;
+import com.facebook.buck.event.chrome_trace.ChromeTraceEvent.Phase;
+import com.facebook.buck.event.chrome_trace.ChromeTraceWriter;
 import com.facebook.buck.io.WatchmanOverflowEvent;
 import com.facebook.buck.io.file.PathListing;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -51,21 +52,20 @@ import com.facebook.buck.rules.TestSummaryEvent;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.test.external.ExternalTestRunEvent;
 import com.facebook.buck.test.external.ExternalTestSpecCalculationEvent;
-import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.BestCompressionGZIPOutputStream;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.ProcessResourceConsumption;
 import com.facebook.buck.util.Threads;
 import com.facebook.buck.util.concurrent.MostExecutors;
-import com.facebook.buck.util.env.BuckClasspath;
 import com.facebook.buck.util.perf.PerfStatsTracking;
 import com.facebook.buck.util.perf.ProcessTracker;
+import com.facebook.buck.util.timing.Clock;
+import com.facebook.buck.util.trace.uploader.launcher.UploaderLauncher;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Joiner;
-import com.google.common.base.Strings;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -939,37 +939,11 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       return;
     }
 
-    String buckClasspath = BuckClasspath.getBuckClasspathFromEnvVarOrNull();
-    if (Strings.isNullOrEmpty(buckClasspath)) {
-      LOG.error(
-          BuckClasspath.ENV_VAR_NAME + " env var is not set. Will not upload the trace file.");
-      return;
-    }
-
     Path fullPath = projectFilesystem.resolve(tracePath);
     Path logFile = projectFilesystem.resolve(logDirectoryPath.resolve("upload-build-trace.log"));
-    LOG.debug("Uploading build trace in the background. Upload will log to %s", logFile);
 
-    try {
-      String[] args = {
-        "java",
-        "-cp",
-        buckClasspath,
-        "com.facebook.buck.util.trace.uploader.Main",
-        "--buildId",
-        buildId.toString(),
-        "--traceFilePath",
-        fullPath.toString(),
-        "--baseUrl",
-        traceUploadUri.get().toString(),
-        "--log",
-        logFile.toString()
-      };
-
-      Runtime.getRuntime().exec(args);
-    } catch (IOException e) {
-      LOG.error(e, e.getMessage());
-    }
+    UploaderLauncher.uploadInBackground(
+        buildId, fullPath, "default", traceUploadUri.get(), logFile);
   }
 
   private static class TracePathAndStream {

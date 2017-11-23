@@ -83,6 +83,13 @@ public class DistBuildConfig {
   private static final String MINION_POLL_LOOP_INTERVAL_MILLIS = "minion_poll_loop_interval_millis";
   private static final long DEFAULT_MINION_POLL_LOOP_INTERVAL_MILLIS = 10;
 
+  private static final String HEARTBEAT_SERVICE_INTERVAL_MILLIS =
+      "heartbeat_service_interval_millis";
+  private static final long DEFAULT_HEARTBEAT_SERVICE_INTERVAL_MILLIS = 10000;
+
+  private static final String MAX_MINION_SILENCE_MILLIS = "max_minion_silence_millis";
+  private static final long DEFAULT_MAX_MINION_SILENCE_MILLIS = TimeUnit.SECONDS.toMillis(30);
+
   private final SlbBuckConfig frontendConfig;
   private final BuckConfig buckConfig;
 
@@ -192,6 +199,18 @@ public class DistBuildConfig {
     return buckConfig
         .getLong(STAMPEDE_SECTION, MINION_POLL_LOOP_INTERVAL_MILLIS)
         .orElse(DEFAULT_MINION_POLL_LOOP_INTERVAL_MILLIS);
+  }
+
+  public long getHearbeatServiceRateMillis() {
+    return buckConfig
+        .getLong(STAMPEDE_SECTION, HEARTBEAT_SERVICE_INTERVAL_MILLIS)
+        .orElse(DEFAULT_HEARTBEAT_SERVICE_INTERVAL_MILLIS);
+  }
+
+  public long getMaxMinionSilenceMillis() {
+    return buckConfig
+        .getLong(STAMPEDE_SECTION, MAX_MINION_SILENCE_MILLIS)
+        .orElse(DEFAULT_MAX_MINION_SILENCE_MILLIS);
   }
 
   /**

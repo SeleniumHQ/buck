@@ -63,7 +63,8 @@ public class JsBundleGenrule extends Genrule
       Optional<Arg> cmd,
       Optional<Arg> bash,
       Optional<Arg> cmdExe,
-      JsBundleOutputs jsBundle) {
+      JsBundleOutputs jsBundle,
+      Optional<String> environmentExpansionSeparator) {
     super(
         buildTarget,
         projectFilesystem,
@@ -77,7 +78,9 @@ public class JsBundleGenrule extends Genrule
         cmdExe,
         args.getType(),
         JsBundleOutputs.JS_DIR_NAME,
-        false);
+        false,
+        true,
+        environmentExpansionSeparator);
     this.jsBundle = jsBundle;
     jsBundleSourcePath = jsBundle.getSourcePathToOutput();
     this.rewriteSourcemap = args.getRewriteSourcemap();

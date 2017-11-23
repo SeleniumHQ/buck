@@ -19,8 +19,8 @@ package com.facebook.buck.jvm.java;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.AbstractTool;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.Escaper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -28,19 +28,18 @@ import java.nio.file.Path;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
-public interface Javac extends RuleKeyAppendable, Tool {
-
+/** Interface for a javac tool. */
+public interface Javac extends AbstractTool {
   /** An escaper for arguments written to @argfiles. */
   Function<String, String> ARGFILES_ESCAPER = Escaper.javacEscaper();
 
   String SRC_ZIP = ".src.zip";
   String SRC_JAR = "-sources.jar";
 
-  JavacVersion getVersion();
-
   /** Prepares an invocation of the compiler with the given parameters. */
   Invocation newBuildInvocation(
       JavacExecutionContext context,
+      SourcePathResolver resolver,
       BuildTarget invokingRule,
       ImmutableList<String> options,
       ImmutableList<JavacPluginJsr199Fields> pluginFields,
@@ -60,11 +59,10 @@ public interface Javac extends RuleKeyAppendable, Tool {
 
   String getShortName();
 
+  // TODO(cjhopman): Delete this.
   enum Location {
     /** Perform compilation inside main process. */
     IN_PROCESS,
-    /** Delegate compilation into separate process. */
-    OUT_OF_PROCESS,
   }
 
   enum Source {

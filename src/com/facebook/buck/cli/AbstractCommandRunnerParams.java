@@ -30,19 +30,18 @@ import com.facebook.buck.rules.BuildInfoStoreManager;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyConfiguration;
 import com.facebook.buck.step.ExecutorPool;
-import com.facebook.buck.timing.Clock;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.Console;
+import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessManager;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
 import com.facebook.buck.util.environment.BuildEnvironmentDescription;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
 import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.facebook.buck.worker.WorkerProcessPool;
@@ -107,8 +106,6 @@ public abstract class AbstractCommandRunnerParams {
 
   public abstract KnownBuildRuleTypesProvider getKnownBuildRuleTypesProvider();
 
-  public abstract SdkEnvironment getSdkEnvironment();
-
   public abstract BuildInfoStoreManager getBuildInfoStoreManager();
 
   public abstract Optional<InvocationInfo> getInvocationInfo();
@@ -117,9 +114,9 @@ public abstract class AbstractCommandRunnerParams {
 
   public abstract ProjectFilesystemFactory getProjectFilesystemFactory();
 
-  public abstract ToolchainProvider getToolchainProvider();
-
   public abstract RuleKeyConfiguration getRuleKeyConfiguration();
+
+  public abstract ProcessExecutor getProcessExecutor();
 
   /**
    * Create {@link BuildExecutorArgs} using this {@link CommandRunnerParams}.

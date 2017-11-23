@@ -64,6 +64,7 @@ import com.facebook.buck.distributed.thrift.StoreBuildSlaveFinishedStatsResponse
 import com.facebook.buck.distributed.thrift.UpdateBuildSlaveStatusRequest;
 import com.facebook.buck.distributed.thrift.UpdateBuildSlaveStatusResponse;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.Pair;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
@@ -107,12 +108,13 @@ public class DistBuildServiceTest {
   private static final String REPOSITORY = "repositoryOne";
   private static final String TENANT_ID = "tenantOne";
   private static final String BUILD_LABEL = "unit_test";
+  private static final String USERNAME = "unit_test_user";
 
   @Before
   public void setUp() throws IOException, InterruptedException {
     frontendService = EasyMock.createStrictMock(FrontendService.class);
     executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
-    distBuildService = new DistBuildService(frontendService);
+    distBuildService = new DistBuildService(frontendService, USERNAME);
     distBuildClientStatsTracker = new ClientStatsTracker(BUILD_LABEL);
   }
 
@@ -258,11 +260,14 @@ public class DistBuildServiceTest {
         .once();
     EasyMock.replay(frontendService);
 
-    BuildJob job = distBuildService.createBuild(BuildMode.REMOTE_BUILD, 1, REPOSITORY, TENANT_ID);
+    BuildJob job =
+        distBuildService.createBuild(
+            new BuildId("33-44"), BuildMode.REMOTE_BUILD, 1, REPOSITORY, TENANT_ID);
 
     Assert.assertEquals(request.getValue().getType(), FrontendRequestType.CREATE_BUILD);
     Assert.assertTrue(request.getValue().isSetCreateBuildRequest());
     Assert.assertTrue(request.getValue().getCreateBuildRequest().isSetCreateTimestampMillis());
+    Assert.assertTrue(request.getValue().getCreateBuildRequest().isSetUsername());
 
     Assert.assertTrue(job.isSetStampedeId());
     Assert.assertTrue(job.getStampedeId().isSetId());

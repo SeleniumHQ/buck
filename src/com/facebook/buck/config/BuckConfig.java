@@ -341,9 +341,12 @@ public class BuckConfig implements ConfigPathGetter {
   }
 
   /** @return a {@link SourcePath} identified by a {@link Path}. */
-  public SourcePath getSourcePath(Path path) {
+  public PathSourcePath getPathSourcePath(@PropagatesNullable Path path) {
     if (path == null) {
       return null;
+    }
+    if (path.isAbsolute()) {
+      return PathSourcePath.of(projectFilesystem, path);
     }
     return PathSourcePath.of(
         projectFilesystem,
@@ -729,6 +732,11 @@ public class BuckConfig implements ConfigPathGetter {
     return config.getLong("build", "scheduler_threads").orElse((long) 2).intValue();
   }
 
+  /** @return the maximum size of files input based rule keys will be willing to hash. */
+  public long getBuildInputRuleKeyFileSizeLimit() {
+    return config.getLong("build", "input_rule_key_file_size_limit").orElse(Long.MAX_VALUE);
+  }
+
   public int getDefaultMaximumNumberOfThreads() {
     return getDefaultMaximumNumberOfThreads(Runtime.getRuntime().availableProcessors());
   }
@@ -988,5 +996,18 @@ public class BuckConfig implements ConfigPathGetter {
   /** Whether to create symlinks of build output in buck-out/last. */
   public boolean createBuildOutputSymLinksEnabled() {
     return getBooleanValue("build", "create_build_output_symlinks_enabled", false);
+  }
+
+  public boolean isEmbeddedCellBuckOutEnabled() {
+    return getBooleanValue("project", "embedded_cell_buck_out_enabled", false);
+  }
+
+  /** Whether to instrument the action graph and record performance */
+  public boolean getShouldInstrumentActionGraph() {
+    return getBooleanValue("instrumentation", "action_graph", false);
+  }
+
+  public Optional<String> getPathToBuildPrehookScript() {
+    return getValue("build", "prehook_script");
   }
 }

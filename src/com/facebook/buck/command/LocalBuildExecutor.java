@@ -34,6 +34,7 @@ import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
 import com.facebook.buck.rules.CachingBuildEngineDelegate;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.MetadataChecker;
+import com.facebook.buck.rules.RemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
@@ -42,7 +43,6 @@ import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.ExecutorPool;
-import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
@@ -50,6 +50,7 @@ import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.timing.Clock;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -68,6 +69,7 @@ public class LocalBuildExecutor implements BuildExecutor {
   private final CachingBuildEngineDelegate cachingBuildEngineDelegate;
   private final BuildExecutorArgs args;
   private final Optional<RuleKeyCacheScope<RuleKey>> ruleKeyCacheScope;
+  private final RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter;
   private final Optional<CachingBuildEngine.BuildMode> buildEngineMode;
   private final Optional<ThriftRuleKeyLogger> ruleKeyLogger;
 
@@ -86,7 +88,8 @@ public class LocalBuildExecutor implements BuildExecutor {
       boolean useDistributedBuildCache,
       Optional<RuleKeyCacheScope<RuleKey>> ruleKeyRuleKeyCacheScope,
       Optional<BuildMode> buildEngineMode,
-      Optional<ThriftRuleKeyLogger> ruleKeyLogger) {
+      Optional<ThriftRuleKeyLogger> ruleKeyLogger,
+      RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter) {
     this.actionGraphAndResolver = actionGraphAndResolver;
     this.executorService = executorService;
     this.args = args;
@@ -94,6 +97,7 @@ public class LocalBuildExecutor implements BuildExecutor {
     this.buildEngineMode = buildEngineMode;
     this.ruleKeyLogger = ruleKeyLogger;
     this.ruleKeyCacheScope = ruleKeyRuleKeyCacheScope;
+    this.remoteBuildRuleCompletionWaiter = remoteBuildRuleCompletionWaiter;
 
     // Init resources.
     this.cachingBuildEngine = createCachingBuildEngine();
@@ -202,9 +206,10 @@ public class LocalBuildExecutor implements BuildExecutor {
             args.getRuleKeyConfiguration(),
             cachingBuildEngineDelegate.getFileHashCache(),
             actionGraphAndResolver.getResolver(),
-            engineConfig.getBuildInputRuleKeyFileSizeLimit(),
+            args.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
             ruleKeyCacheScope.map(RuleKeyCacheScope::getCache).orElse(new DefaultRuleKeyCache<>()),
-            ruleKeyLogger));
+            ruleKeyLogger),
+        remoteBuildRuleCompletionWaiter);
   }
 
   public Build getBuild() {

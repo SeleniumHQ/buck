@@ -66,7 +66,6 @@ import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.zip.Unzip;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -132,6 +131,7 @@ class CachingBuildRuleBuilder {
   private final BuildContext buildRuleBuildContext;
   private final ArtifactCache artifactCache;
   private final BuildId buildId;
+  private final RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter;
 
   private final BuildRuleScopeManager buildRuleScopeManager;
 
@@ -180,7 +180,8 @@ class CachingBuildRuleBuilder {
       OnDiskBuildInfo onDiskBuildInfo,
       BuildInfoRecorder buildInfoRecorder,
       BuildableContext buildableContext,
-      BuildRulePipelinesRunner pipelinesRunner) {
+      BuildRulePipelinesRunner pipelinesRunner,
+      RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter) {
     this.buildRuleBuilderDelegate = buildRuleBuilderDelegate;
     this.artifactCacheSizeLimit = artifactCacheSizeLimit;
     this.buildInfoStoreManager = buildInfoStoreManager;
@@ -208,10 +209,11 @@ class CachingBuildRuleBuilder {
     this.buildRuleBuildContext = buildContext.getBuildContext();
     this.artifactCache = buildContext.getArtifactCache();
     this.buildId = buildContext.getBuildId();
+    this.remoteBuildRuleCompletionWaiter = remoteBuildRuleCompletionWaiter;
     this.buildRuleScopeManager = new BuildRuleScopeManager();
 
     this.defaultKey = ruleKeyFactories.getDefaultRuleKeyFactory().build(rule);
-    this.inputBasedKey = Suppliers.memoize(this::calculateInputBasedRuleKey);
+    this.inputBasedKey = MoreSuppliers.memoize(this::calculateInputBasedRuleKey);
     this.manifestBasedKeySupplier =
         MoreSuppliers.weakMemoize(
             () -> {
@@ -481,15 +483,20 @@ class CachingBuildRuleBuilder {
     }
 
     // If this rule was fetched from cache, seed the file hash cache with the recorded
-    // output hashes from the build metadata.
-    Optional<ImmutableMap<String, String>> hashes =
-        onDiskBuildInfo.getMap(BuildInfo.MetadataKey.RECORDED_PATH_HASHES);
-    Preconditions.checkState(hashes.isPresent());
-    // Seed the cache with the hashes.
-    for (Map.Entry<String, String> ent : hashes.get().entrySet()) {
-      Path path = rule.getProjectFilesystem().getPath(ent.getKey());
-      HashCode hashCode = HashCode.fromString(ent.getValue());
-      fileHashCache.set(rule.getProjectFilesystem().resolve(path), hashCode);
+    // output hashes from the build metadata.  Skip this if the output size is too big for
+    // input-based rule keys.
+    long outputSize =
+        Long.parseLong(onDiskBuildInfo.getValue(BuildInfo.MetadataKey.OUTPUT_SIZE).get());
+    if (shouldWriteOutputHashes(outputSize)) {
+      Optional<ImmutableMap<String, String>> hashes =
+          onDiskBuildInfo.getMap(BuildInfo.MetadataKey.RECORDED_PATH_HASHES);
+      Preconditions.checkState(hashes.isPresent());
+      // Seed the cache with the hashes.
+      for (Map.Entry<String, String> ent : hashes.get().entrySet()) {
+        Path path = rule.getProjectFilesystem().getPath(ent.getKey());
+        HashCode hashCode = HashCode.fromString(ent.getValue());
+        fileHashCache.set(rule.getProjectFilesystem().resolve(path), hashCode);
+      }
     }
 
     switch (success) {
@@ -644,7 +651,14 @@ class CachingBuildRuleBuilder {
       }
     }
 
-    onDiskBuildInfo.writeOutputHashes(fileHashCache);
+    if (shouldWriteOutputHashes(outputSize.get())) {
+      onDiskBuildInfo.writeOutputHashes(fileHashCache);
+    }
+  }
+
+  private boolean shouldWriteOutputHashes(long outputSize) {
+    Optional<Long> sizeLimit = ruleKeyFactories.getInputBasedRuleKeyFactory().getInputSizeLimit();
+    return !sizeLimit.isPresent() || (outputSize <= sizeLimit.get());
   }
 
   private BuildInfoRecorder getBuildInfoRecorder() {
@@ -725,8 +739,10 @@ class CachingBuildRuleBuilder {
               Optional.of(
                   Long.parseLong(
                       onDiskBuildInfo.getValue(BuildInfo.MetadataKey.OUTPUT_SIZE).get()));
-          String hashString = onDiskBuildInfo.getValue(BuildInfo.MetadataKey.OUTPUT_HASH).get();
-          outputHash = Optional.of(HashCode.fromString(hashString));
+          if (shouldWriteOutputHashes(outputSize.get())) {
+            String hashString = onDiskBuildInfo.getValue(BuildInfo.MetadataKey.OUTPUT_HASH).get();
+            outputHash = Optional.of(HashCode.fromString(hashString));
+          }
         }
 
         // Determine if this is rule is cacheable.
@@ -837,18 +853,26 @@ class CachingBuildRuleBuilder {
     AtomicReference<CacheResult> rulekeyCacheResult = new AtomicReference<>();
     ListenableFuture<Optional<BuildResult>> buildResultFuture;
 
+    // If this is a distributed build, wait for cachable rules to be marked as
+    // finished by the remote build before attempting to fetch from cache.
+    ListenableFuture<Void> remoteBuildRuleFinishedFuture =
+        remoteBuildRuleCompletionWaiter.waitForBuildRuleToFinishRemotely(rule);
+
     // 2. Rule key cache lookup.
     buildResultFuture =
         // TODO(cjhopman): This should follow the same, simple pattern as everything else. With a
         // large ui.thread_line_limit, SuperConsole tries to redraw more lines than are available.
         // These cache threads make it more likely to hit that problem when SuperConsole is aware
         // of them.
-        Futures.transform(
-            performRuleKeyCacheCheck(),
-            cacheResult -> {
-              rulekeyCacheResult.set(cacheResult);
-              return getBuildResultForRuleKeyCacheResult(cacheResult);
-            });
+        Futures.transformAsync(
+            remoteBuildRuleFinishedFuture,
+            (Void v) ->
+                Futures.transform(
+                    performRuleKeyCacheCheck(),
+                    cacheResult -> {
+                      rulekeyCacheResult.set(cacheResult);
+                      return getBuildResultForRuleKeyCacheResult(cacheResult);
+                    }));
 
     // 3. Build deps.
     buildResultFuture =

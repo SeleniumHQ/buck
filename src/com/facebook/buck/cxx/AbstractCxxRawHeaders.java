@@ -16,23 +16,22 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.RuleKeyObjectSink;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableSortedSet;
+import java.nio.file.Path;
 import java.util.Optional;
-import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import org.immutables.value.Value;
 
 @Value.Immutable
 @BuckStyleImmutable
 abstract class AbstractCxxRawHeaders extends CxxHeaders {
-
   @Override
-  public CxxPreprocessables.IncludeType getIncludeType() {
+  @AddToRuleKey
+  public final CxxPreprocessables.IncludeType getIncludeType() {
     return CxxPreprocessables.IncludeType.RAW;
   }
 
@@ -48,30 +47,18 @@ abstract class AbstractCxxRawHeaders extends CxxHeaders {
   }
 
   @Override
-  @Nullable
-  public SourcePath getIncludeRoot() {
-    return null;
+  public Optional<Path> getResolvedIncludeRoot(SourcePathResolver resolver) {
+    return Optional.empty();
   }
 
   @Override
-  public void addToHeaderPathNormalizer(HeaderPathNormalizer.Builder builder) {
+  public void addToHeaderCollector(HeaderPathNormalizer.HeaderCollector builder) {
     for (SourcePath sourcePath : getHeaders()) {
       builder.addHeader(sourcePath);
     }
   }
 
-  @Override
-  public Stream<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
-    // raw headers are used "as are" - no deps
-    return Stream.empty();
-  }
-
-  @Override
-  public void appendToRuleKey(RuleKeyObjectSink sink) {
-    sink.setReflectively("type", getIncludeType());
-    sink.setReflectively("headers", getHeaders());
-  }
-
   @Value.Parameter
+  @AddToRuleKey
   abstract ImmutableSortedSet<SourcePath> getHeaders();
 }

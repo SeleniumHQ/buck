@@ -27,6 +27,7 @@ import com.facebook.buck.rules.ConstantToolProvider;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.ToolProvider;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor.Option;
 import com.facebook.buck.util.ProcessExecutor.Result;
@@ -143,7 +144,7 @@ public class AppleConfig implements ConfigView<BuckConfig> {
    */
   private static Supplier<Optional<Path>> createAppleDeveloperDirectorySupplier(
       final ProcessExecutor processExecutor) {
-    return Suppliers.memoize(
+    return MoreSuppliers.memoize(
         () -> {
           ProcessExecutorParams processExecutorParams =
               ProcessExecutorParams.builder()
@@ -201,7 +202,8 @@ public class AppleConfig implements ConfigView<BuckConfig> {
     } else {
       Optional<Path> codesignPath = delegate.getPath(APPLE_SECTION, codesignField);
       Path defaultCodesignPath = Paths.get("/usr/bin/codesign");
-      HashedFileTool codesign = new HashedFileTool(codesignPath.orElse(defaultCodesignPath));
+      HashedFileTool codesign =
+          new HashedFileTool(delegate.getPathSourcePath(codesignPath.orElse(defaultCodesignPath)));
       return new ConstantToolProvider(codesign);
     }
   }

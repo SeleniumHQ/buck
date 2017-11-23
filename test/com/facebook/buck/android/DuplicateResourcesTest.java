@@ -43,10 +43,10 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.facebook.buck.timing.IncrementingFakeClock;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.timing.IncrementingFakeClock;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -249,7 +249,8 @@ public class DuplicateResourcesTest {
                 new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1))),
             new DefaultTargetNodeToBuildRuleTransformer(),
             targetGraph,
-            ActionGraphParallelizationMode.DISABLED);
+            ActionGraphParallelizationMode.DISABLED,
+            false);
 
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(

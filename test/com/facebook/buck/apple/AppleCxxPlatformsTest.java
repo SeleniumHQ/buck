@@ -45,6 +45,7 @@ import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -786,7 +787,7 @@ public class AppleCxxPlatformsTest {
               .setRuleFinder(ruleFinder)
               .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
               .setCxxPlatform(entry.getValue().getCxxPlatform())
-              .setPicType(CxxSourceRuleFactory.PicType.PIC)
+              .setPicType(PicType.PIC)
               .build();
       CxxPreprocessAndCompile rule;
       switch (operation) {
@@ -847,6 +848,7 @@ public class AppleCxxPlatformsTest {
               Linker.LinkType.EXECUTABLE,
               Optional.empty(),
               projectFilesystem.getPath("output"),
+              ImmutableList.of(),
               Linker.LinkableDepType.SHARED,
               CxxLinkOptions.of(),
               ImmutableList.of(),
@@ -913,7 +915,8 @@ public class AppleCxxPlatformsTest {
   public void byDefaultCodesignToolIsConstant() {
     AppleCxxPlatform appleCxxPlatform = buildAppleCxxPlatform();
     BuildRuleResolver buildRuleResolver = EasyMock.createMock(BuildRuleResolver.class);
-    SourcePathResolver sourcePathResolver = EasyMock.createMock(SourcePathResolver.class);
+    SourcePathResolver sourcePathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
     assertThat(
         appleCxxPlatform
             .getCodesignProvider()
@@ -951,7 +954,8 @@ public class AppleCxxPlatformsTest {
                 .setSections("[apple]", "codesign = " + codesignPath)
                 .build());
     BuildRuleResolver buildRuleResolver = EasyMock.createMock(BuildRuleResolver.class);
-    SourcePathResolver sourcePathResolver = EasyMock.createMock(SourcePathResolver.class);
+    SourcePathResolver sourcePathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
     assertThat(
         appleCxxPlatform
             .getCodesignProvider()

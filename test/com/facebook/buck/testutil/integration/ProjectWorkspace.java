@@ -30,7 +30,7 @@ import com.facebook.buck.cli.Main;
 import com.facebook.buck.cli.TestRunning;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.io.Watchman;
+import com.facebook.buck.io.WatchmanFactory;
 import com.facebook.buck.io.WatchmanWatcher;
 import com.facebook.buck.io.file.MoreFiles;
 import com.facebook.buck.io.file.MorePaths;
@@ -47,9 +47,7 @@ import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellConfig;
 import com.facebook.buck.rules.CellProvider;
 import com.facebook.buck.rules.DefaultCellPathResolver;
-import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.DefaultProcessExecutor;
@@ -157,6 +155,7 @@ public class ProjectWorkspace {
   private final Path templatePath;
   private final Path destPath;
   private final boolean addBuckRepoCell;
+  private final ProcessExecutor processExecutor;
   @Nullable private ProjectFilesystemAndConfig projectFilesystemAndConfig;
   @Nullable private Main.KnownBuildRuleTypesFactoryFactory knownBuildRuleTypesFactoryFactory;
 
@@ -176,6 +175,7 @@ public class ProjectWorkspace {
     this.templatePath = templateDir;
     this.destPath = targetFolder;
     this.addBuckRepoCell = addBuckRepoCell;
+    this.processExecutor = new DefaultProcessExecutor(new TestConsole());
   }
 
   @VisibleForTesting
@@ -456,8 +456,7 @@ public class ProjectWorkspace {
             .setCommand(command)
             .setDirectory(destPath.toAbsolutePath())
             .build();
-    ProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
-    return executor.launchAndExecute(params);
+    return processExecutor.launchAndExecute(params);
   }
 
   /**
@@ -759,9 +758,7 @@ public class ProjectWorkspace {
     ProjectFilesystem filesystem = filesystemAndConfig.projectFilesystem;
     Config config = filesystemAndConfig.config;
 
-    TestConsole console = new TestConsole();
     ImmutableMap<String, String> env = ImmutableMap.copyOf(System.getenv());
-    ProcessExecutor processExecutor = new DefaultProcessExecutor(console);
     BuckConfig buckConfig =
         new BuckConfig(
             config,
@@ -770,16 +767,14 @@ public class ProjectWorkspace {
             Platform.detect(),
             env,
             DefaultCellPathResolver.of(filesystem.getRootPath(), config));
-    TestToolchainProvider toolchainProvider = new TestToolchainProvider();
-    SdkEnvironment sdkEnvironment =
-        SdkEnvironment.create(buckConfig, processExecutor, toolchainProvider);
 
     return CellProvider.createForLocalBuild(
             filesystem,
-            Watchman.NULL_WATCHMAN,
+            WatchmanFactory.NULL_WATCHMAN,
             buckConfig,
             CellConfig.of(),
-            sdkEnvironment,
+            env,
+            processExecutor,
             new DefaultProjectFilesystemFactory())
         .getCellByPath(filesystem.getRootPath());
   }

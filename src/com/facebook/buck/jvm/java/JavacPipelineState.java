@@ -18,13 +18,11 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.message_ipc.Connection;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.RulePipelineState;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.CapturingPrintStream;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.Verbosity;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
@@ -61,7 +59,6 @@ public class JavacPipelineState implements RulePipelineState {
 
   @Nullable private CapturingPrintStream stdout;
   @Nullable private CapturingPrintStream stderr;
-  @Nullable private Connection<OutOfProcessJavacConnectionInterface> connection;
   @Nullable private Javac.Invocation invocation;
 
   public JavacPipelineState(
@@ -105,10 +102,6 @@ public class JavacPipelineState implements RulePipelineState {
       ExecutionContext firstOrderContext =
           context.createSubContext(stdout, stderr, Optional.of(verbosity));
       closeables.add(firstOrderContext);
-      connection =
-          OutOfProcessConnectionFactory.connectionForOutOfProcessBuild(
-              context, filesystem, getJavac(), invokingRule);
-      closeables.add(connection);
 
       JavacExecutionContext javacExecutionContext =
           JavacExecutionContext.of(
@@ -121,8 +114,7 @@ public class JavacPipelineState implements RulePipelineState {
               filesystem,
               context.getProjectFilesystemFactory(),
               firstOrderContext.getEnvironment(),
-              firstOrderContext.getProcessExecutor(),
-              getAbsolutePathsForJavacInputs(getJavac()));
+              firstOrderContext.getProcessExecutor());
 
       ImmutableList<JavacPluginJsr199Fields> pluginFields =
           ImmutableList.copyOf(
@@ -137,6 +129,7 @@ public class JavacPipelineState implements RulePipelineState {
           getJavac()
               .newBuildInvocation(
                   javacExecutionContext,
+                  resolver,
                   invokingRule,
                   getOptions(context, compilerParameters.getClasspathEntries()),
                   pluginFields,
@@ -178,16 +171,7 @@ public class JavacPipelineState implements RulePipelineState {
     closeables.clear();
     stdout = null;
     stderr = null;
-    connection = null;
     invocation = null;
-  }
-
-  private ImmutableList<Path> getAbsolutePathsForJavacInputs(Javac javac) {
-    return javac
-        .getInputs()
-        .stream()
-        .map(resolver::getAbsolutePath)
-        .collect(MoreCollectors.toImmutableList());
   }
 
   @VisibleForTesting

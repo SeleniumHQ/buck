@@ -42,6 +42,7 @@ import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
 import com.facebook.buck.rules.MetadataChecker;
+import com.facebook.buck.rules.NoOpRemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -590,8 +591,9 @@ public class TestCommand extends BuildCommand {
                         params.getRuleKeyConfiguration(),
                         localCachingBuildEngineDelegate.getFileHashCache(),
                         actionGraphAndResolver.getResolver(),
-                        cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
-                        ruleKeyCacheScope.getCache()));
+                        params.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
+                        ruleKeyCacheScope.getCache()),
+                    new NoOpRemoteBuildRuleCompletionWaiter());
             Build build =
                 new Build(
                     actionGraphAndResolver.getResolver(),
@@ -660,6 +662,7 @@ public class TestCommand extends BuildCommand {
         .setAndroidDevicesHelper(
             AndroidDevicesHelperFactory.get(
                 params
+                    .getCell()
                     .getToolchainProvider()
                     .getByName(AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class),
                 this::getExecutionContext,

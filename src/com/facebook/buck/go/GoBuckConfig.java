@@ -29,11 +29,11 @@ import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.tool.config.ToolConfig;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
@@ -63,7 +63,7 @@ public class GoBuckConfig {
     this.delegate = delegate;
 
     goRootSupplier =
-        Suppliers.memoize(
+        MoreSuppliers.memoize(
             () -> {
               Optional<Path> configValue = delegate.getPath(SECTION, "root");
               if (configValue.isPresent()) {
@@ -74,10 +74,10 @@ public class GoBuckConfig {
             });
 
     goToolDirSupplier =
-        Suppliers.memoize(() -> Paths.get(getGoEnvFromTool(processExecutor, "GOTOOLDIR")));
+        MoreSuppliers.memoize(() -> Paths.get(getGoEnvFromTool(processExecutor, "GOTOOLDIR")));
 
     platformFlavorDomain =
-        Suppliers.memoize(
+        MoreSuppliers.memoize(
             () -> {
               // TODO(mikekap): Allow adding goos/goarch values from config.
               return new GoPlatformFlavorDomain(
@@ -85,7 +85,7 @@ public class GoBuckConfig {
             });
 
     defaultPlatform =
-        Suppliers.memoize(
+        MoreSuppliers.memoize(
             () -> {
               Optional<String> configValue = delegate.getValue(SECTION, "default_platform");
               Optional<GoPlatform> platform;
@@ -162,12 +162,11 @@ public class GoBuckConfig {
 
   private Tool getGoTool(
       final String configName, final String toolName, final String extraFlagsConfigKey) {
-    Optional<Path> toolPath = delegate.getPath(SECTION, configName);
-    if (!toolPath.isPresent()) {
-      toolPath = Optional.of(goToolDirSupplier.get().resolve(toolName));
-    }
+    Path toolPath =
+        delegate.getPath(SECTION, configName).orElse(goToolDirSupplier.get().resolve(toolName));
 
-    CommandTool.Builder builder = new CommandTool.Builder(new HashedFileTool(toolPath.get()));
+    CommandTool.Builder builder =
+        new CommandTool.Builder(new HashedFileTool(() -> delegate.getPathSourcePath(toolPath)));
     if (!extraFlagsConfigKey.isEmpty()) {
       for (String arg : getFlags(extraFlagsConfigKey)) {
         builder.addArg(arg);

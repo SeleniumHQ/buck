@@ -32,6 +32,7 @@ import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
+import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
@@ -192,7 +193,7 @@ public class CxxLuaExtensionDescription
                 compilerFlags,
                 args.getPrefixHeader(),
                 args.getPrecompiledHeader(),
-                CxxSourceRuleFactory.PicType.PIC,
+                PicType.PIC,
                 sandboxTree)
             .requirePreprocessAndCompileRules(srcs);
 
@@ -239,6 +240,7 @@ public class CxxLuaExtensionDescription
         Linker.LinkType.SHARED,
         Optional.of(extensionName),
         extensionPath,
+        args.getLinkerExtraOutputs(),
         Linker.LinkableDepType.SHARED,
         CxxLinkOptions.of(),
         RichStream.from(args.getCxxDeps().get(ruleResolver, cxxPlatform))

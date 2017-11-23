@@ -17,10 +17,15 @@ package com.facebook.buck.rules;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.io.Watchman;
+import com.facebook.buck.io.WatchmanFactory;
+import com.facebook.buck.io.filesystem.EmbeddedCellBuckOutInfo;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.rules.keys.impl.ConfigRuleKeyConfigurationFactory;
+import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.toolchain.impl.DefaultToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.Configs;
 import com.facebook.buck.util.config.RawConfig;
@@ -89,7 +94,8 @@ public final class CellProvider {
       Watchman watchman,
       BuckConfig rootConfig,
       CellConfig rootCellConfigOverrides,
-      SdkEnvironment sdkEnvironment,
+      ImmutableMap<String, String> environment,
+      ProcessExecutor processExecutor,
       ProjectFilesystemFactory projectFilesystemFactory) {
 
     DefaultCellPathResolver rootCellCellPathResolver =
@@ -154,8 +160,19 @@ public final class CellProvider {
                     new CellPathResolverView(
                         rootCellCellPathResolver, cellMapping.keySet(), cellPath);
 
+                Optional<EmbeddedCellBuckOutInfo> embeddedCellBuckOutInfo = Optional.empty();
+                Optional<String> canonicalCellName =
+                    cellPathResolver.getCanonicalCellName(normalizedCellPath);
+                if (rootConfig.isEmbeddedCellBuckOutEnabled() && canonicalCellName.isPresent()) {
+                  embeddedCellBuckOutInfo =
+                      Optional.of(
+                          EmbeddedCellBuckOutInfo.of(
+                              rootFilesystem.resolve(rootFilesystem.getBuckPaths().getBuckOut()),
+                              canonicalCellName.get()));
+                }
                 ProjectFilesystem cellFilesystem =
-                    projectFilesystemFactory.createProjectFilesystem(normalizedCellPath, config);
+                    projectFilesystemFactory.createProjectFilesystem(
+                        normalizedCellPath, config, embeddedCellBuckOutInfo);
 
                 BuckConfig buckConfig =
                     new BuckConfig(
@@ -166,16 +183,20 @@ public final class CellProvider {
                         rootConfig.getEnvironment(),
                         cellPathResolver);
 
+                ToolchainProvider toolchainProvider =
+                    new DefaultToolchainProvider(
+                        environment, buckConfig, cellFilesystem, processExecutor);
+
                 // TODO(13777679): cells in other watchman roots do not work correctly.
 
                 return Cell.of(
                     getKnownRoots(cellPathResolver),
-                    cellPathResolver.getCanonicalCellName(normalizedCellPath),
+                    canonicalCellName,
                     cellFilesystem,
                     watchman,
                     buckConfig,
                     cellProvider,
-                    sdkEnvironment,
+                    toolchainProvider,
                     ConfigRuleKeyConfigurationFactory.create(buckConfig));
               }
             },
@@ -185,6 +206,9 @@ public final class CellProvider {
                   .getCanonicalCellName(rootFilesystem.getRootPath())
                   .isPresent(),
               "Root cell should be nameless");
+          ToolchainProvider toolchainProvider =
+              new DefaultToolchainProvider(
+                  environment, rootConfig, rootFilesystem, processExecutor);
           return Cell.of(
               getKnownRoots(rootCellCellPathResolver),
               Optional.empty(),
@@ -192,29 +216,37 @@ public final class CellProvider {
               watchman,
               rootConfig,
               cellProvider,
-              sdkEnvironment,
+              toolchainProvider,
               ConfigRuleKeyConfigurationFactory.create(rootConfig));
         });
   }
 
   public static CellProvider createForDistributedBuild(
-      ImmutableMap<Path, DistBuildCellParams> cellParams, SdkEnvironment sdkEnvironment) {
+      ImmutableMap<Path, DistBuildCellParams> cellParams) {
     return new CellProvider(
         cellProvider ->
             CacheLoader.from(
                 cellPath -> {
                   DistBuildCellParams cellParam =
                       Preconditions.checkNotNull(cellParams.get(cellPath));
+
+                  ToolchainProvider toolchainProvider =
+                      new DefaultToolchainProvider(
+                          cellParam.getEnvironment(),
+                          cellParam.getConfig(),
+                          cellParam.getFilesystem(),
+                          cellParam.getProcessExecutor());
+
                   return Cell.of(
                       cellParams.keySet(),
                       // Distributed builds don't care about cell names, use a sentinel value that
                       // will show up if it actually does care about them.
                       cellParam.getCanonicalName(),
                       cellParam.getFilesystem(),
-                      Watchman.NULL_WATCHMAN,
+                      WatchmanFactory.NULL_WATCHMAN,
                       cellParam.getConfig(),
                       cellProvider,
-                      sdkEnvironment,
+                      toolchainProvider,
                       ConfigRuleKeyConfigurationFactory.create(cellParam.getConfig()));
                 }),
         null);
@@ -228,6 +260,10 @@ public final class CellProvider {
     ProjectFilesystem getFilesystem();
 
     Optional<String> getCanonicalName();
+
+    ImmutableMap<String, String> getEnvironment();
+
+    ProcessExecutor getProcessExecutor();
   }
 
   private static ImmutableSet<Path> getKnownRoots(CellPathResolver resolver) {

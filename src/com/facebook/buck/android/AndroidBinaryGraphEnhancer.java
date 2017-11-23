@@ -30,10 +30,10 @@ import com.facebook.buck.android.toolchain.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaConfiguredCompilerFactory;
-import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryDeps;
 import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
@@ -139,7 +139,8 @@ public class AndroidBinaryGraphEnhancer {
       EnumSet<RType> bannedDuplicateResourceTypes,
       Optional<String> resourceUnionPackage,
       ImmutableSet<String> locales,
-      SourcePath manifest,
+      Optional<SourcePath> manifest,
+      Optional<SourcePath> manifestSkeleton,
       PackageType packageType,
       ImmutableSet<TargetCpuType> cpuFilters,
       boolean shouldBuildStringSourceMap,
@@ -225,6 +226,7 @@ public class AndroidBinaryGraphEnhancer {
             originalBuildTarget,
             ExopackageMode.enabledForResources(exopackageModes),
             manifest,
+            manifestSkeleton,
             aaptMode,
             resourcesFilter,
             resourceCompressionMode,

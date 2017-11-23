@@ -18,6 +18,7 @@ package com.facebook.buck.android.packageable;
 
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
+import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
@@ -93,6 +94,9 @@ interface AbstractAndroidPackageableCollection {
   /** Java classes (jars) to include in the package. */
   ImmutableSet<SourcePath> getClasspathEntriesToDex();
 
+  /** Android manifests to merge with the manifest skeleton. */
+  ImmutableSet<SourcePath> getAndroidManifestPieces();
+
   /** Java classes to include in the package sorted into modules */
   ImmutableMultimap<APKModule, SourcePath> getModuleMappedClasspathEntriesToDex();
 
@@ -111,12 +115,9 @@ interface AbstractAndroidPackageableCollection {
    */
   ImmutableSet<SourcePath> getPathsToThirdPartyJars();
 
-  /**
-   * {@link com.facebook.buck.jvm.java.JavaLibrary} rules whose output will be dexed and included in
-   * the package.
-   */
+  /** {@link JavaLibrary} rules whose output will be dexed and included in the package. */
   Set<BuildTarget> getJavaLibrariesToDex();
 
-  /** See {@link com.facebook.buck.jvm.java.JavaLibrary#getClassNamesToHashes()} */
+  /** See {@link JavaLibrary#getClassNamesToHashes()} */
   Supplier<ImmutableMap<String, HashCode>> getClassNamesToHashesSupplier();
 }

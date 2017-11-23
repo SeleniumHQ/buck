@@ -200,6 +200,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         "-c",
         enableObjcInterop ? "-enable-objc-interop" : "",
         hasMainEntry ? "" : "-parse-as-library",
+        "-serialize-debugging-options",
         "-module-name",
         moduleName,
         "-emit-module",
@@ -337,7 +338,7 @@ public class SwiftCompile extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     return args.build();
   }
 
-  ImmutableList<Arg> getAstLinkArgs() {
+  public ImmutableList<Arg> getAstLinkArgs() {
     return ImmutableList.<Arg>builder()
         .addAll(StringArg.from("-Xlinker", "-add_ast_path"))
         .add(SourcePathArg.of(ExplicitBuildTargetSourcePath.of(getBuildTarget(), modulePath)))

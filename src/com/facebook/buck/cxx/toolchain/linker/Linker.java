@@ -19,12 +19,12 @@ package com.facebook.buck.cxx.toolchain.linker;
 import com.facebook.buck.io.file.FileScrubber;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.AbstractTool;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -34,7 +34,7 @@ import java.nio.file.Path;
  * An object wrapping a linker, providing its source path and an interface to decorate arguments
  * with specific flags.
  */
-public interface Linker extends Tool {
+public interface Linker extends AbstractTool {
 
   /**
    * @param cellRootMap Replacement map for cell roots found in paths, to some suitably normalized
@@ -117,6 +117,8 @@ public interface Linker extends Tool {
 
   boolean hasFilePathSizeLimitations();
 
+  SharedLibraryLoadingType getSharedLibraryLoadingType();
+
   /** The various ways to link an output file. */
   enum LinkType {
 
@@ -145,6 +147,14 @@ public interface Linker extends Tool {
     // Provide input suitable for dynamically linking this linkable (e.g. return references to
     // shared libraries, libfoo.so).
     SHARED
+  }
+
+  /** The various ways to load shared libraries on different platforms */
+  enum SharedLibraryLoadingType {
+    // Shared libraries are loaded via -rpath (*nix)
+    RPATH,
+    // Shared libraries are loaded from the same directory where a binary is located (windows)
+    THE_SAME_DIRECTORY,
   }
 
   /**

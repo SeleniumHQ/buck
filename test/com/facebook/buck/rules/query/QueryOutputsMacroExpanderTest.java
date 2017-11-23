@@ -68,7 +68,7 @@ public class QueryOutputsMacroExpanderTest {
   public void setUp() throws Exception {
     cache = new HashMapWithStats<>();
     expander = new QueryOutputsMacroExpander(Optional.empty());
-    handler = new MacroHandler(ImmutableMap.of("query", expander));
+    handler = new MacroHandler(ImmutableMap.of("query_outputs", expander));
     filesystem = new FakeProjectFilesystem(tmp.getRoot());
     cellNames = TestCellBuilder.createCellRoots(filesystem);
     TargetNode<?, ?> depNode =
@@ -98,7 +98,7 @@ public class QueryOutputsMacroExpanderTest {
   @Test
   public void classpathFunction() throws Exception {
     assertExpandsTo(
-        "$(query 'classpath(//exciting:target)')",
+        "$(query_outputs 'classpath(//exciting:target)')",
         rule,
         String.format(
             "%s %s",
@@ -109,7 +109,7 @@ public class QueryOutputsMacroExpanderTest {
   @Test
   public void literals() throws Exception {
     assertExpandsTo(
-        "$(query 'set(//exciting:target //exciting:dep)')",
+        "$(query_outputs 'set(//exciting:target //exciting:dep)')",
         rule,
         String.format(
             "%s %s",
@@ -157,7 +157,7 @@ public class QueryOutputsMacroExpanderTest {
             dep.getBuildTarget(),
             cellNames,
             ruleResolver,
-            "$(query 'classpath(//exciting:target)')",
+            "$(query_outputs 'classpath(//exciting:target)')",
             cache));
     // Cache should be populated at this point
     assertThat(cache.values(), Matchers.hasSize(1));
@@ -165,7 +165,7 @@ public class QueryOutputsMacroExpanderTest {
 
     int getsSoFar = cache.numGets();
     assertExpandsTo(
-        "$(query 'classpath(//exciting:target)')",
+        "$(query_outputs 'classpath(//exciting:target)')",
         rule,
         String.format(
             "%s %s",
@@ -180,9 +180,7 @@ public class QueryOutputsMacroExpanderTest {
 
   private void assertExpandsTo(String input, BuildRule rule, String expected)
       throws MacroException {
-
     String results = handler.expand(rule.getBuildTarget(), cellNames, ruleResolver, input, cache);
-
     assertEquals(expected, results);
   }
 

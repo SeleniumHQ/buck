@@ -16,11 +16,27 @@
 
 package com.facebook.buck.toolchain;
 
+import java.util.Collection;
+import java.util.Optional;
+
 /** An interface that give access to specific toolchains by toolchain name. */
 public interface ToolchainProvider {
   Toolchain getByName(String toolchainName);
 
   <T extends Toolchain> T getByName(String toolchainName, Class<T> toolchainClass);
 
+  <T extends Toolchain> Optional<T> getByNameIfPresent(
+      String toolchainName, Class<T> toolchainClass);
+
   boolean isToolchainPresent(String toolchainName);
+
+  /**
+   * Provides access to all known toolchains that support the provided capability.
+   *
+   * <p>The toolchains are not created during the execution of this method.
+   *
+   * @return a collection of toolchain names that support the provided capability.
+   */
+  <T extends ToolchainWithCapability> Collection<String> getToolchainsWithCapability(
+      Class<T> capability);
 }

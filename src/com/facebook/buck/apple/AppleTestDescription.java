@@ -17,6 +17,7 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
+import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
@@ -59,12 +60,14 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.swift.SwiftLibraryDescription;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.zip.UnzipStep;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -107,10 +110,10 @@ public class AppleTestDescription
           CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR,
           CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR);
 
+  private final ToolchainProvider toolchainProvider;
   private final AppleConfig appleConfig;
   private final AppleLibraryDescription appleLibraryDescription;
   private final FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain;
-  private final FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain;
   private final Flavor defaultCxxFlavor;
   private final CodeSignIdentityStore codeSignIdentityStore;
   private final ProvisioningProfileStore provisioningProfileStore;
@@ -118,19 +121,19 @@ public class AppleTestDescription
   private final Optional<Long> defaultTestRuleTimeoutMs;
 
   public AppleTestDescription(
+      ToolchainProvider toolchainProvider,
       AppleConfig appleConfig,
       AppleLibraryDescription appleLibraryDescription,
       FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain,
-      FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain,
       Flavor defaultCxxFlavor,
       CodeSignIdentityStore codeSignIdentityStore,
       ProvisioningProfileStore provisioningProfileStore,
       Supplier<Optional<Path>> xcodeDeveloperDirectorySupplier,
       Optional<Long> defaultTestRuleTimeoutMs) {
+    this.toolchainProvider = toolchainProvider;
     this.appleConfig = appleConfig;
     this.appleLibraryDescription = appleLibraryDescription;
     this.cxxPlatformFlavorDomain = cxxPlatformFlavorDomain;
-    this.appleCxxPlatformFlavorDomain = appleCxxPlatformFlavorDomain;
     this.defaultCxxFlavor = defaultCxxFlavor;
     this.codeSignIdentityStore = codeSignIdentityStore;
     this.provisioningProfileStore = provisioningProfileStore;
@@ -173,6 +176,12 @@ public class AppleTestDescription
       }
     }
 
+    if (args.getUiTestTargetApp().isPresent() && !args.getIsUiTest()) {
+      throw new HumanReadableException(
+          "Invalid configuration for %s with 'ui_test_target_app' specified, but 'is_ui_test' set to false or 'test_host_app' not specified",
+          buildTarget);
+    }
+
     AppleDebugFormat debugFormat =
         AppleDebugFormat.FLAVOR_DOMAIN
             .getValue(buildTarget)
@@ -195,6 +204,12 @@ public class AppleTestDescription
     if (addDefaultPlatform) {
       extraFlavorsBuilder.add(defaultCxxFlavor);
     }
+
+    AppleCxxPlatformsProvider appleCxxPlatformsProvider =
+        toolchainProvider.getByName(
+            AppleCxxPlatformsProvider.DEFAULT_NAME, AppleCxxPlatformsProvider.class);
+    FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain =
+        appleCxxPlatformsProvider.getAppleCxxPlatforms();
 
     Optional<MultiarchFileInfo> multiarchFileInfo =
         MultiarchFileInfos.create(appleCxxPlatformFlavorDomain, buildTarget);
@@ -224,20 +239,19 @@ public class AppleTestDescription
       }
     }
 
-    // UI test bundles do not use the test host as their bundle_loader, but instead a stub app
-    Optional<TestHostInfo> testHostInfo;
-    if (args.getTestHostApp().isPresent() && !args.getIsUiTest()) {
-      testHostInfo =
+    Optional<TestHostInfo> testHostWithTargetApp = Optional.empty();
+    if (args.getTestHostApp().isPresent()) {
+      testHostWithTargetApp =
           Optional.of(
               createTestHostInfo(
                   buildTarget,
+                  args.getIsUiTest(),
                   resolver,
                   args.getTestHostApp().get(),
+                  args.getUiTestTargetApp(),
                   debugFormat,
                   libraryFlavors,
                   cxxPlatforms));
-    } else {
-      testHostInfo = Optional.empty();
     }
 
     BuildTarget libraryTarget =
@@ -253,8 +267,8 @@ public class AppleTestDescription
             resolver,
             cellRoots,
             args,
-            testHostInfo.map(TestHostInfo::getTestHostAppBinarySourcePath),
-            testHostInfo.map(TestHostInfo::getBlacklist).orElse(ImmutableSet.of()),
+            testHostWithTargetApp.flatMap(TestHostInfo::getTestHostAppBinarySourcePath),
+            testHostWithTargetApp.map(TestHostInfo::getBlacklist).orElse(ImmutableSet.of()),
             libraryTarget,
             Optionals.toStream(args.getTestHostApp()).toImmutableSortedSet(Ordering.natural()));
     if (!createBundle || SwiftLibraryDescription.isSwiftTarget(libraryTarget)) {
@@ -313,7 +327,8 @@ public class AppleTestDescription
         projectFilesystem,
         params.withDeclaredDeps(ImmutableSortedSet.of(bundle)).withoutExtraDeps(),
         bundle,
-        testHostInfo.map(TestHostInfo::getTestHostApp),
+        testHostWithTargetApp.map(TestHostInfo::getTestHostApp),
+        testHostWithTargetApp.flatMap(TestHostInfo::getUiTestTargetApp),
         args.getContacts(),
         args.getLabels(),
         args.getRunTestSeparately(),
@@ -445,16 +460,16 @@ public class AppleTestDescription
         buildTarget, cellRoots, constructorArg, extraDepsBuilder, targetGraphOnlyDepsBuilder);
   }
 
-  private TestHostInfo createTestHostInfo(
+  private AppleBundle getBuildRuleForTestHostAppTarget(
       BuildTarget buildTarget,
       BuildRuleResolver resolver,
-      BuildTarget testHostAppBuildTarget,
+      BuildTarget testHostBuildTarget,
       AppleDebugFormat debugFormat,
       Iterable<Flavor> additionalFlavors,
-      ImmutableList<CxxPlatform> cxxPlatforms) {
+      String testHostKeyName) {
     BuildRule rule =
         resolver.requireRule(
-            testHostAppBuildTarget.withAppendedFlavors(
+            testHostBuildTarget.withAppendedFlavors(
                 ImmutableSet.<Flavor>builder()
                     .addAll(additionalFlavors)
                     .add(debugFormat.getFlavor(), StripStyle.NON_GLOBAL_SYMBOLS.getFlavor())
@@ -462,19 +477,41 @@ public class AppleTestDescription
 
     if (!(rule instanceof AppleBundle)) {
       throw new HumanReadableException(
-          "Apple test rule '%s' has test_host_app '%s' not of type '%s'.",
+          "Apple test rule '%s' has %s '%s' not of type '%s'.",
           buildTarget,
-          testHostAppBuildTarget,
+          testHostKeyName,
+          testHostBuildTarget,
           Description.getBuildRuleType(AppleBundleDescription.class));
     }
+    return (AppleBundle) rule;
+  }
 
-    AppleBundle testHostApp = (AppleBundle) rule;
+  @VisibleForTesting
+  TestHostInfo createTestHostInfo(
+      BuildTarget buildTarget,
+      boolean isUITestTestHostInfo,
+      BuildRuleResolver resolver,
+      BuildTarget testHostAppBuildTarget,
+      Optional<BuildTarget> uiTestTargetAppBuildTarget,
+      AppleDebugFormat debugFormat,
+      Iterable<Flavor> additionalFlavors,
+      ImmutableList<CxxPlatform> cxxPlatforms) {
+
+    AppleBundle testHostWithTargetApp =
+        getBuildRuleForTestHostAppTarget(
+            buildTarget,
+            resolver,
+            testHostAppBuildTarget,
+            debugFormat,
+            additionalFlavors,
+            "test_host_app");
+
     SourcePath testHostAppBinarySourcePath =
-        testHostApp.getBinaryBuildRule().getSourcePathToOutput();
+        testHostWithTargetApp.getBinaryBuildRule().getSourcePathToOutput();
 
     ImmutableMap<BuildTarget, NativeLinkable> roots =
         NativeLinkables.getNativeLinkableRoots(
-            testHostApp.getBinary().get().getBuildDeps(),
+            testHostWithTargetApp.getBinary().get().getBuildDeps(),
             r -> !(r instanceof NativeLinkable) ? Optional.of(r.getBuildDeps()) : Optional.empty());
 
     // Union the blacklist of all the platforms. This should give a superset for each particular
@@ -485,7 +522,41 @@ public class AppleTestDescription
       blacklistBuilder.addAll(
           NativeLinkables.getTransitiveNativeLinkables(platform, roots.values()).keySet());
     }
-    return TestHostInfo.of(testHostApp, testHostAppBinarySourcePath, blacklistBuilder.build());
+
+    if (!uiTestTargetAppBuildTarget.isPresent()) {
+      // Check for legacy UITest setup
+      if (isUITestTestHostInfo) {
+        return TestHostInfo.of(
+            testHostWithTargetApp,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            ImmutableSet.of());
+      }
+      return TestHostInfo.of(
+          testHostWithTargetApp,
+          Optional.empty(),
+          Optional.of(testHostAppBinarySourcePath),
+          Optional.empty(),
+          blacklistBuilder.build());
+    }
+    AppleBundle uiTestTargetApp =
+        getBuildRuleForTestHostAppTarget(
+            buildTarget,
+            resolver,
+            uiTestTargetAppBuildTarget.get(),
+            debugFormat,
+            additionalFlavors,
+            "ui_test_target_app");
+    SourcePath uiTestTargetAppBinarySourcePath =
+        uiTestTargetApp.getBinaryBuildRule().getSourcePathToOutput();
+
+    return TestHostInfo.of(
+        testHostWithTargetApp,
+        Optional.of(uiTestTargetApp),
+        Optional.of(testHostAppBinarySourcePath),
+        Optional.of(uiTestTargetAppBinarySourcePath),
+        blacklistBuilder.build());
   }
 
   @Override
@@ -505,11 +576,18 @@ public class AppleTestDescription
   interface AbstractTestHostInfo {
     AppleBundle getTestHostApp();
 
+    Optional<AppleBundle> getUiTestTargetApp();
+
     /**
      * Location of the test host binary that can be passed as the "bundle loader" option when
      * linking the test library.
      */
-    SourcePath getTestHostAppBinarySourcePath();
+    Optional<SourcePath> getTestHostAppBinarySourcePath();
+
+    /**
+     * Location of the ui test target binary that can be passed test target application of UITest
+     */
+    Optional<SourcePath> getUiTestTargetAppBinarySourcePath();
 
     /** Libraries included in test host that should not be linked into the test library. */
     ImmutableSet<BuildTarget> getBlacklist();
@@ -533,7 +611,11 @@ public class AppleTestDescription
       return false;
     }
 
+    // Application used to host test bundle process
     Optional<BuildTarget> getTestHostApp();
+
+    // Application used as XCUITest application target.
+    Optional<BuildTarget> getUiTestTargetApp();
 
     // for use with FBSnapshotTestcase, injects the path as FB_REFERENCE_IMAGE_DIR
     Optional<Either<SourcePath, String>> getSnapshotReferenceImagesPath();

@@ -19,6 +19,8 @@ package com.facebook.buck.jvm.java;
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.HasClasspathEntries;
+import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
@@ -39,9 +41,9 @@ import com.facebook.buck.rules.keys.SupportsDependencyFileRuleKey;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
@@ -188,19 +190,19 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     this.abiJar = abiJar;
 
     this.outputClasspathEntriesSupplier =
-        Suppliers.memoize(
+        MoreSuppliers.memoize(
             () ->
                 JavaLibraryClasspathProvider.getOutputClasspathJars(
                     DefaultJavaLibrary.this, sourcePathForOutputJar()));
 
     this.transitiveClasspathsSupplier =
-        Suppliers.memoize(
+        MoreSuppliers.memoize(
             () ->
                 JavaLibraryClasspathProvider.getClasspathsFromLibraries(
                     getTransitiveClasspathDeps()));
 
     this.transitiveClasspathDepsSupplier =
-        Suppliers.memoize(
+        MoreSuppliers.memoize(
             () -> JavaLibraryClasspathProvider.getTransitiveClasspathDeps(DefaultJavaLibrary.this));
 
     this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);

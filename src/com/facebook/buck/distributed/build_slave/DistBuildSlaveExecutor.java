@@ -26,6 +26,7 @@ import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
+import com.facebook.buck.rules.NoOpRemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import java.io.IOException;
@@ -51,19 +52,21 @@ public class DistBuildSlaveExecutor {
   }
 
   public int buildAndReturnExitCode() throws IOException, InterruptedException {
+    DistBuildModeRunner runner = null;
     if (DistBuildMode.COORDINATOR == args.getDistBuildMode()) {
-      return MultiSlaveBuildModeRunnerFactory.createCoordinator(
+      runner =
+          MultiSlaveBuildModeRunnerFactory.createCoordinator(
               initializer.getActionGraphAndResolver(),
               getTopLevelTargetsToBuild(),
               args.getDistBuildConfig(),
               args.getDistBuildService(),
               args.getStampedeId(),
               false,
-              args.getLogDirectoryPath())
-          .runAndReturnExitCode();
+              args.getLogDirectoryPath(),
+              args.getBuildRuleFinishedPublisher());
+      return runWithHeartbeatService(runner);
     }
 
-    DistBuildModeRunner runner = null;
     BuildExecutorArgs builderArgs = args.createBuilderArgs();
     try (ExecutionContext executionContext =
         LocalBuildExecutor.createExecutionContext(builderArgs)) {
@@ -75,7 +78,9 @@ public class DistBuildSlaveExecutor {
               new RemoteBuildModeRunner(
                   localBuildExecutor,
                   args.getState().getRemoteState().getTopLevelTargets(),
-                  createRemoteBuildFinalBuildStatusSetter());
+                  createRemoteBuildFinalBuildStatusSetter(),
+                  args.getDistBuildService(),
+                  args.getStampedeId());
           break;
 
         case MINION:
@@ -100,7 +105,8 @@ public class DistBuildSlaveExecutor {
                   args.getStampedeId(),
                   args.getBuildSlaveRunId(),
                   localBuildExecutor,
-                  args.getLogDirectoryPath());
+                  args.getLogDirectoryPath(),
+                  args.getBuildRuleFinishedPublisher());
           break;
 
         case COORDINATOR:
@@ -111,7 +117,16 @@ public class DistBuildSlaveExecutor {
           return -1;
       }
     }
-    return runner.runAndReturnExitCode();
+
+    return runWithHeartbeatService(runner);
+  }
+
+  private int runWithHeartbeatService(DistBuildModeRunner runner)
+      throws IOException, InterruptedException {
+    try (HeartbeatService service =
+        new HeartbeatService(args.getDistBuildConfig().getHearbeatServiceRateMillis())) {
+      return runner.runAndReturnExitCode(service);
+    }
   }
 
   private FinalBuildStatusSetter createRemoteBuildFinalBuildStatusSetter() {
@@ -150,7 +165,10 @@ public class DistBuildSlaveExecutor {
               true,
               Optional.empty(),
               Optional.empty(),
-              Optional.empty());
+              Optional.empty(),
+              // Only the client side build needs to synchronize, not the slave.
+              // (as the co-ordinator synchronizes artifacts between slaves).
+              new NoOpRemoteBuildRuleCompletionWaiter());
         };
     return new LazyInitBuilder(builderSupplier);
   }

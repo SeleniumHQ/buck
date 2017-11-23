@@ -22,11 +22,11 @@ import com.facebook.buck.io.filesystem.CopySourceMode;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemDelegate;
-import com.facebook.buck.timing.Clock;
-import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.sha1.Sha1HashCode;
+import com.facebook.buck.util.timing.Clock;
+import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -223,8 +223,12 @@ public class FakeProjectFilesystem extends DefaultProjectFilesystem {
     return new FakeProjectFilesystem(tempDir);
   }
 
-  public static ProjectFilesystem createJavaOnlyFilesystem() throws InterruptedException {
-    return createJavaOnlyFilesystem("/opt/src/buck");
+  public static ProjectFilesystem createJavaOnlyFilesystem() {
+    try {
+      return createJavaOnlyFilesystem("/opt/src/buck");
+    } catch (InterruptedException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   public static ProjectFilesystem createJavaOnlyFilesystem(String rootPath)

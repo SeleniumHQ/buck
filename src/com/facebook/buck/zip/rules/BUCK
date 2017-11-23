@@ -1,12 +1,11 @@
-load("//tools/build_rules:java_rules.bzl", "java_library_with_plugins")
+load("//tools/build_rules:module_rules.bzl", "buck_module")
 
-java_library_with_plugins(
+buck_module(
     name = "rules",
     srcs = glob(["*.java"]),
     provided_deps = [
         "//src/com/facebook/buck/event:interfaces",
         "//src/com/facebook/buck/io:io",
-        "//src/com/facebook/buck/jvm/java:support",
         "//src/com/facebook/buck/model:model",
         "//src/com/facebook/buck/module:module",
         "//src/com/facebook/buck/parser:rule_pattern",
@@ -23,6 +22,7 @@ java_library_with_plugins(
         "//src/com/facebook/buck/util/zip:zip",
         "//src/com/facebook/buck/versions:versions",
         "//src/com/facebook/buck/zip:zip",
+        "//src/com/facebook/buck/zip/bundler:bundler",
         "//third-party/java/guava:guava",
         "//third-party/java/infer-annotations:infer-annotations",
     ],
@@ -34,17 +34,5 @@ java_library_with_plugins(
         "//src/org/openqa/selenium/buck/mozilla:mozilla",
         "//test/com/facebook/buck/ide/intellij:intellij",
         "//test/com/facebook/buck/zip/rules:rules",
-    ],
-)
-
-java_binary(
-    name = "rules-module",
-    manifest_file = "META-INF/MANIFEST.MF",
-    visibility = [
-        "//programs:bucklib",
-        "//programs:calculate-buck-binary-hash",
-    ],
-    deps = [
-        ":rules",
     ],
 )

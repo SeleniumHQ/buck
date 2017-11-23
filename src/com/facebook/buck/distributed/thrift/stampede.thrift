@@ -67,10 +67,14 @@ struct BuildSlaveInfo {
   1: optional BuildSlaveRunId buildSlaveRunId;
   2: optional string hostname;
   3: optional string command;
+
+  // TODO(ruibm): Fields [4-7] have fallen out of sync and should not be used anymore however
+  //              the buck client code otherwise we get compile errors.
   4: optional i32 stdOutCurrentBatchNumber;
   5: optional i32 stdOutCurrentBatchLineCount;
   6: optional i32 stdErrCurrentBatchNumber;
   7: optional i32 stdErrCurrentBatchLineCount;
+
   8: optional bool logDirZipWritten;
   9: optional i32 exitCode;
   10: optional BuildStatus status = BuildStatus.UNKNOWN;
@@ -159,6 +163,9 @@ struct BuildJob {
   8: optional string repository;
   9: optional string tenantId;
   10: optional string statusMessage;
+  // The build UUID of a buck client which initiated
+  // remote or distributed build.
+  11: optional string buckBuildUuid;
 }
 
 struct Announcement {
@@ -208,6 +215,8 @@ struct CreateBuildRequest {
   3: optional i32 numberOfMinions;
   4: optional string repository;
   5: optional string tenantId;
+  6: optional string buckBuildUuid;
+  7: optional string username;
 }
 
 struct CreateBuildResponse {
@@ -450,6 +459,13 @@ struct SetFinalBuildStatusRequest {
 struct SetFinalBuildStatusResponse {
 }
 
+struct ReportCoordinatorAliveRequest {
+  1: optional StampedeId stampedeId;
+}
+
+struct ReportCoordinatorAliveResponse {
+}
+
 ##############################################################################
 ## Top-Level Buck-Frontend HTTP body thrift Request/Response format
 ##############################################################################
@@ -481,7 +497,8 @@ enum FrontendRequestType {
   FETCH_BUILD_SLAVE_FINISHED_STATS = 24,
   SET_COORDINATOR = 25,
   ENQUEUE_MINIONS = 26,
-  SET_FINAL_BUILD_STATUS = 27
+  SET_FINAL_BUILD_STATUS = 27,
+  REPORT_COORDINATOR_ALIVE = 28,
 
   // [100-199] Values are reserved for the buck cache request types.
 }
@@ -515,6 +532,7 @@ struct FrontendRequest {
   25: optional SetCoordinatorRequest setCoordinatorRequest;
   26: optional EnqueueMinionsRequest enqueueMinionsRequest;
   27: optional SetFinalBuildStatusRequest setFinalBuildStatusRequest;
+  28: optional ReportCoordinatorAliveRequest reportCoordinatorAliveRequest;
 
   // [100-199] Values are reserved for the buck cache request types.
 }
@@ -548,6 +566,7 @@ struct FrontendResponse {
   29: optional SetCoordinatorResponse setCoordinatorResponse;
   30: optional EnqueueMinionsResponse enqueueMinionsResponse;
   31: optional SetFinalBuildStatusResponse setFinalBuildStatusResponse;
+  32: optional ReportCoordinatorAliveResponse reportCoordinatorAliveResponse;
 
   // [100-199] Values are reserved for the buck cache request types.
 }

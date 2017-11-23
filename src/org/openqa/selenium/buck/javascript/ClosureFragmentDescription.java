@@ -27,12 +27,10 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.MoreCollectors;
@@ -40,8 +38,8 @@ import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
-import org.immutables.value.Value;
 import java.util.Optional;
+import org.immutables.value.Value;
 
 public class ClosureFragmentDescription implements
     Description<JsFragmentArg>,
@@ -68,13 +66,12 @@ public class ClosureFragmentDescription implements
       CellPathResolver cellRoots,
       JsFragmentArg args) {
     SourcePathRuleFinder finder = new SourcePathRuleFinder(resolver);
-    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(finder);
 
     return new JsFragment(
         buildTarget,
         projectFilesystem,
         params,
-        config.getClosureCompiler(args.getCompiler(), pathResolver, finder),
+        config.getClosureCompiler(args.getCompiler(), finder),
         params.getBuildDeps(),
         args.getModule(),
         args.getFunction(),

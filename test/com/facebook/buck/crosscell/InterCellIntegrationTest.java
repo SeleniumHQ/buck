@@ -33,7 +33,6 @@ import static org.junit.Assume.assumeThat;
 import com.facebook.buck.android.AndroidNdkHelper;
 import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.android.toolchain.NdkCxxPlatform;
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.listener.BroadcastEventListener;
@@ -53,7 +52,6 @@ import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -67,8 +65,6 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
@@ -393,14 +389,10 @@ public class InterCellIntegrationTest {
 
     // We could just do a build, but that's a little extreme since all we need is the target graph
     ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
-    ToolchainProvider toolchainProvider = new TestToolchainProvider();
     KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
                 processExecutor,
-                SdkEnvironment.create(
-                    FakeBuckConfig.builder().build(), processExecutor, toolchainProvider),
-                toolchainProvider,
                 BuckPluginManagerFactory.createPluginManager(),
                 new TestSandboxExecutionStrategyFactory()));
     TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory();
@@ -507,6 +499,21 @@ public class InterCellIntegrationTest {
     registerCell(root, "other", other);
     registerCell(root, "root", root);
     registerCell(other, "root", root);
+
+    root.runBuckBuild("//:rule", "other//:rule").assertSuccess();
+  }
+
+  @Test
+  public void buildFilesCanIncludeDefsFromOtherCellsUsingImplicitIncludes() throws IOException {
+    assumeThat(Platform.detect(), is(not(WINDOWS)));
+
+    ProjectWorkspace root = createWorkspace("inter-cell/includes/root");
+    ProjectWorkspace other = createWorkspace("inter-cell/includes/other");
+    registerCell(root, "other", other);
+    registerCell(root, "root", root);
+    registerCell(other, "root", root);
+    TestDataHelper.overrideBuckconfig(
+        root, ImmutableMap.of("buildfile", ImmutableMap.of("includes", "other//DEFS")));
 
     root.runBuckBuild("//:rule", "other//:rule").assertSuccess();
   }

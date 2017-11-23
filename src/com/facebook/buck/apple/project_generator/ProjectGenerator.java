@@ -28,6 +28,7 @@ import com.facebook.buck.apple.AppleBundle;
 import com.facebook.buck.apple.AppleBundleDescription;
 import com.facebook.buck.apple.AppleBundleDescriptionArg;
 import com.facebook.buck.apple.AppleBundleExtension;
+import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleDependenciesCache;
 import com.facebook.buck.apple.AppleDescriptions;
 import com.facebook.buck.apple.AppleHeaderVisibilities;
@@ -99,7 +100,6 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Either;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.rules.BuildRule;
@@ -120,6 +120,7 @@ import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.args.StringWithMacrosArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
+import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.keys.RuleKeyConfiguration;
 import com.facebook.buck.rules.macros.LocationMacro;
@@ -182,7 +183,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -288,9 +288,11 @@ public class ProjectGenerator {
   private final ImmutableSet.Builder<String> targetConfigNamesBuilder;
 
   private final GidGenerator gidGenerator;
+  private final ImmutableSet<String> appleCxxFlavors;
   private final HalideBuckConfig halideBuckConfig;
   private final CxxBuckConfig cxxBuckConfig;
   private final SwiftBuckConfig swiftBuckConfig;
+  private final AppleConfig appleConfig;
   private final FocusedModuleTargetMatcher focusModules;
   private final boolean isMainProject;
   private final Optional<BuildTarget> workspaceTarget;
@@ -315,10 +317,12 @@ public class ProjectGenerator {
       ImmutableSet<BuildTarget> targetsInRequiredProjects,
       FocusedModuleTargetMatcher focusModules,
       CxxPlatform defaultCxxPlatform,
+      ImmutableSet<String> appleCxxFlavors,
       Function<? super TargetNode<?, ?>, BuildRuleResolver> buildRuleResolverForNode,
       BuckEventBus buckEventBus,
       HalideBuckConfig halideBuckConfig,
       CxxBuckConfig cxxBuckConfig,
+      AppleConfig appleConfig,
       SwiftBuckConfig swiftBuckConfig) {
     this.targetGraph = targetGraph;
     this.dependenciesCache = dependenciesCache;
@@ -335,6 +339,7 @@ public class ProjectGenerator {
     this.workspaceTarget = workspaceTarget;
     this.targetsInRequiredProjects = targetsInRequiredProjects;
     this.defaultCxxPlatform = defaultCxxPlatform;
+    this.appleCxxFlavors = appleCxxFlavors;
     this.buildRuleResolverForNode = buildRuleResolverForNode;
     this.defaultPathResolver =
         DefaultSourcePathResolver.from(
@@ -371,6 +376,7 @@ public class ProjectGenerator {
     targetConfigNamesBuilder = ImmutableSet.builder();
     this.halideBuckConfig = halideBuckConfig;
     this.cxxBuckConfig = cxxBuckConfig;
+    this.appleConfig = appleConfig;
     this.swiftBuckConfig = swiftBuckConfig;
     this.focusModules = focusModules;
 
@@ -654,24 +660,30 @@ public class ProjectGenerator {
 
   private PBXTarget generateAppleTestTarget(TargetNode<AppleTestDescriptionArg, ?> testTargetNode)
       throws IOException {
+    AppleTestDescriptionArg args = testTargetNode.getConstructorArg();
+    Optional<BuildTarget> testTargetApp = extractTestTargetForTestDescriptionArg(args);
     Optional<TargetNode<AppleBundleDescriptionArg, ?>> testHostBundle =
-        testTargetNode
-            .getConstructorArg()
-            .getTestHostApp()
-            .map(
-                testHostBundleTarget -> {
-                  TargetNode<?, ?> testHostBundleNode = targetGraph.get(testHostBundleTarget);
-                  return testHostBundleNode
-                      .castArg(AppleBundleDescriptionArg.class)
-                      .orElseGet(
-                          () -> {
-                            throw new HumanReadableException(
-                                "The test host target '%s' has the wrong type (%s), must be apple_bundle",
-                                testHostBundleTarget,
-                                testHostBundleNode.getDescription().getClass());
-                          });
-                });
+        testTargetApp.map(
+            testHostBundleTarget -> {
+              TargetNode<?, ?> testHostBundleNode = targetGraph.get(testHostBundleTarget);
+              return testHostBundleNode
+                  .castArg(AppleBundleDescriptionArg.class)
+                  .orElseGet(
+                      () -> {
+                        throw new HumanReadableException(
+                            "The test host target '%s' has the wrong type (%s), must be apple_bundle",
+                            testHostBundleTarget, testHostBundleNode.getDescription().getClass());
+                      });
+            });
     return generateAppleBundleTarget(project, testTargetNode, testTargetNode, testHostBundle);
+  }
+
+  private Optional<BuildTarget> extractTestTargetForTestDescriptionArg(
+      AppleTestDescriptionArg args) {
+    if (args.getUiTestTargetApp().isPresent()) {
+      return args.getUiTestTargetApp();
+    }
+    return args.getTestHostApp();
   }
 
   private void checkAppleResourceTargetNodeReferencingValidContents(
@@ -937,6 +949,35 @@ public class ProjectGenerator {
     return result.build();
   }
 
+  private ImmutableMultimap<String, ImmutableList<String>> convertPlatformFlags(
+      TargetNode<?, ?> node,
+      Iterable<PatternMatchedCollection<ImmutableList<StringWithMacros>>> matchers) {
+    ImmutableMultimap.Builder<String, ImmutableList<String>> flagsBuilder =
+        ImmutableMultimap.builder();
+
+    for (PatternMatchedCollection<ImmutableList<StringWithMacros>> matcher : matchers) {
+      for (String platform : appleCxxFlavors) {
+        for (ImmutableList<StringWithMacros> flags : matcher.getMatchingValues(platform)) {
+          flagsBuilder.put(platform, convertStringWithMacros(node, flags));
+        }
+      }
+    }
+    return flagsBuilder.build();
+  }
+
+  private String generateConfigKey(String key, String platform) {
+    int index = platform.lastIndexOf('-');
+    String sdk = platform.substring(0, index);
+    String arch = platform.substring(index + 1);
+    return String.format("%s[sdk=%s*][arch=%s]", key, sdk, arch);
+  }
+
+  private Optional<String> getSwiftVersionForTargetNode(TargetNode<?, ?> targetNode) {
+    Optional<TargetNode<SwiftCommonArg, ?>> targetNodeWithSwiftArgs =
+        targetNode.castArg(SwiftCommonArg.class);
+    return targetNodeWithSwiftArgs.flatMap(t -> t.getConstructorArg().getSwiftVersion());
+  }
+
   private PBXNativeTarget generateBinaryTarget(
       PBXProject project,
       Optional<? extends TargetNode<? extends HasAppleBundleFields, ?>> bundle,
@@ -972,10 +1013,7 @@ public class ProjectGenerator {
         targetNode.getConstructorArg().getLangPreprocessorFlags();
     boolean isFocusedOnTarget = focusModules.isFocusedOn(buildTarget);
 
-    Optional<String> swiftVersion =
-        (arg instanceof SwiftCommonArg)
-            ? ((SwiftCommonArg) arg).getSwiftVersion()
-            : Optional.empty();
+    Optional<String> swiftVersion = getSwiftVersionForTargetNode(targetNode);
     final boolean hasSwiftVersionArg = swiftVersion.isPresent();
     if (!swiftVersion.isPresent()) {
       swiftVersion = swiftBuckConfig.getVersion();
@@ -991,7 +1029,7 @@ public class ProjectGenerator {
     boolean isModularAppleLibrary = isModularAppleLibrary(targetNode) && isFocusedOnTarget;
     mutator.setFrameworkHeadersEnabled(isModularAppleLibrary);
 
-    Optional<ImmutableMap<String, String>> swiftDepsSettings = Optional.empty();
+    ImmutableMap.Builder<String, String> swiftDepsSettingsBuilder = ImmutableMap.builder();
 
     if (!shouldGenerateHeaderSymlinkTreesOnly()) {
       if (isFocusedOnTarget) {
@@ -1057,21 +1095,22 @@ public class ProjectGenerator {
         mutator.setArchives(Sets.difference(targetNodeDeps, excludedDeps));
       }
 
-      if (!includeFrameworks && isFocusedOnTarget) {
-        // If the current target, which is non-shared (e.g., static lib), depends on other focused
-        // targets which include Swift code, we must ensure those are treated as dependencies so
-        // that Xcode builds the targets in the correct order. Unfortunately, those deps can be
-        // part of other projects which would require cross-project references.
-        //
-        // Thankfully, there's an easy workaround because we can just create a phony copy phase
-        // which depends on the outputs of the deps (i.e., the static libs). The copy phase
-        // will effectively say "Copy libX.a from Products Dir into Products Dir" which is a nop.
-        // To be on the safe side, we're explicitly marking the copy phase as only running for
-        // deployment postprocessing (i.e., "Copy only when installing") and disabling
-        // deployment postprocessing (it's enabled by default for release builds).
+      if (isFocusedOnTarget) {
         ImmutableSet<PBXFileReference> swiftDeps =
             collectRecursiveLibraryDependenciesWithSwiftSources(targetNode);
-        if (!swiftDeps.isEmpty()) {
+
+        if (!includeFrameworks && !swiftDeps.isEmpty()) {
+          // If the current target, which is non-shared (e.g., static lib), depends on other focused
+          // targets which include Swift code, we must ensure those are treated as dependencies so
+          // that Xcode builds the targets in the correct order. Unfortunately, those deps can be
+          // part of other projects which would require cross-project references.
+          //
+          // Thankfully, there's an easy workaround because we can just create a phony copy phase
+          // which depends on the outputs of the deps (i.e., the static libs). The copy phase
+          // will effectively say "Copy libX.a from Products Dir into Products Dir" which is a nop.
+          // To be on the safe side, we're explicitly marking the copy phase as only running for
+          // deployment postprocessing (i.e., "Copy only when installing") and disabling
+          // deployment postprocessing (it's enabled by default for release builds).
           CopyFilePhaseDestinationSpec.Builder destSpecBuilder =
               CopyFilePhaseDestinationSpec.builder();
           destSpecBuilder.setDestination(PBXCopyFilesBuildPhase.Destination.PRODUCTS);
@@ -1084,9 +1123,18 @@ public class ProjectGenerator {
             copyFiles.getFiles().add(buildFile);
           }
 
-          swiftDepsSettings = Optional.of(ImmutableMap.of("DEPLOYMENT_POSTPROCESSING", "NO"));
+          swiftDepsSettingsBuilder.put("DEPLOYMENT_POSTPROCESSING", "NO");
 
           mutator.setSwiftDependenciesBuildPhase(copyFiles);
+        }
+
+        if (includeFrameworks
+            && !swiftDeps.isEmpty()
+            && shouldEmbedSwiftRuntimeInBundleTarget(bundle)
+            && swiftBuckConfig.getProjectEmbedRuntime()) {
+          // This is a binary that transitively depends on a library that uses Swift. We must ensure
+          // that the Swift runtime is bundled.
+          swiftDepsSettingsBuilder.put("ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES", "YES");
         }
       }
 
@@ -1132,7 +1180,7 @@ public class ProjectGenerator {
     ImmutableMap.Builder<String, String> extraSettingsBuilder = ImmutableMap.builder();
     ImmutableMap.Builder<String, String> defaultSettingsBuilder = ImmutableMap.builder();
 
-    swiftDepsSettings.ifPresent(settings -> extraSettingsBuilder.putAll(settings));
+    extraSettingsBuilder.putAll(swiftDepsSettingsBuilder.build());
 
     ImmutableSortedMap<Path, SourcePath> publicCxxHeaders = getPublicCxxHeaders(targetNode);
     if (isModularAppleLibrary(targetNode) && isFrameworkProductType(productType)) {
@@ -1247,6 +1295,21 @@ public class ProjectGenerator {
       if (hasSwiftVersionArg && containsSwiftCode && isFocusedOnTarget) {
         extraSettingsBuilder.put(
             "SWIFT_OBJC_INTERFACE_HEADER_NAME", getSwiftObjCGeneratedHeaderName(buildTargetNode));
+
+        if (swiftBuckConfig.getProjectWMO()) {
+          // We must disable "Index While Building" as there's a bug in the LLVM infra which
+          // makes the compilation fail.
+          extraSettingsBuilder.put("COMPILER_INDEX_STORE_ENABLE", "NO");
+
+          // This is a hidden Xcode setting which is needed for two reasons:
+          // - Stops Xcode adding .o files for each Swift compilation unit to dependency db
+          //   which is used during linking (which will fail with WMO).
+          // - Turns on WMO itself.
+          //
+          // Note that setting SWIFT_OPTIMIZATION_LEVEL (which is public) to '-Owholemodule'
+          // ends up crashing the Swift compiler for some reason while this doesn't.
+          extraSettingsBuilder.put("SWIFT_WHOLE_MODULE_OPTIMIZATION", "YES");
+        }
       }
 
       Optional<SourcePath> prefixHeaderOptional =
@@ -1366,12 +1429,14 @@ public class ProjectGenerator {
                     targetNode, targetNode.getConstructorArg().getCompilerFlags()),
                 convertStringWithMacros(
                     targetNode, targetNode.getConstructorArg().getPreprocessorFlags()));
-        ImmutableList<String> otherLdFlags =
-            convertStringWithMacros(
-                targetNode,
-                Iterables.concat(
-                    targetNode.getConstructorArg().getLinkerFlags(),
-                    collectRecursiveExportedLinkerFlags(targetNode)));
+        Iterable<String> otherLdFlags =
+            Iterables.concat(
+                appleConfig.linkAllObjC() ? ImmutableList.of("-ObjC") : ImmutableList.of(),
+                convertStringWithMacros(
+                    targetNode,
+                    Iterables.concat(
+                        targetNode.getConstructorArg().getLinkerFlags(),
+                        collectRecursiveExportedLinkerFlags(targetNode))));
 
         appendConfigsBuilder
             .put(
@@ -1391,62 +1456,50 @@ public class ProjectGenerator {
                     .collect(Collectors.joining(" ")))
             .put(
                 "OTHER_LDFLAGS",
-                otherLdFlags.stream().map(Escaper.BASH_ESCAPER).collect(Collectors.joining(" ")));
+                Streams.stream(otherLdFlags)
+                    .map(Escaper.BASH_ESCAPER)
+                    .collect(Collectors.joining(" ")));
 
-        ImmutableMultimap.Builder<String, ImmutableList<String>> platformFlagsBuilder =
-            ImmutableMultimap.builder();
-        for (Pair<Pattern, ImmutableList<StringWithMacros>> flags :
-            Iterables.concat(
-                targetNode.getConstructorArg().getPlatformCompilerFlags().getPatternsAndValues(),
-                targetNode
-                    .getConstructorArg()
-                    .getPlatformPreprocessorFlags()
-                    .getPatternsAndValues(),
-                collectRecursiveExportedPlatformPreprocessorFlags(targetNode))) {
-          String sdk = flags.getFirst().pattern().replaceAll("[*.]", "");
-          platformFlagsBuilder.put(sdk, convertStringWithMacros(targetNode, flags.getSecond()));
-        }
         ImmutableMultimap<String, ImmutableList<String>> platformFlags =
-            platformFlagsBuilder.build();
-        for (String sdk : platformFlags.keySet()) {
+            convertPlatformFlags(
+                targetNode,
+                Iterables.concat(
+                    ImmutableList.of(targetNode.getConstructorArg().getPlatformCompilerFlags()),
+                    ImmutableList.of(targetNode.getConstructorArg().getPlatformPreprocessorFlags()),
+                    collectRecursiveExportedPlatformPreprocessorFlags(targetNode)));
+        for (String platform : platformFlags.keySet()) {
           appendConfigsBuilder
               .put(
-                  String.format("OTHER_CFLAGS[sdk=*%s*]", sdk),
+                  generateConfigKey("OTHER_CFLAGS", platform),
                   Streams.stream(
                           Iterables.transform(
                               Iterables.concat(
-                                  otherCFlags, Iterables.concat(platformFlags.get(sdk))),
+                                  otherCFlags, Iterables.concat(platformFlags.get(platform))),
                               Escaper.BASH_ESCAPER::apply))
                       .collect(Collectors.joining(" ")))
               .put(
-                  String.format("OTHER_CPLUSPLUSFLAGS[sdk=*%s*]", sdk),
+                  generateConfigKey("OTHER_CPLUSPLUSFLAGS", platform),
                   Streams.stream(
                           Iterables.transform(
                               Iterables.concat(
-                                  otherCxxFlags, Iterables.concat(platformFlags.get(sdk))),
+                                  otherCxxFlags, Iterables.concat(platformFlags.get(platform))),
                               Escaper.BASH_ESCAPER::apply))
                       .collect(Collectors.joining(" ")));
         }
 
-        ImmutableMultimap.Builder<String, ImmutableList<String>> platformLinkerFlagsBuilder =
-            ImmutableMultimap.builder();
-        for (Pair<Pattern, ImmutableList<StringWithMacros>> flags :
-            Iterables.concat(
-                targetNode.getConstructorArg().getPlatformLinkerFlags().getPatternsAndValues(),
-                collectRecursiveExportedPlatformLinkerFlags(targetNode))) {
-          String sdk = flags.getFirst().pattern().replaceAll("[*.]", "");
-          platformLinkerFlagsBuilder.put(
-              sdk, convertStringWithMacros(targetNode, flags.getSecond()));
-        }
         ImmutableMultimap<String, ImmutableList<String>> platformLinkerFlags =
-            platformLinkerFlagsBuilder.build();
-        for (String sdk : platformLinkerFlags.keySet()) {
+            convertPlatformFlags(
+                targetNode,
+                Iterables.concat(
+                    ImmutableList.of(targetNode.getConstructorArg().getPlatformLinkerFlags()),
+                    collectRecursiveExportedPlatformLinkerFlags(targetNode)));
+        for (String platform : platformLinkerFlags.keySet()) {
           appendConfigsBuilder.put(
-              String.format("OTHER_LDFLAGS[sdk=*%s*]", sdk),
+              generateConfigKey("OTHER_LDFLAGS", platform),
               Streams.stream(
                       Iterables.transform(
                           Iterables.concat(
-                              otherLdFlags, Iterables.concat(platformLinkerFlags.get(sdk))),
+                              otherLdFlags, Iterables.concat(platformLinkerFlags.get(platform))),
                           Escaper.BASH_ESCAPER::apply))
                   .collect(Collectors.joining(" ")));
         }
@@ -1471,7 +1524,7 @@ public class ProjectGenerator {
     // -- phases
     createHeaderSymlinkTree(
         publicCxxHeaders,
-        getSwiftPublicHeaderMapEntriesForTarget(targetNode, isFocusedOnTarget, hasSwiftVersionArg),
+        getSwiftPublicHeaderMapEntriesForTarget(targetNode),
         moduleName,
         getPathToHeaderSymlinkTree(targetNode, HeaderVisibility.PUBLIC),
         arg.getXcodePublicHeadersSymlinks().orElse(cxxBuckConfig.getPublicHeadersSymlinksEnabled())
@@ -1509,6 +1562,37 @@ public class ProjectGenerator {
     }
 
     return target;
+  }
+
+  private boolean shouldEmbedSwiftRuntimeInBundleTarget(
+      Optional<? extends TargetNode<? extends HasAppleBundleFields, ?>> bundle) {
+    return bundle
+        .map(
+            b ->
+                b.getConstructorArg()
+                    .getExtension()
+                    .transform(
+                        bundleExtension -> {
+                          switch (bundleExtension) {
+                            case APP:
+                            case APPEX:
+                            case PLUGIN:
+                            case BUNDLE:
+                            case XCTEST:
+                            case XPC:
+                              // All of the above bundles can have loaders which do not contain
+                              // a Swift runtime, so it must get bundled to ensure they run.
+                              return true;
+
+                            case FRAMEWORK:
+                            case DSYM:
+                              return false;
+                          }
+
+                          return false;
+                        },
+                        stringExtension -> false))
+        .orElse(false);
   }
 
   private boolean isFrameworkProductType(ProductType productType) {
@@ -1966,6 +2050,12 @@ public class ProjectGenerator {
         path = basePath.resolve(resolveSourcePath(entry.getValue()));
       }
       headerMapBuilder.add(entry.getKey().toString(), path);
+    }
+
+    ImmutableMap<Path, Path> swiftHeaderMapEntries =
+        getSwiftPublicHeaderMapEntriesForTarget(targetNode);
+    for (Map.Entry<Path, Path> entry : swiftHeaderMapEntries.entrySet()) {
+      headerMapBuilder.add(entry.getKey().toString(), entry.getValue());
     }
   }
 
@@ -2463,11 +2553,9 @@ public class ProjectGenerator {
   }
 
   private ImmutableMap<Path, Path> getSwiftPublicHeaderMapEntriesForTarget(
-      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> node,
-      boolean isFocusedOnTarget,
-      boolean hasSwiftVersionArg) {
-
-    if (!isFocusedOnTarget || !hasSwiftVersionArg) {
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> node) {
+    boolean hasSwiftVersionArg = getSwiftVersionForTargetNode(node).isPresent();
+    if (!hasSwiftVersionArg) {
       return ImmutableMap.of();
     }
 
@@ -2774,7 +2862,7 @@ public class ProjectGenerator {
                     .orElse(ImmutableList.of()));
   }
 
-  private Iterable<Pair<Pattern, ImmutableList<StringWithMacros>>>
+  private Iterable<PatternMatchedCollection<ImmutableList<StringWithMacros>>>
       collectRecursiveExportedPlatformPreprocessorFlags(TargetNode<?, ?> targetNode) {
     return FluentIterable.from(
             AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
@@ -2790,10 +2878,8 @@ public class ProjectGenerator {
                     .castArg(CxxLibraryDescription.CommonArg.class)
                     .map(
                         input1 ->
-                            input1
-                                .getConstructorArg()
-                                .getExportedPlatformPreprocessorFlags()
-                                .getPatternsAndValues())
+                            ImmutableList.of(
+                                input1.getConstructorArg().getExportedPlatformPreprocessorFlags()))
                     .orElse(ImmutableList.of()));
   }
 
@@ -2819,7 +2905,7 @@ public class ProjectGenerator {
         .toList();
   }
 
-  private Iterable<Pair<Pattern, ImmutableList<StringWithMacros>>>
+  private Iterable<PatternMatchedCollection<ImmutableList<StringWithMacros>>>
       collectRecursiveExportedPlatformLinkerFlags(TargetNode<?, ?> targetNode) {
     return FluentIterable.from(
             AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
@@ -2838,10 +2924,8 @@ public class ProjectGenerator {
                     .castArg(CxxLibraryDescription.CommonArg.class)
                     .map(
                         input1 ->
-                            input1
-                                .getConstructorArg()
-                                .getExportedPlatformLinkerFlags()
-                                .getPatternsAndValues())
+                            ImmutableList.of(
+                                input1.getConstructorArg().getExportedPlatformLinkerFlags()))
                     .orElse(ImmutableList.of()));
   }
 

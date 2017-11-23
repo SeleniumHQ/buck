@@ -5,6 +5,7 @@ import static com.facebook.buck.maven.AetherUtil.CLASSIFIER_SOURCES;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.HasMavenCoordinates;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.maven.AetherUtil;
 import com.facebook.buck.model.BuildTarget;
@@ -43,8 +44,6 @@ public class SourceJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @AddToRuleKey
   private final ImmutableSet<SourcePath> sources;
   @AddToRuleKey
-  private String javaVersion;
-  @AddToRuleKey
   private final Optional<String> mavenCoords;
   @AddToRuleKey
   private final Optional<SourcePath> mavenPomTemplate;
@@ -58,13 +57,11 @@ public class SourceJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
       BuildTarget target,
       ProjectFilesystem filesystem,
       BuildRuleParams params,
-      String javaVersion,
       ImmutableSet<SourcePath> sources,
       Optional<String> mavenCoords,
       Optional<SourcePath> mavenPomTemplate,
       ImmutableSortedSet<HasMavenCoordinates> mavenDeps) {
     super(target, filesystem, params);
-    this.javaVersion = javaVersion;
 
     this.mavenCoords = mavenCoords.map(coord -> AetherUtil.addClassifier(coord, CLASSIFIER_SOURCES));
     this.mavenPomTemplate = mavenPomTemplate;
@@ -119,7 +116,7 @@ public class SourceJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
             output.getParent())));
 
     JavaFileParser javaFileParser = JavaFileParser.createJavaFileParser(
-        JavacOptions.builder().setSourceLevel(javaVersion).build());
+        JavacOptions.builder().setSourceLevel("8").build());
 
     Function<SourcePath, String> pathToPackage = sourcepath -> {
       Path absolutePath = context.getSourcePathResolver().getAbsolutePath(sourcepath);

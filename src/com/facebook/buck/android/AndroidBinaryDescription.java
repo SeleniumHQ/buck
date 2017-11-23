@@ -24,18 +24,18 @@ import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
+import com.facebook.buck.android.dalvik.ZipSplitter.DexSplitStrategy;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.redex.RedexOptions;
-import com.facebook.buck.android.toolchain.NdkCxxPlatform;
+import com.facebook.buck.android.toolchain.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
-import com.facebook.buck.dalvik.ZipSplitter.DexSplitStrategy;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
-import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
@@ -135,7 +135,6 @@ public class AndroidBinaryDescription
   private final BuckConfig buckConfig;
   private final CxxBuckConfig cxxBuckConfig;
   private final DxConfig dxConfig;
-  private final ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms;
   private final ListeningExecutorService dxExecutorService;
   private final AndroidInstallConfig androidInstallConfig;
 
@@ -145,7 +144,6 @@ public class AndroidBinaryDescription
       JavaOptions javaOptions,
       JavacOptions javacOptions,
       ProGuardConfig proGuardConfig,
-      ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms,
       ListeningExecutorService dxExecutorService,
       BuckConfig buckConfig,
       CxxBuckConfig cxxBuckConfig,
@@ -157,7 +155,6 @@ public class AndroidBinaryDescription
     this.proGuardConfig = proGuardConfig;
     this.buckConfig = buckConfig;
     this.cxxBuckConfig = cxxBuckConfig;
-    this.nativePlatforms = nativePlatforms;
     this.dxExecutorService = dxExecutorService;
     this.dxConfig = dxConfig;
     this.androidInstallConfig = new AndroidInstallConfig(buckConfig);
@@ -290,6 +287,10 @@ public class AndroidBinaryDescription
           toolchainProvider.getByName(
               AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
 
+      NdkCxxPlatformsProvider ndkCxxPlatformsProvider =
+          toolchainProvider.getByName(
+              NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.class);
+
       AndroidBinaryGraphEnhancer graphEnhancer =
           new AndroidBinaryGraphEnhancer(
               buildTarget,
@@ -304,6 +305,7 @@ public class AndroidBinaryDescription
               args.getResourceUnionPackage(),
               addFallbackLocales(args.getLocales()),
               args.getManifest(),
+              args.getManifestSkeleton(),
               packageType,
               ImmutableSet.copyOf(args.getCpuFilters()),
               args.isBuildStringSourceMap(),
@@ -323,7 +325,7 @@ public class AndroidBinaryDescription
               Optional.empty(),
               args.isTrimResourceIds(),
               args.getKeepResourcePattern(),
-              nativePlatforms,
+              ndkCxxPlatformsProvider.getNdkCxxPlatforms(),
               Optional.of(args.getNativeLibraryMergeMap()),
               args.getNativeLibraryMergeGlue(),
               args.getNativeLibraryMergeCodeGenerator(),
@@ -548,7 +550,9 @@ public class AndroidBinaryDescription
   @Value.Immutable
   interface AbstractAndroidBinaryDescriptionArg
       extends CommonDescriptionArg, HasDeclaredDeps, HasTests {
-    SourcePath getManifest();
+    Optional<SourcePath> getManifest();
+
+    Optional<SourcePath> getManifestSkeleton();
 
     BuildTarget getKeystore();
 

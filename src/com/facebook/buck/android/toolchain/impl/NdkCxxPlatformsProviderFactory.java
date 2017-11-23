@@ -18,21 +18,33 @@ package com.facebook.buck.android.toolchain.impl;
 
 import com.facebook.buck.android.AndroidBuckConfig;
 import com.facebook.buck.android.NdkCxxPlatforms;
-import com.facebook.buck.android.toolchain.AndroidNdk;
-import com.facebook.buck.android.toolchain.AndroidToolchain;
 import com.facebook.buck.android.toolchain.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.NdkCxxPlatformsProvider;
+import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.toolchain.ToolchainCreationContext;
+import com.facebook.buck.toolchain.ToolchainFactory;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableMap;
 import java.util.Optional;
 
-public class NdkCxxPlatformsProviderFactory {
-  public static NdkCxxPlatformsProvider create(
+public class NdkCxxPlatformsProviderFactory implements ToolchainFactory<NdkCxxPlatformsProvider> {
+
+  @Override
+  public Optional<NdkCxxPlatformsProvider> createToolchain(
+      ToolchainProvider toolchainProvider, ToolchainCreationContext context) {
+
+    ImmutableMap<TargetCpuType, NdkCxxPlatform> ndkCxxPlatforms =
+        getNdkCxxPlatforms(context.getBuckConfig(), context.getFilesystem(), toolchainProvider);
+
+    return Optional.of(NdkCxxPlatformsProvider.of(ndkCxxPlatforms));
+  }
+
+  private static ImmutableMap<TargetCpuType, NdkCxxPlatform> getNdkCxxPlatforms(
       BuckConfig config, ProjectFilesystem filesystem, ToolchainProvider toolchainProvider) {
 
     Platform platform = Platform.detect();
@@ -40,17 +52,17 @@ public class NdkCxxPlatformsProviderFactory {
     CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(config);
 
     Optional<String> ndkVersion = androidConfig.getNdkVersion();
-    if (!ndkVersion.isPresent()
-        && toolchainProvider.isToolchainPresent(AndroidToolchain.DEFAULT_NAME)) {
-      AndroidToolchain androidToolchain =
-          toolchainProvider.getByName(AndroidToolchain.DEFAULT_NAME, AndroidToolchain.class);
-      ndkVersion = androidToolchain.getAndroidNdk().map(AndroidNdk::getNdkVersion);
+    if (!androidConfig.getNdkVersion().isPresent()
+        && toolchainProvider.isToolchainPresent(AndroidNdk.DEFAULT_NAME)) {
+      AndroidNdk androidNdk =
+          toolchainProvider.getByName(AndroidNdk.DEFAULT_NAME, AndroidNdk.class);
+      ndkVersion = Optional.of(androidNdk.getNdkVersion());
     }
 
     ImmutableMap<TargetCpuType, NdkCxxPlatform> ndkCxxPlatforms =
         NdkCxxPlatforms.getPlatforms(
             cxxBuckConfig, androidConfig, filesystem, platform, toolchainProvider, ndkVersion);
 
-    return new NdkCxxPlatformsProvider(ndkCxxPlatforms);
+    return ndkCxxPlatforms;
   }
 }

@@ -16,10 +16,14 @@
 
 package com.facebook.buck.distributed.build_slave;
 
+import com.facebook.buck.distributed.DistBuildService;
+import com.facebook.buck.distributed.build_slave.HeartbeatService.HeartbeatCallback;
+import com.facebook.buck.distributed.build_slave.ThriftCoordinatorServer.EventListener;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Preconditions;
+import com.google.common.io.Closer;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.io.Closeable;
 import java.io.IOException;
@@ -27,6 +31,7 @@ import java.nio.file.Path;
 import java.util.OptionalInt;
 
 public class CoordinatorModeRunner implements DistBuildModeRunner {
+
   private static final Logger LOG = Logger.get(CoordinatorModeRunner.class);
 
   // Note that this is only the port specified by the caller.
@@ -38,46 +43,73 @@ public class CoordinatorModeRunner implements DistBuildModeRunner {
   private final StampedeId stampedeId;
   private final Path logDirectoryPath;
   private final ThriftCoordinatorServer.EventListener eventListener;
+  private final BuildRuleFinishedPublisher buildRuleFinishedPublisher;
+  private final DistBuildService distBuildService;
+  private final MinionHealthTracker minionHealthTracker;
 
-  /**
-   * Constructor
-   *
-   * @param coordinatorPort - Passing in an empty optional will pick up a random free port.
-   */
+  /** Constructor. */
   public CoordinatorModeRunner(
       OptionalInt coordinatorPort,
       ListenableFuture<BuildTargetsQueue> queue,
       StampedeId stampedeId,
-      ThriftCoordinatorServer.EventListener eventListener,
-      Path logDirectoryPath) {
+      EventListener eventListener,
+      Path logDirectoryPath,
+      BuildRuleFinishedPublisher buildRuleFinishedPublisher,
+      DistBuildService distBuildService,
+      MinionHealthTracker minionHealthTracker) {
     this.stampedeId = stampedeId;
+    this.minionHealthTracker = minionHealthTracker;
     coordinatorPort.ifPresent(CoordinatorModeRunner::validatePort);
     this.logDirectoryPath = logDirectoryPath;
     this.queue = queue;
     this.coordinatorPort = coordinatorPort;
     this.eventListener = eventListener;
+    this.buildRuleFinishedPublisher = buildRuleFinishedPublisher;
+    this.distBuildService = distBuildService;
   }
 
   public CoordinatorModeRunner(
       ListenableFuture<BuildTargetsQueue> queue,
       StampedeId stampedeId,
-      ThriftCoordinatorServer.EventListener eventListener,
-      Path logDirectoryPath) {
-    this(OptionalInt.empty(), queue, stampedeId, eventListener, logDirectoryPath);
+      EventListener eventListener,
+      Path logDirectoryPath,
+      BuildRuleFinishedPublisher buildRuleFinishedPublisher,
+      DistBuildService distBuildService,
+      MinionHealthTracker minionHealthTracker) {
+    this(
+        OptionalInt.empty(),
+        queue,
+        stampedeId,
+        eventListener,
+        logDirectoryPath,
+        buildRuleFinishedPublisher,
+        distBuildService,
+        minionHealthTracker);
   }
 
   @Override
-  public int runAndReturnExitCode() throws IOException {
-    try (AsyncCoordinatorRun run = new AsyncCoordinatorRun(queue)) {
+  public int runAndReturnExitCode(HeartbeatService heartbeatService) throws IOException {
+    try (AsyncCoordinatorRun run = new AsyncCoordinatorRun(heartbeatService, queue)) {
       return run.getExitCode();
     }
   }
 
-  /**
-   * Function to verify that the specified port lies in the non-kernel-reserved port range.
-   *
-   * @throws IllegalStateException
-   */
+  /** Reports back to the servers that the coordinator is healthy and alive. */
+  public static HeartbeatCallback createHeartbeatCallback(
+      final StampedeId stampedeId, final DistBuildService service) {
+    return new HeartbeatCallback() {
+      @Override
+      public void runHeartbeat() throws IOException {
+        service.reportCoordinatorIsAlive(stampedeId);
+      }
+    };
+  }
+
+  private HeartbeatCallback createHeartbeatCallback() {
+    return createHeartbeatCallback(stampedeId, distBuildService);
+  }
+
+  /** Function to verify that the specified port lies in the non-kernel-reserved port range. */
   public static void validatePort(int port) {
     Preconditions.checkState(
         port != 0,
@@ -91,17 +123,36 @@ public class CoordinatorModeRunner implements DistBuildModeRunner {
         port);
   }
 
-  public AsyncCoordinatorRun runAsyncAndReturnExitCode() throws IOException {
-    return new AsyncCoordinatorRun(queue);
+  public AsyncCoordinatorRun runAsyncAndReturnExitCode(HeartbeatService service)
+      throws IOException {
+    return new AsyncCoordinatorRun(service, queue);
   }
 
   public class AsyncCoordinatorRun implements Closeable {
 
+    private final Closer closer;
     private final ThriftCoordinatorServer server;
 
-    private AsyncCoordinatorRun(ListenableFuture<BuildTargetsQueue> queue) throws IOException {
-      this.server = new ThriftCoordinatorServer(coordinatorPort, queue, stampedeId, eventListener);
+    private AsyncCoordinatorRun(HeartbeatService service, ListenableFuture<BuildTargetsQueue> queue)
+        throws IOException {
+      this.closer = Closer.create();
+      this.server =
+          closer.register(
+              new ThriftCoordinatorServer(
+                  coordinatorPort,
+                  queue,
+                  stampedeId,
+                  eventListener,
+                  buildRuleFinishedPublisher,
+                  minionHealthTracker,
+                  distBuildService));
       this.server.start();
+      this.closer.register(
+          service.addCallback("ReportCoordinatorAlive", createHeartbeatCallback()));
+      this.closer.register(
+          service.addCallback("MinionLivenessCheck", () -> server.checkAllMinionsAreAlive()));
+      this.closer.register(
+          service.addCallback("BuildStatusCheck", () -> server.checkBuildStatusIsNotTerminated()));
     }
 
     public int getExitCode() {
@@ -114,7 +165,7 @@ public class CoordinatorModeRunner implements DistBuildModeRunner {
 
     @Override
     public void close() throws IOException {
-      this.server.close();
+      closer.close();
 
       try {
         this.server

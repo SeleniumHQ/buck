@@ -18,7 +18,6 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.android.toolchain.TestAndroidToolchain;
 import com.facebook.buck.cli.Main;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
@@ -233,11 +232,7 @@ public class AndroidAarIntegrationTest {
   @Test
   public void testNativeLibraryDependent() throws InterruptedException, IOException {
     Main.KnownBuildRuleTypesFactoryFactory factoryFactory =
-        (processExecutor,
-            sdkEnvironment,
-            toolchainProvider,
-            pluginManager,
-            sandboxExecutionStrategyFactory) -> {
+        (processExecutor, pluginManager, sandboxExecutionStrategyFactory) -> {
           AndroidDirectoryResolver androidDirectoryResolver =
               new DefaultAndroidDirectoryResolver(
                   filesystem.getRootPath().getFileSystem(),
@@ -249,17 +244,12 @@ public class AndroidAarIntegrationTest {
                   androidDirectoryResolver, Optional.empty(), Optional.empty());
 
           TestToolchainProvider testToolchainProvider = new TestToolchainProvider();
-          testToolchainProvider.addAndroidToolchain(new TestAndroidToolchain());
           testToolchainProvider.addToolchain(
               AndroidLegacyToolchain.DEFAULT_NAME,
               new DefaultAndroidLegacyToolchain(
                   () -> androidPlatformTarget, androidDirectoryResolver));
           return DefaultKnownBuildRuleTypesFactory.of(
-              processExecutor,
-              sdkEnvironment,
-              testToolchainProvider,
-              pluginManager,
-              sandboxExecutionStrategyFactory);
+              processExecutor, pluginManager, sandboxExecutionStrategyFactory);
         };
 
     AssumeAndroidPlatform.assumeNdkIsAvailable();

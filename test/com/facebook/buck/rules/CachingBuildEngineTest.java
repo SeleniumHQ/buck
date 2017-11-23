@@ -27,12 +27,15 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.ArtifactInfo;
+import com.facebook.buck.artifact_cache.CacheDeleteResult;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.artifact_cache.InMemoryArtifactCache;
@@ -83,8 +86,6 @@ import com.facebook.buck.testutil.DummyFileHashCache;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ZipInspector;
-import com.facebook.buck.timing.DefaultClock;
-import com.facebook.buck.timing.IncrementingFakeClock;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ObjectMappers;
@@ -100,6 +101,8 @@ import com.facebook.buck.util.concurrent.ResourceAmounts;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.exceptions.ExceptionWithContext;
+import com.facebook.buck.util.timing.DefaultClock;
+import com.facebook.buck.util.timing.IncrementingFakeClock;
 import com.facebook.buck.util.zip.CustomZipEntry;
 import com.facebook.buck.util.zip.CustomZipOutputStream;
 import com.facebook.buck.util.zip.ZipConstants;
@@ -211,6 +214,7 @@ public class CachingBuildEngineTest {
     protected ProjectFilesystem filesystem;
     protected BuildInfoStoreManager buildInfoStoreManager;
     protected BuildInfoStore buildInfoStore;
+    protected RemoteBuildRuleCompletionWaiter defaultRemoteBuildRuleCompletionWaiter;
     protected FileHashCache fileHashCache;
     protected BuildEngineBuildContext buildContext;
     protected BuildRuleResolver resolver;
@@ -238,6 +242,7 @@ public class CachingBuildEngineTest {
       buildInfoStoreManager = new BuildInfoStoreManager();
       Files.createDirectories(filesystem.resolve(filesystem.getBuckPaths().getScratchDir()));
       buildInfoStore = buildInfoStoreManager.get(filesystem, metadataStorage);
+      defaultRemoteBuildRuleCompletionWaiter = new NoOpRemoteBuildRuleCompletionWaiter();
       fileHashCache =
           StackedFileHashCache.createDefaultHashCaches(filesystem, FileHashCacheMode.DEFAULT);
       buildContext =
@@ -262,7 +267,13 @@ public class CachingBuildEngineTest {
     }
 
     protected CachingBuildEngineFactory cachingBuildEngineFactory() {
-      return new CachingBuildEngineFactory(resolver, buildInfoStoreManager)
+      return cachingBuildEngineFactory(defaultRemoteBuildRuleCompletionWaiter);
+    }
+
+    protected CachingBuildEngineFactory cachingBuildEngineFactory(
+        RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter) {
+      return new CachingBuildEngineFactory(
+              resolver, buildInfoStoreManager, remoteBuildRuleCompletionWaiter)
           .setCachingBuildEngineDelegate(new LocalCachingBuildEngineDelegate(fileHashCache));
     }
 
@@ -1541,6 +1552,154 @@ public class CachingBuildEngineTest {
         assertThat(
             onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY),
             equalTo(Optional.of(inputRuleKey)));
+      }
+    }
+
+    @Test
+    public void inputBasedRuleKeyLimit() throws Exception {
+      // Create a simple rule which just writes a file.
+      BuildTarget target = BuildTargetFactory.newInstance("//:rule");
+      BuildRuleParams params = TestBuildRuleParams.create();
+      final RuleKey inputRuleKey = new RuleKey("aaaa");
+      final Path output = Paths.get("output");
+      final BuildRule rule =
+          new InputRuleKeyBuildRule(target, filesystem, params) {
+            @Override
+            public ImmutableList<Step> getBuildSteps(
+                BuildContext context, BuildableContext buildableContext) {
+              buildableContext.recordArtifact(output);
+              return ImmutableList.of(
+                  new WriteFileStep(filesystem, "12345", output, /* executable */ false));
+            }
+
+            @Override
+            public SourcePath getSourcePathToOutput() {
+              return ExplicitBuildTargetSourcePath.of(getBuildTarget(), output);
+            }
+          };
+
+      FakeRuleKeyFactory fakeInputRuleKeyFactory =
+          new FakeRuleKeyFactory(
+              ImmutableMap.of(rule.getBuildTarget(), inputRuleKey),
+              ImmutableSet.of(rule.getBuildTarget())) {
+            @Override
+            public Optional<Long> getInputSizeLimit() {
+              return Optional.of(2L);
+            }
+          };
+      // Create the build engine.
+      try (CachingBuildEngine cachingBuildEngine =
+          cachingBuildEngineFactory()
+              .setRuleKeyFactories(
+                  RuleKeyFactories.of(
+                      NOOP_RULE_KEY_FACTORY,
+                      fakeInputRuleKeyFactory,
+                      NOOP_DEP_FILE_RULE_KEY_FACTORY))
+              .build()) {
+        // Run the build.
+        BuildResult result =
+            cachingBuildEngine
+                .build(buildContext, TestExecutionContext.newInstance(), rule)
+                .getResult()
+                .get();
+        assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
+
+        // Verify that the artifact was indexed in the cache by the input rule key.
+        assertFalse(cache.hasArtifact(inputRuleKey));
+
+        // Verify the input rule key was written to disk.
+        OnDiskBuildInfo onDiskBuildInfo =
+            buildContext.createOnDiskBuildInfoFor(target, filesystem, buildInfoStore);
+        assertThat(
+            onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY),
+            equalTo(Optional.empty()));
+        assertThat(
+            onDiskBuildInfo.getValue(BuildInfo.MetadataKey.OUTPUT_SIZE), equalTo(Optional.of("6")));
+        assertThat(
+            onDiskBuildInfo.getHash(BuildInfo.MetadataKey.OUTPUT_HASH), equalTo(Optional.empty()));
+      }
+    }
+
+    @Test
+    public void inputBasedRuleKeyLimitCacheHit() throws Exception {
+      // Create a simple rule which just writes a file.
+      BuildTarget target = BuildTargetFactory.newInstance("//:rule");
+      BuildRuleParams params = TestBuildRuleParams.create();
+      final RuleKey ruleKey = new RuleKey("ba5e");
+      final RuleKey inputRuleKey = new RuleKey("ba11");
+      final Path output = Paths.get("output");
+      final BuildRule rule =
+          new InputRuleKeyBuildRule(target, filesystem, params) {
+            @Override
+            public ImmutableList<Step> getBuildSteps(
+                BuildContext context, BuildableContext buildableContext) {
+              buildableContext.recordArtifact(output);
+              return ImmutableList.of(
+                  new WriteFileStep(filesystem, "12345", output, /* executable */ false));
+            }
+
+            @Override
+            public SourcePath getSourcePathToOutput() {
+              return ExplicitBuildTargetSourcePath.of(getBuildTarget(), output);
+            }
+          };
+
+      // Prepopulate the cache with an artifact indexed by the input-based rule key.  Pretend
+      // OUTPUT_HASH and RECORDED_PATH_HASHES are missing b/c we exceeded the input based
+      // threshold.
+      Path metadataDirectory = BuildInfo.getPathToArtifactMetadataDirectory(target, filesystem);
+      filesystem.mkdirs(metadataDirectory);
+      Path outputPath = pathResolver.getRelativePath(rule.getSourcePathToOutput());
+      filesystem.writeContentsToPath(
+          ObjectMappers.WRITER.writeValueAsString(ImmutableList.of(outputPath.toString())),
+          metadataDirectory.resolve(BuildInfo.MetadataKey.RECORDED_PATHS));
+
+      Path artifact = tmp.newFile("artifact.zip");
+      writeEntriesToZip(
+          artifact,
+          ImmutableMap.of(
+              metadataDirectory.resolve(BuildInfo.MetadataKey.RECORDED_PATHS),
+              ObjectMappers.WRITER.writeValueAsString(ImmutableList.of(outputPath.toString())),
+              metadataDirectory.resolve(BuildInfo.MetadataKey.OUTPUT_SIZE),
+              "123",
+              outputPath,
+              "stuff"),
+          ImmutableList.of(metadataDirectory));
+      cache.store(
+          ArtifactInfo.builder()
+              .addRuleKeys(ruleKey)
+              .putMetadata(BuildInfo.MetadataKey.BUILD_ID, buildContext.getBuildId().toString())
+              .putMetadata(
+                  BuildInfo.MetadataKey.ORIGIN_BUILD_ID, buildContext.getBuildId().toString())
+              .putMetadata(BuildInfo.MetadataKey.RULE_KEY, ruleKey.toString())
+              .putMetadata(BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY, inputRuleKey.toString())
+              .build(),
+          BorrowablePath.notBorrowablePath(artifact));
+
+      FakeRuleKeyFactory fakeInputRuleKeyFactory =
+          new FakeRuleKeyFactory(
+              ImmutableMap.of(rule.getBuildTarget(), inputRuleKey),
+              ImmutableSet.of(rule.getBuildTarget())) {
+            @Override
+            public Optional<Long> getInputSizeLimit() {
+              return Optional.of(2L);
+            }
+          };
+      try (CachingBuildEngine cachingBuildEngine =
+          cachingBuildEngineFactory()
+              .setRuleKeyFactories(
+                  RuleKeyFactories.of(
+                      new FakeRuleKeyFactory(ImmutableMap.of(target, ruleKey)),
+                      fakeInputRuleKeyFactory,
+                      NOOP_DEP_FILE_RULE_KEY_FACTORY))
+              .build()) {
+        // Run the build.
+        BuildResult result =
+            cachingBuildEngine
+                .build(buildContext, TestExecutionContext.newInstance(), rule)
+                .getResult()
+                .get();
+        assertEquals(BuildRuleSuccessType.FETCHED_FROM_CACHE, result.getSuccess());
       }
     }
 
@@ -3687,6 +3846,66 @@ public class CachingBuildEngineTest {
           secondState);
     }
 
+    @Test
+    public void testBuildLocallyWithImmediateRemoteSynchronization() throws Exception {
+      RemoteBuildRuleSynchronizer synchronizer = new RemoteBuildRuleSynchronizer();
+
+      // Signal completion of the build rule before the caching build engine requests it.
+      // waitForBuildRuleToFinishRemotely call inside caching build engine should result in an
+      // ImmediateFuture with the completion handler executed on the caching build engine's thread.
+      synchronizer.signalCompletionOfBuildRule(BUILD_TARGET.getFullyQualifiedName());
+
+      assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, doBuild(synchronizer).getSuccess());
+      assertTrue(buildRule.isInitializedFromDisk());
+      Object firstState = buildRule.getBuildOutputInitializer().getBuildOutput();
+
+      writeDepfileInput("new content");
+      assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, doBuild().getSuccess());
+      assertTrue(buildRule.isInitializedFromDisk());
+      Object secondState = buildRule.getBuildOutputInitializer().getBuildOutput();
+
+      assertNotEquals(
+          "Building locally should invalidate InitializableFromDisk state.",
+          firstState,
+          secondState);
+    }
+
+    @Test
+    public void testBuildLocallyWithDelayedRemoteSynchronization() throws Exception {
+      RemoteBuildRuleSynchronizer synchronizer = new RemoteBuildRuleSynchronizer();
+
+      // Signal the completion of the build rule asynchronously.
+      // waitForBuildRuleToFinishRemotely call inside caching build engine should result in an
+      // Future that later has its completion handler invoked by the Thread below.
+      Thread signalBuildRuleCompletedThread =
+          new Thread(
+              () -> {
+                try {
+                  Thread.sleep(10);
+                } catch (InterruptedException e) {
+                  fail("Test was interrupted");
+                }
+                synchronizer.signalCompletionOfBuildRule(BUILD_TARGET.getFullyQualifiedName());
+              });
+      signalBuildRuleCompletedThread.start();
+
+      assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, doBuild(synchronizer).getSuccess());
+      assertTrue(buildRule.isInitializedFromDisk());
+      Object firstState = buildRule.getBuildOutputInitializer().getBuildOutput();
+
+      writeDepfileInput("new content");
+      assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, doBuild().getSuccess());
+      assertTrue(buildRule.isInitializedFromDisk());
+      Object secondState = buildRule.getBuildOutputInitializer().getBuildOutput();
+
+      assertNotEquals(
+          "Building locally should invalidate InitializableFromDisk state.",
+          firstState,
+          secondState);
+
+      signalBuildRuleCompletedThread.join(1000);
+    }
+
     private BuildEngineBuildContext createBuildContext(BuildId buildId) {
       return BuildEngineBuildContext.builder()
           .setBuildContext(FakeBuildContext.withSourcePathResolver(pathResolver))
@@ -3737,9 +3956,13 @@ public class CachingBuildEngineTest {
     }
 
     private BuildResult doBuild() throws Exception {
+      return doBuild(defaultRemoteBuildRuleCompletionWaiter);
+    }
+
+    private BuildResult doBuild(RemoteBuildRuleCompletionWaiter synchronizer) throws Exception {
       fileHashCache.invalidateAll();
       try (CachingBuildEngine cachingBuildEngine =
-          cachingBuildEngineFactory()
+          cachingBuildEngineFactory(synchronizer)
               .setDepFiles(CachingBuildEngine.DepFiles.CACHE)
               .setRuleKeyFactories(
                   RuleKeyFactories.of(
@@ -4009,6 +4232,11 @@ public class CachingBuildEngineTest {
     @Override
     public ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output) {
       throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public ListenableFuture<CacheDeleteResult> deleteAsync(List<RuleKey> ruleKeys) {
+      throw new RuntimeException("Delete operation is not supported");
     }
 
     @Override

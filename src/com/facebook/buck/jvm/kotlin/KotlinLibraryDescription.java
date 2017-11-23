@@ -17,18 +17,17 @@
 package com.facebook.buck.jvm.kotlin;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.HasJavaAbi;
+import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaLibraryRules;
-import com.facebook.buck.jvm.java.HasJavaAbi;
-import com.facebook.buck.jvm.java.HasSources;
-import com.facebook.buck.jvm.java.JarShape;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
-import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.MavenUberJar;
 import com.facebook.buck.jvm.java.SourceJar;
+import com.facebook.buck.maven.AetherUtil;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
@@ -38,15 +37,13 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import java.util.Optional;
 import org.immutables.value.Value;
-import java.util.Collection;
-
 
 public class KotlinLibraryDescription
     implements Description<KotlinLibraryDescriptionArg>, Flavored {
@@ -101,25 +98,18 @@ public class KotlinLibraryDescription
     }
 
     if (flavors.contains(JavaLibrary.SRC_JAR)) {
-      JarShape shape = flavors.contains(JavaLibrary.MAVEN_JAR) ? JarShape.MAVEN : JarShape.SINGLE;
+      Optional<String> mavenCoords =
+          args.getMavenCoords()
+              .map(input -> AetherUtil.addClassifier(input, AetherUtil.CLASSIFIER_SOURCES));
 
-      BuildTarget unflavored = BuildTarget.of(buildTarget.getUnflavoredBuildTarget());
-      BuildRule baseLibrary = resolver.requireRule(unflavored);
-      JarShape.Summary summary = shape.gatherDeps(baseLibrary);
-
-      return new SourceJar(
-          buildTarget,
-          projectFilesystem,
-          params,
-          /* passed in, but ignored */ "8",
-          summary.getPackagedRules().stream()
-              .filter(HasSources.class::isInstance)
-              .map(rule -> ((HasSources) rule).getSources())
-              .flatMap(Collection::stream)
-              .collect(MoreCollectors.toImmutableSet()),
-          args.getMavenCoords(),
-          args.getMavenPomTemplate(),
-          summary.getMavenDeps());
+        return new SourceJar(
+            buildTarget,
+            projectFilesystem,
+            params,
+            args.getSrcs(),
+            mavenCoords,
+            args.getMavenPomTemplate(),
+            ImmutableSortedSet.of());
     }
     JavacOptions javacOptions =
         JavacOptionsFactory.create(defaultOptions, buildTarget, projectFilesystem, resolver, args);

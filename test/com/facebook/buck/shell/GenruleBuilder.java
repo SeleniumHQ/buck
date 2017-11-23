@@ -119,4 +119,16 @@ public class GenruleBuilder
     getArgForPopulating().setSrcs(Optional.ofNullable(srcs).orElse(ImmutableList.of()));
     return this;
   }
+
+  public GenruleBuilder setCacheable(@Nullable Boolean isCacheable) {
+    getArgForPopulating().setCacheable(Optional.ofNullable(isCacheable));
+    return this;
+  }
+
+  public GenruleBuilder setEnvironmentExpansionSeparator(
+      @Nullable String environmentExpansionSeparator) {
+    getArgForPopulating()
+        .setEnvironmentExpansionSeparator(Optional.ofNullable(environmentExpansionSeparator));
+    return this;
+  }
 }

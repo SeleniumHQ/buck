@@ -39,7 +39,6 @@ import org.immutables.value.Value;
 /** Rule for generating an apple package via external script. */
 public class ExternallyBuiltApplePackage extends Genrule {
   private ApplePackageConfigAndPlatformInfo packageConfigAndPlatformInfo;
-  private boolean cacheable;
 
   public ExternallyBuiltApplePackage(
       BuildTarget buildTarget,
@@ -50,7 +49,8 @@ public class ExternallyBuiltApplePackage extends Genrule {
       BuildRuleParams params,
       ApplePackageConfigAndPlatformInfo packageConfigAndPlatformInfo,
       SourcePath bundle,
-      boolean cacheable) {
+      boolean cacheable,
+      Optional<String> environmentExpansionSeparator) {
     super(
         buildTarget,
         projectFilesystem,
@@ -64,9 +64,10 @@ public class ExternallyBuiltApplePackage extends Genrule {
         /* cmdExe */ Optional.empty(),
         /* type */ Optional.empty(),
         buildTarget.getShortName() + "." + packageConfigAndPlatformInfo.getConfig().getExtension(),
-        false);
+        false,
+        cacheable,
+        environmentExpansionSeparator);
     this.packageConfigAndPlatformInfo = packageConfigAndPlatformInfo;
-    this.cacheable = cacheable;
   }
 
   @Override
@@ -135,10 +136,5 @@ public class ExternallyBuiltApplePackage extends Genrule {
     public Arg getExpandedArg() {
       return getMacroExpander().apply(getConfig().getCommand());
     }
-  }
-
-  @Override
-  public boolean isCacheable() {
-    return cacheable;
   }
 }

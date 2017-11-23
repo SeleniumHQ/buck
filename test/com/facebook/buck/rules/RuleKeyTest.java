@@ -46,6 +46,8 @@ import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.immutables.BuckStylePackageVisibleImmutable;
+import com.facebook.buck.util.immutables.BuckStylePackageVisibleTuple;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -886,6 +888,36 @@ public class RuleKeyTest {
   }
 
   @Value.Immutable
+  @BuckStylePackageVisibleTuple
+  abstract static class AbstractTestPackageVisibleTuple implements AddsToRuleKey {
+    @AddToRuleKey
+    abstract int getValue();
+  }
+
+  @Value.Immutable
+  @BuckStylePackageVisibleImmutable
+  abstract static class AbstractTestPackageVisibleImmutable implements AddsToRuleKey {
+    @AddToRuleKey
+    abstract int getValue();
+  }
+
+  @Test
+  public void packageVisibleImmutablesCanUseAddToRuleKey() {
+    SourcePathRuleFinder ruleFinder =
+        new SourcePathRuleFinder(
+            new SingleThreadedBuildRuleResolver(
+                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
+    createBuilder(resolver, ruleFinder)
+        .setReflectively("value", TestPackageVisibleTuple.of(0))
+        .build(RuleKey::new);
+
+    createBuilder(resolver, ruleFinder)
+        .setReflectively("value", TestPackageVisibleImmutable.builder().setValue(0).build())
+        .build(RuleKey::new);
+  }
+
+  @Value.Immutable
   @BuckStyleTuple
   abstract static class AbstractTestRuleKeyAbstractImmutable implements AddsToRuleKey {
     @AddToRuleKey
@@ -964,18 +996,13 @@ public class RuleKeyTest {
   abstract class DerivedFromImplementsBadUseOfAddValueMethodsToRuleKey
       extends ImplementsBadUseOfAddValueMethodsToRuleKey {}
 
-  private static class TestRuleKeyAppendable implements RuleKeyAppendable {
-    private final String value;
+  private static class TestRuleKeyAppendable implements AddsToRuleKey {
+    @AddToRuleKey private final String value;
+    @AddToRuleKey private final String foo = "foo";
+    @AddToRuleKey private final String bar = "bar";
 
     public TestRuleKeyAppendable(String value) {
       this.value = value;
-    }
-
-    @Override
-    public void appendToRuleKey(RuleKeyObjectSink sink) {
-      sink.setReflectively("value", value)
-          .setReflectively("foo", "foo")
-          .setReflectively("bar", "bar");
     }
   }
 

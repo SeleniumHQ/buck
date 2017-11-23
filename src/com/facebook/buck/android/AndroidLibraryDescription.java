@@ -17,9 +17,9 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.java.HasJavaAbi;
+import com.facebook.buck.jvm.core.HasJavaAbi;
+import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
-import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
@@ -93,7 +93,6 @@ public class AndroidLibraryDescription
             buildTarget,
             projectFilesystem,
             params,
-            args.getJavaVersion().orElse(javaBuckConfig.getDefaultJavacOptions().getSourceLevel()),
             args.getSrcs(),
             args.getMavenCoords(),
             args.getMavenPomTemplate(),

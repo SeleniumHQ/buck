@@ -17,6 +17,7 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
+import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.apple.toolchain.AppleSdk;
 import com.facebook.buck.apple.toolchain.AppleSdkPaths;
@@ -34,7 +35,9 @@ import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
+import com.facebook.buck.swift.toolchain.SwiftPlatformsProvider;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -83,12 +86,7 @@ public class FakeAppleRuleDescriptions {
   public static final ProjectFilesystem FAKE_PROJECT_FILESYSTEM =
       ((Supplier<ProjectFilesystem>)
               () -> {
-                ProjectFilesystem filesystem;
-                try {
-                  filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
-                } catch (InterruptedException e) {
-                  throw new RuntimeException(e);
-                }
+                ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
                 Stream.of(
                         "Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
                         "Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++",
@@ -217,37 +215,37 @@ public class FakeAppleRuleDescriptions {
 
   public static final SwiftLibraryDescription SWIFT_LIBRARY_DESCRIPTION =
       new SwiftLibraryDescription(
+          createTestToolchainProviderForSwiftPlatform(DEFAULT_SWIFT_PLATFORM_FLAVOR_DOMAIN),
           CxxPlatformUtils.DEFAULT_CONFIG,
           new SwiftBuckConfig(DEFAULT_BUCK_CONFIG),
-          DEFAULT_APPLE_FLAVOR_DOMAIN,
-          DEFAULT_SWIFT_PLATFORM_FLAVOR_DOMAIN);
+          DEFAULT_APPLE_FLAVOR_DOMAIN);
   /** A fake apple_library description with an iOS platform for use in tests. */
   public static final AppleLibraryDescription LIBRARY_DESCRIPTION =
       new AppleLibraryDescription(
+          createTestToolchainProvider(
+              DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN, DEFAULT_SWIFT_PLATFORM_FLAVOR_DOMAIN),
           new CxxLibraryDescription(
               CxxPlatformUtils.DEFAULT_CONFIG,
               DEFAULT_PLATFORM.getFlavor(),
               new InferBuckConfig(DEFAULT_BUCK_CONFIG),
               DEFAULT_APPLE_FLAVOR_DOMAIN),
           SWIFT_LIBRARY_DESCRIPTION,
-          DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN,
           DEFAULT_PLATFORM.getFlavor(),
           CodeSignIdentityStore.fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)),
           ProvisioningProfileStore.fromProvisioningProfiles(ImmutableList.of()),
           DEFAULT_BUCK_CONFIG.getView(AppleConfig.class),
-          new SwiftBuckConfig(DEFAULT_BUCK_CONFIG),
-          DEFAULT_SWIFT_PLATFORM_FLAVOR_DOMAIN);
+          new SwiftBuckConfig(DEFAULT_BUCK_CONFIG));
 
   /** A fake apple_binary description with an iOS platform for use in tests. */
   public static final AppleBinaryDescription BINARY_DESCRIPTION =
       new AppleBinaryDescription(
+          createTestToolchainProviderForApplePlatform(DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN),
           new CxxBinaryDescription(
               CxxPlatformUtils.DEFAULT_CONFIG,
               new InferBuckConfig(DEFAULT_BUCK_CONFIG),
               DEFAULT_IPHONEOS_I386_PLATFORM.getFlavor(),
               DEFAULT_APPLE_FLAVOR_DOMAIN),
           SWIFT_LIBRARY_DESCRIPTION,
-          DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN,
           CodeSignIdentityStore.fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)),
           ProvisioningProfileStore.fromProvisioningProfiles(ImmutableList.of()),
           DEFAULT_BUCK_CONFIG.getView(AppleConfig.class));
@@ -255,10 +253,10 @@ public class FakeAppleRuleDescriptions {
   /** A fake apple_bundle description with an iOS platform for use in tests. */
   public static final AppleBundleDescription BUNDLE_DESCRIPTION =
       new AppleBundleDescription(
+          createTestToolchainProviderForApplePlatform(DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN),
           BINARY_DESCRIPTION,
           LIBRARY_DESCRIPTION,
           DEFAULT_APPLE_FLAVOR_DOMAIN,
-          DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN,
           DEFAULT_PLATFORM.getFlavor(),
           CodeSignIdentityStore.fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)),
           ProvisioningProfileStore.fromProvisioningProfiles(ImmutableList.of()),
@@ -267,13 +265,42 @@ public class FakeAppleRuleDescriptions {
   /** A fake apple_test description with an iOS platform for use in tests. */
   public static final AppleTestDescription TEST_DESCRIPTION =
       new AppleTestDescription(
+          createTestToolchainProviderForApplePlatform(DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN),
           DEFAULT_BUCK_CONFIG.getView(AppleConfig.class),
           LIBRARY_DESCRIPTION,
           DEFAULT_APPLE_FLAVOR_DOMAIN,
-          DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN,
           DEFAULT_PLATFORM.getFlavor(),
           CodeSignIdentityStore.fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)),
           ProvisioningProfileStore.fromProvisioningProfiles(ImmutableList.of()),
           Suppliers.ofInstance(Optional.empty()),
           DEFAULT_TIMEOUT);
+
+  private static TestToolchainProvider createTestToolchainProviderForSwiftPlatform(
+      FlavorDomain<SwiftPlatform> swiftFlavorDomain) {
+    TestToolchainProvider testToolchainProvider = new TestToolchainProvider();
+    testToolchainProvider.addToolchain(
+        SwiftPlatformsProvider.DEFAULT_NAME, SwiftPlatformsProvider.of(swiftFlavorDomain));
+    return testToolchainProvider;
+  }
+
+  private static TestToolchainProvider createTestToolchainProviderForApplePlatform(
+      FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain) {
+    TestToolchainProvider testToolchainProvider = new TestToolchainProvider();
+    testToolchainProvider.addToolchain(
+        AppleCxxPlatformsProvider.DEFAULT_NAME,
+        AppleCxxPlatformsProvider.of(appleCxxPlatformFlavorDomain));
+    return testToolchainProvider;
+  }
+
+  private static TestToolchainProvider createTestToolchainProvider(
+      FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain,
+      FlavorDomain<SwiftPlatform> swiftFlavorDomain) {
+    TestToolchainProvider testToolchainProvider = new TestToolchainProvider();
+    testToolchainProvider.addToolchain(
+        AppleCxxPlatformsProvider.DEFAULT_NAME,
+        AppleCxxPlatformsProvider.of(appleCxxPlatformFlavorDomain));
+    testToolchainProvider.addToolchain(
+        SwiftPlatformsProvider.DEFAULT_NAME, SwiftPlatformsProvider.of(swiftFlavorDomain));
+    return testToolchainProvider;
+  }
 }

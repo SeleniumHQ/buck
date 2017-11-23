@@ -37,6 +37,7 @@ import com.facebook.buck.cxx.toolchain.CxxToolProvider;
 import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.HeaderVerification;
 import com.facebook.buck.cxx.toolchain.MungingDebugPathSanitizer;
+import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.PosixNmSymbolNameTool;
 import com.facebook.buck.cxx.toolchain.PrefixMapDebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.PreprocessorProvider;
@@ -56,7 +57,6 @@ import com.facebook.buck.swift.toolchain.impl.SwiftPlatformFactory;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.Optionals;
-import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -74,7 +74,6 @@ import java.text.ParseException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import javax.xml.parsers.ParserConfigurationException;
 import org.xml.sax.SAXException;
@@ -91,21 +90,6 @@ public class AppleCxxPlatforms {
   private AppleCxxPlatforms() {}
 
   private static final String USR_BIN = "usr/bin";
-
-  public static Optional<Path> getAppleDeveloperDirectory(
-      BuckConfig buckConfig, ProcessExecutor processExecutor) {
-    AppleConfig appleConfig = buckConfig.getView(AppleConfig.class);
-    Supplier<Optional<Path>> appleDeveloperDirectorySupplier =
-        appleConfig.getAppleDeveloperDirectorySupplier(processExecutor);
-    Optional<Path> appleDeveloperDirectory = appleDeveloperDirectorySupplier.get();
-    if (appleDeveloperDirectory.isPresent() && !Files.isDirectory(appleDeveloperDirectory.get())) {
-      LOG.error(
-          "Developer directory is set to %s, but is not a directory",
-          appleDeveloperDirectory.get());
-      return Optional.empty();
-    }
-    return appleDeveloperDirectory;
-  }
 
   public static ImmutableList<AppleCxxPlatform> buildAppleCxxPlatforms(
       Optional<ImmutableMap<AppleSdk, AppleSdkPaths>> sdkPaths,
@@ -460,7 +444,8 @@ public class AppleCxxPlatforms {
             assemblerDebugPathSanitizer,
             macros,
             Optional.empty(),
-            headerVerification);
+            headerVerification,
+            PicType.PIC);
 
     ApplePlatform applePlatform = targetSdk.getApplePlatform();
     ImmutableList.Builder<Path> swiftOverrideSearchPathBuilder = ImmutableList.builder();

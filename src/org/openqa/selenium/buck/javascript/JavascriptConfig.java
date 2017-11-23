@@ -21,12 +21,10 @@ import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.HashedFileTool;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Preconditions;
-
 import java.util.Optional;
 
 public class JavascriptConfig {
@@ -39,7 +37,6 @@ public class JavascriptConfig {
 
   public Tool getClosureCompiler(
       Optional<SourcePath> compilerPath,
-      SourcePathResolver resolver,
       SourcePathRuleFinder finder) {
     SourcePath path = getClosureCompilerSourcePath(compilerPath);
     Optional<BuildRule> rule = finder.getRule(path);
@@ -50,7 +47,7 @@ public class JavascriptConfig {
       return ((BinaryBuildRule) rule.get()).getExecutableCommand();
     }
 
-    return new HashedFileTool(resolver.getAbsolutePath(path));
+    return new HashedFileTool(path);
   }
 
   public SourcePath getClosureCompilerSourcePath(Optional<SourcePath> compilerPath) {

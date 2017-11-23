@@ -51,7 +51,6 @@ import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SdkEnvironment;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -71,7 +70,6 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.cache.FileHashCacheMode;
@@ -107,23 +105,16 @@ public class DistBuildStateTest {
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
 
   private KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
-  private SdkEnvironment sdkEnvironment;
+  private ProcessExecutor processExecutor;
 
-  private void setUp(BuckConfig buckConfig) {
-    ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
-    TestToolchainProvider toolchainProvider = new TestToolchainProvider();
-    sdkEnvironment = SdkEnvironment.create(buckConfig, processExecutor, toolchainProvider);
-
+  private void setUp() {
+    processExecutor = new DefaultProcessExecutor(new TestConsole());
     PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
 
     knownBuildRuleTypesProvider =
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
-                processExecutor,
-                sdkEnvironment,
-                toolchainProvider,
-                pluginManager,
-                new TestSandboxExecutionStrategyFactory()));
+                processExecutor, pluginManager, new TestSandboxExecutionStrategyFactory()));
   }
 
   @Test
@@ -144,7 +135,7 @@ public class DistBuildStateTest {
             DefaultCellPathResolver.of(filesystem.getRootPath(), config));
     Cell rootCellWhenSaving =
         new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(buckConfig).build();
-    setUp(buckConfig);
+    setUp();
 
     BuildJobState dump =
         DistBuildState.dump(
@@ -161,7 +152,8 @@ public class DistBuildStateTest {
             FakeBuckConfig.builder().build(),
             dump,
             rootCellWhenLoading,
-            sdkEnvironment,
+            ImmutableMap.of(),
+            processExecutor,
             new DefaultProjectFilesystemFactory());
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
     assertThat(cells, Matchers.aMapWithSize(1));
@@ -195,7 +187,7 @@ public class DistBuildStateTest {
             DefaultCellPathResolver.of(filesystem.getRootPath(), config));
     Cell rootCellWhenSaving =
         new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(buckConfig).build();
-    setUp(buckConfig);
+    setUp();
 
     Config serverConfig =
         ConfigBuilder.createFromText(
@@ -226,7 +218,8 @@ public class DistBuildStateTest {
             FakeBuckConfig.builder().build(),
             dump,
             rootCellWhenLoading,
-            sdkEnvironment,
+            ImmutableMap.of(),
+            processExecutor,
             new DefaultProjectFilesystemFactory());
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
 
@@ -245,7 +238,7 @@ public class DistBuildStateTest {
     ProjectFilesystem projectFilesystem = cell.getFilesystem();
     projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getBuckOut());
     BuckConfig buckConfig = cell.getBuckConfig();
-    setUp(buckConfig);
+    setUp();
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     ConstructorArgMarshaller constructorArgMarshaller =
         new ConstructorArgMarshaller(typeCoercerFactory);
@@ -285,7 +278,8 @@ public class DistBuildStateTest {
             FakeBuckConfig.builder().build(),
             dump,
             rootCellWhenLoading,
-            sdkEnvironment,
+            ImmutableMap.of(),
+            processExecutor,
             new DefaultProjectFilesystemFactory());
 
     ProjectFilesystem reconstructedCellFilesystem =
@@ -340,7 +334,7 @@ public class DistBuildStateTest {
             DefaultCellPathResolver.of(cell1Root, config));
     Cell rootCellWhenSaving =
         new TestCellBuilder().setFilesystem(cell1Filesystem).setBuckConfig(buckConfig).build();
-    setUp(buckConfig);
+    setUp();
 
     BuildJobState dump =
         DistBuildState.dump(
@@ -372,7 +366,8 @@ public class DistBuildStateTest {
             localBuckConfig,
             dump,
             rootCellWhenLoading,
-            sdkEnvironment,
+            ImmutableMap.of(),
+            processExecutor,
             new DefaultProjectFilesystemFactory());
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
     assertThat(cells, Matchers.aMapWithSize(2));

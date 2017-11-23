@@ -1,14 +1,18 @@
+"""Module containing java macros."""
+
+load("@bazel_skylib//lib:sets.bzl", "sets")
+
 def _add_immutables(deps_arg, **kwargs):
-    kwargs[deps_arg] = depset(kwargs.get(deps_arg, [])) + [
+    kwargs[deps_arg] = sets.union(kwargs.get(deps_arg, []), [
         '//src/com/facebook/buck/util/immutables:immutables',
         '//third-party/java/errorprone:error-prone-annotations',
         '//third-party/java/immutables:immutables',
         '//third-party/java/guava:guava',
         '//third-party/java/jsr:jsr305',
-    ]
-    kwargs['plugins'] = depset(kwargs.get('plugins', [])) + [
+    ])
+    kwargs['plugins'] = sets.union(kwargs.get('plugins', []), [
         '//third-party/java/immutables:processor'
-    ]
+    ])
     return kwargs
 
 def java_immutables_library(name, **kwargs):
@@ -29,6 +33,7 @@ def java_test(
     # deps, provided_deps and plugins are handled in kwargs so that immutables can be handled there
     **kwargs
     ):
+  """java_test wrapper that provides sensible defaults for buck tests."""
   extra_labels = ['run_as_bundle']
   if run_test_separately:
     extra_labels.append('serialize')
@@ -128,23 +133,28 @@ def standard_java_test(
         )
 
 def _add_pf4j_plugin_framework(**kwargs):
-    kwargs["provided_deps"] = list(depset(kwargs.get("provided_deps", [])).union([
+    kwargs["provided_deps"] = sets.union(kwargs.get("provided_deps", []), [
         "//third-party/java/pf4j:pf4j",
-    ]))
-    kwargs["plugins"] = list(depset(kwargs.get("plugins", [])).union([
+    ])
+    kwargs["plugins"] = sets.union(kwargs.get("plugins", []), [
         "//third-party/java/pf4j:processor",
-    ]))
-    kwargs["annotation_processor_params"] = list(depset(kwargs.get("annotation_processor_params", [])).union([
+    ])
+    kwargs["annotation_processor_params"] = sets.union(kwargs.get("annotation_processor_params", []), [
         "pf4j.storageClassName=org.pf4j.processor.ServiceProviderExtensionStorage",
+    ])
+    return kwargs
+
+def _add_buck_modules_annotation_processor(**kwargs):
+    kwargs["plugins"] = list(depset(kwargs.get("plugins", [])).union([
+        "//src/com/facebook/buck/module/annotationprocessor:annotationprocessor",
     ]))
     return kwargs
 
 def java_library_with_plugins(name, **kwargs):
-    """
-    `java_library` that can contain plugins based on pf4j framework
-    """
-
     kwargs_with_immutables = _add_immutables("provided_deps", **kwargs)
+    kawgs_with_plugins = _add_pf4j_plugin_framework(**kwargs_with_immutables)
+    kawgs_with_buck_modules_annotation_processor = _add_buck_modules_annotation_processor(**kawgs_with_plugins)
     return native.java_library(
       name=name,
-      **_add_pf4j_plugin_framework(**kwargs_with_immutables))
+      **kawgs_with_buck_modules_annotation_processor
+    )

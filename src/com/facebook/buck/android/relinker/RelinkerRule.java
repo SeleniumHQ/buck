@@ -48,6 +48,7 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.ProcessExecutor;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -173,9 +174,10 @@ class RelinkerRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
                       .withAppendedFlavors(InternalFlavor.of("cxx-link"))
                       .withoutFlavors(LinkerMapMode.NO_LINKER_MAP.getFlavor()),
                   getProjectFilesystem(),
-                  buildRuleParams,
+                  buildRuleParams::getBuildDeps,
                   linker,
                   getLibFilePath(),
+                  ImmutableMap.of(),
                   args,
                   Optional.empty(),
                   cxxBuckConfig.getLinkScheduleInfo(),

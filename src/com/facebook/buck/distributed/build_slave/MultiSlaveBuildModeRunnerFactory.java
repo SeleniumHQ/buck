@@ -26,9 +26,11 @@ import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.ActionGraphAndResolver;
+import com.facebook.buck.util.timing.DefaultClock;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -59,10 +61,13 @@ public class MultiSlaveBuildModeRunnerFactory {
       DistBuildService distBuildService,
       StampedeId stampedeId,
       boolean isLocalMinionAlsoRunning,
-      Path logDirectoryPath) {
+      Path logDirectoryPath,
+      BuildRuleFinishedPublisher buildRuleFinishedPublisher) {
     ListenableFuture<BuildTargetsQueue> queue =
         Futures.transform(
-            actionGraphAndResolverFuture, x -> createBuildQueue(x, topLevelTargetsToBuild));
+            actionGraphAndResolverFuture,
+            x -> createBuildQueue(x, topLevelTargetsToBuild),
+            MoreExecutors.directExecutor());
     Optional<String> minionQueue = distBuildConfig.getMinionQueue();
     Preconditions.checkArgument(
         minionQueue.isPresent(),
@@ -70,7 +75,16 @@ public class MultiSlaveBuildModeRunnerFactory {
     ThriftCoordinatorServer.EventListener listener =
         new CoordinatorEventListener(
             distBuildService, stampedeId, minionQueue.get(), isLocalMinionAlsoRunning);
-    return new CoordinatorModeRunner(queue, stampedeId, listener, logDirectoryPath);
+    MinionHealthTracker minionHealthTracker =
+        new MinionHealthTracker(new DefaultClock(), distBuildConfig.getMaxMinionSilenceMillis());
+    return new CoordinatorModeRunner(
+        queue,
+        stampedeId,
+        listener,
+        logDirectoryPath,
+        buildRuleFinishedPublisher,
+        distBuildService,
+        minionHealthTracker);
   }
 
   /**
@@ -122,7 +136,8 @@ public class MultiSlaveBuildModeRunnerFactory {
       StampedeId stampedeId,
       BuildSlaveRunId buildSlaveRunId,
       BuildExecutor localBuildExecutor,
-      Path logDirectoryPath) {
+      Path logDirectoryPath,
+      BuildRuleFinishedPublisher buildRuleFinishedPublisher) {
     return new CoordinatorAndMinionModeRunner(
         createCoordinator(
             actionGraphAndResolverFuture,
@@ -131,7 +146,8 @@ public class MultiSlaveBuildModeRunnerFactory {
             distBuildService,
             stampedeId,
             true,
-            logDirectoryPath),
+            logDirectoryPath,
+            buildRuleFinishedPublisher),
         createMinion(
             localBuildExecutor,
             distBuildService,

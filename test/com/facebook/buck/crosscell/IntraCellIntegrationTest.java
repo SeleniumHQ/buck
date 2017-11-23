@@ -16,6 +16,7 @@
 
 package com.facebook.buck.crosscell;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 import com.facebook.buck.event.BuckEventBusForTests;
@@ -37,7 +38,6 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableSet;
@@ -70,8 +70,6 @@ public class IntraCellIntegrationTest {
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
                 new DefaultProcessExecutor(new TestConsole()),
-                cell.getSdkEnvironment(),
-                new TestToolchainProvider(),
                 BuckPluginManagerFactory.createPluginManager(),
                 new TestSandboxExecutionStrategyFactory()));
 
@@ -118,4 +116,20 @@ public class IntraCellIntegrationTest {
   @Test
   @Ignore
   public void allOutputsShouldBePlacedInTheSameRootOutputDirectory() {}
+
+  @Test
+  public void testEmbeddedBuckOut() throws IOException, InterruptedException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "intracell/visibility", tmp);
+    workspace.setUp();
+    Cell cell = workspace.asCell();
+    assertEquals(cell.getFilesystem().getBuckPaths().getGenDir().toString(), "buck-out/gen");
+    Cell childCell =
+        cell.getCell(
+            BuildTargetFactory.newInstance(
+                workspace.getDestPath().resolve("child-repo"), "//:child-target"));
+    assertEquals(
+        childCell.getFilesystem().getBuckPaths().getGenDir().toString(),
+        "../buck-out/cells/child/gen");
+  }
 }

@@ -36,6 +36,7 @@ import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.json.HasJsonField;
+import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -756,8 +757,8 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
 
     workspace.runBuckBuild("//:binary").assertSuccess("Successful build should exit with 0.");
 
-    workspace.replaceFileContents("BUCK", "provided_deps = [ ':junit' ],", "");
-    workspace.replaceFileContents("BUCK", "deps = [ ':guava' ]", "deps = [ ':guava', ':junit' ]");
+    workspace.replaceFileContents("BUCK", "provided_deps = [\":junit\"],", "");
+    workspace.replaceFileContents("BUCK", "deps = [\":guava\"]", "deps = [ ':guava', ':junit' ]");
     workspace.resetBuildLogFile();
 
     workspace.runBuckBuild("//:binary").assertSuccess();

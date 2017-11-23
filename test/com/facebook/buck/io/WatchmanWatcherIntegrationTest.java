@@ -24,11 +24,11 @@ import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
-import com.facebook.buck.timing.DefaultClock;
-import com.facebook.buck.timing.FakeClock;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.Verbosity;
+import com.facebook.buck.util.timing.DefaultClock;
+import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -61,7 +61,7 @@ public class WatchmanWatcherIntegrationTest {
     Files.write(tmp.getRoot().resolve(".watchmanconfig"), new byte[0]);
 
     watchman =
-        Watchman.build(
+        WatchmanFactory.build(
             ImmutableSet.of(tmp.getRoot()),
             ImmutableMap.copyOf(System.getenv()),
             new Console(Verbosity.ALL, System.out, System.err, Ansi.withoutTty()),

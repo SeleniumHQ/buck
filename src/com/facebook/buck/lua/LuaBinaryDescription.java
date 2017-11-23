@@ -41,6 +41,7 @@ import com.facebook.buck.python.PythonBinaryDescription;
 import com.facebook.buck.python.PythonPackagable;
 import com.facebook.buck.python.PythonPackageComponents;
 import com.facebook.buck.python.PythonPlatform;
+import com.facebook.buck.rules.AbstractTool;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -52,6 +53,7 @@ import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasDeclaredDeps;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
+import com.facebook.buck.rules.NonHashableSourcePathContainer;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
@@ -617,22 +619,29 @@ public class LuaBinaryDescription
       nativeLibsLinktree.add(symlinkTree);
     }
 
-    return new Tool() {
+    return new AbstractTool() {
       @AddToRuleKey private final LuaPackageComponents toolComponents = components;
       @AddToRuleKey private final SourcePath toolStarter = starter;
-      // TODO(cjhopman): This should probably add all the other used stuff to its rulekey.
 
-      @Override
-      public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
-        return ImmutableSortedSet.<BuildRule>naturalOrder()
-            .addAll(ruleFinder.filterBuildRuleInputs(starter))
-            .addAll(components.getDeps(ruleFinder))
-            .add(modulesLinkTree)
-            .addAll(nativeLibsLinktree)
-            .addAll(pythonModulesLinktree)
-            .addAll(ruleFinder.filterBuildRuleInputs(extraInputs))
-            .build();
-      }
+      @AddToRuleKey
+      private final NonHashableSourcePathContainer toolModulesLinkTree =
+          new NonHashableSourcePathContainer(modulesLinkTree.getSourcePathToOutput());
+
+      @AddToRuleKey
+      private final List<NonHashableSourcePathContainer> toolNativeLibsLinkTree =
+          nativeLibsLinktree
+              .stream()
+              .map(linkTree -> new NonHashableSourcePathContainer(linkTree.getSourcePathToOutput()))
+              .collect(MoreCollectors.toImmutableList());
+
+      @AddToRuleKey
+      private final List<NonHashableSourcePathContainer> toolPythonModulesLinktree =
+          pythonModulesLinktree
+              .stream()
+              .map(linkTree -> new NonHashableSourcePathContainer(linkTree.getSourcePathToOutput()))
+              .collect(MoreCollectors.toImmutableList());;
+
+      @AddToRuleKey private final List<SourcePath> toolExtraInputs = extraInputs;
 
       @Override
       public ImmutableCollection<SourcePath> getInputs() {

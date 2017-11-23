@@ -34,6 +34,7 @@ import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
 import com.facebook.buck.rules.MetadataChecker;
+import com.facebook.buck.rules.NoOpRemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
@@ -93,7 +94,8 @@ public class FetchCommand extends BuildCommand {
                     params.getBuckEventBus(),
                     ruleGenerator,
                     result.getTargetGraph(),
-                    params.getBuckConfig().getActionGraphParallelizationMode()));
+                    params.getBuckConfig().getActionGraphParallelizationMode(),
+                    params.getBuckConfig().getShouldInstrumentActionGraph()));
         buildTargets = ruleGenerator.getDownloadableTargets();
       } catch (BuildTargetException | BuildFileParseException | VersionException e) {
         params
@@ -131,8 +133,9 @@ public class FetchCommand extends BuildCommand {
                       params.getRuleKeyConfiguration(),
                       localCachingBuildEngineDelegate.getFileHashCache(),
                       actionGraphAndResolver.getResolver(),
-                      cachingBuildEngineBuckConfig.getBuildInputRuleKeyFileSizeLimit(),
-                      ruleKeyCacheScope.getCache()));
+                      params.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
+                      ruleKeyCacheScope.getCache()),
+                  new NoOpRemoteBuildRuleCompletionWaiter());
           Build build =
               new Build(
                   actionGraphAndResolver.getResolver(),
@@ -167,7 +170,8 @@ public class FetchCommand extends BuildCommand {
 
   private FetchTargetNodeToBuildRuleTransformer createFetchTransformer(CommandRunnerParams params) {
     Downloader downloader =
-        StackedDownloader.createFromConfig(params.getBuckConfig(), params.getToolchainProvider());
+        StackedDownloader.createFromConfig(
+            params.getBuckConfig(), params.getCell().getToolchainProvider());
     Description<?> description = new RemoteFileDescription(downloader);
     return new FetchTargetNodeToBuildRuleTransformer(ImmutableSet.of(description));
   }

@@ -37,7 +37,8 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.zip.ZipStep;
-import com.facebook.buck.zip.rules.SrcZipAwareFileBundler;
+import com.facebook.buck.zip.bundler.FileBundler;
+import com.facebook.buck.zip.bundler.SrcZipAwareFileBundler;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -82,7 +83,7 @@ public class Folder extends ModernBuildRule<Folder> implements Buildable {
         "%s-scratch/" + folderName);
     steps.addAll(MakeCleanDirectoryStep.of(buildCellPathFactory.from(scratch)));
 
-    SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
+    FileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
     bundler.copy(
         getProjectFilesystem(),
         buildCellPathFactory,

@@ -18,6 +18,7 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
+import com.facebook.buck.cxx.toolchain.linker.HasImportLibrary;
 import com.facebook.buck.cxx.toolchain.linker.HasLinkerMap;
 import com.facebook.buck.cxx.toolchain.linker.HasThinLTO;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
@@ -25,13 +26,13 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.HasSupplementaryOutputs;
 import com.facebook.buck.rules.OverrideScheduleRule;
 import com.facebook.buck.rules.RuleScheduleInfo;
 import com.facebook.buck.rules.SourcePath;
@@ -42,21 +43,36 @@ import com.facebook.buck.step.fs.FileScrubberStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
+import com.facebook.buck.step.fs.TouchStep;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedMap;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.SortedSet;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 
-public class CxxLink extends AbstractBuildRuleWithDeclaredAndExtraDeps
-    implements SupportsInputBasedRuleKey, HasAppleDebugSymbolDeps, OverrideScheduleRule {
+public class CxxLink extends AbstractBuildRule
+    implements SupportsInputBasedRuleKey,
+        HasAppleDebugSymbolDeps,
+        OverrideScheduleRule,
+        HasSupplementaryOutputs {
+
+  private final Supplier<? extends SortedSet<BuildRule>> buildDeps;
 
   @AddToRuleKey private final Linker linker;
 
   @AddToRuleKey(stringify = true)
   private final Path output;
+
+  @AddToRuleKey(stringify = true)
+  private final ImmutableSortedMap<String, Path> extraOutputs;
 
   @AddToRuleKey private final ImmutableList<Arg> args;
   @AddToRuleKey private final Optional<LinkOutputPostprocessor> postprocessor;
@@ -67,17 +83,20 @@ public class CxxLink extends AbstractBuildRuleWithDeclaredAndExtraDeps
   public CxxLink(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      BuildRuleParams params,
+      Supplier<? extends SortedSet<BuildRule>> buildDepsSupplier,
       Linker linker,
       Path output,
+      ImmutableMap<String, Path> extraOutputs,
       ImmutableList<Arg> args,
       Optional<LinkOutputPostprocessor> postprocessor,
       Optional<RuleScheduleInfo> ruleScheduleInfo,
       boolean cacheable,
       boolean thinLto) {
-    super(buildTarget, projectFilesystem, params);
+    super(buildTarget, projectFilesystem);
+    this.buildDeps = MoreSuppliers.memoize(buildDepsSupplier);
     this.linker = linker;
     this.output = output;
+    this.extraOutputs = ImmutableSortedMap.copyOf(extraOutputs);
     this.args = args;
     this.postprocessor = postprocessor;
     this.ruleScheduleInfo = ruleScheduleInfo;
@@ -97,6 +116,7 @@ public class CxxLink extends AbstractBuildRuleWithDeclaredAndExtraDeps
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
     buildableContext.recordArtifact(output);
+    extraOutputs.forEach((key, path) -> buildableContext.recordArtifact(path));
     Optional<Path> linkerMapPath = getLinkerMapPath();
     if (linkerMapPath.isPresent()
         && LinkerMapMode.isLinkerMapEnabledForBuildTarget(getBuildTarget())) {
@@ -104,6 +124,10 @@ public class CxxLink extends AbstractBuildRuleWithDeclaredAndExtraDeps
     }
     if (linker instanceof HasThinLTO && thinLto) {
       buildableContext.recordArtifact(((HasThinLTO) linker).thinLTOPath(output));
+    }
+    if (isSharedLib() && linker instanceof HasImportLibrary) {
+      HasImportLibrary impLibLinker = (HasImportLibrary) this.linker;
+      buildableContext.recordArtifact(impLibLinker.importLibraryPath(output));
     }
     Path scratchDir =
         BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-tmp");
@@ -135,7 +159,8 @@ public class CxxLink extends AbstractBuildRuleWithDeclaredAndExtraDeps
             .distinct()
             .collect(MoreCollectors.toImmutableMap(x -> x, currentRuleCellRoot::relativize));
 
-    return new ImmutableList.Builder<Step>()
+    Builder<Step> builder = new Builder<>();
+    builder
         .add(
             MkdirStep.of(
                 BuildCellRelativePath.fromCellRelativePath(
@@ -144,6 +169,16 @@ public class CxxLink extends AbstractBuildRuleWithDeclaredAndExtraDeps
             MakeCleanDirectoryStep.of(
                 BuildCellRelativePath.fromCellRelativePath(
                     context.getBuildCellRootPath(), getProjectFilesystem(), scratchDir)))
+        .addAll(
+            extraOutputs
+                .values()
+                .stream()
+                .map(
+                    path ->
+                        RmStep.of(
+                            BuildCellRelativePath.fromCellRelativePath(
+                                context.getBuildCellRootPath(), getProjectFilesystem(), path)))
+                .iterator())
         .add(
             RmStep.of(
                 BuildCellRelativePath.fromCellRelativePath(
@@ -179,8 +214,17 @@ public class CxxLink extends AbstractBuildRuleWithDeclaredAndExtraDeps
                             getProjectFilesystem().resolve(linkOutput),
                             getProjectFilesystem().resolve(output)))
                 .orElse(ImmutableList.of()))
-        .add(new FileScrubberStep(getProjectFilesystem(), output, linker.getScrubbers(cellRootMap)))
-        .build();
+        .add(
+            new FileScrubberStep(getProjectFilesystem(), output, linker.getScrubbers(cellRootMap)));
+    if (isSharedLib() && linker instanceof HasImportLibrary) {
+      // In some case (when there are no `dll_export`s eg) an import library is not produced by
+      // link.exe. An empty file is produced in this case (since an import library was already
+      // promised to `buildableContext`).
+      HasImportLibrary hasImportLibraryLinker = (HasImportLibrary) this.linker;
+      builder.add(
+          new TouchStep(getProjectFilesystem(), hasImportLibraryLinker.importLibraryPath(output)));
+    }
+    return builder.build();
   }
 
   @Override
@@ -193,6 +237,30 @@ public class CxxLink extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @Override
   public SourcePath getSourcePathToOutput() {
     return ExplicitBuildTargetSourcePath.of(getBuildTarget(), output);
+  }
+
+  /** @return The source path to be used to link against this binary. */
+  SourcePath getSourcePathToOutputForLinking() {
+    if (isSharedLib() && linker instanceof HasImportLibrary) {
+      HasImportLibrary impLibLinker = (HasImportLibrary) this.linker;
+      return ExplicitBuildTargetSourcePath.of(
+          getBuildTarget(), impLibLinker.importLibraryPath(output));
+    }
+    return getSourcePathToOutput();
+  }
+
+  private boolean isSharedLib() {
+    return getBuildTarget().getFlavors().contains(CxxDescriptionEnhancer.SHARED_FLAVOR);
+  }
+
+  @Nullable
+  @Override
+  public SourcePath getSourcePathToSupplementaryOutput(String name) {
+    Path extraOutput = extraOutputs.get(name);
+    if (extraOutput != null) {
+      return ExplicitBuildTargetSourcePath.of(getBuildTarget(), extraOutput);
+    }
+    return null;
   }
 
   @Override
@@ -219,5 +287,10 @@ public class CxxLink extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   public ImmutableList<Arg> getArgs() {
     return args;
+  }
+
+  @Override
+  public SortedSet<BuildRule> getBuildDeps() {
+    return buildDeps.get();
   }
 }

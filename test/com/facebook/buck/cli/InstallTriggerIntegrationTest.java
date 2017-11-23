@@ -16,11 +16,8 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.rules.AbstractBuildRule;
 import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildContext;
@@ -69,23 +66,12 @@ public class InstallTriggerIntegrationTest {
     workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "install_trigger", tmpFolder);
     workspace.setKnownBuildRuleTypesFactoryFactory(
-        (processExecutor,
-            sdkEnvironment,
-            toolchainProvider,
-            pluginManager,
-            sandboxExecutionStrategyFactory) ->
-            cell -> {
-              FlavorDomain<CxxPlatform> cxxPlatforms = FlavorDomain.of("C/C++ platform");
-              CxxPlatform defaultPlatform = CxxPlatformUtils.DEFAULT_PLATFORM;
-
-              KnownBuildRuleTypes.Builder buildRuleTypesBuilder = KnownBuildRuleTypes.builder();
-              buildRuleTypesBuilder.setCxxPlatforms(cxxPlatforms);
-              buildRuleTypesBuilder.setDefaultCxxPlatform(defaultPlatform);
-              return buildRuleTypesBuilder
-                  .addDescriptions(new InstallTriggerDescription())
-                  .addDescriptions(new ExportFileDescription())
-                  .build();
-            });
+        (processExecutor, pluginManager, sandboxExecutionStrategyFactory) ->
+            cell ->
+                KnownBuildRuleTypes.builder()
+                    .addDescriptions(new InstallTriggerDescription())
+                    .addDescriptions(new ExportFileDescription())
+                    .build());
     workspace.setUp();
   }
 

@@ -35,11 +35,11 @@ import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.keys.RuleKeyConfiguration;
 import com.facebook.buck.step.ExecutorPool;
-import com.facebook.buck.timing.Clock;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.nio.file.Path;
@@ -101,6 +101,8 @@ abstract class AbstractDistBuildSlaveExecutorArgs {
 
   public abstract KnownBuildRuleTypesProvider getKnownBuildRuleTypesProvider();
 
+  public abstract BuildRuleFinishedPublisher getBuildRuleFinishedPublisher();
+
   public int getBuildThreadCount() {
     return getState()
         .getRemoteRootCellConfig()
@@ -144,6 +146,8 @@ abstract class AbstractDistBuildSlaveExecutorArgs {
         .setExecutors(this.getExecutors())
         .setProvider(this.getProvider())
         .setKnownBuildRuleTypesProvider(this.getKnownBuildRuleTypesProvider())
+        .setShouldInstrumentActionGraph(
+            this.getDistBuildConfig().getBuckConfig().getShouldInstrumentActionGraph())
         .build();
   }
 

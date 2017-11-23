@@ -18,6 +18,10 @@ package com.facebook.buck.jvm.java;
 
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.HasClasspathEntries;
+import com.facebook.buck.jvm.core.HasJavaAbi;
+import com.facebook.buck.jvm.core.HasSources;
+import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
@@ -41,11 +45,11 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import org.immutables.value.Value;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import org.immutables.value.Value;
 
 public class JavaLibraryDescription
     implements Description<JavaLibraryDescriptionArg>,
@@ -171,7 +175,6 @@ public class JavaLibraryDescription
           buildTarget,
           projectFilesystem,
           emptyParams,
-          args.getJavaVersion().orElse(javaBuckConfig.getDefaultJavacOptions().getSourceLevel()),
           sources,
           args.getMavenCoords(),
           args.getMavenPomTemplate(),

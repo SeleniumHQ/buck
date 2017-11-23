@@ -27,6 +27,7 @@ import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ProjectTestsMode;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.AbstractBottomUpTraversal;
@@ -47,7 +48,6 @@ import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetGraphAndTargets;
@@ -102,7 +102,7 @@ public class XCodeProjectCommandHelper {
   private final VersionedTargetGraphCache versionedTargetGraphCache;
   private final TypeCoercerFactory typeCoercerFactory;
   private final Cell cell;
-  private final KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
+  private final ImmutableSet<String> appleCxxFlavors;
   private final RuleKeyConfiguration ruleKeyConfiguration;
   private final Console console;
   private final Optional<ProcessManager> processManager;
@@ -129,13 +129,13 @@ public class XCodeProjectCommandHelper {
       VersionedTargetGraphCache versionedTargetGraphCache,
       TypeCoercerFactory typeCoercerFactory,
       Cell cell,
-      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
       RuleKeyConfiguration ruleKeyConfiguration,
       Console console,
       Optional<ProcessManager> processManager,
       ImmutableMap<String, String> environment,
       ListeningExecutorService executorService,
       List<String> arguments,
+      ImmutableSet<String> appleCxxFlavors,
       boolean enableParserProfiling,
       boolean withTests,
       boolean withoutTests,
@@ -153,7 +153,7 @@ public class XCodeProjectCommandHelper {
     this.versionedTargetGraphCache = versionedTargetGraphCache;
     this.typeCoercerFactory = typeCoercerFactory;
     this.cell = cell;
-    this.knownBuildRuleTypesProvider = knownBuildRuleTypesProvider;
+    this.appleCxxFlavors = appleCxxFlavors;
     this.ruleKeyConfiguration = ruleKeyConfiguration;
     this.console = console;
     this.processManager = processManager;
@@ -321,13 +321,13 @@ public class XCodeProjectCommandHelper {
         generateWorkspacesForTargets(
             buckEventBus,
             cell,
-            knownBuildRuleTypesProvider,
             buckConfig,
             ruleKeyConfiguration,
             executorService,
             targetGraphAndTargets,
             passedInTargetsSet,
             options,
+            appleCxxFlavors,
             getFocusModules(executor),
             new HashMap<>(),
             combinedProject,
@@ -373,13 +373,13 @@ public class XCodeProjectCommandHelper {
   static ImmutableSet<BuildTarget> generateWorkspacesForTargets(
       BuckEventBus buckEventBus,
       Cell cell,
-      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
       BuckConfig buckConfig,
       RuleKeyConfiguration ruleKeyConfiguration,
       ListeningExecutorService executorService,
       final TargetGraphAndTargets targetGraphAndTargets,
       ImmutableSet<BuildTarget> passedInTargetsSet,
       ImmutableSet<ProjectGenerator.Option> options,
+      ImmutableSet<String> appleCxxFlavors,
       FocusedModuleTargetMatcher focusModules,
       Map<Path, ProjectGenerator> projectGenerators,
       boolean combinedProject,
@@ -422,14 +422,11 @@ public class XCodeProjectCommandHelper {
       CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(buckConfig);
       SwiftBuckConfig swiftBuckConfig = new SwiftBuckConfig(buckConfig);
 
-      CxxPlatform defaultCxxPlatform =
-          knownBuildRuleTypesProvider
-              .get(cell)
-              .getDefaultCxxPlatform()
-              .orElseThrow(
-                  () ->
-                      new IllegalStateException(
-                          "C/C++ platform not initialized in `KnownBuildRuleTypes"));
+      CxxPlatformsProvider cxxPlatformsProvider =
+          cell.getToolchainProvider()
+              .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
+
+      CxxPlatform defaultCxxPlatform = cxxPlatformsProvider.getDefaultCxxPlatform();
       WorkspaceAndProjectGenerator generator =
           new WorkspaceAndProjectGenerator(
               cell,
@@ -441,12 +438,14 @@ public class XCodeProjectCommandHelper {
               focusModules,
               !appleConfig.getXcodeDisableParallelizeBuild(),
               defaultCxxPlatform,
+              appleCxxFlavors,
               buckConfig.getView(ParserConfig.class).getBuildFileName(),
               lazyActionGraph::getBuildRuleResolverWhileRequiringSubgraph,
               buckEventBus,
               ruleKeyConfiguration,
               halideBuckConfig,
               cxxBuckConfig,
+              appleConfig,
               swiftBuckConfig);
       Preconditions.checkNotNull(
           executorService, "CommandRunnerParams does not have executor for PROJECT pool");

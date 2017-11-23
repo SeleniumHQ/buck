@@ -29,15 +29,15 @@ import com.facebook.buck.event.ExperimentEvent;
 import com.facebook.buck.event.NetworkEvent.BytesReceivedEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.randomizedtrial.RandomizedTrial;
 import com.facebook.buck.slb.HttpLoadBalancer;
 import com.facebook.buck.slb.HttpService;
 import com.facebook.buck.slb.LoadBalancedService;
 import com.facebook.buck.slb.RetryingHttpService;
 import com.facebook.buck.slb.SingleUriService;
-import com.facebook.buck.timing.DefaultClock;
 import com.facebook.buck.util.AsyncCloseable;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.randomizedtrial.RandomizedTrial;
+import com.facebook.buck.util.timing.DefaultClock;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -556,7 +556,9 @@ public class ArtifactCaches implements ArtifactCacheFactory {
     if (multiFetchType == MultiFetchType.EXPERIMENT) {
       multiFetchType =
           RandomizedTrial.getGroup(
-              ArtifactCacheBuckConfig.MULTI_FETCH, eventBus.getBuildId(), MultiFetchType.class);
+              ArtifactCacheBuckConfig.MULTI_FETCH,
+              eventBus.getBuildId().toString(),
+              MultiFetchType.class);
       switch (multiFetchType) {
         case DISABLED:
         case ENABLED:

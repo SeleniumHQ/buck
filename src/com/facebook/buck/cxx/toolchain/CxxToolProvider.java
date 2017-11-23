@@ -21,10 +21,12 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.ConstantToolProvider;
 import com.facebook.buck.rules.HashedFileTool;
+import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.ToolProvider;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
+import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.annotations.VisibleForTesting;
@@ -86,16 +88,19 @@ public abstract class CxxToolProvider<T> {
    * Build using a {@link Path} and an optional type. If the type is absent, the tool will be
    * executed to infer it.
    */
-  public CxxToolProvider(final Path path, Optional<Type> type) {
+  public CxxToolProvider(final Supplier<PathSourcePath> path, Optional<Type> type) {
     this(
         new ConstantToolProvider(new HashedFileTool(path)),
         type.map(Suppliers::ofInstance)
-            .orElseGet(() -> Suppliers.memoize(() -> getTypeFromPath(path))));
+            .orElseGet(() -> MoreSuppliers.memoize(() -> getTypeFromPath(path.get()))::get));
   }
 
-  private static Type getTypeFromPath(Path path) {
+  private static Type getTypeFromPath(PathSourcePath path) {
     ProcessExecutorParams params =
-        ProcessExecutorParams.builder().addCommand(path.toString()).addCommand("--version").build();
+        ProcessExecutorParams.builder()
+            .addCommand(path.getFilesystem().resolve(path.getRelativePath()).toString())
+            .addCommand("--version")
+            .build();
     ProcessExecutor.Result result;
     try {
       ProcessExecutor processExecutor = new DefaultProcessExecutor(Console.createNullConsole());

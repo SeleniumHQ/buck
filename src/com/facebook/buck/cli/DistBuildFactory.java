@@ -27,6 +27,7 @@ import com.facebook.buck.distributed.FrontendService;
 import com.facebook.buck.distributed.MultiSourceContentsProvider;
 import com.facebook.buck.distributed.ServerContentsProvider;
 import com.facebook.buck.distributed.build_client.LogStateTracker;
+import com.facebook.buck.distributed.build_slave.BuildRuleFinishedPublisher;
 import com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTracker;
 import com.facebook.buck.distributed.build_slave.DistBuildSlaveExecutor;
 import com.facebook.buck.distributed.build_slave.DistBuildSlaveExecutorArgs;
@@ -53,7 +54,8 @@ public abstract class DistBuildFactory {
   }
 
   public static DistBuildService newDistBuildService(CommandRunnerParams params) {
-    return new DistBuildService(newFrontendService(params));
+    return new DistBuildService(
+        newFrontendService(params), params.getBuildEnvironmentDescription().getUser());
   }
 
   public static LogStateTracker newDistBuildLogStateTracker(
@@ -107,7 +109,8 @@ public abstract class DistBuildFactory {
       BuildSlaveRunId buildSlaveRunId,
       FileContentsProvider fileContentsProvider,
       DistBuildConfig distBuildConfig,
-      BuildSlaveTimingStatsTracker timingStatsTracker) {
+      BuildSlaveTimingStatsTracker timingStatsTracker,
+      BuildRuleFinishedPublisher buildRuleFinishedPublisher) {
     Preconditions.checkArgument(state.getCells().size() > 0);
 
     // Create a cache factory which uses a combination of the distributed build config,
@@ -144,6 +147,7 @@ public abstract class DistBuildFactory {
                 .setProjectFilesystemFactory(params.getProjectFilesystemFactory())
                 .setTimingStatsTracker(timingStatsTracker)
                 .setKnownBuildRuleTypesProvider(params.getKnownBuildRuleTypesProvider())
+                .setBuildRuleFinishedPublisher(buildRuleFinishedPublisher)
                 .build());
     return executor;
   }

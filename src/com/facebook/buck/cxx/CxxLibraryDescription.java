@@ -24,6 +24,7 @@ import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
+import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.SharedLibraryInterfaceParams;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
@@ -243,7 +244,7 @@ public class CxxLibraryDescription
       CellPathResolver cellRoots,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
-      CxxSourceRuleFactory.PicType pic,
+      PicType pic,
       CxxLibraryDescriptionArg args,
       ImmutableSet<BuildRule> deps,
       TransitiveCxxPreprocessorInputFunction transitivePreprocessorInputs,
@@ -285,7 +286,7 @@ public class CxxLibraryDescription
       CellPathResolver cellRoots,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
-      CxxSourceRuleFactory.PicType pic,
+      PicType pic,
       CxxLibraryDescriptionArg args,
       ImmutableSet<BuildRule> deps,
       TransitiveCxxPreprocessorInputFunction transitivePreprocessorInputs,
@@ -393,7 +394,7 @@ public class CxxLibraryDescription
             cellRoots,
             cxxBuckConfig,
             cxxPlatform,
-            CxxSourceRuleFactory.PicType.PIC,
+            cxxPlatform.getPicTypeForSharedLinking(),
             arg,
             deps,
             transitiveCxxPreprocessorInputFunction,
@@ -458,7 +459,7 @@ public class CxxLibraryDescription
             cellRoots,
             cxxBuckConfig,
             cxxPlatform,
-            CxxSourceRuleFactory.PicType.PIC,
+            cxxPlatform.getPicTypeForSharedLinking(),
             args,
             deps,
             transitiveCxxPreprocessorInputFunction,
@@ -475,9 +476,6 @@ public class CxxLibraryDescription
     Path sharedLibraryPath =
         CxxDescriptionEnhancer.getSharedLibraryPath(
             projectFilesystem, sharedTarget, sharedLibrarySoname);
-    ImmutableList.Builder<StringWithMacros> extraLdFlagsBuilder = ImmutableList.builder();
-    extraLdFlagsBuilder.addAll(linkerFlags);
-    ImmutableList<StringWithMacros> extraLdFlags = extraLdFlagsBuilder.build();
 
     ImmutableList<NativeLinkable> delegateNativeLinkables =
         delegate
@@ -490,7 +488,10 @@ public class CxxLibraryDescription
             .concat(RichStream.from(delegateNativeLinkables))
             .toImmutableList();
 
-    CxxLinkOptions linkOptions = CxxLinkOptions.of(args.getThinLto());
+    CxxLinkOptions linkOptions =
+        CxxLinkOptions.of(
+            args.getThinLto()
+            );
     return CxxLinkableEnhancer.createCxxLinkableBuildRule(
         cxxBuckConfig,
         cxxPlatform,
@@ -502,6 +503,7 @@ public class CxxLibraryDescription
         linkType,
         Optional.of(sharedLibrarySoname),
         sharedLibraryPath,
+        args.getLinkerExtraOutputs(),
         linkableDepType,
         linkOptions,
         allNativeLinkables,
@@ -511,15 +513,11 @@ public class CxxLibraryDescription
         ImmutableSet.of(),
         NativeLinkableInput.builder()
             .addAllArgs(
-                RichStream.from(extraLdFlags)
+                RichStream.from(linkerFlags)
                     .map(
                         f ->
                             CxxDescriptionEnhancer.toStringWithMacrosArgs(
-                                buildTargetMaybeWithLinkerMapMode,
-                                cellRoots,
-                                ruleResolver,
-                                cxxPlatform,
-                                f))
+                                sharedTarget, cellRoots, ruleResolver, cxxPlatform, f))
                     .toImmutableList())
             .addAllArgs(SourcePathArg.from(objects))
             .setFrameworks(frameworks)
@@ -610,7 +608,7 @@ public class CxxLibraryDescription
       CxxPlatform cxxPlatform,
       CxxLibraryDescriptionArg args,
       ImmutableSet<BuildRule> deps,
-      CxxSourceRuleFactory.PicType pic,
+      PicType pic,
       TransitiveCxxPreprocessorInputFunction transitiveCxxPreprocessorInputFunction,
       Optional<CxxLibraryDescriptionDelegate> delegate) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
@@ -813,7 +811,7 @@ public class CxxLibraryDescription
               cellRoots,
               cxxBuckConfig,
               cxxPlatform,
-              CxxSourceRuleFactory.PicType.PIC,
+              PicType.PIC,
               args,
               cxxDeps.get(resolver, cxxPlatform),
               transitiveCxxPreprocessorInputFunction,
@@ -910,7 +908,7 @@ public class CxxLibraryDescription
               platform.get(),
               args,
               cxxDeps.get(resolver, platform.get()),
-              CxxSourceRuleFactory.PicType.PDC,
+              PicType.PDC,
               transitiveCxxPreprocessorInputFunction,
               delegate);
         case STATIC_PIC:
@@ -923,7 +921,7 @@ public class CxxLibraryDescription
               platform.get(),
               args,
               cxxDeps.get(resolver, platform.get()),
-              CxxSourceRuleFactory.PicType.PIC,
+              PicType.PIC,
               transitiveCxxPreprocessorInputFunction,
               delegate);
         case SANDBOX_TREE:
@@ -956,6 +954,11 @@ public class CxxLibraryDescription
         args.getExportedCxxDeps(),
         hasObjects.negate(),
         input -> {
+          ImmutableList<Arg> delegateExportedLinkerFlags =
+              delegate
+                  .map(d -> d.getAdditionalExportedLinkerFlags(buildTarget, resolver, input))
+                  .orElse(ImmutableList.of());
+
           ImmutableList<StringWithMacros> flags =
               CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
                   args.getExportedLinkerFlags(), args.getExportedPlatformLinkerFlags(), input);
@@ -964,6 +967,7 @@ public class CxxLibraryDescription
                   f ->
                       CxxDescriptionEnhancer.toStringWithMacrosArgs(
                           buildTarget, cellRoots, resolver, input, f))
+              .concat(RichStream.from(delegateExportedLinkerFlags))
               .toImmutableList();
         },
         cxxPlatform -> {

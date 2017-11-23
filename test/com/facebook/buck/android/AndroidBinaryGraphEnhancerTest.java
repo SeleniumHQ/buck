@@ -38,8 +38,8 @@ import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaClassHashes;
+import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.FakeJavac;
-import com.facebook.buck.jvm.java.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.Keystore;
 import com.facebook.buck.model.BuildTarget;
@@ -140,7 +140,8 @@ public class AndroidBinaryGraphEnhancerTest {
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             Optional.empty(),
             /* locales */ ImmutableSet.of(),
-            createStrictMock(AbstractPathSourcePath.class),
+            Optional.of(createStrictMock(AbstractPathSourcePath.class)),
+            Optional.empty(),
             AndroidBinary.PackageType.DEBUG,
             /* cpuFilters */ ImmutableSet.of(),
             /* shouldBuildStringSourceMap */ false,
@@ -295,7 +296,8 @@ public class AndroidBinaryGraphEnhancerTest {
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             Optional.empty(),
             /* locales */ ImmutableSet.of(),
-            FakeSourcePath.of("AndroidManifest.xml"),
+            Optional.of(FakeSourcePath.of("AndroidManifest.xml")),
+            Optional.empty(),
             AndroidBinary.PackageType.DEBUG,
             /* cpuFilters */ ImmutableSet.of(),
             /* shouldBuildStringSourceMap */ false,
@@ -421,7 +423,8 @@ public class AndroidBinaryGraphEnhancerTest {
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             Optional.empty(),
             /* locales */ ImmutableSet.of(),
-            FakeSourcePath.of("AndroidManifest.xml"),
+            Optional.of(FakeSourcePath.of("AndroidManifest.xml")),
+            Optional.empty(),
             AndroidBinary.PackageType.DEBUG,
             /* cpuFilters */ ImmutableSet.of(),
             /* shouldBuildStringSourceMap */ false,
@@ -488,7 +491,8 @@ public class AndroidBinaryGraphEnhancerTest {
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             Optional.empty(),
             /* locales */ ImmutableSet.of(),
-            FakeSourcePath.of("AndroidManifest.xml"),
+            Optional.of(FakeSourcePath.of("AndroidManifest.xml")),
+            Optional.empty(),
             AndroidBinary.PackageType.DEBUG,
             /* cpuFilters */ ImmutableSet.of(),
             /* shouldBuildStringSourceMap */ false,
@@ -584,7 +588,8 @@ public class AndroidBinaryGraphEnhancerTest {
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             Optional.empty(),
             /* locales */ ImmutableSet.of(),
-            FakeSourcePath.of("AndroidManifest.xml"),
+            Optional.of(FakeSourcePath.of("AndroidManifest.xml")),
+            Optional.empty(),
             AndroidBinary.PackageType.DEBUG,
             /* cpuFilters */ ImmutableSet.of(),
             /* shouldBuildStringSourceMap */ false,

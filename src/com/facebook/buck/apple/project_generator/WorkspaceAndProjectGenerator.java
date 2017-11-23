@@ -20,6 +20,7 @@ import com.facebook.buck.apple.AppleBuildRules;
 import com.facebook.buck.apple.AppleBuildRules.RecursiveDependenciesMode;
 import com.facebook.buck.apple.AppleBundleDescription;
 import com.facebook.buck.apple.AppleBundleDescriptionArg;
+import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleDependenciesCache;
 import com.facebook.buck.apple.AppleTestDescriptionArg;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
@@ -91,6 +92,7 @@ public class WorkspaceAndProjectGenerator {
   private final boolean combinedProject;
   private final boolean parallelizeBuild;
   private final CxxPlatform defaultCxxPlatform;
+  private final ImmutableSet<String> appleCxxFlavors;
 
   private Optional<ProjectGenerator> combinedProjectGenerator;
   private final Map<String, SchemeGenerator> schemeGenerators = new HashMap<>();
@@ -107,6 +109,7 @@ public class WorkspaceAndProjectGenerator {
       ImmutableList.builder();
   private final HalideBuckConfig halideBuckConfig;
   private final CxxBuckConfig cxxBuckConfig;
+  private final AppleConfig appleConfig;
   private final SwiftBuckConfig swiftBuckConfig;
 
   public WorkspaceAndProjectGenerator(
@@ -119,12 +122,14 @@ public class WorkspaceAndProjectGenerator {
       FocusedModuleTargetMatcher focusModules,
       boolean parallelizeBuild,
       CxxPlatform defaultCxxPlatform,
+      ImmutableSet<String> appleCxxFlavors,
       String buildFileName,
       Function<TargetNode<?, ?>, BuildRuleResolver> buildRuleResolverForNode,
       BuckEventBus buckEventBus,
       RuleKeyConfiguration ruleKeyConfiguration,
       HalideBuckConfig halideBuckConfig,
       CxxBuckConfig cxxBuckConfig,
+      AppleConfig appleConfig,
       SwiftBuckConfig swiftBuckConfig) {
     this.rootCell = cell;
     this.projectGraph = projectGraph;
@@ -137,6 +142,7 @@ public class WorkspaceAndProjectGenerator {
     this.combinedProject = combinedProject;
     this.parallelizeBuild = parallelizeBuild;
     this.defaultCxxPlatform = defaultCxxPlatform;
+    this.appleCxxFlavors = appleCxxFlavors;
     this.buildFileName = buildFileName;
     this.buildRuleResolverForNode = buildRuleResolverForNode;
     this.buckEventBus = buckEventBus;
@@ -144,6 +150,7 @@ public class WorkspaceAndProjectGenerator {
     this.combinedProjectGenerator = Optional.empty();
     this.halideBuckConfig = halideBuckConfig;
     this.cxxBuckConfig = cxxBuckConfig;
+    this.appleConfig = appleConfig;
 
     this.focusModules =
         focusModules.map(
@@ -472,10 +479,12 @@ public class WorkspaceAndProjectGenerator {
                 targetsInRequiredProjects,
                 focusModules,
                 defaultCxxPlatform,
+                appleCxxFlavors,
                 buildRuleResolverForNode,
                 buckEventBus,
                 halideBuckConfig,
                 cxxBuckConfig,
+                appleConfig,
                 swiftBuckConfig);
         projectGenerators.put(projectDirectory, generator);
         shouldGenerateProjects = true;
@@ -527,10 +536,12 @@ public class WorkspaceAndProjectGenerator {
             targetsInRequiredProjects,
             focusModules,
             defaultCxxPlatform,
+            appleCxxFlavors,
             buildRuleResolverForNode,
             buckEventBus,
             halideBuckConfig,
             cxxBuckConfig,
+            appleConfig,
             swiftBuckConfig);
     combinedProjectGenerator = Optional.of(generator);
     generator.createXcodeProjects();

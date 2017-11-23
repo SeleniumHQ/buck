@@ -24,13 +24,13 @@ import com.facebook.buck.cxx.CxxFlags;
 import com.facebook.buck.cxx.CxxLinkAndCompileRules;
 import com.facebook.buck.cxx.CxxLinkOptions;
 import com.facebook.buck.cxx.CxxSource;
-import com.facebook.buck.cxx.CxxSourceRuleFactory;
 import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
+import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -53,7 +53,6 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
-import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.util.HumanReadableException;
@@ -151,17 +150,6 @@ public class HalideLibraryDescription
             halideSources,
             PatternMatchedCollection.of());
 
-    ImmutableList<StringWithMacros> preprocessorFlags = ImmutableList.of();
-    PatternMatchedCollection<ImmutableList<StringWithMacros>> platformPreprocessorFlags =
-        PatternMatchedCollection.of();
-    ImmutableMap<CxxSource.Type, ImmutableList<StringWithMacros>> langPreprocessorFlags =
-        ImmutableMap.of();
-    ImmutableSortedSet<FrameworkPath> frameworks = ImmutableSortedSet.of();
-    ImmutableSortedSet<FrameworkPath> libraries = ImmutableSortedSet.of();
-    Optional<SourcePath> prefixHeader = Optional.empty();
-    Optional<SourcePath> precompiledHeader = Optional.empty();
-    Optional<Linker.CxxRuntimeType> cxxRuntimeType = Optional.empty();
-
     CxxLinkAndCompileRules cxxLinkAndCompileRules =
         CxxDescriptionEnhancer.createBuildRulesForCxxBinary(
             buildTarget,
@@ -178,21 +166,21 @@ public class HalideLibraryDescription
             flavoredLinkerMapMode,
             Linker.LinkableDepType.STATIC,
             CxxLinkOptions.of(),
-            preprocessorFlags,
-            platformPreprocessorFlags,
-            langPreprocessorFlags,
-            frameworks,
-            libraries,
+            ImmutableList.of(),
+            PatternMatchedCollection.of(),
+            ImmutableMap.of(),
+            ImmutableSortedSet.of(),
+            ImmutableSortedSet.of(),
             compilerFlags,
             langCompilerFlags,
             platformCompilerFlags,
-            prefixHeader,
-            precompiledHeader,
-            linkerFlags,
-            platformLinkerFlags,
-            cxxRuntimeType,
-            includeDirs,
             Optional.empty(),
+            Optional.empty(),
+            linkerFlags,
+            ImmutableList.of(),
+            platformLinkerFlags,
+            Optional.empty(),
+            includeDirs,
             rawHeaders);
 
     buildTarget = CxxStrip.restoreStripStyleFlavorInTarget(buildTarget, flavoredStripStyle);
@@ -240,7 +228,7 @@ public class HalideLibraryDescription
             projectFilesystem,
             buildTarget,
             platform.getFlavor(),
-            CxxSourceRuleFactory.PicType.PIC,
+            PicType.PIC,
             platform.getStaticLibraryExtension(),
             cxxBuckConfig.isUniqueLibraryNameEnabled()),
         ImmutableList.of(

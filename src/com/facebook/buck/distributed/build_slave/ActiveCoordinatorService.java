@@ -16,14 +16,19 @@
 
 package com.facebook.buck.distributed.build_slave;
 
+import com.facebook.buck.distributed.build_slave.ThriftCoordinatorServer.ExitState;
 import com.facebook.buck.distributed.thrift.CoordinatorService;
 import com.facebook.buck.distributed.thrift.GetWorkRequest;
 import com.facebook.buck.distributed.thrift.GetWorkResponse;
+import com.facebook.buck.distributed.thrift.ReportMinionAliveRequest;
+import com.facebook.buck.distributed.thrift.ReportMinionAliveResponse;
 import com.facebook.buck.distributed.thrift.WorkUnit;
 import com.facebook.buck.log.Logger;
+import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.apache.thrift.TException;
 
 /** Handles Coordinator requests while the build is actively running. */
 public class ActiveCoordinatorService implements CoordinatorService.Iface {
@@ -31,16 +36,22 @@ public class ActiveCoordinatorService implements CoordinatorService.Iface {
   private static final Logger LOG = Logger.get(ActiveCoordinatorService.class);
 
   private final MinionWorkloadAllocator allocator;
-  private final CompletableFuture<Integer> exitCodeFuture;
+  private final CompletableFuture<ExitState> exitCodeFuture;
   private final DistBuildTraceTracker chromeTraceTracker;
+  private final BuildRuleFinishedPublisher buildRuleFinishedPublisher;
+  private final MinionHealthTracker minionHealthTracker;
 
   public ActiveCoordinatorService(
       MinionWorkloadAllocator allocator,
-      CompletableFuture<Integer> exitCodeFuture,
-      DistBuildTraceTracker chromeTraceTracker) {
+      CompletableFuture<ExitState> exitCodeFuture,
+      DistBuildTraceTracker chromeTraceTracker,
+      BuildRuleFinishedPublisher buildRuleFinishedPublisher,
+      MinionHealthTracker minionHealthTracker) {
     this.allocator = allocator;
     this.exitCodeFuture = exitCodeFuture;
     this.chromeTraceTracker = chromeTraceTracker;
+    this.buildRuleFinishedPublisher = buildRuleFinishedPublisher;
+    this.minionHealthTracker = minionHealthTracker;
   }
 
   @Override
@@ -49,6 +60,9 @@ public class ActiveCoordinatorService implements CoordinatorService.Iface {
     GetWorkResponse response = new GetWorkResponse();
     response.setContinueBuilding(true);
     response.setWorkUnits(new ArrayList<>());
+
+    buildRuleFinishedPublisher.createBuildRuleCompletionEvents(
+        ImmutableList.copyOf(request.getFinishedTargets()));
 
     if (exitCodeFuture.isDone()) {
       // Tell any remaining minions that the build is finished and that they should shutdown.
@@ -60,11 +74,12 @@ public class ActiveCoordinatorService implements CoordinatorService.Iface {
 
     // If the minion died, then kill the whole build.
     if (request.getLastExitCode() != 0) {
-      LOG.error(
+      String msg =
           String.format(
               "Got non zero exit code in GetWorkRequest from minion [%s]. Exit code [%s]",
-              request.getMinionId(), request.getLastExitCode()));
-      exitCodeFuture.complete(request.getLastExitCode());
+              request.getMinionId(), request.getLastExitCode());
+      LOG.error(msg);
+      exitCodeFuture.complete(ExitState.setLocally(request.getLastExitCode(), msg));
       response.setContinueBuilding(false);
       return response;
     }
@@ -79,16 +94,24 @@ public class ActiveCoordinatorService implements CoordinatorService.Iface {
     // If the build is already finished (or just finished with this update, then signal this to
     // the minion.
     if (allocator.isBuildFinished()) {
-      exitCodeFuture.complete(0);
+      exitCodeFuture.complete(ExitState.setLocally(0, "Build finished successfully."));
       LOG.info(
           String.format(
               "Minion [%s] is being told to exit because the build has finished.",
               request.minionId));
+      minionHealthTracker.stopTrackingForever(request.minionId);
       response.setContinueBuilding(false);
     } else {
       response.setWorkUnits(newWorkUnitsForMinion);
     }
 
     return response;
+  }
+
+  @Override
+  public ReportMinionAliveResponse reportMinionAlive(ReportMinionAliveRequest request)
+      throws TException {
+    minionHealthTracker.reportMinionAlive(request.minionId);
+    return new ReportMinionAliveResponse();
   }
 }

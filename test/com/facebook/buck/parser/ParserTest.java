@@ -32,7 +32,15 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
+import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
+import com.facebook.buck.apple.toolchain.AppleDeveloperDirectoryProvider;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.apple.toolchain.AppleSdkLocation;
+import com.facebook.buck.apple.toolchain.AppleToolchainProvider;
+import com.facebook.buck.apple.toolchain.impl.AppleCxxPlatformsProviderFactory;
+import com.facebook.buck.apple.toolchain.impl.AppleDeveloperDirectoryProviderFactory;
+import com.facebook.buck.apple.toolchain.impl.AppleSdkLocationFactory;
+import com.facebook.buck.apple.toolchain.impl.AppleToolchainProviderFactory;
 import com.facebook.buck.config.ActionGraphParallelizationMode;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
@@ -45,7 +53,7 @@ import com.facebook.buck.io.WatchmanPathEvent;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.jvm.java.JavaLibrary;
+import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetException;
 import com.facebook.buck.model.BuildTargetFactory;
@@ -75,10 +83,12 @@ import com.facebook.buck.shell.GenruleDescriptionArg;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.toolchain.ToolchainCreationContext;
 import com.facebook.buck.toolchain.impl.TestToolchainProvider;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreCollectors;
+import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.config.ConfigBuilder;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
@@ -240,13 +250,46 @@ public class ParserTest {
             .setSections(configSectionsBuilder.build())
             .build();
 
+    ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
+
+    ToolchainCreationContext toolchainCreationContext =
+        ToolchainCreationContext.builder()
+            .setProcessExecutor(processExecutor)
+            .setFilesystem(filesystem)
+            .setBuckConfig(config)
+            .build();
+
+    TestToolchainProvider testToolchainProvider = new TestToolchainProvider();
+    Optional<AppleDeveloperDirectoryProvider> appleDeveloperDirectoryProvider =
+        new AppleDeveloperDirectoryProviderFactory()
+            .createToolchain(testToolchainProvider, toolchainCreationContext);
+    appleDeveloperDirectoryProvider.ifPresent(
+        provider ->
+            testToolchainProvider.addToolchain(
+                AppleDeveloperDirectoryProvider.DEFAULT_NAME, provider));
+    Optional<AppleToolchainProvider> appleToolchainProvider =
+        new AppleToolchainProviderFactory()
+            .createToolchain(testToolchainProvider, toolchainCreationContext);
+    appleToolchainProvider.ifPresent(
+        provider ->
+            testToolchainProvider.addToolchain(AppleToolchainProvider.DEFAULT_NAME, provider));
+    Optional<AppleSdkLocation> appleSdkLocation =
+        new AppleSdkLocationFactory()
+            .createToolchain(testToolchainProvider, toolchainCreationContext);
+    appleSdkLocation.ifPresent(
+        provider -> testToolchainProvider.addToolchain(AppleSdkLocation.DEFAULT_NAME, provider));
+    Optional<AppleCxxPlatformsProvider> appleCxxPlatformsProvider =
+        new AppleCxxPlatformsProviderFactory()
+            .createToolchain(testToolchainProvider, toolchainCreationContext);
+    appleCxxPlatformsProvider.ifPresent(
+        provider ->
+            testToolchainProvider.addToolchain(AppleCxxPlatformsProvider.DEFAULT_NAME, provider));
+
     cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
     knownBuildRuleTypesProvider =
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
-                new DefaultProcessExecutor(new TestConsole()),
-                cell.getSdkEnvironment(),
-                new TestToolchainProvider(),
+                processExecutor,
                 BuckPluginManagerFactory.createPluginManager(),
                 new TestSandboxExecutionStrategyFactory()));
 
@@ -2315,7 +2358,7 @@ public class ParserTest {
   private BuildRuleResolver buildActionGraph(BuckEventBus eventBus, TargetGraph targetGraph) {
     return Preconditions.checkNotNull(
             ActionGraphCache.getFreshActionGraph(
-                eventBus, targetGraph, ActionGraphParallelizationMode.DISABLED))
+                eventBus, targetGraph, ActionGraphParallelizationMode.DISABLED, false))
         .getResolver();
   }
 

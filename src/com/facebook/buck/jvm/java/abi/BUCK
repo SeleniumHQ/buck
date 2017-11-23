@@ -4,10 +4,8 @@ java_library(
         ["*.java"],
         exclude = [
             "ApiStubber.java",
-            "AbiGenerationMode.java",
         ],
     ),
-    exported_deps = [":abi-generation-mode"],
     tests = [
         "//test/com/facebook/buck/jvm/java/abi:abi",
     ],
@@ -39,14 +37,6 @@ java_library(
     ],
 )
 
-java_library(
-    name = "abi-generation-mode",
-    srcs = ["AbiGenerationMode.java"],
-    visibility = [
-        "//src/com/facebook/buck/oop_javac:oop_javac",
-    ],
-)
-
 java_binary(
     name = "api-stubber",
     main_class = "com.facebook.buck.jvm.java.abi.ApiStubber",
@@ -63,7 +53,6 @@ java_binary(
         "//src/com/facebook/buck/model:simple_types",
         "//src/com/facebook/buck/rules:relative_cell_name",
         "//src/com/facebook/buck/test/result/type:type",
-        "//src/com/facebook/buck/timing:timing",
         "//src/com/facebook/buck/util:process_executor",
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/autosparse:autosparse_config",
@@ -99,7 +88,6 @@ java_library(
         "//src/com/facebook/buck/model:simple_types",
         "//src/com/facebook/buck/rules:relative_cell_name",
         "//src/com/facebook/buck/test/result/type:type",
-        "//src/com/facebook/buck/timing:timing",
         "//src/com/facebook/buck/util:process_executor",
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/autosparse:autosparse_config",
