@@ -15,19 +15,6 @@ java_library(
     ],
 )
 
-java_library(
-    name = "source_path_interface",
-    srcs = [
-        "SourcePath.java",
-    ],
-    visibility = [
-        "PUBLIC",
-    ],
-    deps = [
-        "//third-party/java/guava:guava",
-    ],
-)
-
 java_immutables_library(
     name = "source_path",
     srcs = [
@@ -39,10 +26,10 @@ java_immutables_library(
         "AbstractSourceWithFlags.java",
         "BuildTargetSourcePath.java",
         "NonHashableSourcePathContainer.java",
+        "SourcePath.java",
         "SourcePathResolver.java",
     ],
     exported_deps = [
-        ":source_path_interface",
         "//src/com/facebook/buck/io/filesystem:filesystem",
     ],
     visibility = ["PUBLIC"],
@@ -80,6 +67,7 @@ java_immutables_library(
         "AbstractKnownBuildRuleTypes.java",
         "AbstractKnownBuildRuleTypesProvider.java",
         "CellProvider.java",
+        "CellProviderFactory.java",
         "KnownBuildRuleTypesFactory.java",
         "MetadataChecker.java",
     ],
@@ -248,7 +236,7 @@ java_immutables_library(
     exported_deps = [
         ":abstract_description_arg",
         ":rule_key",
-        ":visibility",
+        "//src/com/facebook/buck/rules/visibility:visibility",
     ],
     resources = [
         "BuckPyFunction.stg",
@@ -540,25 +528,6 @@ java_immutables_library(
         "//src/com/facebook/buck/io/file:file",
         "//src/com/facebook/buck/log:api",
         "//src/com/facebook/buck/util:exceptions",
-        "//third-party/java/guava:guava",
-    ],
-)
-
-java_immutables_library(
-    name = "visibility",
-    srcs = [
-        "ObeysVisibility.java",
-        "VisibilityChecker.java",
-        "VisibilityPattern.java",
-        "VisibilityPatternParser.java",
-    ],
-    visibility = [
-        "PUBLIC",
-    ],
-    deps = [
-        ":interfaces",
-        "//src/com/facebook/buck/model:model",
-        "//src/com/facebook/buck/parser:rule_pattern",
         "//third-party/java/guava:guava",
     ],
 )
