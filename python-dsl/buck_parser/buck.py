@@ -7,6 +7,7 @@ import __builtin__
 import __future__
 
 import contextlib
+import collections
 from pathlib import Path, PurePath
 from pywatchman import WatchmanError
 from .deterministic_set import DeterministicSet
@@ -425,6 +426,44 @@ def get_base_path(build_env=None):
     assert isinstance(build_env, BuildFileContext), (
         "Cannot use `get_base_path()` at the top-level of an included file.")
     return build_env.base_path
+
+
+@provide_for_build
+def package_name(build_env=None):
+    """The name of the package being evaluated.
+
+    For example, in the BUCK file "some/package/BUCK", its value will be
+    "some/package".
+    If the BUCK file calls a function defined in a *.bzl file, package_name()
+    will return the package of the calling BUCK file. For example, if there is
+    a BUCK file at "some/package/BUCK" and "some/other/package/ext.bzl"
+    extension file, when BUCK file calls a function inside of ext.bzl file
+    it will still return "some/package" and not "some/other/package".
+
+    This function is intended to be used from within a build defs file that
+    likely contains macros that could be called from any build file.
+    Such macros may need to know the base path of the file in which they
+    are defining new build rules.
+
+    :return: a string, such as "java/com/facebook". Note there is no
+             trailing slash. The return value will be "" if called from
+             the build file in the root of the project.
+    :rtype: str
+    """
+    return get_base_path(build_env=build_env)
+
+
+@provide_for_build
+def fail(message, attr=None, build_env=None):
+    """Raises a parse error.
+
+    :param message: Error message to display for the user.
+        The object is converted to a string.
+    :param attr: Optional name of the attribute that caused the error.
+    """
+    attribute_prefix = ("attribute " + attr + ": " if attr is not None else "")
+    msg = attribute_prefix + str(message)
+    raise AssertionError(msg)
 
 
 @provide_for_build
@@ -868,6 +907,33 @@ class BuildFileProcessor(object):
         build_env.includes.add(path)
         build_env.merge(inner_env)
 
+    def _struct(self, **kwargs):
+        """Creates an immutable container using the keyword arguments as attributes.
+
+        It can be used to group multiple values and/or functions together. Example:
+            def _my_function():
+              return 3
+            s = struct(x = 2, foo = _my_function)
+            return s.x + s.foo()  # returns 5
+        """
+        keys = [key for key in kwargs]
+        new_type = collections.namedtuple('struct', keys)
+        return new_type(**kwargs)
+
+    def _provider(self):
+        """Creates a declared provider factory.
+
+        The return value of this function can be used to create "struct-like"
+        values. Example:
+            SomeInfo = provider()
+            def foo():
+              return 3
+            info = SomeInfo(x = 2, foo = foo)
+            print(info.x + info.foo())  # prints 5
+        """
+        return self._struct
+
+
     def _add_build_file_dep(self, name):
         # type: (str) -> None
         """
@@ -1012,6 +1078,8 @@ class BuildFileProcessor(object):
                 'glob': self._glob,
                 'subdir_glob': self._subdir_glob,
                 'load': functools.partial(self._load, is_implicit_include),
+                'struct': self._struct,
+                'provider': self._provider,
             }
 
             # Don't include implicit includes if the current file being

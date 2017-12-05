@@ -17,6 +17,7 @@
 package org.openqa.selenium.buck.mozilla;
 
 import com.facebook.buck.rules.Description;
+import com.facebook.buck.rules.DescriptionCreationContext;
 import com.facebook.buck.rules.DescriptionProvider;
 import java.util.Collection;
 import java.util.HashSet;
@@ -26,8 +27,9 @@ import org.pf4j.Extension;
 
 @Extension
 public class MozillaDescriptionProvider implements DescriptionProvider {
+
   @Override
-  public Collection<Description<?>> getDescriptions() {
+  public Collection<Description<?>> getDescriptions(DescriptionCreationContext context) {
     return Stream.of(new MozillaExtensionDescription(), new MozillaXptDescription())
         .collect(Collectors.toCollection(HashSet::new));
   }

@@ -16,7 +16,8 @@
 
 package com.facebook.buck.testutil.integration;
 
-import com.facebook.buck.apple.CodeSignIdentityStore;
+import com.facebook.buck.apple.AppleConfig;
+import com.facebook.buck.apple.CodeSignIdentityStoreFactory;
 import com.facebook.buck.apple.ProvisioningProfileMetadata;
 import com.facebook.buck.apple.ProvisioningProfileStore;
 import com.facebook.buck.apple.device.AppleDeviceHelper;
@@ -38,9 +39,8 @@ public class FakeAppleDeveloperEnvironment {
   private FakeAppleDeveloperEnvironment() {}
 
   private static final int numCodeSigningIdentities =
-      CodeSignIdentityStore.fromSystem(
-              new DefaultProcessExecutor(new TestConsole()),
-              CodeSignIdentityStore.DEFAULT_IDENTITIES_COMMAND)
+      CodeSignIdentityStoreFactory.fromSystem(
+              new DefaultProcessExecutor(new TestConsole()), AppleConfig.DEFAULT_IDENTITIES_COMMAND)
           .getIdentities()
           .size();
 

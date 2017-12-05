@@ -35,17 +35,23 @@ import com.facebook.buck.apple.toolchain.impl.AppleToolchainProviderFactory;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProviderFactory;
+import com.facebook.buck.file.downloader.Downloader;
+import com.facebook.buck.file.downloader.impl.DownloaderFactory;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.python.toolchain.PythonPlatformsProvider;
+import com.facebook.buck.python.toolchain.impl.PythonPlatformsProviderFactory;
 import com.facebook.buck.swift.toolchain.SwiftPlatformsProvider;
 import com.facebook.buck.swift.toolchain.impl.SwiftPlatformsProviderFactory;
 import com.facebook.buck.toolchain.BaseToolchainProvider;
 import com.facebook.buck.toolchain.Toolchain;
 import com.facebook.buck.toolchain.ToolchainCreationContext;
+import com.facebook.buck.toolchain.ToolchainDescriptor;
 import com.facebook.buck.toolchain.ToolchainFactory;
+import com.facebook.buck.toolchain.ToolchainSupplier;
 import com.facebook.buck.toolchain.ToolchainWithCapability;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -56,61 +62,58 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
-import javax.annotation.concurrent.ThreadSafe;
+import java.util.stream.Stream;
+import org.pf4j.PluginManager;
 
-@ThreadSafe
 public class DefaultToolchainProvider extends BaseToolchainProvider {
 
-  enum ToolchainDescriptor {
-    ANDROID_LEGACY(
-        AndroidLegacyToolchain.DEFAULT_NAME,
-        AndroidLegacyToolchain.class,
-        DefaultAndroidLegacyToolchainFactory.class),
-    ANDROID_SDK_LOCATION(
-        AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class, AndroidSdkLocationFactory.class),
-    ANDROID_NDK(AndroidNdk.DEFAULT_NAME, AndroidNdk.class, AndroidNdkFactory.class),
-    NDK_CXX_PLATFORMS_PROVIDER(
-        NdkCxxPlatformsProvider.DEFAULT_NAME,
-        NdkCxxPlatformsProvider.class,
-        NdkCxxPlatformsProviderFactory.class),
-    APPLE_DEVELOPER_DIRECTORY_PROVIDER(
-        AppleDeveloperDirectoryProvider.DEFAULT_NAME,
-        AppleDeveloperDirectoryProvider.class,
-        AppleDeveloperDirectoryProviderFactory.class),
-    APPLE_TOOLCHAIN_PROVIDER(
-        AppleToolchainProvider.DEFAULT_NAME,
-        AppleToolchainProvider.class,
-        AppleToolchainProviderFactory.class),
-    APPLE_SDK_LOCATION(
-        AppleSdkLocation.DEFAULT_NAME, AppleSdkLocation.class, AppleSdkLocationFactory.class),
-    APPLE_CXX_PLATFORMS_PROVIDER(
-        AppleCxxPlatformsProvider.DEFAULT_NAME,
-        AppleCxxPlatformsProvider.class,
-        AppleCxxPlatformsProviderFactory.class),
-    SWIFT_PLATFORMS_PROVIDER(
-        SwiftPlatformsProvider.DEFAULT_NAME,
-        SwiftPlatformsProvider.class,
-        SwiftPlatformsProviderFactory.class),
-    CXX_PLATFORMS(
-        CxxPlatformsProvider.DEFAULT_NAME,
-        CxxPlatformsProvider.class,
-        CxxPlatformsProviderFactory.class);
-
-    @VisibleForTesting final String name;
-    private final Class<? extends Toolchain> toolchainClass;
-    private final Class<? extends ToolchainFactory<?>> toolchainFactoryClass;
-
-    <T extends Toolchain> ToolchainDescriptor(
-        String name,
-        Class<T> toolchainClass,
-        Class<? extends ToolchainFactory<T>> toolchainFactoryClass) {
-      this.name = name;
-      this.toolchainClass = toolchainClass;
-      this.toolchainFactoryClass = toolchainFactoryClass;
-    }
-  }
+  ImmutableList<ToolchainDescriptor<?>> DEFAULT_TOOLCHAIN_DESCRIPTORS =
+      ImmutableList.of(
+          ToolchainDescriptor.of(
+              AndroidLegacyToolchain.DEFAULT_NAME,
+              AndroidLegacyToolchain.class,
+              DefaultAndroidLegacyToolchainFactory.class),
+          ToolchainDescriptor.of(
+              AndroidSdkLocation.DEFAULT_NAME,
+              AndroidSdkLocation.class,
+              AndroidSdkLocationFactory.class),
+          ToolchainDescriptor.of(
+              AndroidNdk.DEFAULT_NAME, AndroidNdk.class, AndroidNdkFactory.class),
+          ToolchainDescriptor.of(
+              NdkCxxPlatformsProvider.DEFAULT_NAME,
+              NdkCxxPlatformsProvider.class,
+              NdkCxxPlatformsProviderFactory.class),
+          ToolchainDescriptor.of(
+              AppleDeveloperDirectoryProvider.DEFAULT_NAME,
+              AppleDeveloperDirectoryProvider.class,
+              AppleDeveloperDirectoryProviderFactory.class),
+          ToolchainDescriptor.of(
+              AppleToolchainProvider.DEFAULT_NAME,
+              AppleToolchainProvider.class,
+              AppleToolchainProviderFactory.class),
+          ToolchainDescriptor.of(
+              AppleSdkLocation.DEFAULT_NAME, AppleSdkLocation.class, AppleSdkLocationFactory.class),
+          ToolchainDescriptor.of(
+              AppleCxxPlatformsProvider.DEFAULT_NAME,
+              AppleCxxPlatformsProvider.class,
+              AppleCxxPlatformsProviderFactory.class),
+          ToolchainDescriptor.of(
+              SwiftPlatformsProvider.DEFAULT_NAME,
+              SwiftPlatformsProvider.class,
+              SwiftPlatformsProviderFactory.class),
+          ToolchainDescriptor.of(
+              CxxPlatformsProvider.DEFAULT_NAME,
+              CxxPlatformsProvider.class,
+              CxxPlatformsProviderFactory.class),
+          ToolchainDescriptor.of(
+              Downloader.DEFAULT_NAME, Downloader.class, DownloaderFactory.class),
+          ToolchainDescriptor.of(
+              PythonPlatformsProvider.DEFAULT_NAME,
+              PythonPlatformsProvider.class,
+              PythonPlatformsProviderFactory.class));
 
   private final ToolchainCreationContext toolchainCreationContext;
+  private final ImmutableList<ToolchainDescriptor<?>> toolchainDescriptors;
   private final ImmutableMap<String, Class<? extends ToolchainFactory<?>>> toolchainFactories;
 
   private final LoadingCache<String, Optional<? extends Toolchain>> toolchains =
@@ -128,25 +131,42 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
               });
 
   public DefaultToolchainProvider(
+      PluginManager pluginManager,
       ImmutableMap<String, String> environment,
       BuckConfig buckConfig,
       ProjectFilesystem projectFilesystem,
-      ProcessExecutor processExecutor) {
+      ProcessExecutor processExecutor,
+      ExecutableFinder executableFinder) {
     toolchainCreationContext =
-        ToolchainCreationContext.builder()
-            .setBuckConfig(buckConfig)
-            .setFilesystem(projectFilesystem)
-            .setEnvironment(environment)
-            .setProcessExecutor(processExecutor)
-            .build();
+        ToolchainCreationContext.of(
+            environment, buckConfig, projectFilesystem, processExecutor, executableFinder);
+
+    toolchainDescriptors = loadToolchainDescriptors(pluginManager);
 
     ImmutableMap.Builder<String, Class<? extends ToolchainFactory<?>>> toolchainFactoriesBuilder =
         ImmutableMap.builder();
-    for (ToolchainDescriptor toolchainDescriptor : ToolchainDescriptor.values()) {
+    for (ToolchainDescriptor<?> toolchainDescriptor : toolchainDescriptors) {
       toolchainFactoriesBuilder.put(
-          toolchainDescriptor.name, toolchainDescriptor.toolchainFactoryClass);
+          toolchainDescriptor.getName(), toolchainDescriptor.getToolchainFactoryClass());
     }
     toolchainFactories = toolchainFactoriesBuilder.build();
+  }
+
+  private ImmutableList<ToolchainDescriptor<?>> loadToolchainDescriptors(
+      PluginManager pluginManager) {
+    ImmutableList.Builder<ToolchainDescriptor<?>> toolchainDescriptorBuilder =
+        ImmutableList.builder();
+    toolchainDescriptorBuilder.addAll(DEFAULT_TOOLCHAIN_DESCRIPTORS);
+    loadToolchainDescriptorsFromPlugins(pluginManager).forEach(toolchainDescriptorBuilder::add);
+    return toolchainDescriptorBuilder.build();
+  }
+
+  private Stream<ToolchainDescriptor<?>> loadToolchainDescriptorsFromPlugins(
+      PluginManager pluginManager) {
+    return pluginManager
+        .getExtensions(ToolchainSupplier.class)
+        .stream()
+        .flatMap(supplier -> supplier.getToolchainDescriptor().stream());
   }
 
   @Override
@@ -165,13 +185,18 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
   }
 
   @Override
+  public boolean isToolchainCreated(String toolchainName) {
+    return toolchains.getIfPresent(toolchainName) != null;
+  }
+
+  @Override
   public <T extends ToolchainWithCapability> Collection<String> getToolchainsWithCapability(
       Class<T> capability) {
     ImmutableList.Builder<String> toolchainsWithCapabilities = ImmutableList.builder();
 
-    for (ToolchainDescriptor toolchainDescriptor : ToolchainDescriptor.values()) {
-      if (capability.isAssignableFrom(toolchainDescriptor.toolchainClass)) {
-        toolchainsWithCapabilities.add(toolchainDescriptor.name);
+    for (ToolchainDescriptor<?> toolchainDescriptor : toolchainDescriptors) {
+      if (capability.isAssignableFrom(toolchainDescriptor.getToolchainClass())) {
+        toolchainsWithCapabilities.add(toolchainDescriptor.getName());
       }
     }
 
@@ -183,7 +208,11 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
       return toolchains.get(toolchainName);
     } catch (ExecutionException | UncheckedExecutionException e) {
       Throwables.throwIfInstanceOf(e.getCause(), HumanReadableException.class);
-      throw new HumanReadableException(e, "Cannot create a toolchain: " + toolchainName);
+      throw new HumanReadableException(
+          e,
+          String.format(
+              "Cannot create a toolchain: %s. Cause: %s",
+              toolchainName, e.getCause().getMessage()));
     }
   }
 

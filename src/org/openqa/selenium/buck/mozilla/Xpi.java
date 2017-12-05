@@ -16,7 +16,6 @@
 
 package org.openqa.selenium.buck.mozilla;
 
-
 import static com.facebook.buck.util.zip.ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL;
 
 import com.facebook.buck.event.EventDispatcher;
@@ -37,13 +36,13 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.zip.ZipStep;
 import com.facebook.buck.zip.bundler.FileBundler;
 import com.facebook.buck.zip.bundler.SrcZipAwareFileBundler;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Ordering;
 import java.nio.file.Path;
 import javax.annotation.Nullable;
 
@@ -70,11 +69,27 @@ public class Xpi extends ModernBuildRule<Xpi> implements Buildable {
     super(target, filesystem, ruleFinder, Xpi.class);
 
     this.chrome = new InputPath(chrome);
-    this.components = components.stream().map(InputPath::new).collect(MoreCollectors.toImmutableSortedSet());
-    this.content = content.stream().map(InputPath::new).collect(MoreCollectors.toImmutableSortedSet());
+    this.components =
+        components
+            .stream()
+            .map(InputPath::new)
+            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
+    this.content =
+        content
+            .stream()
+            .map(InputPath::new)
+            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
     this.install = new InputPath(install);
-    this.resources = resources.stream().map(InputPath::new).collect(MoreCollectors.toImmutableSortedSet());
-    this.platforms = platforms.stream().map(InputPath::new).collect(MoreCollectors.toImmutableSortedSet());
+    this.resources =
+        resources
+            .stream()
+            .map(InputPath::new)
+            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
+    this.platforms =
+        platforms
+            .stream()
+            .map(InputPath::new)
+            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
 
     this.output = new OutputPath(String.format("%s.xpi", getBuildTarget().getShortName()));
   }
@@ -113,7 +128,10 @@ public class Xpi extends ModernBuildRule<Xpi> implements Buildable {
         buildCellPathFactory,
         steps,
         contentDir,
-        content.stream().map(InputPath::getLimitedSourcePath).collect(MoreCollectors.toImmutableSortedSet()),
+        content
+            .stream()
+            .map(InputPath::getLimitedSourcePath)
+            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
         inputPathResolver.getLimitedSourcePathResolver());
 
     Path componentDir = scratch.resolve("components");
@@ -123,7 +141,10 @@ public class Xpi extends ModernBuildRule<Xpi> implements Buildable {
         buildCellPathFactory,
         steps,
         componentDir,
-        components.stream().map(InputPath::getLimitedSourcePath).collect(MoreCollectors.toImmutableSortedSet()),
+        components
+            .stream()
+            .map(InputPath::getLimitedSourcePath)
+            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
         inputPathResolver.getLimitedSourcePathResolver());
 
     Path platformDir = scratch.resolve("platform");
@@ -133,7 +154,10 @@ public class Xpi extends ModernBuildRule<Xpi> implements Buildable {
         buildCellPathFactory,
         steps,
         platformDir,
-        platforms.stream().map(InputPath::getLimitedSourcePath).collect(MoreCollectors.toImmutableSortedSet()),
+        platforms
+            .stream()
+            .map(InputPath::getLimitedSourcePath)
+            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
         inputPathResolver.getLimitedSourcePathResolver());
 
     Path resourceDir = scratch.resolve("resource");
@@ -143,7 +167,10 @@ public class Xpi extends ModernBuildRule<Xpi> implements Buildable {
         buildCellPathFactory,
         steps,
         resourceDir,
-        resources.stream().map(InputPath::getLimitedSourcePath).collect(MoreCollectors.toImmutableSortedSet()),
+        resources
+            .stream()
+            .map(InputPath::getLimitedSourcePath)
+            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
         inputPathResolver.getLimitedSourcePathResolver());
 
     Path out = outputPathResolver.resolvePath(output);

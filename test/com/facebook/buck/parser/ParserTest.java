@@ -48,6 +48,7 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.FakeBuckEventListener;
 import com.facebook.buck.event.listener.BroadcastEventListener;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.WatchmanOverflowEvent;
 import com.facebook.buck.io.WatchmanPathEvent;
 import com.facebook.buck.io.file.MorePaths;
@@ -84,10 +85,9 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.toolchain.ToolchainCreationContext;
-import com.facebook.buck.toolchain.impl.TestToolchainProvider;
+import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.config.ConfigBuilder;
 import com.facebook.buck.util.environment.Platform;
@@ -253,37 +253,36 @@ public class ParserTest {
     ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
 
     ToolchainCreationContext toolchainCreationContext =
-        ToolchainCreationContext.builder()
-            .setProcessExecutor(processExecutor)
-            .setFilesystem(filesystem)
-            .setBuckConfig(config)
-            .build();
+        ToolchainCreationContext.of(
+            ImmutableMap.of(), config, filesystem, processExecutor, new ExecutableFinder());
 
-    TestToolchainProvider testToolchainProvider = new TestToolchainProvider();
+    ToolchainProviderBuilder toolchainProviderBuilder = new ToolchainProviderBuilder();
     Optional<AppleDeveloperDirectoryProvider> appleDeveloperDirectoryProvider =
         new AppleDeveloperDirectoryProviderFactory()
-            .createToolchain(testToolchainProvider, toolchainCreationContext);
+            .createToolchain(toolchainProviderBuilder.build(), toolchainCreationContext);
     appleDeveloperDirectoryProvider.ifPresent(
         provider ->
-            testToolchainProvider.addToolchain(
+            toolchainProviderBuilder.withToolchain(
                 AppleDeveloperDirectoryProvider.DEFAULT_NAME, provider));
     Optional<AppleToolchainProvider> appleToolchainProvider =
         new AppleToolchainProviderFactory()
-            .createToolchain(testToolchainProvider, toolchainCreationContext);
+            .createToolchain(toolchainProviderBuilder.build(), toolchainCreationContext);
     appleToolchainProvider.ifPresent(
         provider ->
-            testToolchainProvider.addToolchain(AppleToolchainProvider.DEFAULT_NAME, provider));
+            toolchainProviderBuilder.withToolchain(AppleToolchainProvider.DEFAULT_NAME, provider));
     Optional<AppleSdkLocation> appleSdkLocation =
         new AppleSdkLocationFactory()
-            .createToolchain(testToolchainProvider, toolchainCreationContext);
+            .createToolchain(toolchainProviderBuilder.build(), toolchainCreationContext);
     appleSdkLocation.ifPresent(
-        provider -> testToolchainProvider.addToolchain(AppleSdkLocation.DEFAULT_NAME, provider));
+        provider ->
+            toolchainProviderBuilder.withToolchain(AppleSdkLocation.DEFAULT_NAME, provider));
     Optional<AppleCxxPlatformsProvider> appleCxxPlatformsProvider =
         new AppleCxxPlatformsProviderFactory()
-            .createToolchain(testToolchainProvider, toolchainCreationContext);
+            .createToolchain(toolchainProviderBuilder.build(), toolchainCreationContext);
     appleCxxPlatformsProvider.ifPresent(
         provider ->
-            testToolchainProvider.addToolchain(AppleCxxPlatformsProvider.DEFAULT_NAME, provider));
+            toolchainProviderBuilder.withToolchain(
+                AppleCxxPlatformsProvider.DEFAULT_NAME, provider));
 
     cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
     knownBuildRuleTypesProvider =
@@ -1508,7 +1507,7 @@ public class ParserTest {
         targetNodes
             .stream()
             .map(TargetNode::getBuildTarget)
-            .collect(MoreCollectors.toImmutableList()),
+            .collect(ImmutableList.toImmutableList()),
         hasItems(fooLib1Target, fooLib2Target));
   }
 

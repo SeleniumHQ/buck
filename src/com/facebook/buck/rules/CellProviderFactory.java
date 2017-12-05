@@ -17,6 +17,7 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.WatchmanFactory;
 import com.facebook.buck.io.filesystem.EmbeddedCellBuckOutInfo;
@@ -37,6 +38,7 @@ import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
+import org.pf4j.PluginManager;
 
 public class CellProviderFactory {
 
@@ -46,8 +48,10 @@ public class CellProviderFactory {
       Watchman watchman,
       BuckConfig rootConfig,
       CellConfig rootCellConfigOverrides,
+      PluginManager pluginManager,
       ImmutableMap<String, String> environment,
       ProcessExecutor processExecutor,
+      ExecutableFinder executableFinder,
       ProjectFilesystemFactory projectFilesystemFactory) {
 
     DefaultCellPathResolver rootCellCellPathResolver =
@@ -137,7 +141,12 @@ public class CellProviderFactory {
 
                 ToolchainProvider toolchainProvider =
                     new DefaultToolchainProvider(
-                        environment, buckConfig, cellFilesystem, processExecutor);
+                        pluginManager,
+                        environment,
+                        buckConfig,
+                        cellFilesystem,
+                        processExecutor,
+                        executableFinder);
 
                 // TODO(13777679): cells in other watchman roots do not work correctly.
 
@@ -160,7 +169,12 @@ public class CellProviderFactory {
               "Root cell should be nameless");
           ToolchainProvider toolchainProvider =
               new DefaultToolchainProvider(
-                  environment, rootConfig, rootFilesystem, processExecutor);
+                  pluginManager,
+                  environment,
+                  rootConfig,
+                  rootFilesystem,
+                  processExecutor,
+                  executableFinder);
           return Cell.of(
               getKnownRoots(rootCellCellPathResolver),
               Optional.empty(),
@@ -184,10 +198,12 @@ public class CellProviderFactory {
 
                   ToolchainProvider toolchainProvider =
                       new DefaultToolchainProvider(
+                          cellParam.getPluginManager(),
                           cellParam.getEnvironment(),
                           cellParam.getConfig(),
                           cellParam.getFilesystem(),
-                          cellParam.getProcessExecutor());
+                          cellParam.getProcessExecutor(),
+                          cellParam.getExecutableFinder());
 
                   return Cell.of(
                       cellParams.keySet(),

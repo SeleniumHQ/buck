@@ -42,7 +42,6 @@ import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
@@ -74,19 +73,16 @@ public class CxxTestDescription
   private final CxxBuckConfig cxxBuckConfig;
   private final Flavor defaultCxxFlavor;
   private final FlavorDomain<CxxPlatform> cxxPlatforms;
-  private final Optional<Long> defaultTestRuleTimeoutMs;
   private final ImmutableSet<Flavor> declaredPlatforms;
 
   public CxxTestDescription(
       CxxBuckConfig cxxBuckConfig,
       Flavor defaultCxxFlavor,
-      FlavorDomain<CxxPlatform> cxxPlatforms,
-      Optional<Long> defaultTestRuleTimeoutMs) {
+      FlavorDomain<CxxPlatform> cxxPlatforms) {
     this.cxxBuckConfig = cxxBuckConfig;
     this.defaultCxxFlavor = defaultCxxFlavor;
     this.cxxPlatforms = cxxPlatforms;
     this.declaredPlatforms = cxxBuckConfig.getDeclaredPlatforms();
-    this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
   }
 
   private ImmutableSet<BuildTarget> getImplicitFrameworkDeps(
@@ -234,7 +230,7 @@ public class CxxTestDescription
                 .map(
                     CxxDescriptionEnhancer.MACRO_HANDLER.getExpander(
                         buildTarget, cellRoots, resolver))
-                .collect(MoreCollectors.toImmutableList());
+                .collect(ImmutableList.toImmutableList());
 
     Supplier<ImmutableSortedSet<BuildRule>> additionalDeps =
         () -> {
@@ -283,7 +279,9 @@ public class CxxTestDescription
                   args.getLabels(),
                   args.getContacts(),
                   args.getRunTestSeparately().orElse(false),
-                  args.getTestRuleTimeoutMs().map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+                  args.getTestRuleTimeoutMs()
+                      .map(Optional::of)
+                      .orElse(cxxBuckConfig.getDelegate().getDefaultTestRuleTimeoutMs()),
                   cxxBuckConfig.getMaximumTestOutputSize());
           break;
         }
@@ -306,7 +304,9 @@ public class CxxTestDescription
                   args.getLabels(),
                   args.getContacts(),
                   args.getRunTestSeparately().orElse(false),
-                  args.getTestRuleTimeoutMs().map(Optional::of).orElse(defaultTestRuleTimeoutMs));
+                  args.getTestRuleTimeoutMs()
+                      .map(Optional::of)
+                      .orElse(cxxBuckConfig.getDelegate().getDefaultTestRuleTimeoutMs()));
           break;
         }
       default:

@@ -16,6 +16,7 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
@@ -33,6 +34,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 import org.immutables.value.Value;
+import org.pf4j.PluginManager;
 
 public final class CellProvider {
   private final LoadingCache<Path, Cell> cells;
@@ -76,7 +78,7 @@ public final class CellProvider {
     return ImmutableMap.copyOf(cells.asMap());
   }
 
-  @Value.Immutable(copy = false)
+  @Value.Immutable(builder = false, copy = false)
   @BuckStyleTuple
   interface AbstractDistBuildCellParams {
     BuckConfig getConfig();
@@ -88,5 +90,9 @@ public final class CellProvider {
     ImmutableMap<String, String> getEnvironment();
 
     ProcessExecutor getProcessExecutor();
+
+    ExecutableFinder getExecutableFinder();
+
+    PluginManager getPluginManager();
   }
 }

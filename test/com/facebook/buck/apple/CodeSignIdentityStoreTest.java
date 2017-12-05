@@ -21,6 +21,8 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.apple.toolchain.CodeSignIdentity;
+import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.DefaultProcessExecutor;
@@ -53,7 +55,7 @@ public class CodeSignIdentityStoreTest {
     FakeProcessExecutor processExecutor =
         new FakeProcessExecutor(ImmutableMap.of(processExecutorParams, process));
     CodeSignIdentityStore store =
-        CodeSignIdentityStore.fromSystem(processExecutor, ImmutableList.of("unused"));
+        CodeSignIdentityStoreFactory.fromSystem(processExecutor, ImmutableList.of("unused"));
     ImmutableList<CodeSignIdentity> expected =
         ImmutableList.of(
             CodeSignIdentity.builder()
@@ -72,7 +74,7 @@ public class CodeSignIdentityStoreTest {
         TestDataHelper.getTestDataDirectory(this).resolve("code_sign_identity_store");
 
     CodeSignIdentityStore store =
-        CodeSignIdentityStore.fromSystem(
+        CodeSignIdentityStoreFactory.fromSystem(
             executor, ImmutableList.of(testdataDir.resolve("fake_identities.sh").toString()));
 
     ImmutableList<CodeSignIdentity> expected =

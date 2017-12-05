@@ -37,6 +37,7 @@ import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.InternalFlavor;
+import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -66,7 +67,6 @@ import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.rules.macros.OutputMacroExpander;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
@@ -485,7 +485,7 @@ public class CxxDescriptionEnhancer {
                               cxxPlatform,
                               Preconditions.checkNotNull(s.getSourcePath())));
                     })
-                .collect(MoreCollectors.toImmutableList()),
+                .collect(ImmutableList.toImmutableList()),
             x -> true,
             SourceWithFlags::getSourcePath));
   }
@@ -704,24 +704,32 @@ public class CxxDescriptionEnhancer {
    */
   public static RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathToSearchPath(
       final CxxPlatform cxxPlatform, final SourcePathResolver resolver) {
-    return new RuleKeyAppendableFunction<FrameworkPath, Path>() {
-      private RuleKeyAppendableFunction<String, String> translateMacrosFn =
-          CxxFlags.getTranslateMacrosFn(cxxPlatform);
+    return new FrameworkPathToSearchPathFunction(cxxPlatform, resolver);
+  }
 
-      @Override
-      public void appendToRuleKey(RuleKeyObjectSink sink) {
-        sink.setReflectively("translateMacrosFn", translateMacrosFn);
-      }
+  private static class FrameworkPathToSearchPathFunction
+      implements RuleKeyAppendableFunction<FrameworkPath, Path> {
+    private final SourcePathResolver resolver;
+    @AddToRuleKey private final RuleKeyAppendableFunction<String, String> translateMacrosFn;
 
-      @Override
-      public Path apply(FrameworkPath input) {
-        String pathAsString =
-            FrameworkPath.getUnexpandedSearchPath(
-                    resolver::getAbsolutePath, Functions.identity(), input)
-                .toString();
-        return Paths.get(translateMacrosFn.apply(pathAsString));
-      }
-    };
+    public FrameworkPathToSearchPathFunction(CxxPlatform cxxPlatform, SourcePathResolver resolver) {
+      this.resolver = resolver;
+      this.translateMacrosFn =
+          new CxxFlags.TranslateMacrosAppendableFunction(
+              ImmutableSortedMap.copyOf(cxxPlatform.getFlagMacros()), cxxPlatform);
+    }
+
+    @Override
+    public void appendToRuleKey(RuleKeyObjectSink sink) {}
+
+    @Override
+    public Path apply(FrameworkPath input) {
+      String pathAsString =
+          FrameworkPath.getUnexpandedSearchPath(
+                  resolver::getAbsolutePath, Functions.identity(), input)
+              .toString();
+      return Paths.get(translateMacrosFn.apply(pathAsString));
+    }
   }
 
   public static CxxLinkAndCompileRules createBuildRulesForCxxBinaryDescriptionArg(
@@ -754,7 +762,7 @@ public class CxxDescriptionEnhancer {
             .orElse(ImmutableSortedSet.of())
             .stream()
             .map(resolver::getRule)
-            .collect(MoreCollectors.toImmutableList());
+            .collect(ImmutableList.toImmutableList());
     depsBuilder.addAll(depQueryDeps);
     // Add any extra deps passed in.
     extraDeps.stream().map(resolver::getRule).forEach(depsBuilder::add);
@@ -965,7 +973,7 @@ public class CxxDescriptionEnhancer {
 
       // Add all the shared libraries and the symlink tree as inputs to the tool that represents
       // this binary, so that users can attach the proper deps.
-      executableBuilder.addDep(sharedLibraries);
+      executableBuilder.addNonHashableInput(sharedLibraries.getRootSourcePath());
       executableBuilder.addInputs(sharedLibraries.getLinks().values());
     }
 
@@ -978,7 +986,7 @@ public class CxxDescriptionEnhancer {
                   Preconditions.checkArgument(input instanceof SourcePathArg);
                   return (SourcePathArg) input;
                 })
-            .collect(MoreCollectors.toImmutableList());
+            .collect(ImmutableList.toImmutableList());
     argsBuilder.addAll(FileListableLinkerInputArg.from(objectArgs));
 
     CxxLink cxxLink =
@@ -1054,7 +1062,7 @@ public class CxxDescriptionEnhancer {
               binaryName,
               sourcePathToExecutable);
 
-      executableBuilder.addDep(binaryWithSharedLibraries);
+      executableBuilder.addNonHashableInput(binaryWithSharedLibraries.getRootSourcePath());
       executableBuilder.addInputs(binaryWithSharedLibraries.getLinks().values());
       sourcePathToExecutable =
           ExplicitBuildTargetSourcePath.of(binaryWithSharedLibrariesTarget, appPath);

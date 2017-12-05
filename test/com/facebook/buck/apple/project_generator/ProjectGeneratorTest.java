@@ -116,7 +116,6 @@ import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.IncrementingFakeClock;
 import com.facebook.buck.util.timing.SettableFakeClock;
@@ -598,6 +597,36 @@ public class ProjectGeneratorTest {
     assertThat(headerSymlinkTrees, hasSize(2));
     assertEquals("buck-out/gen/_p/CwkbTNOBmb-pub", headerSymlinkTrees.get(0).toString());
     assertTrue(projectFilesystem.isFile(headerSymlinkTrees.get(0).resolve("lib/lib.h")));
+  }
+
+  @Test
+  public void testModularLibraryDoesNotOverwriteExistingUmbrella() throws IOException {
+    BuildTarget libTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "lib");
+
+    TargetNode<?, ?> libNode =
+        AppleLibraryBuilder.createBuilder(libTarget)
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("Foo.swift"))))
+            .setExportedHeaders(ImmutableSortedSet.of(FakeSourcePath.of("lib/lib.h")))
+            .setConfigs(ImmutableSortedMap.of("Debug", ImmutableMap.of()))
+            .setSwiftVersion(Optional.of("3"))
+            .setModular(true)
+            .build();
+
+    ProjectGenerator projectGenerator =
+        createProjectGeneratorForCombinedProject(
+            ImmutableSet.of(libNode),
+            ImmutableSet.of(ProjectGenerator.Option.GENERATE_MISSING_UMBRELLA_HEADER));
+
+    projectGenerator.createXcodeProjects();
+    PBXProject project = projectGenerator.getGeneratedProject();
+    assertNotNull(project);
+
+    List<Path> headerSymlinkTrees = projectGenerator.getGeneratedHeaderSymlinkTrees();
+    assertThat(headerSymlinkTrees, hasSize(2));
+    assertEquals("buck-out/gen/_p/CwkbTNOBmb-pub", headerSymlinkTrees.get(0).toString());
+    Path umbrellaPath = headerSymlinkTrees.get(0).resolve("lib/lib.h");
+    assertTrue(projectFilesystem.isSymLink(umbrellaPath));
+    assertFalse(projectFilesystem.isFile(umbrellaPath));
   }
 
   @Test
@@ -4900,6 +4929,63 @@ public class ProjectGeneratorTest {
   }
 
   @Test
+  public void testSwiftAddASTPathsLinkerFlags() throws IOException {
+    ImmutableMap<String, ImmutableMap<String, String>> sections =
+        ImmutableMap.of(
+            "swift",
+            ImmutableMap.of(
+                "version", "3.0",
+                "project_add_ast_paths", "true"));
+
+    BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
+    swiftBuckConfig = new SwiftBuckConfig(buckConfig);
+
+    BuildTarget libTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "lib");
+    BuildTarget binaryTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "bin");
+    BuildTarget bundleTarget = BuildTargetFactory.newInstance(rootPath, "//foo", "bundle");
+
+    TargetNode<?, ?> libNode =
+        AppleLibraryBuilder.createBuilder(libTarget)
+            .setConfigs(ImmutableSortedMap.of("Debug", ImmutableMap.of()))
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("Foo.swift"))))
+            .setSwiftVersion(Optional.of("3.0"))
+            .build();
+
+    TargetNode<?, ?> binaryNode =
+        AppleBinaryBuilder.createBuilder(binaryTarget)
+            .setConfigs(ImmutableSortedMap.of("Debug", ImmutableMap.of()))
+            .setSrcs(
+                ImmutableSortedSet.of(
+                    SourceWithFlags.of(FakeSourcePath.of("foo.h"), ImmutableList.of("public")),
+                    SourceWithFlags.of(FakeSourcePath.of("bar.h"))))
+            .setDeps(ImmutableSortedSet.of(libTarget))
+            .build();
+
+    TargetNode<?, ?> bundleNode =
+        AppleBundleBuilder.createBuilder(bundleTarget)
+            .setBinary(binaryTarget)
+            .setExtension(Either.ofLeft(AppleBundleExtension.APP))
+            .setInfoPlist(FakeSourcePath.of("Info.plist"))
+            .build();
+
+    ProjectGenerator projectGenerator =
+        createProjectGeneratorForCombinedProject(ImmutableSet.of(libNode, binaryNode, bundleNode));
+
+    projectGenerator.createXcodeProjects();
+
+    PBXProject project = projectGenerator.getGeneratedProject();
+
+    PBXTarget bundlePBXTarget = assertTargetExistsAndReturnTarget(project, "//foo:bundle");
+    ImmutableMap<String, String> bundleBuildSettings =
+        getBuildSettings(bundleTarget, bundlePBXTarget, "Debug");
+
+    assertThat(
+        bundleBuildSettings.get("OTHER_LDFLAGS"),
+        containsString(
+            "-Xlinker -add_ast_path -Xlinker '${BUILT_PRODUCTS_DIR}/lib.swiftmodule/${CURRENT_ARCH}.swiftmodule'"));
+  }
+
+  @Test
   public void testMergedHeaderMap() throws IOException {
     BuildTarget lib1Target = BuildTargetFactory.newInstance(rootPath, "//foo", "lib1");
     BuildTarget lib2Target = BuildTargetFactory.newInstance(rootPath, "//bar", "lib2");
@@ -5122,7 +5208,7 @@ public class ProjectGeneratorTest {
         initialTargetNodes
             .stream()
             .map(TargetNode::getBuildTarget)
-            .collect(MoreCollectors.toImmutableSet());
+            .collect(ImmutableSet.toImmutableSet());
 
     final TargetGraph targetGraph = TargetGraphFactory.newInstance(ImmutableSet.copyOf(allNodes));
     final AppleDependenciesCache cache = new AppleDependenciesCache(targetGraph);

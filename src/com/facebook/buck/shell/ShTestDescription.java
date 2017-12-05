@@ -16,6 +16,7 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -39,7 +40,6 @@ import com.facebook.buck.rules.macros.ExecutableMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.StringWithMacros;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.FluentIterable;
@@ -63,10 +63,10 @@ public class ShTestDescription implements Description<ShTestDescriptionArg> {
               new ClasspathMacroExpander(),
               new ExecutableMacroExpander());
 
-  private final Optional<Long> defaultTestRuleTimeoutMs;
+  private final BuckConfig buckConfig;
 
-  public ShTestDescription(Optional<Long> defaultTestRuleTimeoutMs) {
-    this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
+  public ShTestDescription(BuckConfig buckConfig) {
+    this.buckConfig = buckConfig;
   }
 
   @Override
@@ -92,7 +92,7 @@ public class ShTestDescription implements Description<ShTestDescriptionArg> {
         Stream.concat(
                 Optionals.toStream(args.getTest()).map(SourcePathArg::of),
                 args.getArgs().stream().map(toArg))
-            .collect(MoreCollectors.toImmutableList());
+            .collect(ImmutableList.toImmutableList());
     ImmutableMap<String, Arg> testEnv =
         ImmutableMap.copyOf(Maps.transformValues(args.getEnv(), toArg::apply));
     return new ShTest(
@@ -103,13 +103,14 @@ public class ShTestDescription implements Description<ShTestDescriptionArg> {
                 FluentIterable.from(testArgs)
                     .append(testEnv.values())
                     .transformAndConcat(arg -> arg.getDeps(ruleFinder))),
-        ruleFinder,
         testArgs,
         testEnv,
         FluentIterable.from(args.getResources())
             .transform(p -> PathSourcePath.of(projectFilesystem, p))
             .toSortedSet(Ordering.natural()),
-        args.getTestRuleTimeoutMs().map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+        args.getTestRuleTimeoutMs()
+            .map(Optional::of)
+            .orElse(buckConfig.getDefaultTestRuleTimeoutMs()),
         args.getRunTestSeparately(),
         args.getLabels(),
         args.getType(),

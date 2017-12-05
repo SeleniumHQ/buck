@@ -62,19 +62,16 @@ public class GroovyTestDescription
   private final JavaBuckConfig javaBuckConfig;
   private final JavaOptions javaOptions;
   private final JavacOptions defaultJavacOptions;
-  private final Optional<Long> defaultTestRuleTimeoutMs;
 
   public GroovyTestDescription(
       GroovyBuckConfig groovyBuckConfig,
       JavaBuckConfig javaBuckConfig,
       JavaOptions javaOptions,
-      JavacOptions defaultJavacOptions,
-      Optional<Long> defaultTestRuleTimeoutMs) {
+      JavacOptions defaultJavacOptions) {
     this.groovyBuckConfig = groovyBuckConfig;
     this.javaBuckConfig = javaBuckConfig;
     this.javaOptions = javaOptions;
     this.defaultJavacOptions = defaultJavacOptions;
-    this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
   }
 
   @Override
@@ -131,7 +128,9 @@ public class GroovyTestDescription
         javaOptions.getJavaRuntimeLauncher(),
         args.getVmArgs(),
         /* nativeLibsEnvironment */ ImmutableMap.of(),
-        args.getTestRuleTimeoutMs().map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+        args.getTestRuleTimeoutMs()
+            .map(Optional::of)
+            .orElse(groovyBuckConfig.getDelegate().getDefaultTestRuleTimeoutMs()),
         args.getTestCaseTimeoutMs(),
         ImmutableMap.copyOf(Maps.transformValues(args.getEnv(), toMacroArgFunction::apply)),
         args.getRunTestSeparately(),

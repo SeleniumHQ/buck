@@ -26,6 +26,8 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.model.Pair;
+import com.facebook.buck.python.toolchain.PythonPlatform;
+import com.facebook.buck.python.toolchain.PythonPlatformsProvider;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -40,10 +42,11 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.MacroArg;
+import com.facebook.buck.rules.coercer.NeededCoverageSpec;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -73,28 +76,25 @@ public class PythonTestDescription
   private static final MacroHandler MACRO_HANDLER =
       new MacroHandler(ImmutableMap.of("location", new LocationMacroExpander()));
 
+  private final ToolchainProvider toolchainProvider;
   private final PythonBinaryDescription binaryDescription;
   private final PythonBuckConfig pythonBuckConfig;
-  private final FlavorDomain<PythonPlatform> pythonPlatforms;
   private final CxxBuckConfig cxxBuckConfig;
   private final CxxPlatform defaultCxxPlatform;
-  private final Optional<Long> defaultTestRuleTimeoutMs;
   private final FlavorDomain<CxxPlatform> cxxPlatforms;
 
   public PythonTestDescription(
+      ToolchainProvider toolchainProvider,
       PythonBinaryDescription binaryDescription,
       PythonBuckConfig pythonBuckConfig,
-      FlavorDomain<PythonPlatform> pythonPlatforms,
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform defaultCxxPlatform,
-      Optional<Long> defaultTestRuleTimeoutMs,
       FlavorDomain<CxxPlatform> cxxPlatforms) {
+    this.toolchainProvider = toolchainProvider;
     this.binaryDescription = binaryDescription;
     this.pythonBuckConfig = pythonBuckConfig;
-    this.pythonPlatforms = pythonPlatforms;
     this.cxxBuckConfig = cxxBuckConfig;
     this.defaultCxxPlatform = defaultCxxPlatform;
-    this.defaultTestRuleTimeoutMs = defaultTestRuleTimeoutMs;
     this.cxxPlatforms = cxxPlatforms;
   }
 
@@ -169,6 +169,11 @@ public class PythonTestDescription
       final BuildRuleResolver resolver,
       CellPathResolver cellRoots,
       final PythonTestDescriptionArg args) {
+
+    FlavorDomain<PythonPlatform> pythonPlatforms =
+        toolchainProvider
+            .getByName(PythonPlatformsProvider.DEFAULT_NAME, PythonPlatformsProvider.class)
+            .getPythonPlatforms();
 
     PythonPlatform pythonPlatform =
         pythonPlatforms
@@ -257,7 +262,7 @@ public class PythonTestDescription
                     pythonPlatform, cxxPlatform, args.getDeps(), args.getPlatformDeps()))
             .concat(args.getNeededCoverage().stream().map(NeededCoverageSpec::getBuildTarget))
             .map(resolver::getRule)
-            .collect(MoreCollectors.toImmutableList());
+            .collect(ImmutableList.toImmutableList());
     PythonPackageComponents allComponents =
         PythonUtil.getAllComponents(
             buildTarget,
@@ -275,7 +280,7 @@ public class PythonTestDescription
                 .map(
                     MacroArg.toMacroArgFunction(
                         PythonUtil.MACRO_HANDLER, buildTarget, cellRoots, resolver))
-                .collect(MoreCollectors.toImmutableList()),
+                .collect(ImmutableList.toImmutableList()),
             pythonBuckConfig.getNativeLinkStrategy(),
             args.getPreloadDeps());
 
@@ -352,7 +357,9 @@ public class PythonTestDescription
         binary,
         args.getLabels(),
         neededCoverageBuilder.build(),
-        args.getTestRuleTimeoutMs().map(Optional::of).orElse(defaultTestRuleTimeoutMs),
+        args.getTestRuleTimeoutMs()
+            .map(Optional::of)
+            .orElse(cxxBuckConfig.getDelegate().getDefaultTestRuleTimeoutMs()),
         args.getContacts());
   }
 

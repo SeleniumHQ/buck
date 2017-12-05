@@ -23,6 +23,7 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
@@ -126,7 +127,9 @@ public class StringWithMacrosArgTest {
             TARGET,
             CELL_PATH_RESOLVER,
             resolver);
-    assertThat(noMacrosArg.getInputs(), Matchers.empty());
+    assertThat(
+        BuildableSupport.deriveInputs(noMacrosArg).collect(ImmutableList.toImmutableList()),
+        Matchers.empty());
 
     // Test one embedded macros.
     StringWithMacrosArg oneMacrosArg =
@@ -137,7 +140,9 @@ public class StringWithMacrosArgTest {
             TARGET,
             CELL_PATH_RESOLVER,
             resolver);
-    assertThat(oneMacrosArg.getInputs(), Matchers.contains(rule1.getSourcePathToOutput()));
+    assertThat(
+        BuildableSupport.deriveInputs(oneMacrosArg).collect(ImmutableList.toImmutableList()),
+        Matchers.contains(rule1.getSourcePathToOutput()));
 
     // Test multiple embedded macros.
     StringWithMacrosArg multipleMacrosArg =
@@ -153,7 +158,7 @@ public class StringWithMacrosArgTest {
             CELL_PATH_RESOLVER,
             resolver);
     assertThat(
-        multipleMacrosArg.getInputs(),
+        BuildableSupport.deriveInputs(multipleMacrosArg).collect(ImmutableList.toImmutableList()),
         Matchers.contains(
             rule1.getSourcePathToOutput(),
             rule2.getSourcePathToOutput(),

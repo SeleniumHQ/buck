@@ -133,7 +133,6 @@ import com.facebook.buck.swift.SwiftCommonArg;
 import com.facebook.buck.swift.SwiftLibraryDescriptionArg;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.MoreMaps;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
@@ -1030,6 +1029,7 @@ public class ProjectGenerator {
     mutator.setFrameworkHeadersEnabled(isModularAppleLibrary);
 
     ImmutableMap.Builder<String, String> swiftDepsSettingsBuilder = ImmutableMap.builder();
+    ImmutableList.Builder<String> swiftDebugLinkerFlagsBuilder = ImmutableList.builder();
 
     if (!shouldGenerateHeaderSymlinkTreesOnly()) {
       if (isFocusedOnTarget) {
@@ -1096,10 +1096,10 @@ public class ProjectGenerator {
       }
 
       if (isFocusedOnTarget) {
-        ImmutableSet<PBXFileReference> swiftDeps =
-            collectRecursiveLibraryDependenciesWithSwiftSources(targetNode);
+        ImmutableSet<TargetNode<?, ?>> swiftDepTargets =
+            collectRecursiveLibraryDepTargetsWithSwiftSources(targetNode);
 
-        if (!includeFrameworks && !swiftDeps.isEmpty()) {
+        if (!includeFrameworks && !swiftDepTargets.isEmpty()) {
           // If the current target, which is non-shared (e.g., static lib), depends on other focused
           // targets which include Swift code, we must ensure those are treated as dependencies so
           // that Xcode builds the targets in the correct order. Unfortunately, those deps can be
@@ -1118,7 +1118,9 @@ public class ProjectGenerator {
           copyFiles.setRunOnlyForDeploymentPostprocessing(Optional.of(Boolean.TRUE));
           copyFiles.setName(Optional.of("Fake Swift Dependencies (Copy Files Phase)"));
 
-          for (PBXFileReference fileRef : swiftDeps) {
+          ImmutableSet<PBXFileReference> swiftDepsFileRefs =
+              FluentIterable.from(swiftDepTargets).transform(this::getLibraryFileReference).toSet();
+          for (PBXFileReference fileRef : swiftDepsFileRefs) {
             PBXBuildFile buildFile = new PBXBuildFile(fileRef);
             copyFiles.getFiles().add(buildFile);
           }
@@ -1129,12 +1131,27 @@ public class ProjectGenerator {
         }
 
         if (includeFrameworks
-            && !swiftDeps.isEmpty()
+            && !swiftDepTargets.isEmpty()
             && shouldEmbedSwiftRuntimeInBundleTarget(bundle)
             && swiftBuckConfig.getProjectEmbedRuntime()) {
           // This is a binary that transitively depends on a library that uses Swift. We must ensure
           // that the Swift runtime is bundled.
           swiftDepsSettingsBuilder.put("ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES", "YES");
+        }
+
+        if (includeFrameworks
+            && !swiftDepTargets.isEmpty()
+            && swiftBuckConfig.getProjectAddASTPaths()) {
+          for (TargetNode<?, ?> swiftNode : swiftDepTargets) {
+            String swiftModulePath =
+                String.format(
+                    "${BUILT_PRODUCTS_DIR}/%s.swiftmodule/${CURRENT_ARCH}.swiftmodule",
+                    getModuleName(swiftNode));
+            swiftDebugLinkerFlagsBuilder.add("-Xlinker");
+            swiftDebugLinkerFlagsBuilder.add("-add_ast_path");
+            swiftDebugLinkerFlagsBuilder.add("-Xlinker");
+            swiftDebugLinkerFlagsBuilder.add(swiftModulePath);
+          }
         }
       }
 
@@ -1166,7 +1183,7 @@ public class ProjectGenerator {
 
         ImmutableList<TargetNode<?, ?>> scriptPhases =
             Stream.concat(preScriptPhases.stream(), postScriptPhases.stream())
-                .collect(MoreCollectors.toImmutableList());
+                .collect(ImmutableList.toImmutableList());
         mutator.collectFilesToCopyInXcode(
             filesToCopyInXcodeBuilder, scriptPhases, projectCell, buildRuleResolverForNode);
       }
@@ -1436,7 +1453,8 @@ public class ProjectGenerator {
                     targetNode,
                     Iterables.concat(
                         targetNode.getConstructorArg().getLinkerFlags(),
-                        collectRecursiveExportedLinkerFlags(targetNode))));
+                        collectRecursiveExportedLinkerFlags(targetNode))),
+                swiftDebugLinkerFlagsBuilder.build());
 
         appendConfigsBuilder
             .put(
@@ -2216,11 +2234,12 @@ public class ProjectGenerator {
             .stream()
             .map(Path::getFileName)
             .map(Path::toString)
-            .collect(MoreCollectors.toImmutableList());
-    if (!headerPaths.contains(moduleName + ".h")) {
+            .collect(ImmutableList.toImmutableList());
+    if (!headerPathStrings.contains(moduleName + ".h")) {
+      Path umbrellaPath = headerSymlinkTreeRoot.resolve(Paths.get(moduleName, moduleName + ".h"));
+      Preconditions.checkState(!projectFilesystem.exists(umbrellaPath));
       projectFilesystem.writeContentsToPath(
-          new UmbrellaHeader(moduleName, headerPathStrings).render(),
-          headerSymlinkTreeRoot.resolve(Paths.get(moduleName, moduleName + ".h")));
+          new UmbrellaHeader(moduleName, headerPathStrings).render(), umbrellaPath);
     }
   }
 
@@ -2945,7 +2964,14 @@ public class ProjectGenerator {
 
   private ImmutableSet<PBXFileReference> collectRecursiveLibraryDependenciesWithOptions(
       TargetNode<?, ?> targetNode, boolean containsSwiftSources) {
+    FluentIterable<TargetNode<?, ?>> libsWithSources =
+        collectRecursiveLibraryDepTargetsWithOptions(targetNode, containsSwiftSources);
 
+    return libsWithSources.transform(this::getLibraryFileReference).toSet();
+  }
+
+  private FluentIterable<TargetNode<?, ?>> collectRecursiveLibraryDepTargetsWithOptions(
+      TargetNode<?, ?> targetNode, boolean containsSwiftSources) {
     FluentIterable<TargetNode<?, ?>> libsWithSources =
         FluentIterable.from(
                 AppleBuildRules.getRecursiveTargetNodeDependenciesOfTypes(
@@ -2955,12 +2981,11 @@ public class ProjectGenerator {
                     targetNode,
                     AppleBuildRules.XCODE_TARGET_DESCRIPTION_CLASSES))
             .filter(this::isLibraryWithSourcesToCompile);
-
     if (containsSwiftSources) {
       libsWithSources = libsWithSources.filter(this::isLibraryWithSwiftSources);
     }
 
-    return libsWithSources.transform(this::getLibraryFileReference).toSet();
+    return libsWithSources;
   }
 
   private ImmutableSet<PBXFileReference> collectRecursiveLibraryDependencies(
@@ -2971,6 +2996,11 @@ public class ProjectGenerator {
   private ImmutableSet<PBXFileReference> collectRecursiveLibraryDependenciesWithSwiftSources(
       TargetNode<?, ?> targetNode) {
     return collectRecursiveLibraryDependenciesWithOptions(targetNode, true);
+  }
+
+  private ImmutableSet<TargetNode<?, ?>> collectRecursiveLibraryDepTargetsWithSwiftSources(
+      TargetNode<?, ?> targetNode) {
+    return collectRecursiveLibraryDepTargetsWithOptions(targetNode, true).toSet();
   }
 
   private SourceTreePath getProductsSourceTreePath(TargetNode<?, ?> targetNode) {

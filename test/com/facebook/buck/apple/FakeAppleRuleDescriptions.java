@@ -21,6 +21,10 @@ import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.apple.toolchain.AppleSdk;
 import com.facebook.buck.apple.toolchain.AppleSdkPaths;
+import com.facebook.buck.apple.toolchain.CodeSignIdentity;
+import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
+import com.facebook.buck.apple.toolchain.impl.AppleCxxPlatforms;
+import com.facebook.buck.apple.toolchain.impl.XcodeToolFinder;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBinaryDescription;
@@ -37,7 +41,8 @@ import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
 import com.facebook.buck.swift.toolchain.SwiftPlatformsProvider;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.toolchain.impl.TestToolchainProvider;
+import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -62,8 +67,6 @@ public class FakeAppleRuleDescriptions {
               "default_debug_info_format_for_binaries = NONE",
               "default_debug_info_format_for_libraries = NONE")
           .build();
-
-  public static final Optional<Long> DEFAULT_TIMEOUT = Optional.of(300000L);
 
   public static final AppleSdk DEFAULT_MACOSX_SDK =
       AppleSdk.builder()
@@ -143,7 +146,7 @@ public class FakeAppleRuleDescriptions {
   public static final AppleCxxPlatforms.XcodeBuildVersionCache FAKE_XCODE_BUILD_VERSION_CACHE =
       new AppleCxxPlatforms.XcodeBuildVersionCache() {
         @Override
-        Optional<String> lookup(Path developerDir) {
+        protected Optional<String> lookup(Path developerDir) {
           return Optional.of("0A0000");
         }
       };
@@ -272,35 +275,34 @@ public class FakeAppleRuleDescriptions {
           DEFAULT_PLATFORM.getFlavor(),
           CodeSignIdentityStore.fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)),
           ProvisioningProfileStore.fromProvisioningProfiles(ImmutableList.of()),
-          Suppliers.ofInstance(Optional.empty()),
-          DEFAULT_TIMEOUT);
+          Suppliers.ofInstance(Optional.empty()));
 
-  private static TestToolchainProvider createTestToolchainProviderForSwiftPlatform(
+  private static ToolchainProvider createTestToolchainProviderForSwiftPlatform(
       FlavorDomain<SwiftPlatform> swiftFlavorDomain) {
-    TestToolchainProvider testToolchainProvider = new TestToolchainProvider();
-    testToolchainProvider.addToolchain(
-        SwiftPlatformsProvider.DEFAULT_NAME, SwiftPlatformsProvider.of(swiftFlavorDomain));
-    return testToolchainProvider;
+    return new ToolchainProviderBuilder()
+        .withToolchain(
+            SwiftPlatformsProvider.DEFAULT_NAME, SwiftPlatformsProvider.of(swiftFlavorDomain))
+        .build();
   }
 
-  private static TestToolchainProvider createTestToolchainProviderForApplePlatform(
+  private static ToolchainProvider createTestToolchainProviderForApplePlatform(
       FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain) {
-    TestToolchainProvider testToolchainProvider = new TestToolchainProvider();
-    testToolchainProvider.addToolchain(
-        AppleCxxPlatformsProvider.DEFAULT_NAME,
-        AppleCxxPlatformsProvider.of(appleCxxPlatformFlavorDomain));
-    return testToolchainProvider;
+    return new ToolchainProviderBuilder()
+        .withToolchain(
+            AppleCxxPlatformsProvider.DEFAULT_NAME,
+            AppleCxxPlatformsProvider.of(appleCxxPlatformFlavorDomain))
+        .build();
   }
 
-  private static TestToolchainProvider createTestToolchainProvider(
+  private static ToolchainProvider createTestToolchainProvider(
       FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain,
       FlavorDomain<SwiftPlatform> swiftFlavorDomain) {
-    TestToolchainProvider testToolchainProvider = new TestToolchainProvider();
-    testToolchainProvider.addToolchain(
-        AppleCxxPlatformsProvider.DEFAULT_NAME,
-        AppleCxxPlatformsProvider.of(appleCxxPlatformFlavorDomain));
-    testToolchainProvider.addToolchain(
-        SwiftPlatformsProvider.DEFAULT_NAME, SwiftPlatformsProvider.of(swiftFlavorDomain));
-    return testToolchainProvider;
+    return new ToolchainProviderBuilder()
+        .withToolchain(
+            AppleCxxPlatformsProvider.DEFAULT_NAME,
+            AppleCxxPlatformsProvider.of(appleCxxPlatformFlavorDomain))
+        .withToolchain(
+            SwiftPlatformsProvider.DEFAULT_NAME, SwiftPlatformsProvider.of(swiftFlavorDomain))
+        .build();
   }
 }

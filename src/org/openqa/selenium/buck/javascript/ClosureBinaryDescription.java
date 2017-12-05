@@ -31,7 +31,6 @@ import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableCollection;
@@ -92,7 +91,7 @@ public class ClosureBinaryDescription implements
         RichStream.of(config.getClosureCompilerSourcePath(constructorArg.getCompiler()))
             .filter(BuildTargetSourcePath.class)
             .map(BuildTargetSourcePath::getTarget)
-            .collect(MoreCollectors.toImmutableList()));
+            .collect(ImmutableList.toImmutableList()));
   }
 
   @BuckStyleImmutable

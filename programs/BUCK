@@ -86,7 +86,12 @@ RESOURCES_AFFECTING_BUILD_ARTIFACTS = {
 }
 
 BUCK_MODULES = {
+    "d": "//src/com/facebook/buck/d:d",
     "dotnet": "//src/com/facebook/buck/dotnet:dotnet",
+    "go": "//src/com/facebook/buck/go:go",
+    "haskell": "//src/com/facebook/buck/haskell:haskell",
+    "lua": "//src/com/facebook/buck/lua:lua",
+    "rust": "//src/com/facebook/buck/rust:rust",
     "zipbundler": "//src/com/facebook/buck/zip/bundler:bundler",
     "ziprules": "//src/com/facebook/buck/zip/rules:rules",
     "filerules": "//src/org/openqa/selenium/buck/file:file",
@@ -101,7 +106,6 @@ genrule(
     cmd = " ".join([
         "$(exe //py/hash:hash_files)",
         " ".join(["$(location {})".format(resource) for resource in RESOURCES_AFFECTING_BUILD_ARTIFACTS.values()]),
-        " ".join(["$(location {})".format(get_module_binary(buck_module)) for buck_module in BUCK_MODULES.values()]),
         "$(location //py/hash:hash_files.py)",
         " > $OUT",
     ]),

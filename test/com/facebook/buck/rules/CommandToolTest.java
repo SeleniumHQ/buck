@@ -54,7 +54,9 @@ public class CommandToolTest {
         tool.getCommandPrefix(pathResolver),
         Matchers.contains(pathResolver.getAbsolutePath(rule.getSourcePathToOutput()).toString()));
     assertThat(tool.getDeps(ruleFinder), Matchers.contains(rule));
-    assertThat(tool.getInputs(), Matchers.contains(path));
+    assertThat(
+        BuildableSupport.deriveInputs(tool).collect(ImmutableList.toImmutableList()),
+        Matchers.contains(path));
   }
 
   @Test
@@ -90,7 +92,9 @@ public class CommandToolTest {
     CommandTool tool = new CommandTool.Builder().addInputs(ImmutableList.of(path)).build();
 
     assertThat(tool.getDeps(ruleFinder), Matchers.contains(rule));
-    assertThat(tool.getInputs(), Matchers.contains(path));
+    assertThat(
+        BuildableSupport.deriveInputs(tool).collect(ImmutableList.toImmutableList()),
+        Matchers.contains(path));
   }
 
   @Test
@@ -131,6 +135,8 @@ public class CommandToolTest {
         Matchers.hasEntry(
             "ENV", pathResolver.getAbsolutePath(rule.getSourcePathToOutput()).toString()));
     assertThat(tool.getDeps(ruleFinder), Matchers.contains(rule));
-    assertThat(tool.getInputs(), Matchers.contains(path));
+    assertThat(
+        BuildableSupport.deriveInputs(tool).collect(ImmutableList.toImmutableList()),
+        Matchers.contains(path));
   }
 }

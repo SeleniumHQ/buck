@@ -95,13 +95,17 @@ abstract class AbstractDistBuildSlaveExecutorArgs {
 
   public abstract DistBuildService getDistBuildService();
 
-  public abstract DistBuildConfig getDistBuildConfig();
+  public DistBuildConfig getDistBuildConfig() {
+    return new DistBuildConfig(getState().getRemoteRootCellConfig());
+  }
 
   public abstract ProjectFilesystemFactory getProjectFilesystemFactory();
 
   public abstract KnownBuildRuleTypesProvider getKnownBuildRuleTypesProvider();
 
   public abstract BuildRuleFinishedPublisher getBuildRuleFinishedPublisher();
+
+  public abstract UnexpectedSlaveCacheMissTracker getUnexpectedSlaveCacheMissTracker();
 
   public int getBuildThreadCount() {
     return getState()

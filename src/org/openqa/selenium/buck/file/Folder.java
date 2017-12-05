@@ -35,7 +35,6 @@ import com.facebook.buck.rules.modern.OutputPath;
 import com.facebook.buck.rules.modern.OutputPathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.zip.ZipStep;
 import com.facebook.buck.zip.bundler.FileBundler;
 import com.facebook.buck.zip.bundler.SrcZipAwareFileBundler;
@@ -43,6 +42,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Ordering;
 import java.nio.file.Path;
 import javax.annotation.Nullable;
 
@@ -61,7 +61,10 @@ public class Folder extends ModernBuildRule<Folder> implements Buildable {
 
     this.folderName = Preconditions.checkNotNull(folderName);
     this.output = new OutputPath(String.format("%s.src.zip", target.getShortName()));
-    this.srcs = srcs.stream().map(InputPath::new).collect(MoreCollectors.toImmutableSortedSet());
+    this.srcs =
+        srcs.stream()
+            .map(InputPath::new)
+            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
   }
 
   @Override
@@ -91,7 +94,7 @@ public class Folder extends ModernBuildRule<Folder> implements Buildable {
         scratch,
         srcs.stream()
             .map(InputPath::getLimitedSourcePath)
-            .collect(MoreCollectors.toImmutableSortedSet()),
+            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
         inputPathResolver.getLimitedSourcePathResolver());
     steps.add(
         new ZipStep(

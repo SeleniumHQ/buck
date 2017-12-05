@@ -134,12 +134,7 @@ public class ExternalJavac implements Javac {
 
   @Override
   public ImmutableCollection<BuildRule> getDeps(SourcePathRuleFinder ruleFinder) {
-    return ruleFinder.filterBuildRuleInputs(getInputs());
-  }
-
-  @Override
-  public ImmutableCollection<SourcePath> getInputs() {
-    return javac.get().getInputs();
+    return javac.get().getDeps(ruleFinder);
   }
 
   @Override
@@ -194,6 +189,7 @@ public class ExternalJavac implements Javac {
       @Nullable JarParameters abiJarParaameters,
       @Nullable JarParameters libraryJarParameters,
       AbiGenerationMode abiGenerationMode,
+      AbiGenerationMode abiCompatibilityMode,
       @Nullable SourceOnlyAbiRuleInfo ruleInfo) {
     Preconditions.checkArgument(abiJarParaameters == null);
     Preconditions.checkArgument(libraryJarParameters == null);

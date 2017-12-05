@@ -29,7 +29,6 @@ import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
@@ -139,7 +138,7 @@ public class CommandAliasDescription implements Description<CommandAliasDescript
   }
 
   private static class PlatformSpecificTool implements AbstractTool {
-    private final Supplier<Tool> tool;
+    @AddToRuleKey private final Supplier<Tool> tool;
     @AddToRuleKey private final Optional<BuildTarget> genericExe;
     @AddToRuleKey private final ImmutableSortedMap<Platform, BuildTarget> platformExe;
 
@@ -161,17 +160,6 @@ public class CommandAliasDescription implements Description<CommandAliasDescript
         return ImmutableList.of();
       }
       return tool.getDeps(ruleFinder);
-    }
-
-    @Override
-    public ImmutableCollection<SourcePath> getInputs() {
-      Tool tool;
-      try {
-        tool = this.tool.get();
-      } catch (UnsupportedPlatformException e) {
-        return ImmutableList.of();
-      }
-      return tool.getInputs();
     }
 
     @Override

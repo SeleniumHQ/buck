@@ -22,6 +22,7 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.CxxBinaryBuilder;
+import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxLink;
@@ -40,6 +41,10 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.InternalFlavor;
+import com.facebook.buck.python.CxxPythonExtensionDescription.Type;
+import com.facebook.buck.python.toolchain.PythonEnvironment;
+import com.facebook.buck.python.toolchain.PythonPlatform;
+import com.facebook.buck.python.toolchain.PythonVersion;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
@@ -55,7 +60,6 @@ import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
-import com.facebook.buck.util.MoreCollectors;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -505,7 +509,7 @@ public class CxxPythonExtensionDescriptionTest {
     assertThat(
         cxxPythonExtension
             .getRuntimeDeps(new SourcePathRuleFinder(resolver))
-            .collect(MoreCollectors.toImmutableSet()),
+            .collect(ImmutableSet.toImmutableSet()),
         Matchers.hasItem(cxxBinary.getBuildTarget()));
   }
 
@@ -525,5 +529,29 @@ public class CxxPythonExtensionDescriptionTest {
     assertThat(
         cxxPythonExtension.getModule().toString(),
         Matchers.endsWith(CxxPythonExtensionDescription.getExtensionName("blah")));
+  }
+
+  @Test
+  public void compilationDatabase() throws Exception {
+    CxxPythonExtensionBuilder builder =
+        new CxxPythonExtensionBuilder(
+            BuildTargetFactory.newInstance("//:ext"),
+            FlavorDomain.of("Python Platform", PY2, PY3),
+            new CxxBuckConfig(FakeBuckConfig.builder().build()),
+            CxxTestUtils.createDefaultPlatforms());
+    builder.setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("test.c"))));
+    BuildRuleResolver resolver =
+        new SingleThreadedBuildRuleResolver(
+            TargetGraphFactory.newInstance(builder.build()),
+            new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRule rule =
+        resolver.requireRule(
+            builder
+                .getTarget()
+                .withAppendedFlavors(
+                    CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor(),
+                    PY2.getFlavor(),
+                    Type.COMPILATION_DATABASE.getFlavor()));
+    assertThat(rule, Matchers.instanceOf(CxxCompilationDatabase.class));
   }
 }

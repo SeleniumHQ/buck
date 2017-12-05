@@ -22,6 +22,7 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
@@ -37,6 +38,7 @@ import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.ocaml.OcamlBinaryDescription;
 import com.facebook.buck.ocaml.OcamlLibraryDescription;
 import com.facebook.buck.parser.NoSuchBuildTargetException;
+import com.facebook.buck.plugin.BuckPluginManagerFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -63,6 +65,7 @@ import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.pf4j.PluginManager;
 
 public class KnownBuildRuleTypesTest {
 
@@ -76,6 +79,7 @@ public class KnownBuildRuleTypesTest {
   private static BuildTarget buildTarget;
   private static ProjectFilesystem projectFilesystem;
   private static BuildRuleParams buildRuleParams;
+  private ExecutableFinder executableFinder = new ExecutableFinder();
 
   static class KnownRuleTestDescription implements Description<KnownRuleTestDescriptionArg> {
 
@@ -158,7 +162,13 @@ public class KnownBuildRuleTypesTest {
         FakeBuckConfig.builder().setFilesystem(filesystem).setSections(sections).build();
 
     DefaultToolchainProvider toolchainProvider =
-        new DefaultToolchainProvider(environment, buckConfig, filesystem, createExecutor());
+        new DefaultToolchainProvider(
+            BuckPluginManagerFactory.createPluginManager(),
+            environment,
+            buckConfig,
+            filesystem,
+            createExecutor(),
+            executableFinder);
 
     KnownBuildRuleTypes buildRuleTypes =
         KnownBuildRuleTypesTestUtil.getDefaultKnownBuildRuleTypes(
@@ -198,11 +208,13 @@ public class KnownBuildRuleTypesTest {
   @Test
   public void createInstanceShouldReturnDifferentInstancesIfCalledWithDifferentParameters()
       throws Exception {
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(temporaryFolder.getRoot());
     BuckConfig buckConfig = FakeBuckConfig.builder().build();
     DefaultToolchainProvider toolchainProvider =
-        new DefaultToolchainProvider(environment, buckConfig, filesystem, createExecutor());
+        new DefaultToolchainProvider(
+            pluginManager, environment, buckConfig, filesystem, createExecutor(), executableFinder);
 
     KnownBuildRuleTypes knownBuildRuleTypes1 =
         KnownBuildRuleTypesTestUtil.createInstance(buckConfig, toolchainProvider, createExecutor());
@@ -215,7 +227,8 @@ public class KnownBuildRuleTypesTest {
     ProcessExecutor processExecutor = createExecutor(javac.toString(), "");
 
     toolchainProvider =
-        new DefaultToolchainProvider(environment, buckConfig, filesystem, createExecutor());
+        new DefaultToolchainProvider(
+            pluginManager, environment, buckConfig, filesystem, createExecutor(), executableFinder);
 
     KnownBuildRuleTypes knownBuildRuleTypes2 =
         KnownBuildRuleTypesTestUtil.createInstance(buckConfig, toolchainProvider, processExecutor);
@@ -232,7 +245,13 @@ public class KnownBuildRuleTypesTest {
     BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
 
     DefaultToolchainProvider toolchainProvider =
-        new DefaultToolchainProvider(environment, buckConfig, filesystem, createExecutor());
+        new DefaultToolchainProvider(
+            BuckPluginManagerFactory.createPluginManager(),
+            environment,
+            buckConfig,
+            filesystem,
+            createExecutor(),
+            executableFinder);
 
     // This would throw if "default" weren't available as a platform.
     KnownBuildRuleTypesTestUtil.createInstance(buckConfig, toolchainProvider, createExecutor());
@@ -248,7 +267,13 @@ public class KnownBuildRuleTypesTest {
         ImmutableMap.of("cxx#" + flavor, ImmutableMap.of("cflags", flag));
     BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
     DefaultToolchainProvider toolchainProvider =
-        new DefaultToolchainProvider(environment, buckConfig, filesystem, createExecutor());
+        new DefaultToolchainProvider(
+            BuckPluginManagerFactory.createPluginManager(),
+            environment,
+            buckConfig,
+            filesystem,
+            createExecutor(),
+            executableFinder);
     CxxPlatformsProvider cxxPlatformsProvider =
         toolchainProvider.getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
     assertThat(
@@ -268,7 +293,13 @@ public class KnownBuildRuleTypesTest {
             "cxx#windows-x86_64", ImmutableMap.of("cache_links", "true"));
     BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
     DefaultToolchainProvider toolchainProvider =
-        new DefaultToolchainProvider(environment, buckConfig, filesystem, createExecutor());
+        new DefaultToolchainProvider(
+            BuckPluginManagerFactory.createPluginManager(),
+            environment,
+            buckConfig,
+            filesystem,
+            createExecutor(),
+            executableFinder);
 
     // It should be legal to override multiple host platforms even though
     // only one will be practically used in a build.
@@ -288,7 +319,13 @@ public class KnownBuildRuleTypesTest {
             ImmutableMap.of());
     BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
     DefaultToolchainProvider toolchainProvider =
-        new DefaultToolchainProvider(environment, buckConfig, filesystem, createExecutor());
+        new DefaultToolchainProvider(
+            BuckPluginManagerFactory.createPluginManager(),
+            environment,
+            buckConfig,
+            filesystem,
+            createExecutor(),
+            executableFinder);
     KnownBuildRuleTypes knownBuildRuleTypes =
         KnownBuildRuleTypesTestUtil.createInstance(buckConfig, toolchainProvider, createExecutor());
     OcamlLibraryDescription ocamlLibraryDescription =
@@ -322,7 +359,13 @@ public class KnownBuildRuleTypesTest {
             ImmutableMap.of("default_cxx_platform", flavor.toString()));
     BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
     DefaultToolchainProvider toolchainProvider =
-        new DefaultToolchainProvider(environment, buckConfig, filesystem, createExecutor());
+        new DefaultToolchainProvider(
+            BuckPluginManagerFactory.createPluginManager(),
+            environment,
+            buckConfig,
+            filesystem,
+            createExecutor(),
+            executableFinder);
     KnownBuildRuleTypes knownBuildRuleTypes =
         KnownBuildRuleTypesTestUtil.createInstance(buckConfig, toolchainProvider, createExecutor());
     JavaBinaryDescription javaBinaryDescription =

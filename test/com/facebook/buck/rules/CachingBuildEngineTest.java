@@ -86,8 +86,8 @@ import com.facebook.buck.testutil.DummyFileHashCache;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ZipInspector;
+import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.MoreCollectors;
 import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.cache.FileHashCache;
@@ -229,7 +229,7 @@ public class CachingBuildEngineTest {
     public static Collection<Object[]> data() {
       return Arrays.stream(CachingBuildEngine.MetadataStorage.values())
           .map(v -> new Object[] {v})
-          .collect(MoreCollectors.toImmutableList());
+          .collect(ImmutableList.toImmutableList());
     }
 
     public CommonFixture(CachingBuildEngine.MetadataStorage metadataStorage) throws IOException {
@@ -372,7 +372,8 @@ public class CachingBuildEngineTest {
               .get();
       assertEquals(BuildRuleSuccessType.BUILT_LOCALLY, result.getSuccess());
       buckEventBus.post(
-          CommandEvent.finished(CommandEvent.started("build", ImmutableList.of(), false, 23L), 0));
+          CommandEvent.finished(
+              CommandEvent.started("build", ImmutableList.of(), false, 23L), ExitCode.SUCCESS));
       verifyAll();
 
       RuleKey ruleToTestKey = defaultRuleKeyFactory.build(ruleToTest);
@@ -532,7 +533,8 @@ public class CachingBuildEngineTest {
             .getEventBus()
             .post(
                 CommandEvent.finished(
-                    CommandEvent.started("build", ImmutableList.of(), false, 23L), 0));
+                    CommandEvent.started("build", ImmutableList.of(), false, 23L),
+                    ExitCode.SUCCESS));
 
         BuildResult result = buildResult.get();
         verifyAll();
@@ -619,7 +621,8 @@ public class CachingBuildEngineTest {
             .getEventBus()
             .post(
                 CommandEvent.finished(
-                    CommandEvent.started("build", ImmutableList.of(), false, 23L), 0));
+                    CommandEvent.started("build", ImmutableList.of(), false, 23L),
+                    ExitCode.SUCCESS));
 
         BuildResult result = buildResult.get();
         verifyAll();
@@ -2982,7 +2985,7 @@ public class CachingBuildEngineTest {
                           .getInputs()
                           .stream()
                           .map(pathResolver::getRelativePath)
-                          .collect(MoreCollectors.toImmutableList())))
+                          .collect(ImmutableList.toImmutableList())))
               .build(),
           BorrowablePath.notBorrowablePath(artifact));
 
@@ -3014,7 +3017,7 @@ public class CachingBuildEngineTest {
                         .getInputs()
                         .stream()
                         .map(pathResolver::getRelativePath)
-                        .collect(MoreCollectors.toImmutableList()))));
+                        .collect(ImmutableList.toImmutableList()))));
         Files.delete(fetchedArtifact.get());
       }
     }
@@ -3535,7 +3538,7 @@ public class CachingBuildEngineTest {
             queue
                 .stream()
                 .map(event -> String.format("%s@%s", event, event.getNanoTime()))
-                .collect(MoreCollectors.toImmutableList());
+                .collect(ImmutableList.toImmutableList());
         Iterator<BuildRuleEvent> itr = queue.iterator();
 
         while (itr.hasNext()) {
@@ -4231,6 +4234,12 @@ public class CachingBuildEngineTest {
 
     @Override
     public ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public ListenableFuture<ImmutableMap<RuleKey, CacheResult>> multiContainsAsync(
+        ImmutableSet<RuleKey> ruleKeys) {
       throw new UnsupportedOperationException();
     }
 
