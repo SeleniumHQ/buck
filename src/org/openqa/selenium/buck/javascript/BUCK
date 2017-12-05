@@ -1,6 +1,6 @@
-load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
+load("//tools/build_rules:module_rules.bzl", "buck_module")
 
-java_immutables_library(
+buck_module(
   name = 'javascript',
   srcs = glob(['*.java']),
   deps = [

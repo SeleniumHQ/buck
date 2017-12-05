@@ -481,8 +481,7 @@
           <exclude name="com/facebook/buck/testrunner/**" />
           <exclude name="com/facebook/buck/zip/bundler/**" />
           <exclude name="com/facebook/buck/zip/rules/**" />
-          <exclude name="org/openqa/selenium/buck/file/**" />
-          <exclude name="org/openqa/selenium/buck/mozilla/**" />
+          <exclude name="org/openqa/selenium/buck/**" />
         </patternset>
       </javac-params>
     </ecj>

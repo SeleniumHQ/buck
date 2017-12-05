@@ -94,6 +94,8 @@ BUCK_MODULES = {
     "rust": "//src/com/facebook/buck/rust:rust",
     "zipbundler": "//src/com/facebook/buck/zip/bundler:bundler",
     "ziprules": "//src/com/facebook/buck/zip/rules:rules",
+
+    "closurerules": "//src/org/openqa/selenium/buck/javascript:javascript",
     "filerules": "//src/org/openqa/selenium/buck/file:file",
     "mozillarules": "//src/org/openqa/selenium/buck/mozilla:mozilla",
 }

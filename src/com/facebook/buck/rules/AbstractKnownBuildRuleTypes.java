@@ -126,10 +126,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import org.immutables.value.Value;
-import org.openqa.selenium.buck.javascript.ClosureBinaryDescription;
-import org.openqa.selenium.buck.javascript.ClosureFragmentDescription;
-import org.openqa.selenium.buck.javascript.ClosureLibraryDescription;
-import org.openqa.selenium.buck.javascript.JavascriptConfig;
 import org.pf4j.PluginManager;
 
 /** A registry of all the build rules types understood by Buck. */
@@ -480,13 +476,6 @@ abstract class AbstractKnownBuildRuleTypes {
     builder.addDescriptions(new ShBinaryDescription());
     builder.addDescriptions(new ShTestDescription(config));
     builder.addDescriptions(new WorkerToolDescription(config));
-
-    // Selenium-specific targets
-    JavascriptConfig jsConfig = new JavascriptConfig(config);
-
-    builder.addDescriptions(new ClosureBinaryDescription(jsConfig));
-    builder.addDescriptions(new ClosureFragmentDescription(jsConfig));
-    builder.addDescriptions(new ClosureLibraryDescription());
 
     DescriptionCreationContext descriptionCreationContext =
         DescriptionCreationContext.builder()
