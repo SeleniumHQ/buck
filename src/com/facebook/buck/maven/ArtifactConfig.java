@@ -21,6 +21,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -50,7 +51,7 @@ public class ArtifactConfig {
     public String mavenLocalRepo = null;
 
     @Option(name = "-maven", usage = "Maven URI(s)")
-    public List<String> repositoryURIs = new ArrayList<>();
+    public List<String> repositoryURIs = ImmutableList.of("https://repo1.maven.org/maven2");
 
     @Option(name = "-visibility", usage = "Targets that can see the artifacts. (PUBLIC is allowed)")
     public List<String> visibility = new ArrayList<>();
