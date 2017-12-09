@@ -22,6 +22,7 @@ import com.facebook.buck.distributed.thrift.GetWorkResponse;
 import com.facebook.buck.distributed.thrift.ReportMinionAliveRequest;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.log.TimedLogger;
 import com.facebook.buck.slb.ThriftException;
 import com.google.common.base.Preconditions;
 import java.io.Closeable;
@@ -39,25 +40,27 @@ import org.apache.thrift.transport.TTransportException;
 /** This class is ThreadSafe. No more than one RPC request is allowed at a time. */
 @ThreadSafe
 public class ThriftCoordinatorClient implements Closeable {
-
-  private static final Logger LOG = Logger.get(ThriftCoordinatorClient.class);
-
+  private static final TimedLogger LOG = new TimedLogger(Logger.get(ThriftCoordinatorClient.class));
   private final String remoteHost;
   private final StampedeId stampedeId;
+  private final int connectionTimeoutMillis;
 
   // NOTE(ruibm): Thrift Transport/Client is not thread safe so we can not interleave requests.
   //              All RPC calls from the client need to be synchronised.
   @Nullable private TFramedTransport transport;
   @Nullable private CoordinatorService.Client client;
 
-  public ThriftCoordinatorClient(String remoteHost, StampedeId stampedeId) {
+  public ThriftCoordinatorClient(
+      String remoteHost, StampedeId stampedeId, int connectionTimeoutMillis) {
     this.remoteHost = Preconditions.checkNotNull(remoteHost);
     this.stampedeId = stampedeId;
+    this.connectionTimeoutMillis = connectionTimeoutMillis;
   }
 
   /** Starts the thrift client. */
   public synchronized ThriftCoordinatorClient start(int remotePort) throws ThriftException {
-    transport = new TFramedTransport(new TSocket(remoteHost, remotePort));
+    LOG.info("Starting ThriftCoordinatorClient (for MinionModeRunner)...");
+    transport = new TFramedTransport(new TSocket(remoteHost, remotePort, connectionTimeoutMillis));
 
     try {
       transport.open();
@@ -67,13 +70,16 @@ public class ThriftCoordinatorClient implements Closeable {
 
     TProtocol protocol = new TBinaryProtocol(transport);
     client = new CoordinatorService.Client(protocol);
+    LOG.info("Started ThriftCoordinatorClient.");
     return this;
   }
 
   /** Orderly stops the thrift client. */
   public synchronized ThriftCoordinatorClient stop() {
     Preconditions.checkNotNull(transport, "The client has already been stopped.");
+    LOG.info("Stopping ThriftCoordinatorClient (for MinionModeRunner)...");
     transport.close();
+    LOG.info("Stopped ThriftCoordinatorClient.");
     transport = null;
     client = null;
     return this;

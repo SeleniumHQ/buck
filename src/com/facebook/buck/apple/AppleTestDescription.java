@@ -18,7 +18,9 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
+import com.facebook.buck.apple.toolchain.AppleDeveloperDirectoryForTestsProvider;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
+import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibraryDescription;
@@ -26,6 +28,7 @@ import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.CxxStrip;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
@@ -81,7 +84,6 @@ import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import org.immutables.value.Value;
 
 public class AppleTestDescription
@@ -114,29 +116,14 @@ public class AppleTestDescription
   private final ToolchainProvider toolchainProvider;
   private final AppleConfig appleConfig;
   private final AppleLibraryDescription appleLibraryDescription;
-  private final FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain;
-  private final Flavor defaultCxxFlavor;
-  private final CodeSignIdentityStore codeSignIdentityStore;
-  private final ProvisioningProfileStore provisioningProfileStore;
-  private final Supplier<Optional<Path>> xcodeDeveloperDirectorySupplier;
 
   public AppleTestDescription(
       ToolchainProvider toolchainProvider,
       AppleConfig appleConfig,
-      AppleLibraryDescription appleLibraryDescription,
-      FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain,
-      Flavor defaultCxxFlavor,
-      CodeSignIdentityStore codeSignIdentityStore,
-      ProvisioningProfileStore provisioningProfileStore,
-      Supplier<Optional<Path>> xcodeDeveloperDirectorySupplier) {
+      AppleLibraryDescription appleLibraryDescription) {
     this.toolchainProvider = toolchainProvider;
     this.appleConfig = appleConfig;
     this.appleLibraryDescription = appleLibraryDescription;
-    this.cxxPlatformFlavorDomain = cxxPlatformFlavorDomain;
-    this.defaultCxxFlavor = defaultCxxFlavor;
-    this.codeSignIdentityStore = codeSignIdentityStore;
-    this.provisioningProfileStore = provisioningProfileStore;
-    this.xcodeDeveloperDirectorySupplier = xcodeDeveloperDirectorySupplier;
   }
 
   @Override
@@ -187,6 +174,10 @@ public class AppleTestDescription
     if (buildTarget.getFlavors().contains(debugFormat.getFlavor())) {
       buildTarget = buildTarget.withoutFlavors(debugFormat.getFlavor());
     }
+
+    CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
+    FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain = cxxPlatformsProvider.getCxxPlatforms();
+    Flavor defaultCxxFlavor = cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor();
 
     boolean createBundle =
         Sets.intersection(buildTarget.getFlavors(), AUXILIARY_LIBRARY_FLAVORS).isEmpty();
@@ -293,8 +284,10 @@ public class AppleTestDescription
                     .addAll(params.getDeclaredDeps().get())
                     .build()),
             resolver,
-            codeSignIdentityStore,
-            provisioningProfileStore,
+            toolchainProvider.getByName(
+                CodeSignIdentityStore.DEFAULT_NAME, CodeSignIdentityStore.class),
+            toolchainProvider.getByName(
+                ProvisioningProfileStore.DEFAULT_NAME, ProvisioningProfileStore.class),
             library.getBuildTarget(),
             args.getExtension(),
             Optional.empty(),
@@ -330,7 +323,9 @@ public class AppleTestDescription
         args.getContacts(),
         args.getLabels(),
         args.getRunTestSeparately(),
-        xcodeDeveloperDirectorySupplier,
+        toolchainProvider.getByName(
+            AppleDeveloperDirectoryForTestsProvider.DEFAULT_NAME,
+            AppleDeveloperDirectoryForTestsProvider.class),
         appleConfig.getTestLogDirectoryEnvironmentVariable(),
         appleConfig.getTestLogLevelEnvironmentVariable(),
         appleConfig.getTestLogLevel(),
@@ -569,6 +564,11 @@ public class AppleTestDescription
       Class<U> metadataClass) {
     return appleLibraryDescription.createMetadataForLibrary(
         buildTarget, resolver, cellRoots, selectedVersions, args, metadataClass);
+  }
+
+  private CxxPlatformsProvider getCxxPlatformsProvider() {
+    return toolchainProvider.getByName(
+        CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
   }
 
   @Value.Immutable

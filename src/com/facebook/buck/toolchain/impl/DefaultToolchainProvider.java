@@ -25,13 +25,19 @@ import com.facebook.buck.android.toolchain.impl.NdkCxxPlatformsProviderFactory;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkFactory;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
+import com.facebook.buck.apple.toolchain.AppleDeveloperDirectoryForTestsProvider;
 import com.facebook.buck.apple.toolchain.AppleDeveloperDirectoryProvider;
 import com.facebook.buck.apple.toolchain.AppleSdkLocation;
 import com.facebook.buck.apple.toolchain.AppleToolchainProvider;
+import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
+import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
 import com.facebook.buck.apple.toolchain.impl.AppleCxxPlatformsProviderFactory;
+import com.facebook.buck.apple.toolchain.impl.AppleDeveloperDirectoryForTestsProviderFactory;
 import com.facebook.buck.apple.toolchain.impl.AppleDeveloperDirectoryProviderFactory;
 import com.facebook.buck.apple.toolchain.impl.AppleSdkLocationFactory;
 import com.facebook.buck.apple.toolchain.impl.AppleToolchainProviderFactory;
+import com.facebook.buck.apple.toolchain.impl.CodeSignIdentityStoreFactory;
+import com.facebook.buck.apple.toolchain.impl.ProvisioningProfileStoreFactory;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProviderFactory;
@@ -39,8 +45,13 @@ import com.facebook.buck.file.downloader.Downloader;
 import com.facebook.buck.file.downloader.impl.DownloaderFactory;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.python.toolchain.PexToolProvider;
+import com.facebook.buck.python.toolchain.PythonInterpreter;
 import com.facebook.buck.python.toolchain.PythonPlatformsProvider;
+import com.facebook.buck.python.toolchain.impl.PexToolProviderFactory;
+import com.facebook.buck.python.toolchain.impl.PythonInterpreterFactory;
 import com.facebook.buck.python.toolchain.impl.PythonPlatformsProviderFactory;
+import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.swift.toolchain.SwiftPlatformsProvider;
 import com.facebook.buck.swift.toolchain.impl.SwiftPlatformsProviderFactory;
 import com.facebook.buck.toolchain.BaseToolchainProvider;
@@ -88,6 +99,10 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
               AppleDeveloperDirectoryProvider.class,
               AppleDeveloperDirectoryProviderFactory.class),
           ToolchainDescriptor.of(
+              AppleDeveloperDirectoryForTestsProvider.DEFAULT_NAME,
+              AppleDeveloperDirectoryForTestsProvider.class,
+              AppleDeveloperDirectoryForTestsProviderFactory.class),
+          ToolchainDescriptor.of(
               AppleToolchainProvider.DEFAULT_NAME,
               AppleToolchainProvider.class,
               AppleToolchainProviderFactory.class),
@@ -98,6 +113,14 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
               AppleCxxPlatformsProvider.class,
               AppleCxxPlatformsProviderFactory.class),
           ToolchainDescriptor.of(
+              CodeSignIdentityStore.DEFAULT_NAME,
+              CodeSignIdentityStore.class,
+              CodeSignIdentityStoreFactory.class),
+          ToolchainDescriptor.of(
+              ProvisioningProfileStore.DEFAULT_NAME,
+              ProvisioningProfileStore.class,
+              ProvisioningProfileStoreFactory.class),
+          ToolchainDescriptor.of(
               SwiftPlatformsProvider.DEFAULT_NAME,
               SwiftPlatformsProvider.class,
               SwiftPlatformsProviderFactory.class),
@@ -107,6 +130,12 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
               CxxPlatformsProviderFactory.class),
           ToolchainDescriptor.of(
               Downloader.DEFAULT_NAME, Downloader.class, DownloaderFactory.class),
+          ToolchainDescriptor.of(
+              PexToolProvider.DEFAULT_NAME, PexToolProvider.class, PexToolProviderFactory.class),
+          ToolchainDescriptor.of(
+              PythonInterpreter.DEFAULT_NAME,
+              PythonInterpreter.class,
+              PythonInterpreterFactory.class),
           ToolchainDescriptor.of(
               PythonPlatformsProvider.DEFAULT_NAME,
               PythonPlatformsProvider.class,
@@ -136,10 +165,16 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
       BuckConfig buckConfig,
       ProjectFilesystem projectFilesystem,
       ProcessExecutor processExecutor,
-      ExecutableFinder executableFinder) {
+      ExecutableFinder executableFinder,
+      RuleKeyConfiguration ruleKeyConfiguration) {
     toolchainCreationContext =
         ToolchainCreationContext.of(
-            environment, buckConfig, projectFilesystem, processExecutor, executableFinder);
+            environment,
+            buckConfig,
+            projectFilesystem,
+            processExecutor,
+            executableFinder,
+            ruleKeyConfiguration);
 
     toolchainDescriptors = loadToolchainDescriptors(pluginManager);
 

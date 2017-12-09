@@ -23,6 +23,7 @@ import com.facebook.buck.apple.toolchain.AppleSdk;
 import com.facebook.buck.apple.toolchain.AppleSdkPaths;
 import com.facebook.buck.apple.toolchain.CodeSignIdentity;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
+import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
 import com.facebook.buck.apple.toolchain.impl.AppleCxxPlatforms;
 import com.facebook.buck.apple.toolchain.impl.XcodeToolFinder;
 import com.facebook.buck.config.BuckConfig;
@@ -32,6 +33,7 @@ import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -228,14 +230,14 @@ public class FakeAppleRuleDescriptions {
           createTestToolchainProvider(
               DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN, DEFAULT_SWIFT_PLATFORM_FLAVOR_DOMAIN),
           new CxxLibraryDescription(
+              new ToolchainProviderBuilder()
+                  .withToolchain(
+                      CxxPlatformsProvider.DEFAULT_NAME,
+                      CxxPlatformsProvider.of(DEFAULT_PLATFORM, DEFAULT_APPLE_FLAVOR_DOMAIN))
+                  .build(),
               CxxPlatformUtils.DEFAULT_CONFIG,
-              DEFAULT_PLATFORM.getFlavor(),
-              new InferBuckConfig(DEFAULT_BUCK_CONFIG),
-              DEFAULT_APPLE_FLAVOR_DOMAIN),
+              new InferBuckConfig(DEFAULT_BUCK_CONFIG)),
           SWIFT_LIBRARY_DESCRIPTION,
-          DEFAULT_PLATFORM.getFlavor(),
-          CodeSignIdentityStore.fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)),
-          ProvisioningProfileStore.fromProvisioningProfiles(ImmutableList.of()),
           DEFAULT_BUCK_CONFIG.getView(AppleConfig.class),
           new SwiftBuckConfig(DEFAULT_BUCK_CONFIG));
 
@@ -249,8 +251,6 @@ public class FakeAppleRuleDescriptions {
               DEFAULT_IPHONEOS_I386_PLATFORM.getFlavor(),
               DEFAULT_APPLE_FLAVOR_DOMAIN),
           SWIFT_LIBRARY_DESCRIPTION,
-          CodeSignIdentityStore.fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)),
-          ProvisioningProfileStore.fromProvisioningProfiles(ImmutableList.of()),
           DEFAULT_BUCK_CONFIG.getView(AppleConfig.class));
 
   /** A fake apple_bundle description with an iOS platform for use in tests. */
@@ -259,10 +259,6 @@ public class FakeAppleRuleDescriptions {
           createTestToolchainProviderForApplePlatform(DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN),
           BINARY_DESCRIPTION,
           LIBRARY_DESCRIPTION,
-          DEFAULT_APPLE_FLAVOR_DOMAIN,
-          DEFAULT_PLATFORM.getFlavor(),
-          CodeSignIdentityStore.fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)),
-          ProvisioningProfileStore.fromProvisioningProfiles(ImmutableList.of()),
           DEFAULT_BUCK_CONFIG.getView(AppleConfig.class));
 
   /** A fake apple_test description with an iOS platform for use in tests. */
@@ -270,12 +266,7 @@ public class FakeAppleRuleDescriptions {
       new AppleTestDescription(
           createTestToolchainProviderForApplePlatform(DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN),
           DEFAULT_BUCK_CONFIG.getView(AppleConfig.class),
-          LIBRARY_DESCRIPTION,
-          DEFAULT_APPLE_FLAVOR_DOMAIN,
-          DEFAULT_PLATFORM.getFlavor(),
-          CodeSignIdentityStore.fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)),
-          ProvisioningProfileStore.fromProvisioningProfiles(ImmutableList.of()),
-          Suppliers.ofInstance(Optional.empty()));
+          LIBRARY_DESCRIPTION);
 
   private static ToolchainProvider createTestToolchainProviderForSwiftPlatform(
       FlavorDomain<SwiftPlatform> swiftFlavorDomain) {
@@ -291,6 +282,13 @@ public class FakeAppleRuleDescriptions {
         .withToolchain(
             AppleCxxPlatformsProvider.DEFAULT_NAME,
             AppleCxxPlatformsProvider.of(appleCxxPlatformFlavorDomain))
+        .withToolchain(
+            CodeSignIdentityStore.DEFAULT_NAME,
+            fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)))
+        .withToolchain(ProvisioningProfileStore.DEFAULT_NAME, ProvisioningProfileStore.empty())
+        .withToolchain(
+            CxxPlatformsProvider.DEFAULT_NAME,
+            CxxPlatformsProvider.of(DEFAULT_PLATFORM, DEFAULT_APPLE_FLAVOR_DOMAIN))
         .build();
   }
 
@@ -303,6 +301,17 @@ public class FakeAppleRuleDescriptions {
             AppleCxxPlatformsProvider.of(appleCxxPlatformFlavorDomain))
         .withToolchain(
             SwiftPlatformsProvider.DEFAULT_NAME, SwiftPlatformsProvider.of(swiftFlavorDomain))
+        .withToolchain(
+            CodeSignIdentityStore.DEFAULT_NAME,
+            fromIdentities(ImmutableList.of(CodeSignIdentity.AD_HOC)))
+        .withToolchain(ProvisioningProfileStore.DEFAULT_NAME, ProvisioningProfileStore.empty())
+        .withToolchain(
+            CxxPlatformsProvider.DEFAULT_NAME,
+            CxxPlatformsProvider.of(DEFAULT_PLATFORM, DEFAULT_APPLE_FLAVOR_DOMAIN))
         .build();
+  }
+
+  private static CodeSignIdentityStore fromIdentities(Iterable<CodeSignIdentity> identities) {
+    return CodeSignIdentityStore.of(Suppliers.ofInstance(ImmutableList.copyOf(identities)));
   }
 }

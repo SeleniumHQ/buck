@@ -20,6 +20,7 @@ import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
+import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
 import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxBinaryDescriptionArg;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
@@ -98,23 +99,17 @@ public class AppleBinaryDescription
   private final ToolchainProvider toolchainProvider;
   private final CxxBinaryDescription delegate;
   private final Optional<SwiftLibraryDescription> swiftDelegate;
-  private final CodeSignIdentityStore codeSignIdentityStore;
-  private final ProvisioningProfileStore provisioningProfileStore;
   private final AppleConfig appleConfig;
 
   public AppleBinaryDescription(
       ToolchainProvider toolchainProvider,
       CxxBinaryDescription delegate,
       SwiftLibraryDescription swiftDelegate,
-      CodeSignIdentityStore codeSignIdentityStore,
-      ProvisioningProfileStore provisioningProfileStore,
       AppleConfig appleConfig) {
     this.toolchainProvider = toolchainProvider;
     this.delegate = delegate;
     // TODO(T22135033): Make apple_binary not use a Swift delegate
     this.swiftDelegate = Optional.of(swiftDelegate);
-    this.codeSignIdentityStore = codeSignIdentityStore;
-    this.provisioningProfileStore = provisioningProfileStore;
     this.appleConfig = appleConfig;
   }
 
@@ -353,8 +348,10 @@ public class AppleBinaryDescription
         projectFilesystem,
         params,
         resolver,
-        codeSignIdentityStore,
-        provisioningProfileStore,
+        toolchainProvider.getByName(
+            CodeSignIdentityStore.DEFAULT_NAME, CodeSignIdentityStore.class),
+        toolchainProvider.getByName(
+            ProvisioningProfileStore.DEFAULT_NAME, ProvisioningProfileStore.class),
         binaryTarget,
         Either.ofLeft(AppleBundleExtension.APP),
         Optional.empty(),

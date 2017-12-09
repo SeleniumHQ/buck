@@ -91,8 +91,8 @@ import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
-import com.facebook.buck.rules.keys.RuleKeyConfiguration;
-import com.facebook.buck.rules.keys.impl.ConfigRuleKeyConfigurationFactory;
+import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
+import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactory;
 import com.facebook.buck.sandbox.SandboxExecutionStrategyFactory;
 import com.facebook.buck.sandbox.impl.PlatformSandboxExecutionStrategyFactory;
 import com.facebook.buck.step.ExecutorPool;
@@ -387,10 +387,11 @@ public final class Main {
       exitCode = ExitCode.SIGNAL_INTERRUPT;
       LOG.debug(e, "Interrupted");
     } catch (IOException e) {
-      exitCode = ExitCode.FATAL_GENERIC;
       if (e.getMessage().startsWith("No space left on device")) {
+        exitCode = ExitCode.FATAL_DISK_FULL;
         makeStandardConsole(context).printBuildFailure(e.getMessage());
       } else {
+        exitCode = ExitCode.FATAL_IO;
         LOG.error(e);
       }
     } catch (OutOfMemoryError e) {
@@ -1641,17 +1642,26 @@ public final class Main {
     // resource which other threads need.)
     Thread.setDefaultUncaughtExceptionHandler(
         (t, e) -> {
-          LOG.error(e, "Uncaught exception from thread %s", t);
+          ExitCode exitCode = ExitCode.FATAL_GENERIC;
+          if (e instanceof OutOfMemoryError) {
+            exitCode = ExitCode.FATAL_OOM;
+          } else if (e instanceof IOException) {
+            exitCode =
+                e.getMessage().startsWith("No space left on device")
+                    ? ExitCode.FATAL_DISK_FULL
+                    : ExitCode.FATAL_IO;
+          }
+
+          // Do not log anything in case we do not have space on the disk
+          if (exitCode == ExitCode.FATAL_DISK_FULL) {
+            LOG.error(e, "Uncaught exception from thread %s", t);
+          }
+
           if (context.isPresent()) {
             // Shut down the Nailgun server and make sure it stops trapping System.exit().
             //
             // We pass false for exitVM because otherwise Nailgun exits with code 0.
             context.get().getNGServer().shutdown(/* exitVM */ false);
-          }
-
-          ExitCode exitCode = ExitCode.FATAL_GENERIC;
-          if (e instanceof OutOfMemoryError) {
-            exitCode = ExitCode.FATAL_OOM;
           }
 
           NON_REENTRANT_SYSTEM_EXIT.shutdownSoon(exitCode.getCode());

@@ -16,7 +16,6 @@
 
 package com.facebook.buck.go;
 
-import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
@@ -48,13 +47,10 @@ public class GoBinaryDescription
         Flavored {
 
   private final GoBuckConfig goBuckConfig;
-  private final CxxBuckConfig cxxBuckConfig;
   private final ToolchainProvider toolchainProvider;
 
-  public GoBinaryDescription(
-      GoBuckConfig goBuckConfig, CxxBuckConfig cxxBuckConfig, ToolchainProvider toolchainProvider) {
+  public GoBinaryDescription(GoBuckConfig goBuckConfig, ToolchainProvider toolchainProvider) {
     this.goBuckConfig = goBuckConfig;
-    this.cxxBuckConfig = cxxBuckConfig;
     this.toolchainProvider = toolchainProvider;
   }
 
@@ -89,18 +85,14 @@ public class GoBinaryDescription
         projectFilesystem,
         params,
         resolver,
-        cellRoots,
         goBuckConfig,
         goToolchain,
-        cxxBuckConfig,
-        getCxxPlatform(!args.getCgoSrcs().isEmpty()),
+        getCxxPlatform(!args.getCgoDeps().isEmpty()),
         args.getSrcs(),
         args.getCompilerFlags(),
         args.getAssemblerFlags(),
         args.getLinkerFlags(),
         platform,
-        args.getCgoSrcs(),
-        args.getCgoHeaders(),
         args.getCgoDeps());
   }
 
@@ -112,7 +104,7 @@ public class GoBinaryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // Add the C/C++ linker parse time deps.
-    CxxPlatform cxxPlatform = getCxxPlatform(!constructorArg.getCgoSrcs().isEmpty());
+    CxxPlatform cxxPlatform = getCxxPlatform(!constructorArg.getCgoDeps().isEmpty());
     extraDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatform));
   }
 

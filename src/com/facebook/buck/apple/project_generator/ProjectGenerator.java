@@ -122,7 +122,7 @@ import com.facebook.buck.rules.args.StringWithMacrosArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
-import com.facebook.buck.rules.keys.RuleKeyConfiguration;
+import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.StringWithMacros;
@@ -588,7 +588,7 @@ public class ProjectGenerator {
   private static Path getHalideOutputPath(ProjectFilesystem filesystem, BuildTarget target) {
     return filesystem
         .getBuckPaths()
-        .getBuckOut()
+        .getConfiguredBuckOut()
         .resolve("halide")
         .resolve(target.getBasePath())
         .resolve(target.getShortName());
@@ -1360,7 +1360,7 @@ public class ProjectGenerator {
         Path derivedSourcesDir =
             getDerivedSourcesDirectoryForBuildTarget(buildTarget, projectFilesystem);
         Path derivedSourceDirRelativeToProjectRoot =
-            getRelativeToProjectPathForTargetNode(targetNode, derivedSourcesDir);
+            pathRelativizer.outputDirToRootRelative(derivedSourcesDir);
 
         defaultSettingsBuilder.put(
             "DERIVED_FILE_DIR", derivedSourceDirRelativeToProjectRoot.toString());
@@ -1392,12 +1392,7 @@ public class ProjectGenerator {
       if (isFocusedOnTarget) {
         ImmutableSet<Path> recursiveHeaderSearchPaths =
             collectRecursiveHeaderSearchPaths(targetNode);
-        ImmutableSet<Path> headerMapBases =
-            recursiveHeaderSearchPaths.isEmpty()
-                ? ImmutableSet.of()
-                : ImmutableSet.of(
-                    pathRelativizer.outputDirToRootRelative(
-                        buildTargetNode.getFilesystem().getBuckPaths().getBuckOut()));
+        ImmutableSet<Path> headerMapBases = collectRecursiveHeaderMapBases(targetNode);
 
         ImmutableMap.Builder<String, String> appendConfigsBuilder = ImmutableMap.builder();
         appendConfigsBuilder.putAll(
@@ -2245,10 +2240,16 @@ public class ProjectGenerator {
 
   private Path getHeaderMapRelativeSymlinkPathForEntry(
       Map.Entry<Path, ?> entry, Path headerSymlinkTreeRoot) {
-    return Paths.get("../../")
-        .resolve(projectCell.getRoot().getFileName())
-        .resolve(headerSymlinkTreeRoot)
-        .resolve(entry.getKey());
+    return projectCell
+        .getFilesystem()
+        .resolve(projectCell.getFilesystem().getBuckPaths().getConfiguredBuckOut())
+        .normalize()
+        .relativize(
+            projectCell
+                .getFilesystem()
+                .resolve(headerSymlinkTreeRoot)
+                .resolve(entry.getKey())
+                .normalize());
   }
 
   private HashCode getHeaderSymlinkTreeHashCode(
@@ -2602,19 +2603,12 @@ public class ProjectGenerator {
     return builder.build();
   }
 
-  private Path getRelativeToProjectPathForTargetNode(TargetNode<?, ?> targetNode, Path path) {
-    Path cellRoot =
-        MorePaths.relativize(
-            projectFilesystem.getRootPath(), targetNode.getBuildTarget().getCellPath());
-    return pathRelativizer.outputDirToRootRelative(cellRoot.resolve(path));
-  }
-
   /** @param targetNode Must have a header symlink tree or an exception will be thrown. */
   private Path getHeaderSymlinkTreeRelativePath(
       TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode,
       HeaderVisibility headerVisibility) {
-    Path treeRoot = getPathToHeaderSymlinkTree(targetNode, headerVisibility);
-    return getRelativeToProjectPathForTargetNode(targetNode, treeRoot);
+    Path treeRoot = getAbsolutePathToHeaderSymlinkTree(targetNode, headerVisibility);
+    return projectFilesystem.resolve(outputDirectory).relativize(treeRoot);
   }
 
   private Path getObjcModulemapVFSOverlayLocationFromSymlinkTreeRoot(Path headerSymlinkTreeRoot) {
@@ -2725,6 +2719,29 @@ public class ProjectGenerator {
       builder.add(halideHeaderPath);
     }
 
+    return builder.build();
+  }
+
+  private ImmutableSet<Path> collectRecursiveHeaderMapBases(
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode) {
+    ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
+    if (shouldMergeHeaderMaps()) {
+      return ImmutableSet.of();
+    } else {
+      visitRecursiveHeaderSymlinkTrees(
+          targetNode,
+          (nativeNode, headerVisibility) -> {
+            builder.add(
+                targetNode
+                    .getFilesystem()
+                    .resolve(outputDirectory)
+                    .relativize(
+                        nativeNode
+                            .getFilesystem()
+                            .resolve(
+                                nativeNode.getFilesystem().getBuckPaths().getConfiguredBuckOut())));
+          });
+    }
     return builder.build();
   }
 
@@ -3276,11 +3293,24 @@ public class ProjectGenerator {
     return Optional.of(pch.sourcePath);
   }
 
-  private Path getPathToHeaderMapsRoot() {
-    return projectFilesystem.getBuckPaths().getGenDir().resolve("_p");
+  private ProjectFilesystem getFilesystemForNode(
+      Optional<TargetNode<? extends CxxLibraryDescription.CommonArg, ?>> node) {
+    if (node.isPresent()) {
+      Path cellPath = node.get().getBuildTarget().getCellPath();
+      Cell cell = projectCell.getCellProvider().getCellByPath(cellPath);
+      return cell.getFilesystem();
+    } else {
+      return projectFilesystem;
+    }
   }
 
-  private Path getPathToHeadersPath(
+  private Path getPathToHeaderMapsRoot(
+      Optional<TargetNode<? extends CxxLibraryDescription.CommonArg, ?>> node) {
+    ProjectFilesystem filesystem = getFilesystemForNode(node);
+    return filesystem.getBuckPaths().getGenDir().resolve("_p");
+  }
+
+  private Path getFilenameToHeadersPath(
       TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode, String suffix) {
     String hashedPath =
         BaseEncoding.base64Url()
@@ -3295,7 +3325,20 @@ public class ProjectGenerator {
                         Charsets.UTF_8)
                     .asBytes())
             .substring(0, 10);
-    return getPathToHeaderMapsRoot().resolve(hashedPath + suffix);
+    return Paths.get(hashedPath + suffix);
+  }
+
+  private Path getPathToHeadersPath(
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode, String suffix) {
+    return getPathToHeaderMapsRoot(Optional.of(targetNode))
+        .resolve(getFilenameToHeadersPath(targetNode, suffix));
+  }
+
+  private Path getAbsolutePathToHeaderSymlinkTree(
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode,
+      HeaderVisibility headerVisibility) {
+    ProjectFilesystem filesystem = getFilesystemForNode(Optional.of(targetNode));
+    return filesystem.resolve(getPathToHeaderSymlinkTree(targetNode, headerVisibility));
   }
 
   private Path getPathToHeaderSymlinkTree(
@@ -3306,6 +3349,6 @@ public class ProjectGenerator {
   }
 
   private Path getPathToMergedHeaderMap() {
-    return getPathToHeaderMapsRoot().resolve("pub-hmap");
+    return getPathToHeaderMapsRoot(Optional.empty()).resolve("pub-hmap");
   }
 }

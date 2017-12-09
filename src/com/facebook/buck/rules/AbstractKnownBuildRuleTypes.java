@@ -42,11 +42,8 @@ import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.ApplePackageDescription;
 import com.facebook.buck.apple.AppleTestDescription;
-import com.facebook.buck.apple.CodeSignIdentityStoreFactory;
 import com.facebook.buck.apple.PrebuiltAppleFrameworkDescription;
-import com.facebook.buck.apple.ProvisioningProfileStore;
 import com.facebook.buck.apple.SceneKitAssetsDescription;
-import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.CxxBinaryDescription;
 import com.facebook.buck.cxx.CxxGenruleDescription;
@@ -64,7 +61,6 @@ import com.facebook.buck.graphql.GraphqlLibraryDescription;
 import com.facebook.buck.gwt.GwtBinaryDescription;
 import com.facebook.buck.halide.HalideBuckConfig;
 import com.facebook.buck.halide.HalideLibraryDescription;
-import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.js.JsBundleDescription;
 import com.facebook.buck.js.JsBundleGenruleDescription;
 import com.facebook.buck.js.JsLibraryDescription;
@@ -93,13 +89,6 @@ import com.facebook.buck.ocaml.OcamlBinaryDescription;
 import com.facebook.buck.ocaml.OcamlBuckConfig;
 import com.facebook.buck.ocaml.OcamlLibraryDescription;
 import com.facebook.buck.ocaml.PrebuiltOcamlLibraryDescription;
-import com.facebook.buck.python.CxxPythonExtensionDescription;
-import com.facebook.buck.python.PrebuiltPythonLibraryDescription;
-import com.facebook.buck.python.PythonBinaryDescription;
-import com.facebook.buck.python.PythonBuckConfig;
-import com.facebook.buck.python.PythonLibraryDescription;
-import com.facebook.buck.python.PythonTestDescription;
-import com.facebook.buck.rules.keys.RuleKeyConfiguration;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.sandbox.SandboxExecutionStrategyFactory;
 import com.facebook.buck.shell.CommandAliasDescription;
@@ -188,7 +177,6 @@ abstract class AbstractKnownBuildRuleTypes {
       ProcessExecutor processExecutor,
       ToolchainProvider toolchainProvider,
       PluginManager pluginManager,
-      RuleKeyConfiguration ruleKeyConfiguration,
       SandboxExecutionStrategyFactory sandboxExecutionStrategyFactory)
       throws InterruptedException, IOException {
 
@@ -210,18 +198,6 @@ abstract class AbstractKnownBuildRuleTypes {
     ProGuardConfig proGuardConfig = new ProGuardConfig(config);
 
     DxConfig dxConfig = new DxConfig(config);
-
-    ExecutableFinder executableFinder = new ExecutableFinder();
-
-    PythonBuckConfig pyConfig = new PythonBuckConfig(config, executableFinder);
-    PythonBinaryDescription pythonBinaryDescription =
-        new PythonBinaryDescription(
-            toolchainProvider,
-            ruleKeyConfiguration,
-            pyConfig,
-            cxxBuckConfig,
-            defaultCxxPlatform,
-            cxxPlatforms);
 
     KnownBuildRuleTypes.Builder builder = KnownBuildRuleTypes.builder();
 
@@ -247,8 +223,7 @@ abstract class AbstractKnownBuildRuleTypes {
             cxxBuckConfig, inferBuckConfig, defaultCxxPlatform.getFlavor(), cxxPlatforms);
 
     CxxLibraryDescription cxxLibraryDescription =
-        new CxxLibraryDescription(
-            cxxBuckConfig, defaultCxxPlatform.getFlavor(), inferBuckConfig, cxxPlatforms);
+        new CxxLibraryDescription(toolchainProvider, cxxBuckConfig, inferBuckConfig);
 
     SwiftLibraryDescription swiftLibraryDescription =
         new SwiftLibraryDescription(
@@ -256,23 +231,12 @@ abstract class AbstractKnownBuildRuleTypes {
     builder.addDescriptions(swiftLibraryDescription);
 
     AppleConfig appleConfig = config.getView(AppleConfig.class);
-    CodeSignIdentityStore codeSignIdentityStore =
-        CodeSignIdentityStoreFactory.fromSystem(
-            processExecutor, appleConfig.getCodeSignIdentitiesCommand());
-    ProvisioningProfileStore provisioningProfileStore =
-        ProvisioningProfileStore.fromSearchPath(
-            processExecutor,
-            appleConfig.getProvisioningProfileReadCommand(),
-            appleConfig.getProvisioningProfileSearchPath());
 
     AppleLibraryDescription appleLibraryDescription =
         new AppleLibraryDescription(
             toolchainProvider,
             cxxLibraryDescription,
             swiftLibraryDescription,
-            defaultCxxPlatform.getFlavor(),
-            codeSignIdentityStore,
-            provisioningProfileStore,
             appleConfig,
             swiftBuckConfig);
     builder.addDescriptions(appleLibraryDescription);
@@ -282,12 +246,7 @@ abstract class AbstractKnownBuildRuleTypes {
 
     AppleBinaryDescription appleBinaryDescription =
         new AppleBinaryDescription(
-            toolchainProvider,
-            cxxBinaryDescription,
-            swiftLibraryDescription,
-            codeSignIdentityStore,
-            provisioningProfileStore,
-            appleConfig);
+            toolchainProvider, cxxBinaryDescription, swiftLibraryDescription, appleConfig);
     builder.addDescriptions(appleBinaryDescription);
 
     if (javaConfig.getDxThreadCount().isPresent()) {
@@ -355,40 +314,19 @@ abstract class AbstractKnownBuildRuleTypes {
             toolchainProvider, config.isGrayscaleImageProcessingEnabled()));
     builder.addDescriptions(new ApkGenruleDescription(toolchainProvider, sandboxExecutionStrategy));
     builder.addDescriptions(
-        new ApplePackageDescription(
-            toolchainProvider,
-            sandboxExecutionStrategy,
-            appleConfig,
-            defaultCxxPlatform.getFlavor()));
+        new ApplePackageDescription(toolchainProvider, sandboxExecutionStrategy, appleConfig));
     AppleBundleDescription appleBundleDescription =
         new AppleBundleDescription(
-            toolchainProvider,
-            appleBinaryDescription,
-            appleLibraryDescription,
-            cxxPlatforms,
-            defaultCxxPlatform.getFlavor(),
-            codeSignIdentityStore,
-            provisioningProfileStore,
-            appleConfig);
+            toolchainProvider, appleBinaryDescription, appleLibraryDescription, appleConfig);
     builder.addDescriptions(appleBundleDescription);
     builder.addDescriptions(
-        new AppleTestDescription(
-            toolchainProvider,
-            appleConfig,
-            appleLibraryDescription,
-            cxxPlatforms,
-            defaultCxxPlatform.getFlavor(),
-            codeSignIdentityStore,
-            provisioningProfileStore,
-            appleConfig.getAppleDeveloperDirectorySupplierForTests(processExecutor)));
+        new AppleTestDescription(toolchainProvider, appleConfig, appleLibraryDescription));
     builder.addDescriptions(new CommandAliasDescription(Platform.detect()));
     builder.addDescriptions(cxxBinaryDescription);
     builder.addDescriptions(cxxLibraryDescription);
     builder.addDescriptions(
         new CxxGenruleDescription(
             cxxBuckConfig, toolchainProvider, sandboxExecutionStrategy, cxxPlatforms));
-    builder.addDescriptions(
-        new CxxPythonExtensionDescription(toolchainProvider, cxxBuckConfig, cxxPlatforms));
     builder.addDescriptions(
         new CxxTestDescription(cxxBuckConfig, defaultCxxPlatform.getFlavor(), cxxPlatforms));
     builder.addDescriptions(new ExportFileDescription());
@@ -441,19 +379,6 @@ abstract class AbstractKnownBuildRuleTypes {
     builder.addDescriptions(new CxxPrecompiledHeaderDescription());
     builder.addDescriptions(new PrebuiltNativeLibraryDescription());
     builder.addDescriptions(new PrebuiltOcamlLibraryDescription());
-    builder.addDescriptions(new PrebuiltPythonLibraryDescription());
-    builder.addDescriptions(pythonBinaryDescription);
-    PythonLibraryDescription pythonLibraryDescription =
-        new PythonLibraryDescription(toolchainProvider, cxxPlatforms);
-    builder.addDescriptions(pythonLibraryDescription);
-    builder.addDescriptions(
-        new PythonTestDescription(
-            toolchainProvider,
-            pythonBinaryDescription,
-            pyConfig,
-            cxxBuckConfig,
-            defaultCxxPlatform,
-            cxxPlatforms));
     builder.addDescriptions(new RemoteFileDescription(toolchainProvider));
     builder.addDescriptions(
         new RobolectricTestDescription(
