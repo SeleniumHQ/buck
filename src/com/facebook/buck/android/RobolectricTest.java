@@ -276,7 +276,7 @@ public class RobolectricTest extends JavaTest {
 
     return sourcePathStream
         .filter(Objects::nonNull)
-        .map(pathResolver::getRelativePath)
+        .map(input -> getProjectFilesystem().relativize(pathResolver.getAbsolutePath(input)))
         .filter(
             input -> {
               try {

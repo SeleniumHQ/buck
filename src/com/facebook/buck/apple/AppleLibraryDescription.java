@@ -30,6 +30,10 @@ import com.facebook.buck.cxx.CxxHeadersDir;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
 import com.facebook.buck.cxx.CxxLibraryDescriptionDelegate;
+import com.facebook.buck.cxx.CxxLibraryFactory;
+import com.facebook.buck.cxx.CxxLibraryFlavored;
+import com.facebook.buck.cxx.CxxLibraryImplicitFlavors;
+import com.facebook.buck.cxx.CxxLibraryMetadataFactory;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.CxxStrip;
@@ -38,6 +42,7 @@ import com.facebook.buck.cxx.FrameworkDependencies;
 import com.facebook.buck.cxx.HasAppleDebugSymbolDeps;
 import com.facebook.buck.cxx.HeaderSymlinkTreeWithHeaderMap;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
@@ -177,19 +182,28 @@ public class AppleLibraryDescription
       FlavorDomain.from("C/C++ Library Type", Type.class);
 
   private final ToolchainProvider toolchainProvider;
-  private final CxxLibraryDescription delegate;
   private final Optional<SwiftLibraryDescription> swiftDelegate;
   private final AppleConfig appleConfig;
   private final SwiftBuckConfig swiftBuckConfig;
+  private final CxxLibraryImplicitFlavors cxxLibraryImplicitFlavors;
+  private final CxxLibraryFlavored cxxLibraryFlavored;
+  private final CxxLibraryFactory cxxLibraryFactory;
+  private final CxxLibraryMetadataFactory cxxLibraryMetadataFactory;
 
   public AppleLibraryDescription(
       ToolchainProvider toolchainProvider,
-      CxxLibraryDescription delegate,
       SwiftLibraryDescription swiftDelegate,
       AppleConfig appleConfig,
-      SwiftBuckConfig swiftBuckConfig) {
+      SwiftBuckConfig swiftBuckConfig,
+      CxxLibraryImplicitFlavors cxxLibraryImplicitFlavors,
+      CxxLibraryFlavored cxxLibraryFlavored,
+      CxxLibraryFactory cxxLibraryFactory,
+      CxxLibraryMetadataFactory cxxLibraryMetadataFactory) {
     this.toolchainProvider = toolchainProvider;
-    this.delegate = delegate;
+    this.cxxLibraryImplicitFlavors = cxxLibraryImplicitFlavors;
+    this.cxxLibraryFlavored = cxxLibraryFlavored;
+    this.cxxLibraryFactory = cxxLibraryFactory;
+    this.cxxLibraryMetadataFactory = cxxLibraryMetadataFactory;
     this.swiftDelegate =
         appleConfig.shouldUseSwiftDelegate() ? Optional.of(swiftDelegate) : Optional.empty();
     this.appleConfig = appleConfig;
@@ -208,7 +222,7 @@ public class AppleLibraryDescription
     ImmutableSet<FlavorDomain<?>> localDomains = ImmutableSet.of(AppleDebugFormat.FLAVOR_DOMAIN);
 
     builder.addAll(localDomains);
-    delegate.flavorDomains().ifPresent(domains -> builder.addAll(domains));
+    cxxLibraryFlavored.flavorDomains().ifPresent(domains -> builder.addAll(domains));
     swiftDelegate.flatMap(s -> s.flavorDomains()).ifPresent(domains -> builder.addAll(domains));
 
     ImmutableSet<FlavorDomain<?>> result = builder.build();
@@ -226,7 +240,7 @@ public class AppleLibraryDescription
   @Override
   public boolean hasFlavors(ImmutableSet<Flavor> flavors) {
     return FluentIterable.from(flavors).allMatch(SUPPORTED_FLAVORS::contains)
-        || delegate.hasFlavors(flavors)
+        || cxxLibraryFlavored.hasFlavors(flavors)
         || swiftDelegate.map(swift -> swift.hasFlavors(flavors)).orElse(false);
   }
 
@@ -393,6 +407,7 @@ public class AppleLibraryDescription
         debugFormat,
         appleConfig.useDryRunCodeSigning(),
         appleConfig.cacheBundlesAndPackages(),
+        appleConfig.shouldVerifyBundleResources(),
         appleConfig.assetCatalogValidation(),
         ImmutableList.of(),
         Optional.empty(),
@@ -604,7 +619,7 @@ public class AppleLibraryDescription
         unstrippedTarget1 -> {
           Optional<CxxLibraryDescriptionDelegate> cxxDelegate =
               swiftDelegate.isPresent() ? Optional.empty() : Optional.of(this);
-          return delegate.createBuildRule(
+          return cxxLibraryFactory.createBuildRule(
               unstrippedTarget1,
               projectFilesystem,
               newParams,
@@ -636,7 +651,6 @@ public class AppleLibraryDescription
       BuildTarget buildTarget,
       BuildRuleResolver resolver,
       CellPathResolver cellRoots,
-      Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       AppleNativeTargetDescriptionArg args,
       Class<U> metadataClass) {
 
@@ -648,8 +662,8 @@ public class AppleLibraryDescription
       CxxLibraryDescriptionArg.Builder delegateArg = CxxLibraryDescriptionArg.builder().from(args);
       AppleDescriptions.populateCxxLibraryDescriptionArg(
           pathResolver, delegateArg, args, buildTarget);
-      return delegate.createMetadata(
-          buildTarget, resolver, cellRoots, delegateArg.build(), selectedVersions, metadataClass);
+      return cxxLibraryMetadataFactory.createMetadata(
+          buildTarget, resolver, cellRoots, delegateArg.build(), metadataClass);
     }
 
     if (metadataClass.isAssignableFrom(FrameworkDependencies.class)
@@ -779,15 +793,14 @@ public class AppleLibraryDescription
       AppleLibraryDescriptionArg args,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       Class<U> metadataClass) {
-    return createMetadataForLibrary(
-        buildTarget, resolver, cellRoots, selectedVersions, args, metadataClass);
+    return createMetadataForLibrary(buildTarget, resolver, cellRoots, args, metadataClass);
   }
 
   @Override
   public ImmutableSortedSet<Flavor> addImplicitFlavors(
       ImmutableSortedSet<Flavor> argDefaultFlavors) {
     // Use defaults.apple_library if present, but fall back to defaults.cxx_library otherwise.
-    return delegate.addImplicitFlavorsForRuleTypes(
+    return cxxLibraryImplicitFlavors.addImplicitFlavorsForRuleTypes(
         argDefaultFlavors,
         Description.getBuildRuleType(this),
         Description.getBuildRuleType(CxxLibraryDescription.class));
@@ -800,22 +813,8 @@ public class AppleLibraryDescription
       final AbstractAppleLibraryDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    findDepsForTargetFromConstructorArgs(
-        buildTarget,
-        cellRoots,
-        (AppleNativeTargetDescriptionArg) constructorArg,
-        extraDepsBuilder,
-        targetGraphOnlyDepsBuilder);
-  }
-
-  public void findDepsForTargetFromConstructorArgs(
-      final BuildTarget buildTarget,
-      final CellPathResolver cellRoots,
-      final AppleNativeTargetDescriptionArg constructorArg,
-      ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
-      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    delegate.findDepsForTargetFromConstructorArgs(
-        buildTarget, cellRoots, constructorArg, extraDepsBuilder, targetGraphOnlyDepsBuilder);
+    extraDepsBuilder.addAll(
+        CxxPlatforms.getParseTimeDeps(getCxxPlatformsProvider().getCxxPlatforms().getValues()));
   }
 
   public static boolean isNotStaticallyLinkedLibraryNode(

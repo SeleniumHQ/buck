@@ -199,7 +199,7 @@ public class BuildStamp extends AbstractBuildRule {
       }
       Files.write(out, value.getBytes(UTF_8));
 
-      return StepExecutionResult.SUCCESS;
+      return StepExecutionResult.of(0);
     }
 
     @Override

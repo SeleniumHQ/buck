@@ -29,7 +29,7 @@ import com.facebook.buck.io.filesystem.skylark.SkylarkFilesystem;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
-import com.facebook.buck.plugin.BuckPluginManagerFactory;
+import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
@@ -475,7 +475,6 @@ public class SkylarkProjectBuildFileParserTest {
             "load('//src/test:build_rules.bzl', 'get_name')",
             "prebuilt_jar(name='foo', binary_jar=get_name())"));
     Files.write(extensionFile, Arrays.asList("def get_name():\n  return 'jar'\nj j"));
-    thrown.expect(BuildFileParseException.class);
     thrown.expectMessage("Cannot parse extension file //src/test:build_rules.bzl");
     parser.getAll(buildFile, new AtomicLong());
   }
@@ -536,7 +535,6 @@ public class SkylarkProjectBuildFileParserTest {
             "load('@invalid_repo//ext:build_rules.bzl', 'get_name')",
             "prebuilt_jar(name='foo', binary_jar=get_name())"));
     Files.write(extensionFile, Arrays.asList("def get_name():\n  return 'jar'"));
-    thrown.expect(BuildFileParseException.class);
     thrown.expectMessage(
         "@invalid_repo//ext:build_rules.bzl references an unknown repository invalid_repo");
     getSingleRule(buildFile);

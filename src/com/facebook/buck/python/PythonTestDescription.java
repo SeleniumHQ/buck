@@ -42,9 +42,9 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.args.MacroArg;
 import com.facebook.buck.rules.coercer.NeededCoverageSpec;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
+import com.facebook.buck.rules.macros.MacroArg;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
@@ -267,6 +267,7 @@ public class PythonTestDescription
             .collect(ImmutableList.toImmutableList());
     PythonPackageComponents allComponents =
         PythonUtil.getAllComponents(
+            cellRoots,
             buildTarget,
             projectFilesystem,
             params,

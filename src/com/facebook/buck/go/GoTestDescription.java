@@ -28,6 +28,7 @@ import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
@@ -48,6 +49,7 @@ import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.Version;
+import com.facebook.buck.versions.VersionRoot;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -63,7 +65,8 @@ public class GoTestDescription
     implements Description<GoTestDescriptionArg>,
         Flavored,
         MetadataProvidingDescription<GoTestDescriptionArg>,
-        ImplicitDepsInferringDescription<GoTestDescription.AbstractGoTestDescriptionArg> {
+        ImplicitDepsInferringDescription<GoTestDescription.AbstractGoTestDescriptionArg>,
+        VersionRoot<GoTestDescriptionArg> {
 
   private static final Flavor TEST_LIBRARY_FLAVOR = InternalFlavor.of("test-library");
 
@@ -165,7 +168,7 @@ public class GoTestDescription
             params
                 .withDeclaredDeps(
                     ImmutableSortedSet.<BuildRule>naturalOrder()
-                        .addAll(testMainGenerator.getDeps(ruleFinder))
+                        .addAll(BuildableSupport.getDepsCollection(testMainGenerator, ruleFinder))
                         .addAll(extraDeps)
                         .build())
                 .withoutExtraDeps(),
@@ -456,7 +459,7 @@ public class GoTestDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // Add the C/C++ linker parse time deps.
     CxxPlatform cxxPlatform = getCxxPlatform(!constructorArg.getCgoDeps().isEmpty());
-    extraDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatform));
+    targetGraphOnlyDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(cxxPlatform));
   }
 
   private CxxPlatform getCxxPlatform(Boolean withCgo) {

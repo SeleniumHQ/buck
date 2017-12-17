@@ -16,35 +16,19 @@
 
 package com.facebook.buck.toolchain.impl;
 
-import com.facebook.buck.android.AndroidLegacyToolchain;
-import com.facebook.buck.android.DefaultAndroidLegacyToolchainFactory;
-import com.facebook.buck.android.toolchain.AndroidSdkLocation;
-import com.facebook.buck.android.toolchain.NdkCxxPlatformsProvider;
-import com.facebook.buck.android.toolchain.impl.AndroidSdkLocationFactory;
-import com.facebook.buck.android.toolchain.impl.NdkCxxPlatformsProviderFactory;
-import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
-import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkFactory;
-import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
-import com.facebook.buck.apple.toolchain.AppleDeveloperDirectoryForTestsProvider;
-import com.facebook.buck.apple.toolchain.AppleDeveloperDirectoryProvider;
-import com.facebook.buck.apple.toolchain.AppleSdkLocation;
-import com.facebook.buck.apple.toolchain.AppleToolchainProvider;
-import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
-import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
-import com.facebook.buck.apple.toolchain.impl.AppleCxxPlatformsProviderFactory;
-import com.facebook.buck.apple.toolchain.impl.AppleDeveloperDirectoryForTestsProviderFactory;
-import com.facebook.buck.apple.toolchain.impl.AppleDeveloperDirectoryProviderFactory;
-import com.facebook.buck.apple.toolchain.impl.AppleSdkLocationFactory;
-import com.facebook.buck.apple.toolchain.impl.AppleToolchainProviderFactory;
-import com.facebook.buck.apple.toolchain.impl.CodeSignIdentityStoreFactory;
-import com.facebook.buck.apple.toolchain.impl.ProvisioningProfileStoreFactory;
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
-import com.facebook.buck.cxx.toolchain.CxxPlatformsProviderFactory;
 import com.facebook.buck.file.downloader.Downloader;
 import com.facebook.buck.file.downloader.impl.DownloaderFactory;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.java.toolchain.JavaCxxPlatformProvider;
+import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
+import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
+import com.facebook.buck.jvm.java.toolchain.impl.JavaCxxPlatformProviderFactory;
+import com.facebook.buck.jvm.java.toolchain.impl.JavaOptionsProviderFactory;
+import com.facebook.buck.jvm.java.toolchain.impl.JavacOptionsProviderFactory;
+import com.facebook.buck.ocaml.OcamlToolchain;
+import com.facebook.buck.ocaml.OcamlToolchainFactory;
 import com.facebook.buck.python.toolchain.PexToolProvider;
 import com.facebook.buck.python.toolchain.PythonInterpreter;
 import com.facebook.buck.python.toolchain.PythonPlatformsProvider;
@@ -52,8 +36,6 @@ import com.facebook.buck.python.toolchain.impl.PexToolProviderFactory;
 import com.facebook.buck.python.toolchain.impl.PythonInterpreterFactory;
 import com.facebook.buck.python.toolchain.impl.PythonPlatformsProviderFactory;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
-import com.facebook.buck.swift.toolchain.SwiftPlatformsProvider;
-import com.facebook.buck.swift.toolchain.impl.SwiftPlatformsProviderFactory;
 import com.facebook.buck.toolchain.BaseToolchainProvider;
 import com.facebook.buck.toolchain.Toolchain;
 import com.facebook.buck.toolchain.ToolchainCreationContext;
@@ -81,55 +63,21 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
   ImmutableList<ToolchainDescriptor<?>> DEFAULT_TOOLCHAIN_DESCRIPTORS =
       ImmutableList.of(
           ToolchainDescriptor.of(
-              AndroidLegacyToolchain.DEFAULT_NAME,
-              AndroidLegacyToolchain.class,
-              DefaultAndroidLegacyToolchainFactory.class),
-          ToolchainDescriptor.of(
-              AndroidSdkLocation.DEFAULT_NAME,
-              AndroidSdkLocation.class,
-              AndroidSdkLocationFactory.class),
-          ToolchainDescriptor.of(
-              AndroidNdk.DEFAULT_NAME, AndroidNdk.class, AndroidNdkFactory.class),
-          ToolchainDescriptor.of(
-              NdkCxxPlatformsProvider.DEFAULT_NAME,
-              NdkCxxPlatformsProvider.class,
-              NdkCxxPlatformsProviderFactory.class),
-          ToolchainDescriptor.of(
-              AppleDeveloperDirectoryProvider.DEFAULT_NAME,
-              AppleDeveloperDirectoryProvider.class,
-              AppleDeveloperDirectoryProviderFactory.class),
-          ToolchainDescriptor.of(
-              AppleDeveloperDirectoryForTestsProvider.DEFAULT_NAME,
-              AppleDeveloperDirectoryForTestsProvider.class,
-              AppleDeveloperDirectoryForTestsProviderFactory.class),
-          ToolchainDescriptor.of(
-              AppleToolchainProvider.DEFAULT_NAME,
-              AppleToolchainProvider.class,
-              AppleToolchainProviderFactory.class),
-          ToolchainDescriptor.of(
-              AppleSdkLocation.DEFAULT_NAME, AppleSdkLocation.class, AppleSdkLocationFactory.class),
-          ToolchainDescriptor.of(
-              AppleCxxPlatformsProvider.DEFAULT_NAME,
-              AppleCxxPlatformsProvider.class,
-              AppleCxxPlatformsProviderFactory.class),
-          ToolchainDescriptor.of(
-              CodeSignIdentityStore.DEFAULT_NAME,
-              CodeSignIdentityStore.class,
-              CodeSignIdentityStoreFactory.class),
-          ToolchainDescriptor.of(
-              ProvisioningProfileStore.DEFAULT_NAME,
-              ProvisioningProfileStore.class,
-              ProvisioningProfileStoreFactory.class),
-          ToolchainDescriptor.of(
-              SwiftPlatformsProvider.DEFAULT_NAME,
-              SwiftPlatformsProvider.class,
-              SwiftPlatformsProviderFactory.class),
-          ToolchainDescriptor.of(
-              CxxPlatformsProvider.DEFAULT_NAME,
-              CxxPlatformsProvider.class,
-              CxxPlatformsProviderFactory.class),
-          ToolchainDescriptor.of(
               Downloader.DEFAULT_NAME, Downloader.class, DownloaderFactory.class),
+          ToolchainDescriptor.of(
+              JavaCxxPlatformProvider.DEFAULT_NAME,
+              JavaCxxPlatformProvider.class,
+              JavaCxxPlatformProviderFactory.class),
+          ToolchainDescriptor.of(
+              JavacOptionsProvider.DEFAULT_NAME,
+              JavacOptionsProvider.class,
+              JavacOptionsProviderFactory.class),
+          ToolchainDescriptor.of(
+              JavaOptionsProvider.DEFAULT_NAME,
+              JavaOptionsProvider.class,
+              JavaOptionsProviderFactory.class),
+          ToolchainDescriptor.of(
+              OcamlToolchain.DEFAULT_NAME, OcamlToolchain.class, OcamlToolchainFactory.class),
           ToolchainDescriptor.of(
               PexToolProvider.DEFAULT_NAME, PexToolProvider.class, PexToolProviderFactory.class),
           ToolchainDescriptor.of(

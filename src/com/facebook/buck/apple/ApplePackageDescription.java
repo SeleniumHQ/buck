@@ -29,6 +29,7 @@ import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildableSupport;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
@@ -36,7 +37,8 @@ import com.facebook.buck.rules.Hint;
 import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.args.MacroArg;
+import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.macros.MacroArg;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.toolchain.ToolchainProvider;
@@ -112,10 +114,8 @@ public class ApplePackageDescription
                   ImmutableSortedSet.<BuildRule>naturalOrder()
                       .add(bundle)
                       .addAll(
-                          applePackageConfigAndPlatformInfo
-                              .get()
-                              .getExpandedArg()
-                              .getDeps(ruleFinder))
+                          BuildableSupport.getDepsCollection(
+                              applePackageConfigAndPlatformInfo.get().getExpandedArg(), ruleFinder))
                       .build()),
           applePackageConfigAndPlatformInfo.get(),
           Preconditions.checkNotNull(bundle.getSourcePathToOutput()),
@@ -173,7 +173,7 @@ public class ApplePackageDescription
    * @throws HumanReadableException if there are multiple possible package configs.
    */
   private Optional<ApplePackageConfigAndPlatformInfo> getApplePackageConfig(
-      BuildTarget target, Function<String, com.facebook.buck.rules.args.Arg> macroExpander) {
+      BuildTarget target, Function<String, Arg> macroExpander) {
     FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain = getAppleCxxPlatformFlavorDomain();
     Set<Flavor> platformFlavors = getPlatformFlavorsOrDefault(target, appleCxxPlatformFlavorDomain);
 

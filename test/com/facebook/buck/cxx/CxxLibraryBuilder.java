@@ -34,6 +34,7 @@ import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
@@ -47,18 +48,34 @@ public class CxxLibraryBuilder
         CxxLibraryDescriptionArg.Builder, CxxLibraryDescriptionArg, CxxLibraryDescription,
         BuildRule> {
 
+  private static CxxLibraryDescription createCxxLibraryDescription(
+      CxxBuckConfig cxxBuckConfig, FlavorDomain<CxxPlatform> cxxPlatforms) {
+    ToolchainProvider toolchainProvider =
+        new ToolchainProviderBuilder()
+            .withToolchain(
+                CxxPlatformsProvider.DEFAULT_NAME,
+                CxxPlatformsProvider.of(CxxPlatformUtils.build(cxxBuckConfig), cxxPlatforms))
+            .build();
+    CxxLibraryImplicitFlavors cxxLibraryImplicitFlavors =
+        new CxxLibraryImplicitFlavors(toolchainProvider, cxxBuckConfig);
+    CxxLibraryFactory cxxLibraryFactory =
+        new CxxLibraryFactory(
+            toolchainProvider,
+            cxxBuckConfig,
+            new InferBuckConfig(FakeBuckConfig.builder().build()));
+    CxxLibraryMetadataFactory cxxLibraryMetadataFactory =
+        new CxxLibraryMetadataFactory(toolchainProvider);
+    return new CxxLibraryDescription(
+        toolchainProvider,
+        cxxLibraryImplicitFlavors,
+        new CxxLibraryFlavored(toolchainProvider, cxxBuckConfig),
+        cxxLibraryFactory,
+        cxxLibraryMetadataFactory);
+  }
+
   public CxxLibraryBuilder(
       BuildTarget target, CxxBuckConfig cxxBuckConfig, FlavorDomain<CxxPlatform> cxxPlatforms) {
-    super(
-        new CxxLibraryDescription(
-            new ToolchainProviderBuilder()
-                .withToolchain(
-                    CxxPlatformsProvider.DEFAULT_NAME,
-                    CxxPlatformsProvider.of(CxxPlatformUtils.build(cxxBuckConfig), cxxPlatforms))
-                .build(),
-            cxxBuckConfig,
-            new InferBuckConfig(FakeBuckConfig.builder().build())),
-        target);
+    super(createCxxLibraryDescription(cxxBuckConfig, cxxPlatforms), target);
   }
 
   public CxxLibraryBuilder(BuildTarget target, CxxBuckConfig cxxBuckConfig) {

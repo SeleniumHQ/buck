@@ -28,8 +28,14 @@ import com.facebook.buck.apple.toolchain.impl.AppleCxxPlatforms;
 import com.facebook.buck.apple.toolchain.impl.XcodeToolFinder;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.cxx.CxxBinaryDescription;
-import com.facebook.buck.cxx.CxxLibraryDescription;
+import com.facebook.buck.cxx.CxxBinaryFactory;
+import com.facebook.buck.cxx.CxxBinaryFlavored;
+import com.facebook.buck.cxx.CxxBinaryImplicitFlavors;
+import com.facebook.buck.cxx.CxxBinaryMetadataFactory;
+import com.facebook.buck.cxx.CxxLibraryFactory;
+import com.facebook.buck.cxx.CxxLibraryFlavored;
+import com.facebook.buck.cxx.CxxLibraryImplicitFlavors;
+import com.facebook.buck.cxx.CxxLibraryMetadataFactory;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
@@ -222,36 +228,69 @@ public class FakeAppleRuleDescriptions {
       new SwiftLibraryDescription(
           createTestToolchainProviderForSwiftPlatform(DEFAULT_SWIFT_PLATFORM_FLAVOR_DOMAIN),
           CxxPlatformUtils.DEFAULT_CONFIG,
-          new SwiftBuckConfig(DEFAULT_BUCK_CONFIG),
-          DEFAULT_APPLE_FLAVOR_DOMAIN);
-  /** A fake apple_library description with an iOS platform for use in tests. */
-  public static final AppleLibraryDescription LIBRARY_DESCRIPTION =
-      new AppleLibraryDescription(
-          createTestToolchainProvider(
-              DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN, DEFAULT_SWIFT_PLATFORM_FLAVOR_DOMAIN),
-          new CxxLibraryDescription(
-              new ToolchainProviderBuilder()
-                  .withToolchain(
-                      CxxPlatformsProvider.DEFAULT_NAME,
-                      CxxPlatformsProvider.of(DEFAULT_PLATFORM, DEFAULT_APPLE_FLAVOR_DOMAIN))
-                  .build(),
-              CxxPlatformUtils.DEFAULT_CONFIG,
-              new InferBuckConfig(DEFAULT_BUCK_CONFIG)),
-          SWIFT_LIBRARY_DESCRIPTION,
-          DEFAULT_BUCK_CONFIG.getView(AppleConfig.class),
           new SwiftBuckConfig(DEFAULT_BUCK_CONFIG));
+  /** A fake apple_library description with an iOS platform for use in tests. */
+  public static final AppleLibraryDescription LIBRARY_DESCRIPTION = createAppleLibraryDescription();
+
+  private static AppleLibraryDescription createAppleLibraryDescription() {
+    ToolchainProvider toolchainProvider =
+        createTestToolchainProvider(
+            DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN, DEFAULT_SWIFT_PLATFORM_FLAVOR_DOMAIN);
+    CxxLibraryImplicitFlavors cxxLibraryImplicitFlavors =
+        new CxxLibraryImplicitFlavors(toolchainProvider, CxxPlatformUtils.DEFAULT_CONFIG);
+    CxxLibraryFlavored cxxLibraryFlavored =
+        new CxxLibraryFlavored(toolchainProvider, CxxPlatformUtils.DEFAULT_CONFIG);
+    CxxLibraryFactory cxxLibraryFactory =
+        new CxxLibraryFactory(
+            toolchainProvider,
+            CxxPlatformUtils.DEFAULT_CONFIG,
+            new InferBuckConfig(DEFAULT_BUCK_CONFIG));
+    CxxLibraryMetadataFactory cxxLibraryMetadataFactory =
+        new CxxLibraryMetadataFactory(toolchainProvider);
+
+    return new AppleLibraryDescription(
+        toolchainProvider,
+        SWIFT_LIBRARY_DESCRIPTION,
+        DEFAULT_BUCK_CONFIG.getView(AppleConfig.class),
+        new SwiftBuckConfig(DEFAULT_BUCK_CONFIG),
+        cxxLibraryImplicitFlavors,
+        cxxLibraryFlavored,
+        cxxLibraryFactory,
+        cxxLibraryMetadataFactory);
+  }
 
   /** A fake apple_binary description with an iOS platform for use in tests. */
-  public static final AppleBinaryDescription BINARY_DESCRIPTION =
-      new AppleBinaryDescription(
-          createTestToolchainProviderForApplePlatform(DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN),
-          new CxxBinaryDescription(
-              CxxPlatformUtils.DEFAULT_CONFIG,
-              new InferBuckConfig(DEFAULT_BUCK_CONFIG),
-              DEFAULT_IPHONEOS_I386_PLATFORM.getFlavor(),
-              DEFAULT_APPLE_FLAVOR_DOMAIN),
-          SWIFT_LIBRARY_DESCRIPTION,
-          DEFAULT_BUCK_CONFIG.getView(AppleConfig.class));
+  public static final AppleBinaryDescription BINARY_DESCRIPTION = createAppleBinaryDescription();
+
+  private static AppleBinaryDescription createAppleBinaryDescription() {
+    ToolchainProvider toolchainProvider =
+        new ToolchainProviderBuilder()
+            .withToolchain(
+                CxxPlatformsProvider.DEFAULT_NAME,
+                CxxPlatformsProvider.of(
+                    DEFAULT_IPHONEOS_I386_PLATFORM.getCxxPlatform(), DEFAULT_APPLE_FLAVOR_DOMAIN))
+            .build();
+    CxxBinaryImplicitFlavors cxxBinaryImplicitFlavors =
+        new CxxBinaryImplicitFlavors(toolchainProvider, CxxPlatformUtils.DEFAULT_CONFIG);
+    CxxBinaryFactory cxxBinaryFactory =
+        new CxxBinaryFactory(
+            toolchainProvider,
+            CxxPlatformUtils.DEFAULT_CONFIG,
+            new InferBuckConfig(DEFAULT_BUCK_CONFIG));
+    CxxBinaryMetadataFactory cxxBinaryMetadataFactory =
+        new CxxBinaryMetadataFactory(toolchainProvider);
+    CxxBinaryFlavored cxxBinaryFlavored =
+        new CxxBinaryFlavored(toolchainProvider, CxxPlatformUtils.DEFAULT_CONFIG);
+
+    return new AppleBinaryDescription(
+        createTestToolchainProviderForApplePlatform(DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN),
+        SWIFT_LIBRARY_DESCRIPTION,
+        DEFAULT_BUCK_CONFIG.getView(AppleConfig.class),
+        cxxBinaryImplicitFlavors,
+        cxxBinaryFactory,
+        cxxBinaryMetadataFactory,
+        cxxBinaryFlavored);
+  }
 
   /** A fake apple_bundle description with an iOS platform for use in tests. */
   public static final AppleBundleDescription BUNDLE_DESCRIPTION =
@@ -273,6 +312,9 @@ public class FakeAppleRuleDescriptions {
     return new ToolchainProviderBuilder()
         .withToolchain(
             SwiftPlatformsProvider.DEFAULT_NAME, SwiftPlatformsProvider.of(swiftFlavorDomain))
+        .withToolchain(
+            CxxPlatformsProvider.DEFAULT_NAME,
+            CxxPlatformsProvider.of(DEFAULT_PLATFORM, DEFAULT_APPLE_FLAVOR_DOMAIN))
         .build();
   }
 

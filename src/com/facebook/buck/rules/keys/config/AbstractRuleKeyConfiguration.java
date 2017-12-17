@@ -16,6 +16,7 @@
 
 package com.facebook.buck.rules.keys.config;
 
+import com.facebook.buck.module.BuckModuleHashStrategy;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import org.immutables.value.Value;
 
@@ -33,4 +34,7 @@ abstract class AbstractRuleKeyConfiguration {
 
   @Value.Parameter
   public abstract long getBuildInputRuleKeyFileSizeLimit();
+
+  @Value.Parameter
+  public abstract BuckModuleHashStrategy getBuckModuleHashStrategy();
 }
