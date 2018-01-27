@@ -22,10 +22,11 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.android.AndroidLegacyToolchain;
-import com.facebook.buck.android.AndroidPlatformTarget;
-import com.facebook.buck.android.TestAndroidLegacyToolchainFactory;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.android.toolchain.AndroidSdkLocation;
+import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBinaryRuleBuilder;
@@ -76,10 +77,9 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
-import org.easymock.EasyMock;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Test;
@@ -177,14 +177,12 @@ public class GenruleTest {
             .resolve("src/com/facebook/katana/katana_manifest/AndroidManifest.xml"),
         pathResolver.getRelativePath(genrule.getSourcePathToOutput()));
     assertEquals(
-        filesystem
-            .resolve(
-                filesystem
-                    .getBuckPaths()
-                    .getGenDir()
-                    .resolve("src/com/facebook/katana/katana_manifest/AndroidManifest.xml"))
-            .toString(),
-        genrule.getAbsoluteOutputFilePath(pathResolver));
+        filesystem.resolve(
+            filesystem
+                .getBuckPaths()
+                .getGenDir()
+                .resolve("src/com/facebook/katana/katana_manifest/AndroidManifest.xml")),
+        genrule.getAbsoluteOutputFilePath());
     BuildContext buildContext =
         FakeBuildContext.withSourcePathResolver(pathResolver)
             .withBuildCellRootPath(filesystem.getRootPath());
@@ -601,21 +599,31 @@ public class GenruleTest {
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
-    AndroidPlatformTarget android = EasyMock.createNiceMock(AndroidPlatformTarget.class);
+    AndroidPlatformTarget android =
+        AndroidPlatformTarget.of(
+            "android",
+            Paths.get(""),
+            Collections.emptyList(),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get("zipalign"),
+            Paths.get("."),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""),
+            Paths.get(""));
     Path sdkDir = Paths.get("/opt/users/android_sdk");
     Path ndkDir = Paths.get("/opt/users/android_ndk");
-    EasyMock.expect(android.getSdkDirectory()).andStubReturn(Optional.of(sdkDir));
-    EasyMock.expect(android.getNdkDirectory()).andStubReturn(Optional.of(ndkDir));
-    EasyMock.expect(android.getDxExecutable()).andStubReturn(Paths.get("."));
-    EasyMock.expect(android.getZipalignExecutable()).andStubReturn(Paths.get("zipalign"));
-    EasyMock.replay(android);
 
     BuildTarget target = BuildTargetFactory.newInstance("//example:genrule");
     ToolchainProvider toolchainProvider =
         new ToolchainProviderBuilder()
+            .withToolchain(AndroidPlatformTarget.DEFAULT_NAME, android)
             .withToolchain(
-                AndroidLegacyToolchain.DEFAULT_NAME,
-                TestAndroidLegacyToolchainFactory.create(android))
+                AndroidNdk.DEFAULT_NAME, AndroidNdk.of("12", ndkDir, new ExecutableFinder()))
+            .withToolchain(AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.of(sdkDir))
             .build();
     Genrule genrule =
         GenruleBuilder.newGenruleBuilder(target, toolchainProvider)
@@ -631,8 +639,6 @@ public class GenruleTest {
     assertEquals(Paths.get("zipalign").toString(), env.get("ZIPALIGN"));
     assertEquals(sdkDir.toString(), env.get("ANDROID_HOME"));
     assertEquals(ndkDir.toString(), env.get("NDK_HOME"));
-
-    EasyMock.verify(android);
   }
 
   @Test

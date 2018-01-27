@@ -16,8 +16,9 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.android.AndroidLegacyToolchain;
-import com.facebook.buck.android.AndroidPlatformTarget;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.android.toolchain.AndroidSdkLocation;
+import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -145,7 +146,6 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @AddToRuleKey private final boolean isCacheable;
   @AddToRuleKey private final String environmentExpansionSeparator;
 
-  private final AndroidLegacyToolchain androidLegacyToolchain;
   private final BuildRuleResolver buildRuleResolver;
   private final SandboxExecutionStrategy sandboxExecutionStrategy;
   protected final Path pathToOutDirectory;
@@ -153,11 +153,13 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private final Path pathToTmpDirectory;
   private final Path pathToSrcDirectory;
   private final Boolean isWorkerGenrule;
+  private final Optional<AndroidPlatformTarget> androidPlatformTarget;
+  private final Optional<AndroidNdk> androidNdk;
+  private final Optional<AndroidSdkLocation> androidSdkLocation;
 
   protected Genrule(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      AndroidLegacyToolchain androidLegacyToolchain,
       BuildRuleResolver buildRuleResolver,
       BuildRuleParams params,
       SandboxExecutionStrategy sandboxExecutionStrategy,
@@ -169,9 +171,13 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
       String out,
       boolean enableSandboxingInGenrule,
       boolean isCacheable,
-      Optional<String> environmentExpansionSeparator) {
+      Optional<String> environmentExpansionSeparator,
+      Optional<AndroidPlatformTarget> androidPlatformTarget,
+      Optional<AndroidNdk> androidNdk,
+      Optional<AndroidSdkLocation> androidSdkLocation) {
     super(buildTarget, projectFilesystem, params);
-    this.androidLegacyToolchain = androidLegacyToolchain;
+    this.androidPlatformTarget = androidPlatformTarget;
+    this.androidNdk = androidNdk;
     this.buildRuleResolver = buildRuleResolver;
     this.sandboxExecutionStrategy = sandboxExecutionStrategy;
     this.srcs = ImmutableList.copyOf(srcs);
@@ -184,6 +190,7 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.pathToOutFile = this.pathToOutDirectory.resolve(out);
     this.isCacheable = isCacheable;
     this.environmentExpansionSeparator = environmentExpansionSeparator.orElse(" ");
+    this.androidSdkLocation = androidSdkLocation;
     if (!pathToOutFile.startsWith(pathToOutDirectory) || pathToOutFile.equals(pathToOutDirectory)) {
       throw new HumanReadableException(
           "The 'out' parameter of genrule %s is '%s', which is not a valid file name.",
@@ -202,8 +209,8 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   /** @return the absolute path to the output file */
   @VisibleForTesting
-  public String getAbsoluteOutputFilePath(SourcePathResolver pathResolver) {
-    return pathResolver.getAbsolutePath(getSourcePathToOutput()).toString();
+  public Path getAbsoluteOutputFilePath() {
+    return getProjectFilesystem().resolve(pathToOutFile);
   }
 
   @VisibleForTesting
@@ -224,7 +231,7 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
             .map(pathResolver::getAbsolutePath)
             .map(Object::toString)
             .collect(Collectors.joining(this.environmentExpansionSeparator)));
-    environmentVariablesBuilder.put("OUT", getAbsoluteOutputFilePath(pathResolver));
+    environmentVariablesBuilder.put("OUT", getAbsoluteOutputFilePath().toString());
 
     environmentVariablesBuilder.put(
         "GEN_DIR",
@@ -238,26 +245,16 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
     // TODO(mbolin): This entire hack needs to be removed. The [tools] section of .buckconfig
     // should be generalized to specify local paths to tools that can be used in genrules.
-    AndroidPlatformTarget android;
-    try {
-      android = androidLegacyToolchain.getAndroidPlatformTarget();
-    } catch (HumanReadableException e) {
-      android = null;
-    }
 
-    if (android != null) {
-      Optional<Path> sdkDirectory = android.getSdkDirectory();
-      if (sdkDirectory.isPresent()) {
-        environmentVariablesBuilder.put("ANDROID_HOME", sdkDirectory.get().toString());
-      }
-      Optional<Path> ndkDirectory = android.getNdkDirectory();
-      if (ndkDirectory.isPresent()) {
-        environmentVariablesBuilder.put("NDK_HOME", ndkDirectory.get().toString());
-      }
-
-      environmentVariablesBuilder.put("DX", android.getDxExecutable().toString());
-      environmentVariablesBuilder.put("ZIPALIGN", android.getZipalignExecutable().toString());
-    }
+    androidSdkLocation.ifPresent(
+        sdk -> environmentVariablesBuilder.put("ANDROID_HOME", sdk.getSdkRootPath().toString()));
+    androidNdk.ifPresent(
+        ndk -> environmentVariablesBuilder.put("NDK_HOME", ndk.getNdkRootPath().toString()));
+    androidPlatformTarget.ifPresent(
+        target -> {
+          environmentVariablesBuilder.put("DX", target.getDxExecutable().toString());
+          environmentVariablesBuilder.put("ZIPALIGN", target.getZipalignExecutable().toString());
+        });
 
     // TODO(t5302074): This shouldn't be necessary. Speculatively disabling.
     environmentVariablesBuilder.put("NO_BUCKD", "1");
@@ -414,9 +411,19 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  @VisibleForTesting
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
+    buildableContext.recordArtifact(pathToOutFile);
+    return getBuildStepsWithoutRecordingOutput(context);
+  }
+
+  /**
+   * Return build steps, but don't record outputs to a {@link BuildableContext}.
+   *
+   * <p>Only meant to be used by subclasses which further process the genrule's output and will
+   * record their outputs independently.
+   */
+  protected ImmutableList<Step> getBuildStepsWithoutRecordingOutput(BuildContext context) {
 
     ImmutableList.Builder<Step> commands = ImmutableList.builder();
 
@@ -451,12 +458,9 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     }
 
     if (MorePaths.getFileExtension(pathToOutFile).equals("zip")) {
-      commands.add(
-          ZipScrubberStep.of(
-              context.getSourcePathResolver().getAbsolutePath(getSourcePathToOutput())));
+      commands.add(ZipScrubberStep.of(getAbsoluteOutputFilePath()));
     }
 
-    buildableContext.recordArtifact(pathToOutFile);
     return commands.build();
   }
 

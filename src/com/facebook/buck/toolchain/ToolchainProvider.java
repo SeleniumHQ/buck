@@ -21,16 +21,29 @@ import java.util.Optional;
 
 /** An interface that give access to specific toolchains by toolchain name. */
 public interface ToolchainProvider {
+
+  /** @throws ToolchainInstantiationException when a toolchain cannot be created */
   Toolchain getByName(String toolchainName);
 
+  /** @throws ToolchainInstantiationException when a toolchain cannot be created */
   <T extends Toolchain> T getByName(String toolchainName, Class<T> toolchainClass);
 
   <T extends Toolchain> Optional<T> getByNameIfPresent(
       String toolchainName, Class<T> toolchainClass);
 
+  /** @return <code>true</code> if toolchain exists (triggering instantiation if needed) */
   boolean isToolchainPresent(String toolchainName);
 
+  /**
+   * @return <code>true</code> if toolchain has already been created (without triggering
+   *     instantiation)
+   */
   boolean isToolchainCreated(String toolchainName);
+
+  /**
+   * @return <code>true</code> if toolchain failed to instantiate (without triggering instantiation)
+   */
+  boolean isToolchainFailed(String toolchainName);
 
   /**
    * Provides access to all known toolchains that support the provided capability.
@@ -41,4 +54,8 @@ public interface ToolchainProvider {
    */
   <T extends ToolchainWithCapability> Collection<String> getToolchainsWithCapability(
       Class<T> capability);
+
+  /** @return the exception that was thrown during toolchain instantiation */
+  Optional<ToolchainInstantiationException> getToolchainInstantiationException(
+      String toolchainName);
 }

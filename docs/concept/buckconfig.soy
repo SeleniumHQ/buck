@@ -254,6 +254,18 @@ $ buck targets --resolve-alias app#src_jar
   {/param}
 {/call}
 
+{call buckconfig.entry}
+  {param section: 'apk' /}
+  {param name: 'compression_level' /}
+  {param example_value: '6' /}
+  {param description}
+    This is the compression level used when deflating entries for APK. By default it's set
+    to <code>9</code>, which is best for binary size but makes APK creation slower.
+    If APK size is not a concern, as often is the case with CIs or during development, build time
+    can be improved by using smaller numbers or <code>0</code> to completely disable compression.
+  {/param}
+{/call}
+
 {call buckconfig.section}
   {param name: 'apple' /}
   {param description}
@@ -543,6 +555,31 @@ $ buck targets --resolve-alias app#src_jar
     when building with Xcode.
 
     If omitted, this will revert to the built-in behavior.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'apple' /}
+  {param name: 'ipa_compression_level' /}
+  {param example_value: 'min' /}
+  {param description}
+    Specify a compression level used when creating ipa. The possible values are:
+    <ul>
+      <li>
+        <code>none</code>: Do not compress ipa.
+      </li>
+      <li>
+        <code>min</code>: Use minimum compression level.
+      </li>
+      <li>
+        <code>default</code> (default): Use medium compression level.
+      </li>
+      <li>
+        <code>max</code>: Use maximum compression level.
+      </li>
+    </ul>
+
+    If omitted, the <code>default</code> value will be used.
   {/param}
 {/call}
 
@@ -940,6 +977,24 @@ $ buck targets --resolve-alias app#src_jar
     This setting allows for the customization of how http cache errors appear to the user.  If the
     text <code>{lb}cache_name{rb}</code> is present, it will be replaced with the name of the cache.
     If the text {sp}<code>{lb}error_message{rb}</code>, it will be replaced with the error message.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cache' /}
+  {param name: 'http_max_store_attempts' /}
+  {param example_value: '1' /}
+  {param description}
+    Maximum number of times to attempt to store item to the cache before giving up.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cache' /}
+  {param name: 'http_store_retry_interval_millis' /}
+  {param example_value: '1000' /}
+  {param description}
+    Interval to wait if previous cache store request failed.
   {/param}
 {/call}
 
@@ -1708,6 +1763,16 @@ cxx_library(
     can take up lots of cache space and also get relatively low hit rates, so
     this config option provides a way to disable caching of all C/C++ link rules
     in the build.
+  {/param}
+{/call}
+
+{call buckconfig.entry}
+  {param section: 'cxx' /}
+  {param name: 'default_reexport_all_header_dependencies' /}
+  {param example_value: 'true' /}
+  {param description}
+    Default value used for {call buck.reexport_all_header_dependencies /}, when
+    it's undefined on the build rule.
   {/param}
 {/call}
 
@@ -2604,7 +2669,7 @@ your <code>.buckjavaargs</code> file</a>:
   {param example_value: 'android-21' /}
   {param description}
     The android platform libraries that the code is targetting.  This is equivalent to the{sp}
-    <code>APP_TARGET</code> in the NDK build system.  The default is <code>android-9</code>.
+    <code>APP_TARGET</code> in the NDK build system.  The default is <code>android-16</code>.
   {/param}
 {/call}
 

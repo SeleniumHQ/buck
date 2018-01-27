@@ -87,7 +87,6 @@ import com.facebook.buck.halide.HalideLibraryDescription;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -120,6 +119,7 @@ import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.IncrementingFakeClock;
 import com.facebook.buck.util.timing.SettableFakeClock;
+import com.facebook.buck.util.types.Either;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -560,7 +560,7 @@ public class ProjectGeneratorTest {
     assertThat(
         settings.get("OTHER_SWIFT_FLAGS"),
         containsString(
-            "-Xcc -ivfsoverlay -Xcc ../buck-out/gen/_p/CwkbTNOBmb-pub/objc-module-overlay.yaml"));
+            "-Xcc -ivfsoverlay -Xcc '$REPO_ROOT/buck-out/gen/_p/CwkbTNOBmb-pub/objc-module-overlay.yaml'"));
 
     List<Path> headerSymlinkTrees = projectGenerator.getGeneratedHeaderSymlinkTrees();
     assertThat(headerSymlinkTrees, hasSize(2));
@@ -4689,6 +4689,30 @@ public class ProjectGeneratorTest {
         buildSettings.get("DERIVED_FILE_DIR"));
     assertThat(
         buildSettings.get("SWIFT_INCLUDE_PATHS"), equalTo("$(inherited) $BUILT_PRODUCTS_DIR"));
+  }
+
+  @Test
+  public void testGeneratedProjectSettingForSwiftBuildSettingsForAppleLibraryWithModuleName()
+      throws IOException {
+    BuildTarget buildTarget = BuildTargetFactory.newInstance(rootPath, "//Foo", "BarWithSuffix");
+    TargetNode<?, ?> node =
+        AppleLibraryBuilder.createBuilder(buildTarget)
+            .setConfigs(ImmutableSortedMap.of("Debug", ImmutableMap.of()))
+            .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("Foo.swift"))))
+            .setSwiftVersion(Optional.of("3.0"))
+            .setModuleName("Bar")
+            .build();
+
+    ProjectGenerator projectGenerator =
+        createProjectGeneratorForCombinedProject(ImmutableSet.of(node));
+    projectGenerator.createXcodeProjects();
+    PBXProject project = projectGenerator.getGeneratedProject();
+
+    PBXTarget target = assertTargetExistsAndReturnTarget(project, "//Foo:BarWithSuffix");
+    ImmutableMap<String, String> buildSettings = getBuildSettings(buildTarget, target, "Debug");
+
+    assertThat(buildSettings.get("SWIFT_OBJC_INTERFACE_HEADER_NAME"), equalTo("Bar-Swift.h"));
+    assertThat(buildSettings.get("PRODUCT_MODULE_NAME"), equalTo("Bar"));
   }
 
   @Test

@@ -77,6 +77,13 @@ public class JsRulesIntegrationTest {
   }
 
   @Test
+  public void testBuildWithExtraJson() throws IOException {
+    workspace.runBuckBuild("//js:bundle_with_extra_json").assertSuccess();
+
+    workspace.verify(Paths.get("bundle_with_extra_json.expected"), genPath);
+  }
+
+  @Test
   public void testOptimizationBuild() throws IOException {
     workspace.runBuckBuild("//js:fruit#release,android").assertSuccess();
 
@@ -256,5 +263,11 @@ public class JsRulesIntegrationTest {
   @Test
   public void genruleSourcemapCanBeAccessedWithoutDependingOnBundle() throws IOException {
     workspace.runBuckBuild("//js:genrule-using-only-sourcemap-of-bundle-genrule").assertSuccess();
+  }
+
+  @Test
+  public void genruleAllowsToRewriteMiscDir() throws IOException {
+    workspace.runBuckBuild("//js:misc-genrule").assertSuccess();
+    workspace.verify(Paths.get("misc_genrule.expected"), genPath);
   }
 }

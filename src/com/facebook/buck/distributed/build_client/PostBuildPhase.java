@@ -22,6 +22,7 @@ import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientSt
 
 import com.facebook.buck.distributed.ClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildService;
+import com.facebook.buck.distributed.ExitCode;
 import com.facebook.buck.distributed.build_client.BuildSlaveStats.Builder;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildSlaveFinishedStats;
@@ -30,16 +31,14 @@ import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
 import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.Pair;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
@@ -113,21 +112,19 @@ public class PostBuildPhase {
 
     return new BuildController.ExecutionResult(
         finalJob.getStampedeId(),
-        finalJob.getStatus().equals(BuildStatus.FINISHED_SUCCESSFULLY) ? 0 : 1);
+        finalJob.getStatus().equals(BuildStatus.FINISHED_SUCCESSFULLY)
+            ? 0
+            : ExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE.getCode());
   }
 
   private void materializeSlaveLogDirs(BuildJob job) {
-    if (!job.isSetSlaveInfoByRunId() || job.getSlaveInfoByRunId().isEmpty()) {
+    if (!job.isSetBuildSlaves() || job.getBuildSlaves().isEmpty()) {
       return;
     }
 
     distBuildClientStats.startTimer(MATERIALIZE_SLAVE_LOGS);
     List<BuildSlaveRunId> logsToFetchAndMaterialize =
-        job.getSlaveInfoByRunId()
-            .values()
-            .stream()
-            .map(x -> x.getBuildSlaveRunId())
-            .collect(Collectors.toList());
+        job.getBuildSlaves().stream().map(x -> x.getBuildSlaveRunId()).collect(Collectors.toList());
     BuildSlaveLogsMaterializer materializer =
         distBuildLogStateTracker.getBuildSlaveLogsMaterializer();
     if (maxTimeoutWaitingForLogsMillis > 0) {
@@ -147,18 +144,14 @@ public class PostBuildPhase {
   @VisibleForTesting
   ListenableFuture<BuildSlaveStats> publishBuildSlaveFinishedStatsEvent(
       BuildJob job, ListeningExecutorService executor, EventSender eventSender) {
-    if (!job.isSetSlaveInfoByRunId()) {
+    if (!job.isSetBuildSlaves()) {
       return Futures.immediateFuture(null);
     }
 
     final List<ListenableFuture<Pair<BuildSlaveRunId, Optional<BuildSlaveFinishedStats>>>>
-        slaveFinishedStatsFutures = new ArrayList<>(job.getSlaveInfoByRunIdSize());
-    for (Map.Entry<String, BuildSlaveInfo> entry : job.getSlaveInfoByRunId().entrySet()) {
-      String runIdStr = entry.getKey();
-      BuildSlaveRunId runId = entry.getValue().getBuildSlaveRunId();
-
-      Preconditions.checkState(runIdStr.equals(runId.getId().toString()));
-
+        slaveFinishedStatsFutures = new ArrayList<>(job.getBuildSlavesSize());
+    for (BuildSlaveInfo info : job.getBuildSlaves()) {
+      BuildSlaveRunId runId = info.getBuildSlaveRunId();
       slaveFinishedStatsFutures.add(
           executor.submit(
               () -> {

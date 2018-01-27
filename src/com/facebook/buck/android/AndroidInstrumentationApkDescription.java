@@ -24,8 +24,9 @@ import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.DxToolchain;
-import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
@@ -65,18 +66,21 @@ public class AndroidInstrumentationApkDescription
   private final ProGuardConfig proGuardConfig;
   private final CxxBuckConfig cxxBuckConfig;
   private final DxConfig dxConfig;
+  private final ApkConfig apkConfig;
 
   public AndroidInstrumentationApkDescription(
       ToolchainProvider toolchainProvider,
       JavaBuckConfig javaBuckConfig,
       ProGuardConfig proGuardConfig,
       CxxBuckConfig cxxBuckConfig,
-      DxConfig dxConfig) {
+      DxConfig dxConfig,
+      ApkConfig apkConfig) {
     this.toolchainProvider = toolchainProvider;
     this.javaBuckConfig = javaBuckConfig;
     this.proGuardConfig = proGuardConfig;
     this.cxxBuckConfig = cxxBuckConfig;
     this.dxConfig = dxConfig;
+    this.apkConfig = apkConfig;
   }
 
   @Override
@@ -150,20 +154,17 @@ public class AndroidInstrumentationApkDescription
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-    AndroidLegacyToolchain androidLegacyToolchain =
+    AndroidPlatformTarget androidPlatformTarget =
         toolchainProvider.getByName(
-            AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
-
-    NdkCxxPlatformsProvider ndkCxxPlatformsProvider =
-        toolchainProvider.getByName(
-            NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.class);
+            AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class);
 
     AndroidBinaryGraphEnhancer graphEnhancer =
         new AndroidBinaryGraphEnhancer(
+            toolchainProvider,
             cellRoots,
             buildTarget,
             projectFilesystem,
-            androidLegacyToolchain,
+            androidPlatformTarget,
             params,
             resolver,
             AndroidBinary.AaptMode.AAPT1,
@@ -199,7 +200,7 @@ public class AndroidInstrumentationApkDescription
             /* xzCompressionLevel */ Optional.empty(),
             /* trimResourceIds */ false,
             /* keepResourcePattern */ Optional.empty(),
-            ndkCxxPlatformsProvider.getNdkCxxPlatforms(),
+            false,
             /* nativeLibraryMergeMap */ Optional.empty(),
             /* nativeLibraryMergeGlue */ Optional.empty(),
             /* nativeLibraryMergeCodeGenerator */ Optional.empty(),
@@ -223,7 +224,8 @@ public class AndroidInstrumentationApkDescription
     return new AndroidInstrumentationApk(
         buildTarget,
         projectFilesystem,
-        androidLegacyToolchain,
+        toolchainProvider.getByName(AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class),
+        androidPlatformTarget,
         params,
         ruleFinder,
         apkUnderTest,
@@ -232,7 +234,8 @@ public class AndroidInstrumentationApkDescription
         filesInfo.getDexFilesInfo(),
         filesInfo.getNativeFilesInfo(),
         filesInfo.getResourceFilesInfo(),
-        filesInfo.getExopackageInfo());
+        filesInfo.getExopackageInfo(),
+        apkConfig.getCompressionLevel());
   }
 
   @BuckStyleImmutable

@@ -17,7 +17,7 @@
 package org.openqa.selenium.buck.file;
 
 
-import static com.facebook.buck.util.zip.ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL;
+import static com.facebook.buck.util.zip.ZipCompressionLevel.DEFAULT;
 
 import com.facebook.buck.event.EventDispatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -102,7 +102,7 @@ public class Folder extends ModernBuildRule<Folder> implements Buildable {
             out,
             ImmutableSet.of(),
             false,
-            DEFAULT_COMPRESSION_LEVEL,
+            DEFAULT,
             scratch.getParent()));
 
     return steps.build();

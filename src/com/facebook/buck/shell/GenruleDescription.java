@@ -16,7 +16,9 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.android.AndroidLegacyToolchain;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.android.toolchain.AndroidSdkLocation;
+import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -58,16 +60,20 @@ public class GenruleDescription extends AbstractGenruleDescription<GenruleDescri
       Optional<Arg> cmd,
       Optional<Arg> bash,
       Optional<Arg> cmdExe) {
-    AndroidLegacyToolchain androidLegacyToolchain =
-        toolchainProvider.getByName(
-            AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
+    Optional<AndroidPlatformTarget> androidPlatformTarget =
+        toolchainProvider.getByNameIfPresent(
+            AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class);
+    Optional<AndroidNdk> androidNdk =
+        toolchainProvider.getByNameIfPresent(AndroidNdk.DEFAULT_NAME, AndroidNdk.class);
+    Optional<AndroidSdkLocation> androidSdkLocation =
+        toolchainProvider.getByNameIfPresent(
+            AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class);
 
     if (!args.getExecutable().orElse(false)) {
       SandboxConfig sandboxConfig = buckConfig.getView(SandboxConfig.class);
       return new Genrule(
           buildTarget,
           projectFilesystem,
-          androidLegacyToolchain,
           resolver,
           params,
           sandboxExecutionStrategy,
@@ -80,12 +86,14 @@ public class GenruleDescription extends AbstractGenruleDescription<GenruleDescri
           sandboxConfig.isSandboxEnabledForCurrentPlatform()
               && args.getEnableSandbox().orElse(sandboxConfig.isGenruleSandboxEnabled()),
           args.getCacheable().orElse(true),
-          args.getEnvironmentExpansionSeparator());
+          args.getEnvironmentExpansionSeparator(),
+          androidPlatformTarget,
+          androidNdk,
+          androidSdkLocation);
     } else {
       return new GenruleBinary(
           buildTarget,
           projectFilesystem,
-          androidLegacyToolchain,
           sandboxExecutionStrategy,
           resolver,
           params,
@@ -96,13 +104,18 @@ public class GenruleDescription extends AbstractGenruleDescription<GenruleDescri
           args.getType(),
           args.getOut(),
           args.getCacheable().orElse(true),
-          args.getEnvironmentExpansionSeparator());
+          args.getEnvironmentExpansionSeparator(),
+          androidPlatformTarget,
+          androidNdk,
+          androidSdkLocation);
     }
   }
 
   @BuckStyleImmutable
   @Value.Immutable
   interface AbstractGenruleDescriptionArg extends AbstractGenruleDescription.CommonArg {
+    String getOut();
+
     Optional<Boolean> getExecutable();
 
     /**

@@ -16,7 +16,7 @@
 
 package org.openqa.selenium.buck.mozilla;
 
-import static com.facebook.buck.util.zip.ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL;
+import static com.facebook.buck.util.zip.ZipCompressionLevel.DEFAULT;
 
 import com.facebook.buck.event.EventDispatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -181,7 +181,7 @@ public class Xpi extends ModernBuildRule<Xpi> implements Buildable {
             out.normalize().toAbsolutePath(),
             ImmutableSet.of(),
             false,
-            DEFAULT_COMPRESSION_LEVEL,
+            DEFAULT,
             scratch));
 
     return steps.build();

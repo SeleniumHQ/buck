@@ -23,7 +23,9 @@ import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.toolchain.ToolchainCreationContext;
 import com.facebook.buck.toolchain.ToolchainFactory;
+import com.facebook.buck.toolchain.ToolchainInstantiationException;
 import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -42,12 +44,18 @@ public class CxxPlatformsProviderFactory implements ToolchainFactory<CxxPlatform
 
     ImmutableMap.Builder<Flavor, CxxPlatform> cxxSystemPlatforms = ImmutableMap.builder();
     for (String toolchainName : toolchainNames) {
-      CxxPlatformsSupplier cxxPlatformsSupplier =
-          toolchainProvider.getByName(toolchainName, CxxPlatformsSupplier.class);
-      cxxSystemPlatforms.putAll(cxxPlatformsSupplier.getCxxPlatforms());
+      if (toolchainProvider.isToolchainPresent(toolchainName)) {
+        CxxPlatformsSupplier cxxPlatformsSupplier =
+            toolchainProvider.getByName(toolchainName, CxxPlatformsSupplier.class);
+        cxxSystemPlatforms.putAll(cxxPlatformsSupplier.getCxxPlatforms());
+      }
     }
 
-    return Optional.of(createProvider(context.getBuckConfig(), cxxSystemPlatforms.build()));
+    try {
+      return Optional.of(createProvider(context.getBuckConfig(), cxxSystemPlatforms.build()));
+    } catch (HumanReadableException e) {
+      throw ToolchainInstantiationException.wrap(e);
+    }
   }
 
   private static CxxPlatformsProvider createProvider(

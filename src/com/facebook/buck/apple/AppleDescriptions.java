@@ -39,7 +39,6 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.InternalFlavor;
@@ -62,6 +61,7 @@ import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.types.Either;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -315,7 +315,6 @@ public class AppleDescriptions {
       TargetGraph targetGraph,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      BuildRuleParams params,
       SourcePathResolver sourcePathResolver,
       SourcePathRuleFinder ruleFinder,
       ApplePlatform applePlatform,
@@ -392,16 +391,11 @@ public class AppleDescriptions {
       applePlatform = ApplePlatform.WATCHOS;
       targetSDKVersion = "1.0";
     }
-    BuildRuleParams assetParams =
-        params
-            .withoutExtraDeps()
-            .withDeclaredDeps(
-                ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(assetCatalogDirs)));
     return Optional.of(
         new AppleAssetCatalog(
             assetCatalogBuildTarget,
             projectFilesystem,
-            assetParams,
+            ruleFinder,
             applePlatform.getName(),
             targetSDKVersion,
             actool,
@@ -649,7 +643,6 @@ public class AppleDescriptions {
             targetGraph,
             buildTargetWithoutBundleSpecificFlavors,
             projectFilesystem,
-            params,
             sourcePathResolver,
             ruleFinder,
             appleCxxPlatform.getAppleSdk().getApplePlatform(),

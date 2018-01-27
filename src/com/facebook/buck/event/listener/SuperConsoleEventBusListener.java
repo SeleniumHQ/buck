@@ -33,7 +33,6 @@ import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.TestRunEvent;
 import com.facebook.buck.rules.TestStatusMessageEvent;
@@ -48,6 +47,7 @@ import com.facebook.buck.util.Console;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.timing.Clock;
+import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
@@ -607,13 +607,11 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
         columns.add("status: " + distBuildStatus.get().getStatus().toLowerCase());
 
         int totalUploadErrorsCount = 0;
-        int totalFilesMaterialized = 0;
         ImmutableList.Builder<CacheRateStatsKeeper.CacheRateStatsUpdateEvent> slaveCacheStats =
             new ImmutableList.Builder<>();
 
         for (BuildSlaveStatus slaveStatus : distBuildStatus.get().getSlaveStatuses()) {
           totalUploadErrorsCount += slaveStatus.getHttpArtifactUploadsFailureCount();
-          totalFilesMaterialized += slaveStatus.getFilesMaterializedCount();
 
           if (slaveStatus.isSetCacheRateStats()) {
             slaveCacheStats.add(
@@ -643,10 +641,6 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
 
         if (totalUploadErrorsCount > 0) {
           columns.add(String.format("%d upload errors", totalUploadErrorsCount));
-        }
-
-        if (totalFilesMaterialized > 0) {
-          columns.add(String.format("%d files materialized", totalFilesMaterialized));
         }
       }
     }

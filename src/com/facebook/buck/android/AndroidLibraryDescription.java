@@ -41,6 +41,7 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -101,6 +102,12 @@ public class AndroidLibraryDescription
             ImmutableSortedSet.of());
     }
 
+    if (args.isSkipNonUnionRDotJava()) {
+      Preconditions.checkArgument(
+          args.getResourceUnionPackage().isPresent(),
+          "union_package should be specified if skip_non_union_r_dot_java is set");
+    }
+
     boolean hasDummyRDotJavaFlavor = buildTarget.getFlavors().contains(DUMMY_R_DOT_JAVA_FLAVOR);
     JavacOptions javacOptions =
         JavacOptionsFactory.create(
@@ -137,6 +144,7 @@ public class AndroidLibraryDescription
         || flavors.equals(ImmutableSet.of(DUMMY_R_DOT_JAVA_FLAVOR))
         || flavors.equals(ImmutableSet.of(HasJavaAbi.CLASS_ABI_FLAVOR))
         || flavors.equals(ImmutableSet.of(HasJavaAbi.SOURCE_ABI_FLAVOR))
+        || flavors.equals(ImmutableSet.of(HasJavaAbi.SOURCE_ONLY_ABI_FLAVOR))
         || flavors.equals(ImmutableSet.of(HasJavaAbi.VERIFIED_SOURCE_ABI_FLAVOR));
   }
 
@@ -160,6 +168,11 @@ public class AndroidLibraryDescription
     Optional<SourcePath> getManifest();
 
     Optional<String> getResourceUnionPackage();
+
+    @Value.Default
+    default boolean isSkipNonUnionRDotJava() {
+      return false;
+    }
 
     Optional<String> getFinalRName();
   }

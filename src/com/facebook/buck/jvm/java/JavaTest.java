@@ -26,7 +26,6 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
@@ -63,6 +62,7 @@ import com.facebook.buck.test.XmlTestResultParser;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.ZipFileTraversal;
+import com.facebook.buck.util.types.Either;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -629,10 +629,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
             // By the end of the build, all the transitive Java library dependencies *must* be
             // available on disk, so signal this requirement via the {@link HasRuntimeDeps}
             // interface.
-            compiledTestsLibrary
-                .getTransitiveClasspathDeps()
-                .stream()
-                .filter(rule -> !this.equals(rule)),
+            compiledTestsLibrary.getTransitiveClasspathDeps().stream(),
             // It's possible that the user added some tool as a dependency, so make sure we promote
             // this rules first-order deps to runtime deps, so that these potential tools are
             // available when this test runs.

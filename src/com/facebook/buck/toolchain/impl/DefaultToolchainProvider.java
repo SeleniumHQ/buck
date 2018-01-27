@@ -17,35 +17,19 @@
 package com.facebook.buck.toolchain.impl;
 
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.file.downloader.Downloader;
-import com.facebook.buck.file.downloader.impl.DownloaderFactory;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.java.toolchain.JavaCxxPlatformProvider;
-import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
-import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.jvm.java.toolchain.impl.JavaCxxPlatformProviderFactory;
-import com.facebook.buck.jvm.java.toolchain.impl.JavaOptionsProviderFactory;
-import com.facebook.buck.jvm.java.toolchain.impl.JavacOptionsProviderFactory;
-import com.facebook.buck.ocaml.OcamlToolchain;
-import com.facebook.buck.ocaml.OcamlToolchainFactory;
-import com.facebook.buck.python.toolchain.PexToolProvider;
-import com.facebook.buck.python.toolchain.PythonInterpreter;
-import com.facebook.buck.python.toolchain.PythonPlatformsProvider;
-import com.facebook.buck.python.toolchain.impl.PexToolProviderFactory;
-import com.facebook.buck.python.toolchain.impl.PythonInterpreterFactory;
-import com.facebook.buck.python.toolchain.impl.PythonPlatformsProviderFactory;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.toolchain.BaseToolchainProvider;
 import com.facebook.buck.toolchain.Toolchain;
 import com.facebook.buck.toolchain.ToolchainCreationContext;
 import com.facebook.buck.toolchain.ToolchainDescriptor;
 import com.facebook.buck.toolchain.ToolchainFactory;
+import com.facebook.buck.toolchain.ToolchainInstantiationException;
 import com.facebook.buck.toolchain.ToolchainSupplier;
 import com.facebook.buck.toolchain.ToolchainWithCapability;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
-import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -54,40 +38,14 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import java.util.Collection;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Stream;
 import org.pf4j.PluginManager;
 
 public class DefaultToolchainProvider extends BaseToolchainProvider {
 
-  ImmutableList<ToolchainDescriptor<?>> DEFAULT_TOOLCHAIN_DESCRIPTORS =
-      ImmutableList.of(
-          ToolchainDescriptor.of(
-              Downloader.DEFAULT_NAME, Downloader.class, DownloaderFactory.class),
-          ToolchainDescriptor.of(
-              JavaCxxPlatformProvider.DEFAULT_NAME,
-              JavaCxxPlatformProvider.class,
-              JavaCxxPlatformProviderFactory.class),
-          ToolchainDescriptor.of(
-              JavacOptionsProvider.DEFAULT_NAME,
-              JavacOptionsProvider.class,
-              JavacOptionsProviderFactory.class),
-          ToolchainDescriptor.of(
-              JavaOptionsProvider.DEFAULT_NAME,
-              JavaOptionsProvider.class,
-              JavaOptionsProviderFactory.class),
-          ToolchainDescriptor.of(
-              OcamlToolchain.DEFAULT_NAME, OcamlToolchain.class, OcamlToolchainFactory.class),
-          ToolchainDescriptor.of(
-              PexToolProvider.DEFAULT_NAME, PexToolProvider.class, PexToolProviderFactory.class),
-          ToolchainDescriptor.of(
-              PythonInterpreter.DEFAULT_NAME,
-              PythonInterpreter.class,
-              PythonInterpreterFactory.class),
-          ToolchainDescriptor.of(
-              PythonPlatformsProvider.DEFAULT_NAME,
-              PythonPlatformsProvider.class,
-              PythonPlatformsProviderFactory.class));
+  private static final Logger LOG = Logger.get(DefaultToolchainProvider.class);
 
   private final ToolchainCreationContext toolchainCreationContext;
   private final ImmutableList<ToolchainDescriptor<?>> toolchainDescriptors;
@@ -106,6 +64,8 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
                   return createToolchain(toolchainFactories.get(toolchainName));
                 }
               });
+  private final ConcurrentHashMap<String, ToolchainInstantiationException> failedToolchains =
+      new ConcurrentHashMap<>();
 
   public DefaultToolchainProvider(
       PluginManager pluginManager,
@@ -124,7 +84,8 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
             executableFinder,
             ruleKeyConfiguration);
 
-    toolchainDescriptors = loadToolchainDescriptors(pluginManager);
+    toolchainDescriptors =
+        loadToolchainDescriptorsFromPlugins(pluginManager).collect(ImmutableList.toImmutableList());
 
     ImmutableMap.Builder<String, Class<? extends ToolchainFactory<?>>> toolchainFactoriesBuilder =
         ImmutableMap.builder();
@@ -133,15 +94,6 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
           toolchainDescriptor.getName(), toolchainDescriptor.getToolchainFactoryClass());
     }
     toolchainFactories = toolchainFactoriesBuilder.build();
-  }
-
-  private ImmutableList<ToolchainDescriptor<?>> loadToolchainDescriptors(
-      PluginManager pluginManager) {
-    ImmutableList.Builder<ToolchainDescriptor<?>> toolchainDescriptorBuilder =
-        ImmutableList.builder();
-    toolchainDescriptorBuilder.addAll(DEFAULT_TOOLCHAIN_DESCRIPTORS);
-    loadToolchainDescriptorsFromPlugins(pluginManager).forEach(toolchainDescriptorBuilder::add);
-    return toolchainDescriptorBuilder.build();
   }
 
   private Stream<ToolchainDescriptor<?>> loadToolchainDescriptorsFromPlugins(
@@ -158,7 +110,13 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
     if (toolchain.isPresent()) {
       return toolchain.get();
     } else {
-      throw new HumanReadableException("Unknown toolchain: " + toolchainName);
+      ToolchainInstantiationException exception;
+      if (failedToolchains.containsKey(toolchainName)) {
+        exception = failedToolchains.get(toolchainName);
+      } else {
+        exception = new ToolchainInstantiationException("Unknown toolchain: %s", toolchainName);
+      }
+      throw exception;
     }
   }
 
@@ -170,6 +128,11 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
   @Override
   public boolean isToolchainCreated(String toolchainName) {
     return toolchains.getIfPresent(toolchainName) != null;
+  }
+
+  @Override
+  public boolean isToolchainFailed(String toolchainName) {
+    return failedToolchains.containsKey(toolchainName);
   }
 
   @Override
@@ -186,16 +149,34 @@ public class DefaultToolchainProvider extends BaseToolchainProvider {
     return toolchainsWithCapabilities.build();
   }
 
+  @Override
+  public Optional<ToolchainInstantiationException> getToolchainInstantiationException(
+      String toolchainName) {
+    return failedToolchains.containsKey(toolchainName)
+        ? Optional.of(failedToolchains.get(toolchainName))
+        : Optional.empty();
+  }
+
   private Optional<? extends Toolchain> getOrCreate(String toolchainName) {
+    if (failedToolchains.containsKey(toolchainName)) {
+      return Optional.empty();
+    }
+
     try {
       return toolchains.get(toolchainName);
     } catch (ExecutionException | UncheckedExecutionException e) {
-      Throwables.throwIfInstanceOf(e.getCause(), HumanReadableException.class);
-      throw new HumanReadableException(
-          e,
+      if (e.getCause() instanceof ToolchainInstantiationException) {
+        LOG.warn(
+            String.format(
+                "Cannot create a toolchain: %s. Cause: %s",
+                toolchainName, e.getCause().getMessage()));
+        failedToolchains.put(toolchainName, (ToolchainInstantiationException) e.getCause());
+        return Optional.empty();
+      }
+      throw new RuntimeException(
           String.format(
-              "Cannot create a toolchain: %s. Cause: %s",
-              toolchainName, e.getCause().getMessage()));
+              "Cannot create a toolchain: %s. Cause: %s", toolchainName, e.getCause().getMessage()),
+          e);
     }
   }
 

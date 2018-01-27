@@ -24,6 +24,7 @@ import com.facebook.buck.jvm.java.JavaLibraryDescription.CoreArg;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BuildDeps;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
@@ -53,7 +54,7 @@ public abstract class DefaultJavaLibraryRules {
     DefaultJavaLibrary newInstance(
         BuildTarget buildTarget,
         ProjectFilesystem projectFilesystem,
-        ImmutableSortedSet<BuildRule> buildDeps,
+        BuildDeps buildDeps,
         SourcePathResolver resolver,
         JarBuildStepsFactory jarBuildStepsFactory,
         Optional<SourcePath> proguardConfig,
@@ -61,6 +62,7 @@ public abstract class DefaultJavaLibraryRules {
         ImmutableSortedSet<BuildRule> fullJarExportedDeps,
         ImmutableSortedSet<BuildRule> fullJarProvidedDeps,
         @Nullable BuildTarget abiJar,
+        @Nullable BuildTarget sourceOnlyAbiJar,
         Optional<String> mavenCoords,
         ImmutableSortedSet<BuildTarget> tests,
         boolean requiredForSourceOnlyAbi);
@@ -182,10 +184,16 @@ public abstract class DefaultJavaLibraryRules {
     buildRuleResolver.computeIfAbsent(
         rootmostTarget,
         target -> {
+          CalculateSourceAbi sourceOnlyAbiRule = buildSourceOnlyAbiRule();
           CalculateSourceAbi sourceAbiRule = buildSourceAbiRule();
           DefaultJavaLibrary libraryRule = buildLibraryRule(sourceAbiRule);
           CalculateClassAbi classAbiRule = buildClassAbiRule(libraryRule);
-          CompareAbis compareAbisRule = buildCompareAbisRule(sourceAbiRule, classAbiRule);
+          CompareAbis compareAbisRule;
+          if (sourceOnlyAbiRule != null) {
+            compareAbisRule = buildCompareAbisRule(sourceOnlyAbiRule, sourceAbiRule);
+          } else {
+            compareAbisRule = buildCompareAbisRule(sourceAbiRule, classAbiRule);
+          }
 
           if (HasJavaAbi.isLibraryTarget(target)) {
             return libraryRule;
@@ -200,13 +208,13 @@ public abstract class DefaultJavaLibraryRules {
   }
 
   @Nullable
-  private CompareAbis buildCompareAbisRule(
-      @Nullable CalculateSourceAbi sourceAbi, @Nullable CalculateClassAbi classAbi) {
+  private <T extends BuildRule & CalculateAbi, U extends BuildRule & CalculateAbi>
+      CompareAbis buildCompareAbisRule(@Nullable T abi1, @Nullable U abi2) {
     if (!willProduceCompareAbis()) {
       return null;
     }
-    Preconditions.checkNotNull(sourceAbi);
-    Preconditions.checkNotNull(classAbi);
+    Preconditions.checkNotNull(abi1);
+    Preconditions.checkNotNull(abi2);
 
     BuildTarget compareAbisTarget = HasJavaAbi.getVerifiedSourceAbiJar(getLibraryTarget());
     return getBuildRuleResolver()
@@ -215,11 +223,11 @@ public abstract class DefaultJavaLibraryRules {
                 compareAbisTarget,
                 getProjectFilesystem(),
                 getInitialParams()
-                    .withDeclaredDeps(ImmutableSortedSet.of(classAbi, sourceAbi))
+                    .withDeclaredDeps(ImmutableSortedSet.of(abi1, abi2))
                     .withoutExtraDeps(),
                 getSourcePathResolver(),
-                classAbi.getSourcePathToOutput(),
-                sourceAbi.getSourcePathToOutput(),
+                abi1.getSourcePathToOutput(),
+                abi2.getSourcePathToOutput(),
                 Preconditions.checkNotNull(getJavaBuckConfig()).getSourceAbiVerificationMode()));
   }
 
@@ -232,6 +240,16 @@ public abstract class DefaultJavaLibraryRules {
       return HasJavaAbi.getSourceAbiJar(getLibraryTarget());
     } else if (willProduceClassAbi()) {
       return HasJavaAbi.getClassAbiJar(getLibraryTarget());
+    }
+
+    return null;
+  }
+
+  @Value.Lazy
+  @Nullable
+  BuildTarget getSourceOnlyAbiJar() {
+    if (willProduceSourceOnlyAbi()) {
+      return HasJavaAbi.getSourceOnlyAbiJar(getLibraryTarget());
     }
 
     return null;
@@ -339,11 +357,10 @@ public abstract class DefaultJavaLibraryRules {
   }
 
   private DefaultJavaLibrary buildLibraryRule(@Nullable CalculateSourceAbi sourceAbiRule) {
-    ImmutableSortedSet.Builder<BuildRule> buildDepsBuilder = ImmutableSortedSet.naturalOrder();
+    BuildDeps buildDeps = getFinalBuildDeps();
 
-    buildDepsBuilder.addAll(getFinalBuildDeps());
-    if (sourceAbiRule != null && !willProduceSourceOnlyAbi()) {
-      buildDepsBuilder.add(sourceAbiRule);
+    if (sourceAbiRule != null) {
+      buildDeps = new BuildDeps(buildDeps, ImmutableSortedSet.of(sourceAbiRule));
     }
 
     DefaultJavaLibrary libraryRule =
@@ -351,7 +368,7 @@ public abstract class DefaultJavaLibraryRules {
             .newInstance(
                 getLibraryTarget(),
                 getProjectFilesystem(),
-                buildDepsBuilder.build(),
+                buildDeps,
                 getSourcePathResolver(),
                 getJarBuildStepsFactory(),
                 getProguardConfig(),
@@ -359,11 +376,12 @@ public abstract class DefaultJavaLibraryRules {
                 Preconditions.checkNotNull(getDeps()).getExportedDeps(),
                 Preconditions.checkNotNull(getDeps()).getProvidedDeps(),
                 getAbiJar(),
+                getSourceOnlyAbiJar(),
                 getMavenCoords(),
                 getTests(),
                 getRequiredForSourceOnlyAbi());
 
-    if (sourceAbiRule != null && !willProduceSourceOnlyAbi()) {
+    if (sourceAbiRule != null) {
       libraryRule.setSourceAbi(sourceAbiRule);
     }
 
@@ -387,17 +405,33 @@ public abstract class DefaultJavaLibraryRules {
   }
 
   @Nullable
+  private CalculateSourceAbi buildSourceOnlyAbiRule() {
+    if (!willProduceSourceOnlyAbi()) {
+      return null;
+    }
+
+    BuildDeps buildDeps = getFinalBuildDepsForSourceOnlyAbi();
+    JarBuildStepsFactory jarBuildStepsFactory = getJarBuildStepsFactoryForSourceOnlyAbi();
+
+    BuildTarget sourceAbiTarget = HasJavaAbi.getSourceOnlyAbiJar(getLibraryTarget());
+    return getBuildRuleResolver()
+        .addToIndex(
+            new CalculateSourceAbi(
+                sourceAbiTarget,
+                getProjectFilesystem(),
+                buildDeps,
+                getSourcePathRuleFinder(),
+                jarBuildStepsFactory));
+  }
+
+  @Nullable
   private CalculateSourceAbi buildSourceAbiRule() {
     if (!willProduceSourceAbi()) {
       return null;
     }
 
-    ImmutableSortedSet<BuildRule> buildDeps =
-        willProduceSourceOnlyAbi() ? getFinalBuildDepsForSourceOnlyAbi() : getFinalBuildDeps();
-    JarBuildStepsFactory jarBuildStepsFactory =
-        willProduceSourceOnlyAbi()
-            ? getJarBuildStepsFactoryForSourceOnlyAbi()
-            : getJarBuildStepsFactory();
+    BuildDeps buildDeps = getFinalBuildDeps();
+    JarBuildStepsFactory jarBuildStepsFactory = getJarBuildStepsFactory();
 
     BuildTarget sourceAbiTarget = HasJavaAbi.getSourceAbiJar(getLibraryTarget());
     return getBuildRuleResolver()
@@ -445,7 +479,7 @@ public abstract class DefaultJavaLibraryRules {
         .setBuildRuleParams(getInitialParams())
         .setConfiguredCompiler(getConfiguredCompiler())
         .setDeps(Preconditions.checkNotNull(getDeps()))
-        .setShouldCompileAgainstAbis(getConfiguredCompilerFactory().shouldCompileAgainstAbis())
+        .setCompileAgainstLibraryType(getCompileAgainstLibraryType())
         .build();
   }
 
@@ -504,16 +538,16 @@ public abstract class DefaultJavaLibraryRules {
   }
 
   @Value.Lazy
-  ImmutableSortedSet<BuildRule> getFinalBuildDeps() {
+  BuildDeps getFinalBuildDeps() {
     return buildBuildDeps(getClasspaths());
   }
 
   @Value.Lazy
-  ImmutableSortedSet<BuildRule> getFinalBuildDepsForSourceOnlyAbi() {
+  BuildDeps getFinalBuildDepsForSourceOnlyAbi() {
     return buildBuildDeps(getClasspathsForSourceOnlyAbi());
   }
 
-  private ImmutableSortedSet<BuildRule> buildBuildDeps(DefaultJavaLibraryClasspaths classpaths) {
+  private BuildDeps buildBuildDeps(DefaultJavaLibraryClasspaths classpaths) {
     ImmutableSortedSet.Builder<BuildRule> depsBuilder = ImmutableSortedSet.naturalOrder();
     depsBuilder
         // We always need the non-classpath deps, whether directly specified or specified via
@@ -528,11 +562,26 @@ public abstract class DefaultJavaLibraryRules {
         // is that the ABI generation for that language isn't fully correct.
         .addAll(classpaths.getCompileTimeClasspathAbiDeps());
 
-    if (!getConfiguredCompilerFactory().shouldCompileAgainstAbis()) {
+    if (getCompileAgainstLibraryType() == CompileAgainstLibraryType.FULL) {
       depsBuilder.addAll(classpaths.getCompileTimeClasspathFullDeps());
     }
 
-    return depsBuilder.build();
+    return new BuildDeps(depsBuilder.build());
+  }
+
+  @Value.Lazy
+  CompileAgainstLibraryType getCompileAgainstLibraryType() {
+    CoreArg args = getArgs();
+    CompileAgainstLibraryType result = CompileAgainstLibraryType.SOURCE_ONLY_ABI;
+    if (args != null) {
+      result = args.getCompileAgainst().orElse(result);
+    }
+
+    if (!getConfiguredCompilerFactory().shouldCompileAgainstAbis()) {
+      result = CompileAgainstLibraryType.FULL;
+    }
+
+    return result;
   }
 
   @Value.Lazy

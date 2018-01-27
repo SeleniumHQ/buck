@@ -18,7 +18,9 @@ package com.facebook.buck.distributed.build_slave;
 
 import com.facebook.buck.distributed.BuildStatusUtil;
 import com.facebook.buck.distributed.DistBuildService;
+import com.facebook.buck.distributed.ExitCode;
 import com.facebook.buck.distributed.thrift.BuildJob;
+import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.CoordinatorService;
 import com.facebook.buck.distributed.thrift.CoordinatorService.Iface;
 import com.facebook.buck.distributed.thrift.GetWorkRequest;
@@ -106,12 +108,6 @@ public class ThriftCoordinatorServer implements Closeable {
     void onThriftServerClosing(ThriftCoordinatorServer.ExitState exitState) throws IOException;
   }
 
-  public static final int UNEXPECTED_STOP_EXIT_CODE = 42;
-  public static final int GET_WORK_FAILED_EXIT_CODE = 43;
-  public static final int I_AM_ALIVE_FAILED_EXIT_CODE = 45;
-  public static final int DEAD_MINION_FOUND_EXIT_CODE = 46;
-  public static final int BUILD_TERMINATED_REMOTELY_EXIT_CODE = 47;
-
   private static final TimedLogger LOG = new TimedLogger(Logger.get(ThriftCoordinatorServer.class));
 
   private static final long MAX_TEAR_DOWN_MILLIS = TimeUnit.SECONDS.toMillis(2);
@@ -187,17 +183,27 @@ public class ThriftCoordinatorServer implements Closeable {
           String.format(
               "Failing the build due to dead minions: [%s].", Joiner.on(", ").join(deadMinions));
       LOG.error(msg);
-      exitCodeFuture.complete(ExitState.setLocally(DEAD_MINION_FOUND_EXIT_CODE, msg));
+      exitCodeFuture.complete(
+          ExitState.setLocally(ExitCode.DEAD_MINION_FOUND_EXIT_CODE.getCode(), msg));
     }
   }
 
   /** Checks whether the BuildStatus has not been set to terminated remotely. */
   public void checkBuildStatusIsNotTerminated() throws IOException {
     BuildJob buildJob = distBuildService.getCurrentBuildJobState(stampedeId);
-    if (buildJob.isSetStatus() && BuildStatusUtil.isTerminalBuildStatus(buildJob.getStatus())) {
+    BuildStatus status = buildJob.getStatus();
+    if (!buildJob.isSetStatus() || !BuildStatusUtil.isTerminalBuildStatus(status)) {
+      return;
+    }
+
+    if (status == BuildStatus.FINISHED_SUCCESSFULLY) {
       exitCodeFuture.complete(
           ExitState.setByServers(
-              BUILD_TERMINATED_REMOTELY_EXIT_CODE, "Build finalised externally."));
+              ExitCode.DISTRIBUTED_BUILD_SUCCESSFUL.getCode(), "Build succeeded externally."));
+    } else {
+      exitCodeFuture.complete(
+          ExitState.setByServers(
+              ExitCode.BUILD_FAILED_EXTERNALLY_EXIT_CODE.getCode(), "Build failed externally."));
     }
   }
 
@@ -205,7 +211,8 @@ public class ThriftCoordinatorServer implements Closeable {
     ExitState exitState =
         exitCodeFuture.getNow(
             ExitState.setLocally(
-                UNEXPECTED_STOP_EXIT_CODE, "Forced unexpected Coordinator shutdown."));
+                ExitCode.UNEXPECTED_STOP_EXIT_CODE.getCode(),
+                "Forced unexpected Coordinator shutdown."));
     eventListener.onThriftServerClosing(exitState);
     synchronized (lock) {
       Preconditions.checkNotNull(server, "Server has already been stopped.").stop();
@@ -306,7 +313,8 @@ public class ThriftCoordinatorServer implements Closeable {
             String.format(
                 "Failed to handle ReportMinionAliveRequest for minion [%s].",
                 request.getMinionId());
-        exitCodeFuture.complete(ExitState.setLocally(I_AM_ALIVE_FAILED_EXIT_CODE, msg));
+        exitCodeFuture.complete(
+            ExitState.setLocally(ExitCode.I_AM_ALIVE_FAILED_EXIT_CODE.getCode(), msg));
         throw e;
       }
     }
@@ -320,7 +328,8 @@ public class ThriftCoordinatorServer implements Closeable {
         String msg =
             String.format(
                 "Failed to handle GetWorkRequest for minion [%s].", request.getMinionId());
-        exitCodeFuture.complete(ExitState.setLocally(GET_WORK_FAILED_EXIT_CODE, msg));
+        exitCodeFuture.complete(
+            ExitState.setLocally(ExitCode.GET_WORK_FAILED_EXIT_CODE.getCode(), msg));
         throw e;
       }
     }

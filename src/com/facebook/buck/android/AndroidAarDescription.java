@@ -22,7 +22,6 @@ import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
-import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
@@ -228,19 +227,15 @@ public class AndroidAarDescription implements Description<AndroidAarDescriptionA
               .collect(Collectors.toList()));
     }
 
-    NdkCxxPlatformsProvider ndkCxxPlatformsProvider =
-        toolchainProvider.getByName(
-            NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.class);
-
     /* native_libraries */
     AndroidNativeLibsPackageableGraphEnhancer packageableGraphEnhancer =
         new AndroidNativeLibsPackageableGraphEnhancer(
+            toolchainProvider,
             cellRoots,
             resolver,
             buildTarget,
             projectFilesystem,
             originalBuildRuleParams,
-            ndkCxxPlatformsProvider.getNdkCxxPlatforms(),
             ImmutableSet.of(),
             cxxBuckConfig,
             /* nativeLibraryMergeMap */ Optional.empty(),

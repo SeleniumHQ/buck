@@ -39,13 +39,17 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.listener.DistBuildSlaveEventBusListener;
 import com.facebook.buck.event.listener.NoOpBuildRuleFinishedPublisher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.Pair;
+import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
+import com.facebook.buck.rules.keys.EventPostingRuleKeyCacheScope;
+import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.util.timing.DefaultClock;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -173,7 +177,10 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
             getConcurrencyLimit(state.getRootCell().getBuckConfig());
 
         try (CommandThreadManager pool =
-            new CommandThreadManager(getClass().getName(), concurrencyLimit)) {
+                new CommandThreadManager(getClass().getName(), concurrencyLimit);
+            RuleKeyCacheScope<RuleKey> ruleKeyCacheScope =
+                new EventPostingRuleKeyCacheScope<>(
+                    params.getBuckEventBus(), new DefaultRuleKeyCache<>())) {
           // Note that we cannot use the same pool of build threads for file materialization
           // because usually all build threads are waiting for files to be materialized, and
           // there is no thread left for the FileContentsProvider(s) to use.
@@ -202,7 +209,8 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                   healthCheckStatsTracker,
                   timeStatsTracker,
                   getBuildRuleFinishedPublisher(),
-                  getUnexpectedSlaveCacheMissTracker());
+                  getUnexpectedSlaveCacheMissTracker(),
+                  ruleKeyCacheScope);
 
           distBuildExecutor.onBuildSlavePreparationCompleted(
               () -> timeStatsTracker.stopTimer(SlaveEvents.DIST_BUILD_PREPARATION_TIME));
@@ -213,8 +221,8 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
           timeStatsTracker.stopTimer(SlaveEvents.TOTAL_RUNTIME);
 
           if (slaveEventListener != null) {
-            slaveEventListener.publishBuildSlaveFinishedEvent(
-                params.getBuckEventBus(), state.getRootCell().getBuckConfig(), returnCode);
+            slaveEventListener.sendFinalServerUpdates();
+            slaveEventListener.publishBuildSlaveFinishedEvent(returnCode);
           }
 
           if (returnCode == 0) {

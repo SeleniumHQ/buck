@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -39,10 +40,10 @@ public class CompareAbisIntegrationTest {
   public void testCachesResultProperly() throws IOException {
     workspace.enableDirCache();
 
-    ProjectWorkspace.ProcessResult processResult = workspace.runBuckBuild("//:consumer");
+    ProcessResult processResult = workspace.runBuckBuild("//:consumer");
     processResult.assertSuccess();
 
-    processResult = workspace.runBuckCommand("clean");
+    processResult = workspace.runBuckCommand("clean", "--keep-cache");
     processResult.assertSuccess();
 
     workspace.replaceFileContents("Consumer.java", "public Producer", "protected Producer");

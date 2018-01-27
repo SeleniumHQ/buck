@@ -589,8 +589,8 @@ public class Parser {
     return target.withFlavors(defaultFlavors);
   }
 
-  public RemoteDaemonicParserState storeParserState() throws IOException {
-    return getPermState().serialiseDaemonicParserState();
+  public RemoteDaemonicParserState storeParserState(Cell rootCell) throws IOException {
+    return getPermState().serializeDaemonicParserState(rootCell);
   }
 
   public void restoreParserState(RemoteDaemonicParserState state, Cell rootCell) {
@@ -608,6 +608,10 @@ public class Parser {
     LOG.verbose("Parser watched event %s %s", event.getKind(), event.getPath());
 
     permState.invalidateBasedOn(event);
+  }
+
+  public void invalidateBasedOnPath(Path fullPath, boolean isCreatedOrDeleted) {
+    permState.invalidateBasedOnPath(fullPath, isCreatedOrDeleted);
   }
 
   public void recordParseStartTime(BuckEventBus eventBus) {

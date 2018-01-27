@@ -32,7 +32,6 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
@@ -48,7 +47,6 @@ import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
@@ -60,6 +58,7 @@ import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
@@ -141,7 +140,6 @@ public class CxxPreprocessAndCompileTest {
                 TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    BuildRuleParams params = TestBuildRuleParams.create();
     FakeFileHashCache hashCache =
         FakeFileHashCache.createFromStrings(
             ImmutableMap.<String, String>builder()
@@ -163,9 +161,8 @@ public class CxxPreprocessAndCompileTest {
                 CxxPreprocessAndCompile.compile(
                     target,
                     projectFilesystem,
-                    params,
+                    ImmutableSortedSet.of(),
                     new CompilerDelegate(
-                        pathResolver,
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                         DEFAULT_COMPILER,
                         DEFAULT_TOOL_FLAGS),
@@ -183,9 +180,8 @@ public class CxxPreprocessAndCompileTest {
                 CxxPreprocessAndCompile.compile(
                     target,
                     projectFilesystem,
-                    params,
+                    ImmutableSortedSet.of(),
                     new CompilerDelegate(
-                        pathResolver,
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                         new GccCompiler(
                             new HashedFileTool(
@@ -207,7 +203,7 @@ public class CxxPreprocessAndCompileTest {
                 CxxPreprocessAndCompile.preprocessAndCompile(
                     target,
                     projectFilesystem,
-                    params,
+                    ImmutableSortedSet.of(),
                     new PreprocessorDelegate(
                         pathResolver,
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
@@ -219,7 +215,6 @@ public class CxxPreprocessAndCompileTest {
                         Optional.empty(),
                         /* leadingIncludePaths */ Optional.empty()),
                     new CompilerDelegate(
-                        pathResolver,
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                         DEFAULT_COMPILER,
                         DEFAULT_TOOL_FLAGS),
@@ -239,9 +234,8 @@ public class CxxPreprocessAndCompileTest {
                 CxxPreprocessAndCompile.compile(
                     target,
                     projectFilesystem,
-                    params,
+                    ImmutableSortedSet.of(),
                     new CompilerDelegate(
-                        pathResolver,
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                         DEFAULT_COMPILER,
                         CxxToolFlags.explicitBuilder()
@@ -263,9 +257,8 @@ public class CxxPreprocessAndCompileTest {
                 CxxPreprocessAndCompile.compile(
                     target,
                     projectFilesystem,
-                    params,
+                    ImmutableSortedSet.of(),
                     new CompilerDelegate(
-                        pathResolver,
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                         DEFAULT_COMPILER,
                         CxxToolFlags.explicitBuilder()
@@ -287,9 +280,8 @@ public class CxxPreprocessAndCompileTest {
                 CxxPreprocessAndCompile.compile(
                     target,
                     projectFilesystem,
-                    params,
+                    ImmutableSortedSet.of(),
                     new CompilerDelegate(
-                        pathResolver,
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                         DEFAULT_COMPILER,
                         DEFAULT_TOOL_FLAGS),
@@ -310,7 +302,6 @@ public class CxxPreprocessAndCompileTest {
                 TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
     final SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    final BuildRuleParams params = TestBuildRuleParams.create();
     final FakeFileHashCache hashCache =
         FakeFileHashCache.createFromStrings(
             ImmutableMap.<String, String>builder()
@@ -331,7 +322,7 @@ public class CxxPreprocessAndCompileTest {
                 CxxPreprocessAndCompile.preprocessAndCompile(
                     target,
                     projectFilesystem,
-                    params,
+                    ImmutableSortedSet.of(),
                     new PreprocessorDelegate(
                         pathResolver,
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
@@ -343,7 +334,6 @@ public class CxxPreprocessAndCompileTest {
                         Optional.empty(),
                         /* leadingIncludePaths */ Optional.empty()),
                     new CompilerDelegate(
-                        pathResolver,
                         CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                         DEFAULT_COMPILER,
                         CxxToolFlags.of()),
@@ -373,7 +363,6 @@ public class CxxPreprocessAndCompileTest {
                 new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    BuildRuleParams params = TestBuildRuleParams.create();
     CxxToolFlags flags =
         CxxToolFlags.explicitBuilder()
             .addPlatformFlags(StringArg.of("-ffunction-sections"))
@@ -387,12 +376,9 @@ public class CxxPreprocessAndCompileTest {
         CxxPreprocessAndCompile.compile(
             target,
             projectFilesystem,
-            params,
+            ImmutableSortedSet.of(),
             new CompilerDelegate(
-                pathResolver,
-                CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
-                DEFAULT_COMPILER,
-                flags),
+                CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER, DEFAULT_COMPILER, flags),
             output,
             FakeSourcePath.of(input.toString()),
             DEFAULT_INPUT_TYPE,
@@ -430,7 +416,6 @@ public class CxxPreprocessAndCompileTest {
                 new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    BuildRuleParams params = TestBuildRuleParams.create();
     BuildContext context = FakeBuildContext.withSourcePathResolver(pathResolver);
 
     projectFilesystem.writeContentsToPath(
@@ -442,7 +427,7 @@ public class CxxPreprocessAndCompileTest {
         CxxPreprocessAndCompile.preprocessAndCompile(
             target,
             projectFilesystem,
-            params,
+            ImmutableSortedSet.of(),
             new PreprocessorDelegate(
                 pathResolver,
                 CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
@@ -454,7 +439,6 @@ public class CxxPreprocessAndCompileTest {
                 Optional.empty(),
                 /* leadingIncludePaths */ Optional.empty()),
             new CompilerDelegate(
-                pathResolver,
                 CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                 DEFAULT_COMPILER,
                 CxxToolFlags.of()),
@@ -472,9 +456,8 @@ public class CxxPreprocessAndCompileTest {
         CxxPreprocessAndCompile.compile(
             target,
             projectFilesystem,
-            params,
+            ImmutableSortedSet.of(),
             new CompilerDelegate(
-                pathResolver,
                 CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                 new GccCompiler(compilerTool),
                 CxxToolFlags.of()),
@@ -495,14 +478,12 @@ public class CxxPreprocessAndCompileTest {
                 new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    BuildRuleParams params = TestBuildRuleParams.create();
     Path output = Paths.get("test.o");
     Path input = Paths.get("test.ii");
     Path scratchDir = Paths.get("scratch");
 
     CompilerDelegate compilerDelegate =
         new CompilerDelegate(
-            pathResolver,
             CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
             COMPILER_WITH_COLOR_SUPPORT,
             CxxToolFlags.of());
@@ -511,7 +492,7 @@ public class CxxPreprocessAndCompileTest {
         CxxPreprocessAndCompile.compile(
             target,
             projectFilesystem,
-            params,
+            ImmutableSortedSet.of(),
             compilerDelegate,
             output,
             FakeSourcePath.of(input.toString()),
@@ -540,7 +521,6 @@ public class CxxPreprocessAndCompileTest {
                 new SingleThreadedBuildRuleResolver(
                     TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    BuildRuleParams params = TestBuildRuleParams.create();
     Path output = Paths.get("test.ii");
     Path input = Paths.get("test.cpp");
     Path scratchDir = Paths.get("scratch");
@@ -549,7 +529,7 @@ public class CxxPreprocessAndCompileTest {
         CxxPreprocessAndCompile.preprocessAndCompile(
             target,
             projectFilesystem,
-            params,
+            ImmutableSortedSet.of(),
             new PreprocessorDelegate(
                 pathResolver,
                 CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
@@ -561,7 +541,6 @@ public class CxxPreprocessAndCompileTest {
                 Optional.empty(),
                 /* leadingIncludePaths */ Optional.empty()),
             new CompilerDelegate(
-                pathResolver,
                 CxxPlatformUtils.DEFAULT_COMPILER_DEBUG_PATH_SANITIZER,
                 COMPILER_WITH_COLOR_SUPPORT,
                 CxxToolFlags.of()),

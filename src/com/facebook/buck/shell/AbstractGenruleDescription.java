@@ -16,7 +16,9 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.android.AndroidLegacyToolchain;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.android.toolchain.AndroidSdkLocation;
+import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.macros.MacroException;
@@ -91,6 +93,16 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
     this.enableSandbox = enableSandbox;
   }
 
+  protected abstract BuildRule createBuildRule(
+      BuildTarget buildTarget,
+      final ProjectFilesystem projectFilesystem,
+      BuildRuleParams params,
+      BuildRuleResolver resolver,
+      T args,
+      Optional<Arg> cmd,
+      Optional<Arg> bash,
+      Optional<Arg> cmdExe);
+
   protected BuildRule createBuildRule(
       BuildTarget buildTarget,
       final ProjectFilesystem projectFilesystem,
@@ -99,14 +111,11 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
       T args,
       Optional<Arg> cmd,
       Optional<Arg> bash,
-      Optional<Arg> cmdExe) {
-    AndroidLegacyToolchain androidLegacyToolchain =
-        toolchainProvider.getByName(
-            AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
+      Optional<Arg> cmdExe,
+      String outputFileName) {
     return new Genrule(
         buildTarget,
         projectFilesystem,
-        androidLegacyToolchain,
         resolver,
         params,
         sandboxExecutionStrategy,
@@ -115,10 +124,15 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
         bash,
         cmdExe,
         args.getType(),
-        args.getOut(),
+        outputFileName,
         args.getEnableSandbox().orElse(enableSandbox),
         true,
-        args.getEnvironmentExpansionSeparator());
+        args.getEnvironmentExpansionSeparator(),
+        toolchainProvider.getByNameIfPresent(
+            AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class),
+        toolchainProvider.getByNameIfPresent(AndroidNdk.DEFAULT_NAME, AndroidNdk.class),
+        toolchainProvider.getByNameIfPresent(
+            AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class));
   }
 
   protected MacroHandler getMacroHandlerForParseTimeDeps() {
@@ -282,8 +296,6 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
 
   @SuppressFieldNotInitialized
   public interface CommonArg extends CommonDescriptionArg, HasTests {
-    String getOut();
-
     Optional<String> getBash();
 
     Optional<String> getCmd();

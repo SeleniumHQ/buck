@@ -36,6 +36,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BuildInfo.MetadataKey;
 import com.facebook.buck.rules.keys.DependencyFileEntry;
 import com.facebook.buck.rules.keys.RuleKeyAndInputs;
 import com.facebook.buck.rules.keys.RuleKeyDiagnostics;
@@ -488,6 +489,7 @@ class CachingBuildRuleBuilder {
     // input-based rule keys.
     long outputSize =
         Long.parseLong(onDiskBuildInfo.getValue(BuildInfo.MetadataKey.OUTPUT_SIZE).get());
+
     if (shouldWriteOutputHashes(outputSize)) {
       Optional<ImmutableMap<String, String>> hashes =
           onDiskBuildInfo.getMap(BuildInfo.MetadataKey.RECORDED_PATH_HASHES);
@@ -734,16 +736,17 @@ class CachingBuildRuleBuilder {
         successType = Optional.of(success);
 
         // Try get the output size.
-        if (success.shouldUploadResultingArtifact()) {
-          // All rules should have output_size/output_hash in their artifact metadata.
-          outputSize =
-              Optional.of(
-                  Long.parseLong(
-                      onDiskBuildInfo.getValue(BuildInfo.MetadataKey.OUTPUT_SIZE).get()));
-          if (shouldWriteOutputHashes(outputSize.get())) {
-            String hashString = onDiskBuildInfo.getValue(BuildInfo.MetadataKey.OUTPUT_HASH).get();
-            outputHash = Optional.of(HashCode.fromString(hashString));
-          }
+        Optional<String> outputSizeString = onDiskBuildInfo.getValue(MetadataKey.OUTPUT_SIZE);
+        if (outputSizeString.isPresent()) {
+          outputSize = Optional.of(Long.parseLong(outputSizeString.get()));
+        }
+
+        // All rules should have output_size/output_hash in their artifact metadata.
+        if (success.shouldUploadResultingArtifact()
+            && outputSize.isPresent()
+            && shouldWriteOutputHashes(outputSize.get())) {
+          String hashString = onDiskBuildInfo.getValue(BuildInfo.MetadataKey.OUTPUT_HASH).get();
+          outputHash = Optional.of(HashCode.fromString(hashString));
         }
 
         // Determine if this is rule is cacheable.
@@ -854,28 +857,24 @@ class CachingBuildRuleBuilder {
     AtomicReference<CacheResult> rulekeyCacheResult = new AtomicReference<>();
     ListenableFuture<Optional<BuildResult>> buildResultFuture;
 
-    // If this is a distributed build, wait for cachable rules to be marked as
-    // finished by the remote build before attempting to fetch from cache.
-    ListenableFuture<Void> remoteBuildRuleFinishedFuture =
-        remoteBuildRuleCompletionWaiter.waitForBuildRuleToFinishRemotely(rule);
-
     // 2. Rule key cache lookup.
     buildResultFuture =
         // TODO(cjhopman): This should follow the same, simple pattern as everything else. With a
         // large ui.thread_line_limit, SuperConsole tries to redraw more lines than are available.
         // These cache threads make it more likely to hit that problem when SuperConsole is aware
         // of them.
-        Futures.transformAsync(
-            remoteBuildRuleFinishedFuture,
-            (Void v) ->
-                Futures.transform(
-                    performRuleKeyCacheCheck(),
-                    cacheResult -> {
-                      rulekeyCacheResult.set(cacheResult);
-                      return getBuildResultForRuleKeyCacheResult(cacheResult);
-                    }));
+        Futures.transform(
+            performRuleKeyCacheCheck(),
+            cacheResult -> {
+              rulekeyCacheResult.set(cacheResult);
+              return getBuildResultForRuleKeyCacheResult(cacheResult);
+            });
 
-    // 3. Build deps.
+    // 3. Before unlocking dependencies, ensure build rule hasn't started remotely.
+    buildResultFuture =
+        attemptDistributedBuildSynchronization(buildResultFuture, rulekeyCacheResult);
+
+    // 4. Build deps.
     buildResultFuture =
         transformBuildResultAsyncIfNotPresent(
             buildResultFuture,
@@ -893,7 +892,7 @@ class CachingBuildRuleBuilder {
                       CachingBuildEngine.SCHEDULING_MORE_WORK_RESOURCE_AMOUNTS));
             });
 
-    // 4. Return to the current rule and check if it was (or is being) built in a pipeline with
+    // 5. Return to the current rule and check if it was (or is being) built in a pipeline with
     // one of its dependencies
     if (SupportsPipelining.isSupported(rule)) {
       buildResultFuture =
@@ -907,13 +906,13 @@ class CachingBuildRuleBuilder {
               });
     }
 
-    // 5. Return to the current rule and check caches to see if we can avoid building
+    // 6. Return to the current rule and check caches to see if we can avoid building
     if (SupportsInputBasedRuleKey.isSupported(rule)) {
       buildResultFuture =
           transformBuildResultAsyncIfNotPresent(buildResultFuture, this::checkInputBasedCaches);
     }
 
-    // 6. Then check if the depfile matches.
+    // 7. Then check if the depfile matches.
     if (useDependencyFileRuleKey()) {
       buildResultFuture =
           transformBuildResultIfNotPresent(
@@ -922,13 +921,13 @@ class CachingBuildRuleBuilder {
               serviceByAdjustingDefaultWeightsTo(CachingBuildEngine.CACHE_CHECK_RESOURCE_AMOUNTS));
     }
 
-    // 7. Check for a manifest-based cache hit.
+    // 8. Check for a manifest-based cache hit.
     if (useManifestCaching()) {
       buildResultFuture =
           transformBuildResultAsyncIfNotPresent(buildResultFuture, this::checkManifestBasedCaches);
     }
 
-    // 8. Fail if populating the cache and cache lookups failed.
+    // 9. Fail if populating the cache and cache lookups failed.
     if (buildMode == CachingBuildEngine.BuildMode.POPULATE_FROM_REMOTE_CACHE) {
       buildResultFuture =
           transformBuildResultIfNotPresent(
@@ -945,7 +944,12 @@ class CachingBuildRuleBuilder {
               MoreExecutors.newDirectExecutorService());
     }
 
-    // 9. Build the current rule locally, if we have to.
+    // 10. Before building locally, do a final check that rule hasn't started building remotely.
+    // (as time has passed due to building of dependencies)
+    buildResultFuture =
+        attemptDistributedBuildSynchronization(buildResultFuture, rulekeyCacheResult);
+
+    // 11. Build the current rule locally, if we have to.
     buildResultFuture =
         transformBuildResultAsyncIfNotPresent(
             buildResultFuture,
@@ -965,6 +969,35 @@ class CachingBuildRuleBuilder {
 
     // Unwrap the result.
     return Futures.transform(buildResultFuture, Optional::get);
+  }
+
+  private ListenableFuture<Optional<BuildResult>> attemptDistributedBuildSynchronization(
+      ListenableFuture<Optional<BuildResult>> buildResultFuture,
+      AtomicReference<CacheResult> rulekeyCacheResult) {
+    // Check if rule has started being built remotely (i.e. by Stampede). If it has, or if we are
+    // in a 'always wait mode' distributed build, then wait, otherwise proceed immediately.
+    return transformBuildResultAsyncIfNotPresent(
+        buildResultFuture,
+        () -> {
+          if (!remoteBuildRuleCompletionWaiter.shouldWaitForRemoteCompletionOfBuildRule(
+              rule.getFullyQualifiedName())) {
+            // Start building locally right away, as remote build hasn't started yet.
+            // Note: this code path is also used for regular local Buck builds, these use
+            // NoOpRemoteBuildRuleCompletionWaiter that always returns false for above call.
+            return Futures.immediateFuture(Optional.empty());
+          }
+
+          // Once remote build has finished, download artifact from cache using default key
+          return Futures.transformAsync(
+              remoteBuildRuleCompletionWaiter.waitForBuildRuleToFinishRemotely(rule),
+              (Void v) ->
+                  Futures.transform(
+                      performRuleKeyCacheCheck(),
+                      cacheResult -> {
+                        rulekeyCacheResult.set(cacheResult);
+                        return getBuildResultForRuleKeyCacheResult(cacheResult);
+                      }));
+        });
   }
 
   private <T extends RulePipelineState> void addToPipelinesRunner(

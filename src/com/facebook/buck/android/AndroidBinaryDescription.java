@@ -27,8 +27,9 @@ import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.dalvik.ZipSplitter.DexSplitStrategy;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.redex.RedexOptions;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.DxToolchain;
-import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
@@ -125,6 +126,7 @@ public class AndroidBinaryDescription
           PACKAGE_STRING_ASSETS_FLAVOR,
           AndroidBinaryResourcesGraphEnhancer.AAPT2_LINK_FLAVOR,
           AndroidBinaryGraphEnhancer.UNSTRIPPED_NATIVE_LIBRARIES_FLAVOR,
+          AndroidBinaryGraphEnhancer.PROGUARD_TEXT_OUTPUT_FLAVOR,
           AndroidBinaryResourcesGraphEnhancer.GENERATE_STRING_RESOURCES_FLAVOR);
 
   private final ToolchainProvider toolchainProvider;
@@ -134,6 +136,7 @@ public class AndroidBinaryDescription
   private final CxxBuckConfig cxxBuckConfig;
   private final DxConfig dxConfig;
   private final AndroidInstallConfig androidInstallConfig;
+  private final ApkConfig apkConfig;
 
   public AndroidBinaryDescription(
       ToolchainProvider toolchainProvider,
@@ -141,7 +144,8 @@ public class AndroidBinaryDescription
       ProGuardConfig proGuardConfig,
       BuckConfig buckConfig,
       CxxBuckConfig cxxBuckConfig,
-      DxConfig dxConfig) {
+      DxConfig dxConfig,
+      ApkConfig apkConfig) {
     this.toolchainProvider = toolchainProvider;
     this.javaBuckConfig = javaBuckConfig;
     this.proGuardConfig = proGuardConfig;
@@ -149,6 +153,7 @@ public class AndroidBinaryDescription
     this.cxxBuckConfig = cxxBuckConfig;
     this.dxConfig = dxConfig;
     this.androidInstallConfig = new AndroidInstallConfig(buckConfig);
+    this.apkConfig = apkConfig;
   }
 
   @Override
@@ -282,20 +287,17 @@ public class AndroidBinaryDescription
       ResourceFilter resourceFilter = new ResourceFilter(args.getResourceFilter());
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
 
-      AndroidLegacyToolchain androidLegacyToolchain =
+      AndroidPlatformTarget androidPlatformTarget =
           toolchainProvider.getByName(
-              AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
-
-      NdkCxxPlatformsProvider ndkCxxPlatformsProvider =
-          toolchainProvider.getByName(
-              NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.class);
+              AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class);
 
       AndroidBinaryGraphEnhancer graphEnhancer =
           new AndroidBinaryGraphEnhancer(
+              toolchainProvider,
               cellRoots,
               buildTarget,
               projectFilesystem,
-              androidLegacyToolchain,
+              androidPlatformTarget,
               params,
               resolver,
               args.getAaptMode(),
@@ -328,7 +330,7 @@ public class AndroidBinaryDescription
               Optional.empty(),
               args.isTrimResourceIds(),
               args.getKeepResourcePattern(),
-              ndkCxxPlatformsProvider.getNdkCxxPlatforms(),
+              args.isIgnoreAaptProguardConfig(),
               Optional.of(args.getNativeLibraryMergeMap()),
               args.getNativeLibraryMergeGlue(),
               args.getNativeLibraryMergeCodeGenerator(),
@@ -371,7 +373,9 @@ public class AndroidBinaryDescription
           new AndroidBinary(
               buildTarget,
               projectFilesystem,
-              androidLegacyToolchain,
+              toolchainProvider.getByName(
+                  AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class),
+              androidPlatformTarget,
               params,
               ruleFinder,
               Optional.of(args.getProguardJvmArgs()),
@@ -400,7 +404,8 @@ public class AndroidBinaryDescription
               filesInfo.getNativeFilesInfo(),
               filesInfo.getResourceFilesInfo(),
               ImmutableSortedSet.copyOf(result.getAPKModuleGraph().getAPKModules()),
-              filesInfo.getExopackageInfo());
+              filesInfo.getExopackageInfo(),
+              apkConfig.getCompressionLevel());
       // The exo installer is always added to the index so that the action graph is the same
       // between build and install calls.
       new AndroidBinaryInstallGraphEnhancer(
@@ -686,6 +691,11 @@ public class AndroidBinaryDescription
 
     @Value.Default
     default boolean isBuildStringSourceMap() {
+      return false;
+    }
+
+    @Value.Default
+    default boolean isIgnoreAaptProguardConfig() {
       return false;
     }
 

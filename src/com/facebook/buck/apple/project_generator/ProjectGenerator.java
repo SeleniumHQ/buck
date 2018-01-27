@@ -100,7 +100,6 @@ import com.facebook.buck.js.JsBundleOutputsDescription;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.rules.BuildRule;
@@ -136,6 +135,7 @@ import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreMaps;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.types.Either;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -1309,6 +1309,8 @@ public class ProjectGenerator {
       }
 
       swiftVersion.ifPresent(s -> extraSettingsBuilder.put("SWIFT_VERSION", s));
+      swiftVersion.ifPresent(
+          s -> extraSettingsBuilder.put("PRODUCT_MODULE_NAME", getModuleName(targetNode)));
 
       if (hasSwiftVersionArg && containsSwiftCode && isFocusedOnTarget) {
         extraSettingsBuilder.put(
@@ -2547,6 +2549,10 @@ public class ProjectGenerator {
         library.isPresent()
             && !AppleLibraryDescription.isNotStaticallyLinkedLibraryNode(library.get());
     if (isStaticLibrary) {
+      Optional<String> basename = library.get().getConstructorArg().getStaticLibraryBasename();
+      if (basename.isPresent()) {
+        return basename.get();
+      }
       return CxxDescriptionEnhancer.getStaticLibraryBasename(
           targetNode.getBuildTarget(), "", cxxBuckConfig.isUniqueLibraryNameEnabled());
     } else {
@@ -2572,7 +2578,7 @@ public class ProjectGenerator {
   }
 
   private String getSwiftObjCGeneratedHeaderName(TargetNode<?, ?> node) {
-    return getProductNameForBuildTargetNode(node) + "-Swift.h";
+    return getModuleName(node) + "-Swift.h";
   }
 
   private Path getSwiftObjCGeneratedHeaderPath(TargetNode<?, ?> node, ProjectFilesystem fs) {
@@ -2979,11 +2985,11 @@ public class ProjectGenerator {
     targetSpecificSwiftFlags.add("-import-underlying-module");
     Path vfsOverlay =
         getObjcModulemapVFSOverlayLocationFromSymlinkTreeRoot(
-            getHeaderSymlinkTreeRelativePath(targetNode, HeaderVisibility.PUBLIC));
+            getPathToHeaderSymlinkTree(targetNode, HeaderVisibility.PUBLIC));
     targetSpecificSwiftFlags.add("-Xcc");
     targetSpecificSwiftFlags.add("-ivfsoverlay");
     targetSpecificSwiftFlags.add("-Xcc");
-    targetSpecificSwiftFlags.add(vfsOverlay.toString());
+    targetSpecificSwiftFlags.add("$REPO_ROOT/" + vfsOverlay.toString());
     return targetSpecificSwiftFlags.build();
   }
 
@@ -3298,7 +3304,7 @@ public class ProjectGenerator {
     BuildRule rule = ruleFinder.getRule(pchTargetSourcePath);
     Preconditions.checkArgument(rule instanceof CxxPrecompiledHeaderTemplate);
     CxxPrecompiledHeaderTemplate pch = (CxxPrecompiledHeaderTemplate) rule;
-    return Optional.of(pch.sourcePath);
+    return Optional.of(pch.getHeaderSourcePath());
   }
 
   private ProjectFilesystem getFilesystemForTarget(Optional<BuildTarget> target) {

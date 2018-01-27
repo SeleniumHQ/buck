@@ -98,6 +98,19 @@ android_binary(
 )
 
 android_binary(
+    name = "app_post_filter_no_dups",
+    duplicate_resource_behavior = "ban_by_default",
+    keystore = "//keystores:debug",
+    manifest = "AndroidManifest.xml",
+    post_filter_resources_cmd = "$(exe //scripts:postfilter)",
+    deps = [
+        "//java/com/sample/lib:lib",
+        "//res/com/sample/base:base",
+        "//scripts:postfilter",
+    ],
+)
+
+android_binary(
     name = "app_str",
     keystore = "//keystores:debug",
     manifest = "AndroidManifest.xml",
@@ -320,6 +333,31 @@ android_binary(
         "//java/com/sample/lib:lib",
         "//res/com/sample/base:base",
     ],
+)
+
+genrule(
+    name = "proguard_output_dontobfuscate",
+    out = "proguard_output_dontobfuscate.txt",
+    bash = "cat >$OUT $(location :app_proguard_dontobfuscate#proguard_text_output)/configuration.txt",
+)
+
+android_binary(
+    name = "app_proguard_dontobfuscate_no_aapt",
+    ignore_aapt_proguard_config = True,
+    keystore = "//keystores:debug",
+    manifest = "AndroidManifest.xml",
+    package_type = "release",
+    proguard_config = "dontobfuscate.pro",
+    deps = [
+        "//java/com/sample/lib:lib",
+        "//res/com/sample/base:base",
+    ],
+)
+
+genrule(
+    name = "proguard_output_dontobfuscate_no_aapt",
+    out = "proguard_output_dontobfuscate_no_aapt.txt",
+    bash = "cat >$OUT $(location :app_proguard_dontobfuscate_no_aapt#proguard_text_output)/configuration.txt",
 )
 
 android_aar(

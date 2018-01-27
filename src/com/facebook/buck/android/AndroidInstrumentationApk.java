@@ -18,6 +18,8 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.exopackage.ExopackageInfo;
 import com.facebook.buck.android.exopackage.ExopackageMode;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.model.BuildTarget;
@@ -48,7 +50,8 @@ public class AndroidInstrumentationApk extends AndroidBinary {
   AndroidInstrumentationApk(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      AndroidLegacyToolchain androidLegacyToolchain,
+      AndroidSdkLocation androidSdkLocation,
+      AndroidPlatformTarget androidPlatformTarget,
       BuildRuleParams buildRuleParams,
       SourcePathRuleFinder ruleFinder,
       AndroidBinary apkUnderTest,
@@ -57,11 +60,13 @@ public class AndroidInstrumentationApk extends AndroidBinary {
       DexFilesInfo dexFilesInfo,
       NativeFilesInfo nativeFilesInfo,
       ResourceFilesInfo resourceFilesInfo,
-      Optional<ExopackageInfo> exopackageInfo) {
+      Optional<ExopackageInfo> exopackageInfo,
+      int apkCompressionLevel) {
     super(
         buildTarget,
         projectFilesystem,
-        androidLegacyToolchain,
+        androidSdkLocation,
+        androidPlatformTarget,
         buildRuleParams,
         ruleFinder,
         apkUnderTest.getProguardJvmArgs(),
@@ -91,7 +96,8 @@ public class AndroidInstrumentationApk extends AndroidBinary {
         nativeFilesInfo,
         resourceFilesInfo,
         ImmutableSortedSet.copyOf(enhancementResult.getAPKModuleGraph().getAPKModules()),
-        exopackageInfo);
+        exopackageInfo,
+        apkCompressionLevel);
     this.apkUnderTest = apkUnderTest;
   }
 

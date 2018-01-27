@@ -7,6 +7,7 @@ TYPES_SRCS = [
     "AbstractMavenCoordinatesMacro.java",
     "AbstractOutputMacro.java",
     "AbstractQueryOutputsMacro.java",
+    "AbstractQueryPathsMacro.java",
     "AbstractQueryTargetsMacro.java",
     "AbstractStringWithMacros.java",
     "BuildTargetMacro.java",
@@ -20,7 +21,6 @@ java_immutables_library(
     visibility = ["PUBLIC"],
     deps = [
         "//src/com/facebook/buck/model:model",
-        "//src/com/facebook/buck/model:simple_types",
         "//src/com/facebook/buck/parser:rule_pattern",
         "//src/com/facebook/buck/rules:interfaces",
         "//src/com/facebook/buck/rules/query:types",

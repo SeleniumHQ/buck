@@ -132,11 +132,7 @@ public class ApkGenruleTest {
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
 
-    ToolchainProvider toolchainProvider =
-        new ToolchainProviderBuilder()
-            .withToolchain(
-                AndroidLegacyToolchain.DEFAULT_NAME, TestAndroidLegacyToolchainFactory.create())
-            .build();
+    ToolchainProvider toolchainProvider = new ToolchainProviderBuilder().build();
 
     ApkGenruleDescription description =
         new ApkGenruleDescription(toolchainProvider, new NoSandboxExecutionStrategy());
@@ -169,13 +165,11 @@ public class ApkGenruleTest {
     ruleResolver.addToIndex(apkGenrule);
 
     // Verify all of the observers of the Genrule.
-    String expectedApkOutput =
-        projectFilesystem
-            .resolve(
-                projectFilesystem.getBuckPaths().getGenDir().toString()
-                    + "/src/com/facebook/sign_fb4a/sign_fb4a.apk")
-            .toString();
-    assertEquals(expectedApkOutput, apkGenrule.getAbsoluteOutputFilePath(pathResolver));
+    Path expectedApkOutput =
+        projectFilesystem.resolve(
+            projectFilesystem.getBuckPaths().getGenDir().toString()
+                + "/src/com/facebook/sign_fb4a/sign_fb4a.apk");
+    assertEquals(expectedApkOutput, apkGenrule.getAbsoluteOutputFilePath());
     assertEquals(
         "The apk that this rule is modifying must have the apk in its deps.",
         ImmutableSet.of(apkTarget.toString()),
@@ -285,7 +279,7 @@ public class ApkGenruleTest {
                 projectFilesystem
                     .resolve(BuildTargets.getGenPath(projectFilesystem, apkTarget, "%s.apk"))
                     .toString())
-            .put("OUT", expectedApkOutput)
+            .put("OUT", expectedApkOutput.toString())
             .build(),
         environmentVariables);
 

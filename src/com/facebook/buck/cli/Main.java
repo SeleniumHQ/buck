@@ -30,6 +30,7 @@ import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.BuckInitializationDurationEvent;
+import com.facebook.buck.event.CacheStatsEvent;
 import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.DaemonEvent;
@@ -119,6 +120,7 @@ import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessManager;
 import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.Verbosity;
+import com.facebook.buck.util.cache.CacheStatsTracker;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
@@ -145,6 +147,7 @@ import com.facebook.buck.util.timing.NanosAdjustedClock;
 import com.facebook.buck.util.versioncontrol.DelegatingVersionControlCmdLineInterface;
 import com.facebook.buck.util.versioncontrol.VersionControlBuckConfig;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
+import com.facebook.buck.versions.InstrumentedVersionedTargetGraphCache;
 import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.facebook.buck.worker.WorkerProcessPool;
 import com.google.common.annotations.VisibleForTesting;
@@ -475,22 +478,28 @@ public final class Main {
     }
   }
 
-  private Config setupDefaultConfig(Path canonicalRootPath, BuckCommand command)
+  private ImmutableMap<RelativeCellName, Path> getCellMapping(Path canonicalRootPath)
       throws IOException {
-    ImmutableMap<RelativeCellName, Path> cellMapping =
-        DefaultCellPathResolver.bootstrapPathMapping(
-            canonicalRootPath, Configs.createDefaultConfig(canonicalRootPath));
+    return DefaultCellPathResolver.bootstrapPathMapping(
+        canonicalRootPath, Configs.createDefaultConfig(canonicalRootPath));
+  }
+
+  private Config setupDefaultConfig(
+      ImmutableMap<RelativeCellName, Path> cellMapping, BuckCommand command) throws IOException {
+    Path rootPath = cellMapping.get(RelativeCellName.ROOT_CELL_NAME);
+    Preconditions.checkNotNull(rootPath, "Root cell should be implicitly added");
     RawConfig rootCellConfigOverrides;
+
     try {
       ImmutableMap<Path, RawConfig> overridesByPath =
           command.getConfigOverrides().getOverridesByPath(cellMapping);
       rootCellConfigOverrides =
-          Optional.ofNullable(overridesByPath.get(canonicalRootPath)).orElse(RawConfig.of());
+          Optional.ofNullable(overridesByPath.get(rootPath)).orElse(RawConfig.of());
     } catch (MalformedOverridesException exception) {
       rootCellConfigOverrides =
           command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME);
     }
-    return Configs.createDefaultConfig(canonicalRootPath, rootCellConfigOverrides);
+    return Configs.createDefaultConfig(rootPath, rootCellConfigOverrides);
   }
 
   private ImmutableSet<Path> getProjectWatchList(
@@ -538,8 +547,11 @@ public final class Main {
 
     ExitCode exitCode = ExitCode.SUCCESS;
 
+    // Setup filesystem and buck config.
+    Path canonicalRootPath = projectRoot.toRealPath().normalize();
+    ImmutableMap<RelativeCellName, Path> rootCellMapping = getCellMapping(canonicalRootPath);
     ImmutableList<String> args =
-        BuckArgsMethods.expandAtFiles(unexpandedCommandLineArgs, projectRoot);
+        BuckArgsMethods.expandAtFiles(unexpandedCommandLineArgs, rootCellMapping);
 
     // Parse command line arguments
     BuckCommand command = new BuckCommand();
@@ -564,9 +576,7 @@ public final class Main {
       pluginManager = BuckPluginManagerFactory.createPluginManager();
     }
 
-    // Setup filesystem and buck config.
-    Path canonicalRootPath = projectRoot.toRealPath().normalize();
-    Config config = setupDefaultConfig(canonicalRootPath, command);
+    Config config = setupDefaultConfig(rootCellMapping, command);
 
     ProjectFilesystemFactory projectFilesystemFactory = new DefaultProjectFilesystemFactory();
     ProjectFilesystem filesystem =
@@ -796,7 +806,7 @@ public final class Main {
 
       ExecutorService diskIoExecutorService = MostExecutors.newSingleThreadExecutor("Disk I/O");
       ListeningExecutorService httpWriteExecutorService =
-          getHttpWriteExecutorService(cacheBuckConfig);
+          getHttpWriteExecutorService(cacheBuckConfig, isDistributedBuild);
       ListeningExecutorService httpFetchExecutorService =
           getHttpFetchExecutorService(cacheBuckConfig);
       ScheduledExecutorService counterAggregatorExecutor =
@@ -1077,6 +1087,10 @@ public final class Main {
           buildEventBus.post(CommandEvent.interrupted(startedEvent, ExitCode.SIGNAL_INTERRUPT));
           throw e;
         }
+        buildEventBus.post(
+            new CacheStatsEvent(
+                "versioned_target_graph_cache",
+                parserAndCaches.getVersionedTargetGraphCache().getCacheStats()));
 
         // Wait for HTTP writes to complete.
         closeHttpExecutorService(
@@ -1093,6 +1107,7 @@ public final class Main {
         flushAndCloseEventListeners(console, buildId, eventListeners);
         throw t;
       } finally {
+        context.ifPresent(c -> c.removeAllClientListeners());
         if (commandSemaphoreAcquired) {
           commandSemaphoreNgClient = Optional.empty();
           BgProcessKiller.disarm();
@@ -1140,7 +1155,7 @@ public final class Main {
 
     public abstract TypeCoercerFactory getTypeCoercerFactory();
 
-    public abstract VersionedTargetGraphCache getVersionedTargetGraphCache();
+    public abstract InstrumentedVersionedTargetGraphCache getVersionedTargetGraphCache();
 
     public abstract ActionGraphCache getActionGraphCache();
 
@@ -1199,7 +1214,8 @@ public final class Main {
           ParserAndCaches.of(
               daemon.getParser(),
               daemon.getTypeCoercerFactory(),
-              daemon.getVersionedTargetGraphCache(),
+              new InstrumentedVersionedTargetGraphCache(
+                  daemon.getVersionedTargetGraphCache(), new CacheStatsTracker()),
               daemon.getActionGraphCache(),
               defaultRuleKeyFactoryCacheRecycler);
     } else {
@@ -1213,7 +1229,8 @@ public final class Main {
                   new ConstructorArgMarshaller(typeCoercerFactory),
                   knownBuildRuleTypesProvider),
               typeCoercerFactory,
-              new VersionedTargetGraphCache(),
+              new InstrumentedVersionedTargetGraphCache(
+                  new VersionedTargetGraphCache(), new CacheStatsTracker()),
               new ActionGraphCache(buckConfig.getMaxActionGraphCacheEntries()),
               /* defaultRuleKeyFactoryCacheRecycler */ Optional.empty());
     }
@@ -1221,18 +1238,21 @@ public final class Main {
   }
 
   private static void registerClientDisconnectedListener(NGContext context, Daemon daemon)
-      throws IOException, InterruptedException {
+      throws IOException {
+    Thread mainThread = Thread.currentThread();
     context.addClientListener(
         () -> {
           if (Main.isSessionLeader && Main.commandSemaphoreNgClient.orElse(null) == context) {
             LOG.info(
-                "BuckIsDyingException: killing background processes on client disconnection"
+                "Killing background processes on nailgun client disconnection"
                     + Throwables.getStackTraceAsString(new Throwable()));
             // Process no longer wants work done on its behalf.
             BgProcessKiller.killBgProcesses();
           }
 
-          daemon.interruptOnClientExit(context.err);
+          // signal daemon to complete required tasks and interrupt main thread
+          // this will hopefully trigger InterruptedException and program shutdown
+          daemon.interruptOnClientExit(mainThread);
         });
   }
 
@@ -1366,8 +1386,9 @@ public final class Main {
   }
 
   private static ListeningExecutorService getHttpWriteExecutorService(
-      ArtifactCacheBuckConfig buckConfig) {
-    if (buckConfig.hasAtLeastOneWriteableCache()) {
+      ArtifactCacheBuckConfig buckConfig, boolean isDistributedBuild) {
+    if (isDistributedBuild || buckConfig.hasAtLeastOneWriteableCache()) {
+      // Distributed builds need to upload from the local cache to the remote cache.
       ExecutorService executorService =
           MostExecutors.newMultiThreadExecutor(
               "HTTP Write", buckConfig.getHttpMaxConcurrentWrites());

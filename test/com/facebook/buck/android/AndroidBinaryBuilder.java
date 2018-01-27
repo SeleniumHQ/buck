@@ -24,6 +24,7 @@ import com.facebook.buck.android.AndroidBinaryDescription.AbstractAndroidBinaryD
 import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.android.aapt.RDotTxtEntry;
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.DxToolchain;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
@@ -54,14 +55,15 @@ public class AndroidBinaryBuilder
             new ProGuardConfig(FakeBuckConfig.builder().build()),
             FakeBuckConfig.builder().build(),
             CxxPlatformUtils.DEFAULT_CONFIG,
-            new DxConfig(FakeBuckConfig.builder().build())),
+            new DxConfig(FakeBuckConfig.builder().build()),
+            new ApkConfig(FakeBuckConfig.builder().build())),
         target);
   }
 
   private static ToolchainProvider createToolchainProvider() {
     return new ToolchainProviderBuilder()
         .withToolchain(
-            AndroidLegacyToolchain.DEFAULT_NAME, TestAndroidLegacyToolchainFactory.create())
+            AndroidPlatformTarget.DEFAULT_NAME, TestAndroidPlatformTargetFactory.create())
         .withDefaultNdkCxxPlatforms()
         .withToolchain(
             DxToolchain.DEFAULT_NAME, DxToolchain.of(MoreExecutors.newDirectExecutorService()))

@@ -22,10 +22,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.android.AndroidNdkHelper.SymbolGetter;
-import com.facebook.buck.android.AndroidNdkHelper.SymbolsAndDtNeeded;
 import com.facebook.buck.android.relinker.Symbols;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
+import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkHelper;
+import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkHelper.SymbolGetter;
+import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkHelper.SymbolsAndDtNeeded;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
@@ -341,7 +342,7 @@ public class AndroidBinaryNativeIntegrationTest extends AbiCompilationModeTest {
         syms.getNormalSymbols(outputs.get(app), "lib/x86/libnative_cxx_symbols.so");
     assertThat(strippedSyms.all, Matchers.empty());
 
-    workspace.runBuckCommand("clean").assertSuccess();
+    workspace.runBuckCommand("clean", "--keep-cache").assertSuccess();
     workspace.runBuckBuild(usnl);
 
     String unstrippedPath = null;
@@ -360,7 +361,7 @@ public class AndroidBinaryNativeIntegrationTest extends AbiCompilationModeTest {
   }
 
   private SymbolGetter getSymbolGetter() throws IOException, InterruptedException {
-    NdkCxxPlatform platform = AndroidNdkHelper.getNdkCxxPlatform(workspace, filesystem);
+    NdkCxxPlatform platform = AndroidNdkHelper.getNdkCxxPlatform(filesystem);
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(
             new SourcePathRuleFinder(

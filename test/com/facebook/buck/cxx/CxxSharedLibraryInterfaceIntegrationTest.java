@@ -19,13 +19,13 @@ package com.facebook.buck.cxx;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.AndroidBuckConfig;
-import com.facebook.buck.android.AndroidNdkHelper;
-import com.facebook.buck.android.DefaultAndroidDirectoryResolver;
-import com.facebook.buck.android.NdkCxxPlatformCompiler;
-import com.facebook.buck.android.NdkCxxPlatforms;
+import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.android.toolchain.ndk.NdkCompilerType;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformCompiler;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkHelper;
+import com.facebook.buck.android.toolchain.ndk.impl.NdkCxxPlatforms;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
@@ -62,17 +62,16 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
   private static Optional<ImmutableList<Flavor>> getNdkPlatforms() throws InterruptedException {
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(Paths.get(".").toAbsolutePath());
-    DefaultAndroidDirectoryResolver resolver =
-        new DefaultAndroidDirectoryResolver(
-            filesystem.getRootPath().getFileSystem(),
-            ImmutableMap.copyOf(System.getenv()),
-            AndroidNdkHelper.DEFAULT_CONFIG);
-    Optional<Path> ndkDir = resolver.getNdkOrAbsent();
-    if (!ndkDir.isPresent()) {
+
+    Optional<AndroidNdk> androidNdk = AndroidNdkHelper.detectAndroidNdk(filesystem);
+
+    if (!androidNdk.isPresent()) {
       return Optional.empty();
     }
+
+    Path ndkDir = androidNdk.get().getNdkRootPath();
     NdkCompilerType compilerType = NdkCxxPlatforms.DEFAULT_COMPILER_TYPE;
-    Optional<String> ndkVersion = resolver.getNdkVersion();
+    String ndkVersion = androidNdk.get().getNdkVersion();
     String gccVersion = NdkCxxPlatforms.getDefaultGccVersionForNdk(ndkVersion);
     String clangVersion = NdkCxxPlatforms.getDefaultClangVersionForNdk(ndkVersion);
     String compilerVersion = compilerType == NdkCompilerType.GCC ? gccVersion : clangVersion;
@@ -87,7 +86,7 @@ public class CxxSharedLibraryInterfaceIntegrationTest {
             new CxxBuckConfig(FakeBuckConfig.builder().build()),
             new AndroidBuckConfig(FakeBuckConfig.builder().build(), Platform.detect()),
             filesystem,
-            ndkDir.get(),
+            ndkDir,
             compiler,
             NdkCxxPlatforms.DEFAULT_CXX_RUNTIME,
             NdkCxxPlatforms.DEFAULT_TARGET_APP_PLATFORM,

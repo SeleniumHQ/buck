@@ -21,6 +21,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -42,7 +43,7 @@ public class MainIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "empty_project", tmp);
     workspace.setUp();
 
-    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand();
+    ProcessResult result = workspace.runBuckCommand();
 
     result.assertExitCode("nothing specified", ExitCode.COMMANDLINE_ERROR);
     assertThat(
@@ -57,7 +58,7 @@ public class MainIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "empty_project", tmp);
     workspace.setUp();
 
-    ProjectWorkspace.ProcessResult result = workspace.runBuckCommand();
+    ProcessResult result = workspace.runBuckCommand();
 
     result.assertExitCode("nothing specified", ExitCode.COMMANDLINE_ERROR);
     assertThat(
@@ -144,7 +145,9 @@ public class MainIntegrationTest {
                 + "shows this screen (or the help page of the specified command) and exits.",
             "  install        builds and installs an application",
             "  kill           kill buckd for the current project",
+            "  killall        kill all buckd processes",
             "  machoutils     provides some utils for Mach O binary files",
+            "  parser-cache   Load and save state of the parser cache",
             "  project        generates project configuration files for an IDE",
             "  publish        builds and publishes a library to a central repository",
             "  query          "

@@ -16,6 +16,9 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.android.toolchain.AndroidSdkLocation;
+import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
@@ -66,17 +69,12 @@ public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenrule
           buildTarget, args.getApk().getFullyQualifiedName());
     }
 
-    AndroidLegacyToolchain androidLegacyToolchain =
-        toolchainProvider.getByName(
-            AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
-
     final Supplier<? extends SortedSet<BuildRule>> originalExtraDeps = params.getExtraDeps();
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     return new ApkGenrule(
         buildTarget,
         projectFilesystem,
-        androidLegacyToolchain,
         sandboxExecutionStrategy,
         resolver,
         params.withExtraDeps(
@@ -94,12 +92,19 @@ public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenrule
         args.getType(),
         apk.getSourcePathToOutput(),
         args.getIsCacheable(),
-        args.getEnvironmentExpansionSeparator());
+        args.getEnvironmentExpansionSeparator(),
+        toolchainProvider.getByNameIfPresent(
+            AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class),
+        toolchainProvider.getByNameIfPresent(AndroidNdk.DEFAULT_NAME, AndroidNdk.class),
+        toolchainProvider.getByNameIfPresent(
+            AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class));
   }
 
   @BuckStyleImmutable
   @Value.Immutable
   interface AbstractApkGenruleDescriptionArg extends AbstractGenruleDescription.CommonArg {
+    Optional<String> getOut();
+
     BuildTarget getApk();
 
     @Override

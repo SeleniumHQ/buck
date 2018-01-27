@@ -17,6 +17,7 @@ from .glob_watchman import SyncCookieState, glob_watchman
 from .util import Diagnostic, cygwin_adjusted_path, get_caller_frame, is_special, is_in_dir
 from .module_whitelist import ImportWhitelistManager
 from .profiler import Profiler
+from .struct import Struct
 
 import abc
 import functools
@@ -26,6 +27,7 @@ import json
 import optparse
 import os
 import os.path
+import platform
 import pywatchman
 import re
 import select
@@ -214,6 +216,100 @@ class LazyBuildEnvPartial(object):
                 raise IncorrectArgumentsException(
                     self.func.func_name, name, missing_args, extra_args)
             raise
+
+
+HostInfoOs = collections.namedtuple(
+    'HostInfoOs',
+    [
+        'is_linux',
+        'is_macos',
+        'is_windows',
+        'is_freebsd',
+        'is_unknown',
+    ],
+)
+
+HostInfoArch = collections.namedtuple(
+    'HostInfoArch',
+    [
+        'is_aarch64',
+        'is_arm',
+        'is_armeb',
+        'is_i386',
+        'is_mips',
+        'is_mips64',
+        'is_mipsel',
+        'is_mipsel64',
+        'is_powerpc',
+        'is_ppc64',
+        'is_unknown',
+        'is_x86_64',
+    ]
+)
+
+HostInfo = collections.namedtuple('HostInfo', ['os', 'arch'])
+
+
+__supported_oses = {
+    'darwin': 'macos',
+    'windows': 'windows',
+    'linux': 'linux',
+    'freebsd': 'freebsd',
+}
+
+# Pulled from com.facebook.buck.util.environment.Architecture.java as
+# possible values. amd64 and arm64 are remapped, but they may not
+# actually be present on most systems
+__supported_archs = {
+    'aarch64': 'aarch64',
+    'arm': 'arm',
+    'armeb': 'armeb',
+    'i386': 'i386',
+    'mips': 'mips',
+    'mips64': 'mips64',
+    'mipsel': 'mipsel',
+    'mipsel64': 'mipsel64',
+    'powerpc': 'powerpc',
+    'ppc64': 'ppc64',
+    'unknown': 'unknown',
+    'x86_64': 'x86_64',
+    'amd64': 'x86_64',
+    'arm64': 'aarch64',
+}
+
+
+def host_info(
+        platform_system=platform.system,
+        platform_machine=platform.machine):
+
+    host_arch = __supported_archs.get(platform_machine().lower(), 'unknown')
+    host_os = __supported_oses.get(platform_system().lower(), 'unknown')
+    return HostInfo(
+        os=HostInfoOs(
+            is_linux=(host_os == 'linux'),
+            is_macos=(host_os == 'macos'),
+            is_windows=(host_os == 'windows'),
+            is_freebsd=(host_os == 'freebsd'),
+            is_unknown=(host_os == 'unknown'),
+        ),
+        arch=HostInfoArch(
+            is_aarch64=(host_arch == 'aarch64'),
+            is_arm=(host_arch == 'arm'),
+            is_armeb=(host_arch == 'armeb'),
+            is_i386=(host_arch == 'i386'),
+            is_mips=(host_arch == 'mips'),
+            is_mips64=(host_arch == 'mips64'),
+            is_mipsel=(host_arch == 'mipsel'),
+            is_mipsel64=(host_arch == 'mipsel64'),
+            is_powerpc=(host_arch == 'powerpc'),
+            is_ppc64=(host_arch == 'ppc64'),
+            is_unknown=(host_arch == 'unknown'),
+            is_x86_64=(host_arch == 'x86_64'),
+        ),
+    )
+
+
+_cached_host_info = host_info()
 
 
 def get_mismatched_args(func, actual_args, actual_kwargs):
@@ -565,6 +661,7 @@ class BuildFileProcessor(object):
         self._env_vars = env_vars
         self._ignore_paths = ignore_paths
         self._freeze_globals = freeze_globals
+        self._native_module = self._create_native_module(BUILD_FUNCTIONS)
 
         lazy_functions = {}
         for func in BUILD_FUNCTIONS + extra_funcs:
@@ -575,6 +672,28 @@ class BuildFileProcessor(object):
             import_whitelist=self._create_import_whitelist(project_import_whitelist),
             safe_modules_config=self.SAFE_MODULES_CONFIG,
             path_predicate=lambda path: is_in_dir(path, self._project_root))
+
+    def _create_native_module(self, build_functions):
+        # type: (List[Callable]) -> tuple
+        """
+        Creates a native module exposing built-in Buck rules.
+
+        This module allows clients to refer to built-in Buck rules using
+        "native.<native_rule>" syntax in their build files. For example,
+        "native.java_library(...)" will use a native Java library rule.
+
+        :param build_functions:
+        :return:
+        """
+        native_globals = {
+            f.__name__: f for f in build_functions
+        }
+        assert 'glob' not in native_globals
+        assert 'host_info' not in native_globals
+        native_globals['glob'] = self._glob
+        native_globals['host_info'] = self._host_info
+        native_module_type = collections.namedtuple('native', native_globals.keys())
+        return native_module_type(**native_globals)
 
     def _wrap_env_var_read(self, read, real):
         """
@@ -899,19 +1018,6 @@ class BuildFileProcessor(object):
         build_env.includes.add(path)
         build_env.merge(inner_env)
 
-    def _struct(self, **kwargs):
-        """Creates an immutable container using the keyword arguments as attributes.
-
-        It can be used to group multiple values and/or functions together. Example:
-            def _my_function():
-              return 3
-            s = struct(x = 2, foo = _my_function)
-            return s.x + s.foo()  # returns 5
-        """
-        keys = [key for key in kwargs]
-        new_type = collections.namedtuple('struct', keys)
-        return new_type(**kwargs)
-
     def _provider(self):
         """Creates a declared provider factory.
 
@@ -923,7 +1029,7 @@ class BuildFileProcessor(object):
             info = SomeInfo(x = 2, foo = foo)
             print(info.x + info.foo())  # prints 5
         """
-        return self._struct
+        return Struct
 
 
     def _add_build_file_dep(self, name):
@@ -941,6 +1047,9 @@ class BuildFileProcessor(object):
 
         path = self._get_include_path(name)
         build_env.includes.add(path)
+
+    def _host_info(self):
+        return _cached_host_info
 
     @contextlib.contextmanager
     def _set_build_env(self, build_env):
@@ -1070,8 +1179,10 @@ class BuildFileProcessor(object):
                 'glob': self._glob,
                 'subdir_glob': self._subdir_glob,
                 'load': functools.partial(self._load, is_implicit_include),
-                'struct': self._struct,
+                'struct': Struct,
                 'provider': self._provider,
+                'host_info': self._host_info,
+                'native': self._native_module,
             }
 
             # Don't include implicit includes if the current file being

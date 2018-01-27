@@ -19,11 +19,9 @@ package com.facebook.buck.js;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Either;
 import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.Pair;
 import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
@@ -44,6 +42,8 @@ import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.shell.WorkerTool;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.types.Either;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
@@ -120,13 +120,16 @@ public class JsLibraryDescription
     final WorkerTool worker = resolver.getRuleWithType(args.getWorker(), WorkerTool.class);
     if (file.isPresent()) {
       return buildTarget.getFlavors().contains(JsFlavors.RELEASE)
-          ? createReleaseFileRule(buildTarget, projectFilesystem, params, resolver, args, worker)
+          ? createReleaseFileRule(
+              buildTarget, projectFilesystem, params, resolver, cellRoots, args, worker)
           : createDevFileRule(
               buildTarget,
               projectFilesystem,
               params,
               ruleFinder,
               sourcePathResolver,
+              resolver,
+              cellRoots,
               args,
               file.get(),
               worker);
@@ -180,7 +183,8 @@ public class JsLibraryDescription
 
   @BuckStyleImmutable
   @Value.Immutable(copy = true)
-  interface AbstractJsLibraryDescriptionArg extends CommonDescriptionArg, HasDepsQuery, HasTests {
+  interface AbstractJsLibraryDescriptionArg
+      extends CommonDescriptionArg, HasDepsQuery, HasExtraJson, HasTests {
     Optional<String> getExtraArgs();
 
     ImmutableSet<Either<SourcePath, Pair<SourcePath, String>>> getSrcs();
@@ -324,6 +328,7 @@ public class JsLibraryDescription
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       JsLibraryDescriptionArg args,
       WorkerTool worker) {
     final BuildTarget devTarget = withFileFlavorOnly(buildTarget);
@@ -333,6 +338,7 @@ public class JsLibraryDescription
         projectFilesystem,
         params.copyAppendingExtraDeps(devFile),
         resolver.getRuleWithType(devTarget, JsFile.class).getSourcePathToOutput(),
+        JsUtil.getExtraJson(args, buildTarget, resolver, cellRoots),
         args.getExtraArgs(),
         worker);
   }
@@ -343,6 +349,8 @@ public class JsLibraryDescription
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver sourcePathResolver,
+      BuildRuleResolver resolver,
+      CellPathResolver cellRoots,
       A args,
       Either<SourcePath, Pair<SourcePath, String>> source,
       WorkerTool worker) {
@@ -369,6 +377,7 @@ public class JsLibraryDescription
         sourcePath,
         subPath,
         virtualPath,
+        JsUtil.getExtraJson(args, buildTarget, resolver, cellRoots),
         args.getExtraArgs(),
         worker);
   }

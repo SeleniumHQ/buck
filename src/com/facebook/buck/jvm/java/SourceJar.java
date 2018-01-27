@@ -167,7 +167,7 @@ public class SourceJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
         output,
         ImmutableSet.of(),
         false,
-        ZipCompressionLevel.DEFAULT_COMPRESSION_LEVEL,
+        ZipCompressionLevel.DEFAULT,
         scratchDir));
 
     return steps.build();

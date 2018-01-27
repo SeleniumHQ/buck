@@ -606,6 +606,31 @@ class BuckTest(unittest.TestCase):
                 build_file.root, build_file.prefix, build_file.path, diagnostics)
             self.assertEqual(rules[0].get('name'), 'foo')
 
+    def test_struct_to_json(self):
+        extension_file = ProjectFile(
+            self.project_root,
+            path='ext.bzl',
+            contents=(
+                's = struct(name="foo")',
+            )
+        )
+        build_file = ProjectFile(
+            self.project_root,
+            path='BUCK',
+            contents=(
+                'load("//:ext.bzl", "s")',
+                'foo_rule(',
+                '  name=s.to_json(),',
+                ')'
+            ))
+        self.write_files(extension_file, build_file)
+        build_file_processor = self.create_build_file_processor(extra_funcs=[foo_rule])
+        diagnostics = []
+        with build_file_processor.with_builtins(__builtin__.__dict__):
+            rules = build_file_processor.process(
+                build_file.root, build_file.prefix, build_file.path, diagnostics)
+            self.assertEqual(rules[0].get('name'), '{"name":"foo"}')
+
     def test_provider_is_available(self):
         extension_file = ProjectFile(
             self.project_root,
@@ -631,6 +656,33 @@ class BuckTest(unittest.TestCase):
             rules = build_file_processor.process(
                 build_file.root, build_file.prefix, build_file.path, diagnostics)
             self.assertEqual(rules[0].get('name'), 'foo')
+
+    def test_native_module_is_available(self):
+        extension_file = ProjectFile(
+            self.project_root,
+            path='ext.bzl',
+            contents=(
+                'def get_sources():'
+                '  return native.glob(["*"])',
+            )
+        )
+        build_file = ProjectFile(
+            self.project_root,
+            path='BUCK',
+            contents=(
+                'load("//:ext.bzl", "get_sources")',
+                'foo_rule(',
+                '  name="foo",'
+                '  srcs=get_sources()',
+                ')'
+            ))
+        self.write_files(extension_file, build_file)
+        build_file_processor = self.create_build_file_processor(extra_funcs=[foo_rule])
+        diagnostics = []
+        with build_file_processor.with_builtins(__builtin__.__dict__):
+            rules = build_file_processor.process(
+                build_file.root, build_file.prefix, build_file.path, diagnostics)
+            self.assertEqual(rules[0].get('srcs'), ['BUCK', 'ext.bzl'])
 
     def test_package_name_is_available(self):
         package_dir = os.path.join(self.project_root, 'pkg')
@@ -1247,12 +1299,12 @@ class BuckTest(unittest.TestCase):
             self.project_root,
             path='BUCK',
             contents=(
-                '''
+                """
 foo_rule(
   name="foo",
   srcs=['Foo.java'],
 )
-'''
+"""
             ))
         java_file = ProjectFile(self.project_root, path='Foo.java', contents=())
         self.write_files(build_file, java_file)
@@ -1277,7 +1329,7 @@ foo_rule(
             self.project_root,
             path='BUCK',
             contents=(
-                '''
+                """
 import collections
 
 class ListLike(collections.MutableSequence):
@@ -1298,7 +1350,7 @@ foo_rule(
   name="foo",
   srcs=ListLike(['Foo.java','Foo.c']),
 )
-'''
+"""
             ))
         java_file = ProjectFile(self.project_root, path='Foo.java', contents=())
         c_file = ProjectFile(self.project_root, path='Foo.c', contents=())
@@ -1328,7 +1380,7 @@ foo_rule(
             self.project_root,
             path='BUCK',
             contents=(
-                '''
+                """
 import collections
 
 class DictLike(collections.MutableMapping):
@@ -1352,7 +1404,7 @@ foo_rule(
   srcs=[],
   options=DictLike({'foo':'bar','baz':'blech'}),
 )
-'''
+"""
             ))
         self.write_file(build_file)
         with build_file_processor.with_builtins(__builtin__.__dict__):
@@ -1380,13 +1432,13 @@ foo_rule(
             self.project_root,
             path='BUCK',
             contents=(
-                '''
+                """
 foo_rule(
   name="foo",
   srcs=[],
   options={'foo':'bar','baz':'blech'},
 )
-'''
+"""
             ))
         self.write_file(build_file)
         with build_file_processor.with_builtins(__builtin__.__dict__):

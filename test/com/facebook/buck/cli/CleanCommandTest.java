@@ -22,6 +22,8 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.artifact_cache.SingletonArtifactCacheFactory;
+import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
+import com.facebook.buck.artifact_cache.config.DirCacheEntry;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.event.BuckEventBusForTests;
@@ -47,14 +49,17 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.FakeProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.cache.CacheStatsTracker;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.facebook.buck.util.versioncontrol.NoOpCmdLineInterface;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
+import com.facebook.buck.versions.InstrumentedVersionedTargetGraphCache;
 import com.facebook.buck.versions.VersionedTargetGraphCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -83,11 +88,21 @@ public class CleanCommandTest extends EasyMockSupport {
   public void testCleanCommandNoArguments()
       throws CmdLineException, IOException, InterruptedException {
     CleanCommand cleanCommand = createCommandFromArgs();
-    CommandRunnerParams params = createCommandRunnerParams(cleanCommand);
+    CommandRunnerParams params = createCommandRunnerParams(cleanCommand, true);
+
+    ArtifactCacheBuckConfig artifactCacheBuckConfig =
+        ArtifactCacheBuckConfig.of(params.getBuckConfig());
+    ImmutableSet<DirCacheEntry> dirCacheEntries =
+        artifactCacheBuckConfig.getCacheEntries().getDirCacheEntries();
 
     projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getScratchDir());
     projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getGenDir());
     projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getTrashDir());
+    projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getCacheDir());
+    // Create a "local" cache directory.
+    for (DirCacheEntry dirCacheEntry : dirCacheEntries) {
+      projectFilesystem.mkdirs(dirCacheEntry.getCacheDir());
+    }
 
     // Simulate `buck clean`.
     ExitCode exitCode = cleanCommand.run(params);
@@ -96,6 +111,43 @@ public class CleanCommandTest extends EasyMockSupport {
     assertFalse(projectFilesystem.exists(projectFilesystem.getBuckPaths().getScratchDir()));
     assertFalse(projectFilesystem.exists(projectFilesystem.getBuckPaths().getGenDir()));
     assertFalse(projectFilesystem.exists(projectFilesystem.getBuckPaths().getTrashDir()));
+    assertFalse(projectFilesystem.exists(projectFilesystem.getBuckPaths().getCacheDir()));
+    for (DirCacheEntry dirCacheEntry : dirCacheEntries) {
+      assertFalse(projectFilesystem.exists(dirCacheEntry.getCacheDir()));
+    }
+  }
+
+  @Test
+  public void testCleanCommandWithKeepCache()
+      throws CmdLineException, IOException, InterruptedException {
+    CleanCommand cleanCommand = createCommandFromArgs("--keep-cache");
+    CommandRunnerParams params = createCommandRunnerParams(cleanCommand, true);
+
+    ArtifactCacheBuckConfig artifactCacheBuckConfig =
+        ArtifactCacheBuckConfig.of(params.getBuckConfig());
+    ImmutableSet<DirCacheEntry> dirCacheEntries =
+        artifactCacheBuckConfig.getCacheEntries().getDirCacheEntries();
+
+    projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getScratchDir());
+    projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getGenDir());
+    projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getTrashDir());
+    projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getCacheDir());
+    // Create a "local" cache directory.
+    for (DirCacheEntry dirCacheEntry : dirCacheEntries) {
+      projectFilesystem.mkdirs(dirCacheEntry.getCacheDir());
+    }
+
+    // Simulate `buck clean`.
+    ExitCode exitCode = cleanCommand.run(params);
+    assertEquals(ExitCode.SUCCESS, exitCode);
+
+    assertFalse(projectFilesystem.exists(projectFilesystem.getBuckPaths().getScratchDir()));
+    assertFalse(projectFilesystem.exists(projectFilesystem.getBuckPaths().getGenDir()));
+    assertFalse(projectFilesystem.exists(projectFilesystem.getBuckPaths().getTrashDir()));
+    assertTrue(projectFilesystem.exists(projectFilesystem.getBuckPaths().getCacheDir()));
+    for (DirCacheEntry dirCacheEntry : dirCacheEntries) {
+      assertTrue(projectFilesystem.exists(dirCacheEntry.getCacheDir()));
+    }
   }
 
   @Test
@@ -104,7 +156,7 @@ public class CleanCommandTest extends EasyMockSupport {
     Path additionalPath = projectFilesystem.getPath("foo");
     CleanCommand cleanCommand =
         createCommandFromArgs("-c", "clean.additional_paths=" + additionalPath);
-    CommandRunnerParams params = createCommandRunnerParams(cleanCommand);
+    CommandRunnerParams params = createCommandRunnerParams(cleanCommand, false);
 
     // Set up mocks.
     projectFilesystem.mkdirs(additionalPath);
@@ -123,12 +175,21 @@ public class CleanCommandTest extends EasyMockSupport {
     return command;
   }
 
-  private CommandRunnerParams createCommandRunnerParams(AbstractCommand command)
+  private CommandRunnerParams createCommandRunnerParams(
+      AbstractCommand command, boolean enableCacheSection)
       throws InterruptedException, IOException {
-    BuckConfig buckConfig =
-        FakeBuckConfig.builder()
-            .setSections(command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME))
-            .build();
+    FakeBuckConfig.Builder buckConfigBuilder = FakeBuckConfig.builder();
+    buckConfigBuilder.setSections(
+        command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME));
+    if (enableCacheSection) {
+      buckConfigBuilder.setSections(
+          ImmutableMap.of(
+              "cache",
+              ImmutableMap.of("dir_cache_names", "testcache"),
+              "cache#testcache",
+              ImmutableMap.of("dir", "~/dir-cache", "dir_mode", "readonly")));
+    }
+    BuckConfig buckConfig = buckConfigBuilder.build();
     Cell cell =
         new TestCellBuilder().setFilesystem(projectFilesystem).setBuckConfig(buckConfig).build();
     return createCommandRunnerParams(buckConfig, cell);
@@ -144,7 +205,8 @@ public class CleanCommandTest extends EasyMockSupport {
         new TestConsole(),
         new ByteArrayInputStream("".getBytes("UTF-8")),
         cell,
-        new VersionedTargetGraphCache(),
+        new InstrumentedVersionedTargetGraphCache(
+            new VersionedTargetGraphCache(), new CacheStatsTracker()),
         new SingletonArtifactCacheFactory(new NoopArtifactCache()),
         createMock(TypeCoercerFactory.class),
         createMock(Parser.class),

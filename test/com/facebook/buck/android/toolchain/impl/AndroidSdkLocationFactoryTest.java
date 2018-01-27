@@ -17,12 +17,7 @@
 package com.facebook.buck.android.toolchain.impl;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 
-import com.facebook.buck.android.AndroidLegacyToolchain;
-import com.facebook.buck.android.AndroidPlatformTarget;
-import com.facebook.buck.android.DefaultAndroidLegacyToolchain;
-import com.facebook.buck.android.FakeAndroidDirectoryResolver;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.io.ExecutableFinder;
@@ -32,19 +27,21 @@ import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.toolchain.ToolchainCreationContext;
+import com.facebook.buck.toolchain.ToolchainInstantiationException;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Optional;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 public class AndroidSdkLocationFactoryTest {
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
+  @Rule public ExpectedException thrown = ExpectedException.none();
 
   private ProjectFilesystem projectFilesystem;
 
@@ -57,65 +54,43 @@ public class AndroidSdkLocationFactoryTest {
   public void testAndroidSdkLocationNotPresentWhenSdkRootNotPresent() throws Exception {
     AndroidSdkLocationFactory factory = new AndroidSdkLocationFactory();
 
-    FakeAndroidDirectoryResolver androidDirectoryResolver = new FakeAndroidDirectoryResolver();
+    String androidSdkNotPresentMessage = "Android SDK could not be found";
 
-    ToolchainProvider toolchainProvider =
-        new ToolchainProviderBuilder()
-            .withToolchain(
-                AndroidLegacyToolchain.DEFAULT_NAME,
-                new DefaultAndroidLegacyToolchain(
-                    () ->
-                        AndroidPlatformTarget.getDefaultPlatformTarget(
-                            androidDirectoryResolver, Optional.empty(), Optional.empty()),
-                    androidDirectoryResolver))
-            .build();
+    ToolchainProvider toolchainProvider = new ToolchainProviderBuilder().build();
 
-    Optional<AndroidSdkLocation> toolchain =
-        factory.createToolchain(
-            toolchainProvider,
-            ToolchainCreationContext.of(
-                ImmutableMap.of(),
-                FakeBuckConfig.builder().build(),
-                projectFilesystem,
-                new DefaultProcessExecutor(new TestConsole()),
-                new ExecutableFinder(),
-                TestRuleKeyConfigurationFactory.create()));
+    thrown.expectMessage(androidSdkNotPresentMessage);
+    thrown.expect(ToolchainInstantiationException.class);
 
-    assertFalse(toolchain.isPresent());
+    factory.createToolchain(
+        toolchainProvider,
+        ToolchainCreationContext.of(
+            ImmutableMap.of(),
+            FakeBuckConfig.builder().build(),
+            projectFilesystem,
+            new DefaultProcessExecutor(new TestConsole()),
+            new ExecutableFinder(),
+            TestRuleKeyConfigurationFactory.create()));
   }
 
   @Test
   public void testAndroidSdkLocationIsPresent() throws Exception {
     AndroidSdkLocationFactory factory = new AndroidSdkLocationFactory();
 
-    Path sdkLocation = Paths.get("/sdk/location");
+    Path sdkPath = temporaryFolder.newFolder("android_sdk");
 
-    FakeAndroidDirectoryResolver androidDirectoryResolver =
-        new FakeAndroidDirectoryResolver(
-            Optional.of(sdkLocation), Optional.empty(), Optional.empty(), Optional.empty());
-
-    ToolchainProvider toolchainProvider =
-        new ToolchainProviderBuilder()
-            .withToolchain(
-                AndroidLegacyToolchain.DEFAULT_NAME,
-                new DefaultAndroidLegacyToolchain(
-                    () ->
-                        AndroidPlatformTarget.getDefaultPlatformTarget(
-                            androidDirectoryResolver, Optional.empty(), Optional.empty()),
-                    androidDirectoryResolver))
-            .build();
+    ToolchainProvider toolchainProvider = new ToolchainProviderBuilder().build();
 
     Optional<AndroidSdkLocation> toolchain =
         factory.createToolchain(
             toolchainProvider,
             ToolchainCreationContext.of(
                 ImmutableMap.of(),
-                FakeBuckConfig.builder().build(),
+                FakeBuckConfig.builder().setSections("[android]", "sdk_path = " + sdkPath).build(),
                 projectFilesystem,
                 new DefaultProcessExecutor(new TestConsole()),
                 new ExecutableFinder(),
                 TestRuleKeyConfigurationFactory.create()));
 
-    assertEquals(sdkLocation, toolchain.get().getSdkRootPath());
+    assertEquals(sdkPath, toolchain.get().getSdkRootPath());
   }
 }

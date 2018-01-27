@@ -96,6 +96,11 @@ run_command() {
       fi
     fi
 
+    if [[ "$command" == "dependencies" ]]; then
+      infiles=$(echo "$2" | sed -n 's/.*"libraries":\["\([^]]*\)"\].*/\1/p' | sed 's/","/ /g')
+      outfile=$(echo "$2" | sed -n 's/.*"outputFilePath":"\([^"]*\)".*/\1/p')
+    fi
+
     if [[ "$command" == "library-dependencies" ]]; then
       infiles=$(echo "$2" | sed -n 's/.*"aggregatedSourceFilesFilePath":"\([^"]*\)".*/\1/p')
       local deps=$(echo "$2" | sed -n 's/.*"dependencyLibraryFilePaths":\["\([^]]*\)"\].*/\1/p' | sed 's/","/ /g')
@@ -103,8 +108,18 @@ run_command() {
       outfile=$(echo "$2" | sed -n 's/.*"outputPath":"\([^"]*\)".*/\1/p')
     fi
 
+    if [[ "$command" == "library-files" ]]; then
+      infiles=$(echo "$2" | sed -n 's/.*"sourceFilePaths":\["\([^]]*\)"\].*/\1/p' | sed 's/","/ /g')
+      outfile=$(echo "$2" | sed -n 's/.*"outputFilePath":"\([^"]*\)".*/\1/p')
+    fi
+
     if [[ "$command" == "transform" ]]; then
       infiles=$(echo "$2" | sed -n 's/.*"sourceJsFilePath":"\([^"]*\)".*/\1/p')
+      outfile=$(echo "$2" | sed -n 's/.*"outputFilePath":"\([^"]*\)".*/\1/p')
+    fi
+
+    if [[ "$command" == "optimize" ]]; then
+      infiles=$(echo "$2" | sed -n 's/.*"transformedJsFilePath":"\([^"]*\)".*/\1/p')
       outfile=$(echo "$2" | sed -n 's/.*"outputFilePath":"\([^"]*\)".*/\1/p')
     fi
 

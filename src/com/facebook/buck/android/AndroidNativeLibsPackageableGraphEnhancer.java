@@ -22,10 +22,10 @@ import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.relinker.NativeRelinker;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
@@ -41,6 +41,7 @@ import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
@@ -68,6 +69,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
 
   private static final String COPY_NATIVE_LIBS = "copy_native_libs";
 
+  private final ToolchainProvider toolchainProvider;
   private final ProjectFilesystem projectFilesystem;
   private final BuildTarget originalBuildTarget;
   private final BuildRuleParams buildRuleParams;
@@ -83,21 +85,15 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
   private final RelinkerMode relinkerMode;
   private final APKModuleGraph apkModuleGraph;
 
-  /**
-   * Maps a {@link TargetCpuType} to the {@link CxxPlatform} we need to use to build C/C++ libraries
-   * for it.
-   */
-  private final ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms;
-
   private final CellPathResolver cellPathResolver;
 
   public AndroidNativeLibsPackageableGraphEnhancer(
+      ToolchainProvider toolchainProvider,
       CellPathResolver cellPathResolver,
       BuildRuleResolver ruleResolver,
       BuildTarget originalBuildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams originalParams,
-      ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms,
       ImmutableSet<TargetCpuType> cpuFilters,
       CxxBuckConfig cxxBuckConfig,
       Optional<Map<String, List<Pattern>>> nativeLibraryMergeMap,
@@ -106,6 +102,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       RelinkerMode relinkerMode,
       ImmutableList<Pattern> relinkerWhitelist,
       APKModuleGraph apkModuleGraph) {
+    this.toolchainProvider = toolchainProvider;
     this.cellPathResolver = cellPathResolver;
     this.projectFilesystem = projectFilesystem;
     this.originalBuildTarget = originalBuildTarget;
@@ -114,7 +111,6 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
     this.pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     this.buildRuleParams = originalParams;
     this.ruleResolver = ruleResolver;
-    this.nativePlatforms = nativePlatforms;
     this.cpuFilters = cpuFilters;
     this.cxxBuckConfig = cxxBuckConfig;
     this.nativeLibraryMergeMap = nativeLibraryMergeMap;
@@ -187,10 +183,19 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
     ImmutableMultimap<APKModule, NativeLinkable> nativeLinkablesAssets =
         packageableCollection.getNativeLinkablesAssets();
 
-    if (nativePlatforms.isEmpty()
-        && (!nativeLinkables.isEmpty() || !nativeLinkablesAssets.isEmpty())) {
-      throw new HumanReadableException(
-          "No native platforms detected. Probably Android NDK is not configured properly.");
+    ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms = ImmutableMap.of();
+
+    if (!nativeLinkables.isEmpty() || !nativeLinkablesAssets.isEmpty()) {
+      NdkCxxPlatformsProvider ndkCxxPlatformsProvider =
+          toolchainProvider.getByName(
+              NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.class);
+
+      nativePlatforms = ndkCxxPlatformsProvider.getNdkCxxPlatforms();
+
+      if (nativePlatforms.isEmpty()) {
+        throw new HumanReadableException(
+            "No native platforms detected. Probably Android NDK is not configured properly.");
+      }
     }
 
     if (nativeLibraryMergeMap.isPresent() && !nativeLibraryMergeMap.get().isEmpty()) {
@@ -239,26 +244,29 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
 
     Map<AndroidLinkableMetadata, NativeLinkable> nativeLinkableLibsMap = new HashMap<>();
     Map<AndroidLinkableMetadata, NativeLinkable> nativeLinkableLibsAssetsMap = new HashMap<>();
-    for (TargetCpuType targetCpuType : getFilteredPlatforms(nativePlatforms, cpuFilters)) {
-      NdkCxxPlatform platform = nativePlatforms.get(targetCpuType);
-      // Populate nativeLinkableLibs and nativeLinkableLibsAssets with the appropriate entries.
-      populateMapWithLinkables(
-          nativeLinkables,
-          nativeLinkableLibsBuilder,
-          nativeLinkableLibsMap,
-          targetCpuType,
-          platform);
-      populateMapWithLinkables(
-          nativeLinkablesAssets,
-          nativeLinkableLibsAssetsBuilder,
-          nativeLinkableLibsAssetsMap,
-          targetCpuType,
-          platform);
+
+    if (!nativeLinkables.isEmpty() || !nativeLinkablesAssets.isEmpty()) {
+      for (TargetCpuType targetCpuType : getFilteredPlatforms(nativePlatforms, cpuFilters)) {
+        NdkCxxPlatform platform = nativePlatforms.get(targetCpuType);
+        // Populate nativeLinkableLibs and nativeLinkableLibsAssets with the appropriate entries.
+        populateMapWithLinkables(
+            nativeLinkables,
+            nativeLinkableLibsBuilder,
+            nativeLinkableLibsMap,
+            targetCpuType,
+            platform);
+        populateMapWithLinkables(
+            nativeLinkablesAssets,
+            nativeLinkableLibsAssetsBuilder,
+            nativeLinkableLibsAssetsMap,
+            targetCpuType,
+            platform);
+      }
     }
     // Adds a cxxruntime linkable to the nativeLinkableLibsBuilder for every platform that needs it.
     ImmutableMap<AndroidLinkableMetadata, SourcePath> nativeLinkableLibsAssets =
         nativeLinkableLibsAssetsBuilder.build();
-    addCxxRuntimeLinkables(nativeLinkableLibsBuilder, nativeLinkableLibsAssets);
+    addCxxRuntimeLinkables(nativePlatforms, nativeLinkableLibsBuilder, nativeLinkableLibsAssets);
 
     ImmutableMap<AndroidLinkableMetadata, SourcePath> nativeLinkableLibs =
         nativeLinkableLibsBuilder.build();
@@ -291,9 +299,9 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
     }
 
     ImmutableMap<StripLinkable, StrippedObjectDescription> strippedLibsMap =
-        generateStripRules(nativeLinkableLibs);
+        generateStripRules(nativePlatforms, nativeLinkableLibs);
     ImmutableMap<StripLinkable, StrippedObjectDescription> strippedLibsAssetsMap =
-        generateStripRules(nativeLinkableLibsAssets);
+        generateStripRules(nativePlatforms, nativeLinkableLibsAssets);
 
     resultBuilder.setUnstrippedLibraries(
         RichStream.from(nativeLinkableLibs.values())
@@ -343,6 +351,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
   }
 
   private void addCxxRuntimeLinkables(
+      ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms,
       ImmutableMap.Builder<AndroidLinkableMetadata, SourcePath> nativeLinkableLibsBuilder,
       ImmutableMap<AndroidLinkableMetadata, SourcePath> nativeLinkableLibsAssets) {
     RichStream.from(nativeLinkableLibsBuilder.build().keySet())
@@ -405,6 +414,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
   }
 
   private ImmutableMap<StripLinkable, StrippedObjectDescription> generateStripRules(
+      ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms,
       ImmutableMap<AndroidLinkableMetadata, SourcePath> libs) {
     ImmutableMap.Builder<StripLinkable, StrippedObjectDescription> result = ImmutableMap.builder();
     for (Map.Entry<AndroidLinkableMetadata, SourcePath> entry : libs.entrySet()) {

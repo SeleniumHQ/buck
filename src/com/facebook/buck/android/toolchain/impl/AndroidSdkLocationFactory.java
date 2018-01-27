@@ -16,12 +16,14 @@
 
 package com.facebook.buck.android.toolchain.impl;
 
-import com.facebook.buck.android.AndroidDirectoryResolver;
-import com.facebook.buck.android.AndroidLegacyToolchain;
+import com.facebook.buck.android.AndroidBuckConfig;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.toolchain.ToolchainCreationContext;
 import com.facebook.buck.toolchain.ToolchainFactory;
+import com.facebook.buck.toolchain.ToolchainInstantiationException;
 import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.environment.Platform;
 import java.util.Optional;
 
 public class AndroidSdkLocationFactory implements ToolchainFactory<AndroidSdkLocation> {
@@ -29,13 +31,20 @@ public class AndroidSdkLocationFactory implements ToolchainFactory<AndroidSdkLoc
   @Override
   public Optional<AndroidSdkLocation> createToolchain(
       ToolchainProvider toolchainProvider, ToolchainCreationContext context) {
-    AndroidLegacyToolchain androidLegacyToolchain =
-        toolchainProvider.getByName(
-            AndroidLegacyToolchain.DEFAULT_NAME, AndroidLegacyToolchain.class);
 
-    AndroidDirectoryResolver androidDirectoryResolver =
-        androidLegacyToolchain.getAndroidDirectoryResolver();
+    AndroidBuckConfig androidBuckConfig =
+        new AndroidBuckConfig(context.getBuckConfig(), Platform.detect());
 
-    return androidDirectoryResolver.getSdkOrAbsent().map(AndroidSdkLocation::of);
+    AndroidSdkDirectoryResolver androidDirectoryResolver =
+        new AndroidSdkDirectoryResolver(
+            context.getFilesystem().getRootPath().getFileSystem(),
+            context.getEnvironment(),
+            androidBuckConfig);
+
+    try {
+      return Optional.of(AndroidSdkLocation.of(androidDirectoryResolver.getSdkOrThrow()));
+    } catch (HumanReadableException e) {
+      throw ToolchainInstantiationException.wrap(e);
+    }
   }
 }
