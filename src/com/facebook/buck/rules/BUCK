@@ -382,6 +382,7 @@ java_immutables_library(
         "BuildRuleStatus.java",
         "BuildRuleSuccessType.java",
         "BuildRules.java",
+        "BuildStamp.java",
         "BuildableSupport.java",
         "CachingBuildEngine.java",
         "CachingBuildRuleBuilder.java",

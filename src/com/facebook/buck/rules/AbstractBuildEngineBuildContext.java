@@ -36,6 +36,8 @@ abstract class AbstractBuildEngineBuildContext {
 
   public abstract ArtifactCache getArtifactCache();
 
+  public abstract BuildStamp getBuildStamp();
+
   protected abstract Clock getClock();
 
   protected abstract BuildId getBuildId();

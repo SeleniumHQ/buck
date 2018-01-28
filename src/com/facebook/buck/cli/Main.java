@@ -82,6 +82,7 @@ import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildInfoStoreManager;
+import com.facebook.buck.rules.BuildStamp;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellProviderFactory;
 import com.facebook.buck.rules.DefaultCellPathResolver;
@@ -678,6 +679,8 @@ public final class Main {
         clock = new DefaultClock(enableThreadCpuTime);
       }
 
+      BuildStamp stamp = BuildStamp.STABLE;
+
       ParserConfig parserConfig = buckConfig.getView(ParserConfig.class);
       Watchman watchman =
           buildWatchman(context, parserConfig, projectWatchList, clientEnvironment, console, clock);
@@ -914,7 +917,7 @@ public final class Main {
         eventListeners =
             addEventListeners(
                 buildEventBus,
-                daemon.map(d -> d.getFileEventBus()),
+                daemon.map(Daemon::getFileEventBus),
                 rootCell.getFilesystem(),
                 invocationInfo,
                 rootCell.getBuckConfig(),
@@ -1082,7 +1085,8 @@ public final class Main {
                       ruleKeyConfiguration,
                       processExecutor,
                       executableFinder,
-                      pluginManager));
+                      pluginManager,
+                      stamp));
         } catch (InterruptedException | ClosedByInterruptException e) {
           buildEventBus.post(CommandEvent.interrupted(startedEvent, ExitCode.SIGNAL_INTERRUPT));
           throw e;

@@ -131,6 +131,7 @@ class CachingBuildRuleBuilder {
   private final BuildContext buildRuleBuildContext;
   private final ArtifactCache artifactCache;
   private final BuildId buildId;
+  private final BuildStamp stamp;
   private final RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter;
   private final Set<String> depsWithCacheMiss = Collections.synchronizedSet(new HashSet<>());
 
@@ -210,6 +211,7 @@ class CachingBuildRuleBuilder {
     this.buildRuleBuildContext = buildContext.getBuildContext();
     this.artifactCache = buildContext.getArtifactCache();
     this.buildId = buildContext.getBuildId();
+    this.stamp = buildContext.getBuildStamp();
     this.remoteBuildRuleCompletionWaiter = remoteBuildRuleCompletionWaiter;
     this.buildRuleScopeManager = new BuildRuleScopeManager();
 
@@ -475,9 +477,7 @@ class CachingBuildRuleBuilder {
 
     // The build has succeeded, whether we've fetched from cache, or built locally.
     // So run the post-build steps.
-    if (rule instanceof HasPostBuildSteps) {
-      executePostBuildSteps(((HasPostBuildSteps) rule).getPostBuildSteps(buildRuleBuildContext));
-    }
+    executePostBuildSteps();
 
     // Invalidate any cached hashes for the output paths, since we've updated them.
     for (Path path : onDiskBuildInfo.getOutputPaths()) {
@@ -555,9 +555,7 @@ class CachingBuildRuleBuilder {
     getBuildInfoRecorder()
         .addMetadata(BuildInfo.MetadataKey.OUTPUT_SIZE, outputSize.get().toString());
 
-    if (rule instanceof HasPostBuildSteps) {
-      executePostBuildSteps(((HasPostBuildSteps) rule).getPostBuildSteps(buildRuleBuildContext));
-    }
+    executePostBuildSteps();
 
     // Invalidate any cached hashes for the output paths, since we've updated them.
     for (Path path : getBuildInfoRecorder().getRecordedPaths()) {
@@ -657,6 +655,18 @@ class CachingBuildRuleBuilder {
     if (shouldWriteOutputHashes(outputSize.get())) {
       onDiskBuildInfo.writeOutputHashes(fileHashCache);
     }
+  }
+
+  private void executePostBuildSteps() throws InterruptedException, StepFailedException {
+    if (rule instanceof HasPostBuildSteps) {
+      executePostBuildSteps(((HasPostBuildSteps) rule).getPostBuildSteps(buildRuleBuildContext));
+    }
+
+    System.out.println("stamp = " + stamp);
+
+//    if (rule instanceof IsBuildStampable) {
+//      ((IsBuildStampable) rule).setBuildStamp(stamp);
+//    }
   }
 
   private boolean shouldWriteOutputHashes(long outputSize) {
