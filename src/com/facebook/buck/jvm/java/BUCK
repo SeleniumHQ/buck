@@ -324,6 +324,7 @@ java_library_with_plugins(
         "JvmLibraryArg.java",
         "Keystore.java",
         "KeystoreDescription.java",
+        "ManifestBuildStamping.java",
         "MavenUberJar.java",
         "MaybeRequiredForSourceOnlyAbiArg.java",
         "PrebuiltJar.java",

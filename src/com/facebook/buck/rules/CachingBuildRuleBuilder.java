@@ -68,6 +68,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
@@ -131,6 +132,7 @@ class CachingBuildRuleBuilder {
   private final BuildContext buildRuleBuildContext;
   private final ArtifactCache artifactCache;
   private final BuildId buildId;
+  private final Optional<BuildStamp> stamp;
   private final RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter;
   private final Set<String> depsWithCacheMiss = Collections.synchronizedSet(new HashSet<>());
 
@@ -210,6 +212,7 @@ class CachingBuildRuleBuilder {
     this.buildRuleBuildContext = buildContext.getBuildContext();
     this.artifactCache = buildContext.getArtifactCache();
     this.buildId = buildContext.getBuildId();
+    this.stamp = buildContext.getBuildStamp();
     this.remoteBuildRuleCompletionWaiter = remoteBuildRuleCompletionWaiter;
     this.buildRuleScopeManager = new BuildRuleScopeManager();
 
@@ -405,6 +408,8 @@ class CachingBuildRuleBuilder {
             BuildInfo.MetadataKey.BUILD_ID);
     try {
       getBuildInfoRecorder().updateBuildMetadata();
+
+      executePostBuildSteps();
     } catch (IOException e) {
       throw new IOException(String.format("Failed to write metadata to disk for %s.", rule), e);
     }
@@ -475,9 +480,7 @@ class CachingBuildRuleBuilder {
 
     // The build has succeeded, whether we've fetched from cache, or built locally.
     // So run the post-build steps.
-    if (rule instanceof HasPostBuildSteps) {
-      executePostBuildSteps(((HasPostBuildSteps) rule).getPostBuildSteps(buildRuleBuildContext));
-    }
+    executePostBuildSteps();
 
     // Invalidate any cached hashes for the output paths, since we've updated them.
     for (Path path : onDiskBuildInfo.getOutputPaths()) {
@@ -555,9 +558,7 @@ class CachingBuildRuleBuilder {
     getBuildInfoRecorder()
         .addMetadata(BuildInfo.MetadataKey.OUTPUT_SIZE, outputSize.get().toString());
 
-    if (rule instanceof HasPostBuildSteps) {
-      executePostBuildSteps(((HasPostBuildSteps) rule).getPostBuildSteps(buildRuleBuildContext));
-    }
+    executePostBuildSteps();
 
     // Invalidate any cached hashes for the output paths, since we've updated them.
     for (Path path : getBuildInfoRecorder().getRecordedPaths()) {
@@ -657,6 +658,23 @@ class CachingBuildRuleBuilder {
     if (shouldWriteOutputHashes(outputSize.get())) {
       onDiskBuildInfo.writeOutputHashes(fileHashCache);
     }
+  }
+
+  private void executePostBuildSteps() throws InterruptedException, StepFailedException {
+    Builder<Step> postBuildSteps = ImmutableList.builder();
+
+    if (rule instanceof HasPostBuildSteps) {
+      postBuildSteps.addAll(((HasPostBuildSteps) rule).getPostBuildSteps(buildRuleBuildContext));
+    }
+
+    if (rule instanceof HasBuildStampingSteps && stamp.isPresent()) {
+      stamp.map(
+          bs ->
+              postBuildSteps.addAll(
+                  ((HasBuildStampingSteps) rule).getBuildStampingSteps(buildRuleBuildContext, bs)));
+    }
+
+    executePostBuildSteps(postBuildSteps.build());
   }
 
   private boolean shouldWriteOutputHashes(long outputSize) {
@@ -849,7 +867,8 @@ class CachingBuildRuleBuilder {
     // 1. Check if it's already built.
     try (Scope ignored = buildRuleScope()) {
       Optional<BuildResult> buildResult = checkMatchingLocalKey();
-      if (buildResult.isPresent()) {
+      if (buildResult.isPresent() &&
+          !requiresPostBuildOrStamping(rule, stamp)) {
         return Futures.immediateFuture(buildResult.get());
       }
     }
@@ -969,6 +988,11 @@ class CachingBuildRuleBuilder {
 
     // Unwrap the result.
     return Futures.transform(buildResultFuture, Optional::get);
+  }
+
+  private boolean requiresPostBuildOrStamping(BuildRule rule, Optional<BuildStamp> stamp) {
+    return rule instanceof HasPostBuildSteps ||
+        (rule instanceof HasBuildStampingSteps && stamp.isPresent());
   }
 
   private ListenableFuture<Optional<BuildResult>> attemptDistributedBuildSynchronization(

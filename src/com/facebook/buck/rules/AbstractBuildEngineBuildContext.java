@@ -23,6 +23,7 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.collect.ImmutableMap;
+import java.util.Optional;
 import org.immutables.value.Value;
 
 /** Per-build context used by {@link BuildEngine}. */
@@ -35,6 +36,8 @@ abstract class AbstractBuildEngineBuildContext {
   public abstract BuildContext getBuildContext();
 
   public abstract ArtifactCache getArtifactCache();
+
+  public abstract Optional<BuildStamp> getBuildStamp();
 
   protected abstract Clock getClock();
 
