@@ -867,7 +867,8 @@ class CachingBuildRuleBuilder {
     // 1. Check if it's already built.
     try (Scope ignored = buildRuleScope()) {
       Optional<BuildResult> buildResult = checkMatchingLocalKey();
-      if (buildResult.isPresent()) {
+      if (buildResult.isPresent() &&
+          !requiresPostBuildOrStamping(rule, stamp)) {
         return Futures.immediateFuture(buildResult.get());
       }
     }
@@ -987,6 +988,11 @@ class CachingBuildRuleBuilder {
 
     // Unwrap the result.
     return Futures.transform(buildResultFuture, Optional::get);
+  }
+
+  private boolean requiresPostBuildOrStamping(BuildRule rule, Optional<BuildStamp> stamp) {
+    return rule instanceof HasPostBuildSteps ||
+        (rule instanceof HasBuildStampingSteps && stamp.isPresent());
   }
 
   private ListenableFuture<Optional<BuildResult>> attemptDistributedBuildSynchronization(
