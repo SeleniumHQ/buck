@@ -82,8 +82,8 @@ import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.shell.GenruleDescriptionArg;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.testutil.integration.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.toolchain.ToolchainCreationContext;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
@@ -450,6 +450,16 @@ public class ParserTest {
             .build();
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
 
+    parser.getAllTargetNodes(eventBus, cell, false, executorService, testBuildFile);
+  }
+
+  @Test
+  public void shouldAllowAccessingBuiltInRulesViaNative() throws Exception {
+    Files.write(
+        includedByBuildFile,
+        "def foo(name): native.export_file(name=name)\n".getBytes(UTF_8),
+        StandardOpenOption.APPEND);
+    Files.write(testBuildFile, "foo(name='BUCK')\n".getBytes(UTF_8), StandardOpenOption.APPEND);
     parser.getAllTargetNodes(eventBus, cell, false, executorService, testBuildFile);
   }
 
