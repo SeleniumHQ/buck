@@ -147,6 +147,7 @@ public class FetchCommand extends BuildCommand {
                       .createDefaultJavaPackageFinder(),
                   params.getClock(),
                   getExecutionContext(),
+                  params.getBuildStamp(),
                   isKeepGoing())) {
         exitCodeInt =
             build.executeAndPrintFailuresToEventBus(

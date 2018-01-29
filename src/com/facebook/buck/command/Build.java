@@ -35,6 +35,7 @@ import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildResult;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildStamp;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -82,6 +83,7 @@ public class Build implements Closeable {
   private final BuildEngine buildEngine;
   private final JavaPackageFinder javaPackageFinder;
   private final Clock clock;
+  private final Optional<BuildStamp> stamp;
   private final BuildEngineBuildContext buildContext;
   private boolean symlinksCreated = false;
 
@@ -93,6 +95,7 @@ public class Build implements Closeable {
       JavaPackageFinder javaPackageFinder,
       Clock clock,
       ExecutionContext executionContext,
+      Optional<BuildStamp> stamp,
       boolean isKeepGoing) {
     this.ruleResolver = ruleResolver;
     this.rootCell = rootCell;
@@ -101,6 +104,7 @@ public class Build implements Closeable {
     this.buildEngine = buildEngine;
     this.javaPackageFinder = javaPackageFinder;
     this.clock = clock;
+    this.stamp = stamp;
     this.buildContext = createBuildContext(isKeepGoing);
   }
 
@@ -118,6 +122,7 @@ public class Build implements Closeable {
         .setClock(clock)
         .setArtifactCache(artifactCache)
         .setBuildId(buildId)
+        .setBuildStamp(stamp)
         .putAllEnvironment(executionContext.getEnvironment())
         .setKeepGoing(isKeepGoing)
         .build();

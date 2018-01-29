@@ -27,6 +27,7 @@ import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildInfoStoreManager;
+import com.facebook.buck.rules.BuildStamp;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
 import com.facebook.buck.rules.RuleKey;
@@ -151,6 +152,9 @@ public abstract class AbstractCommandRunnerParams {
   @Value.Parameter
   public abstract PluginManager getPluginManager();
 
+  @Value.Parameter
+  public abstract Optional<BuildStamp> getBuildStamp();
+
   /**
    * Create {@link BuildExecutorArgs} using this {@link CommandRunnerParams}.
    *
@@ -162,6 +166,7 @@ public abstract class AbstractCommandRunnerParams {
         .setBuckEventBus(getBuckEventBus())
         .setPlatform(getPlatform())
         .setClock(getClock())
+        .setBuildStamp(getBuildStamp())
         .setRootCell(getCell())
         .setExecutors(getExecutors())
         .setProjectFilesystemFactory(getProjectFilesystemFactory())

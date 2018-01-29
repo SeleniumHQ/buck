@@ -28,6 +28,7 @@ import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.BuildEngineResult;
 import com.facebook.buck.rules.BuildInfoStoreManager;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildStamp;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.CachingBuildEngine.BuildMode;
 import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
@@ -109,6 +110,7 @@ public class LocalBuildExecutor implements BuildExecutor {
             args.getBuckConfig().getView(JavaBuckConfig.class).createDefaultJavaPackageFinder(),
             args.getClock(),
             executionContext,
+            args.getBuildStamp(),
             keepGoing);
   }
 
@@ -267,6 +269,8 @@ abstract class AbstractBuildExecutorArgs {
   public abstract Platform getPlatform();
 
   public abstract Clock getClock();
+
+  public abstract Optional<BuildStamp> getBuildStamp();
 
   public abstract Cell getRootCell();
 

@@ -72,6 +72,8 @@ import com.facebook.buck.rules.ActionGraphAndResolver;
 import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.BuildStamp;
+import com.facebook.buck.rules.BuildStamp.STAMP_KIND;
 import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
@@ -159,6 +161,7 @@ public class BuildCommand extends AbstractCommand {
   private static final String DISTRIBUTED_LONG_ARG = "--distributed";
   private static final String BUCK_BINARY_STRING_ARG = "--buck-binary";
   private static final String RULEKEY_LOG_PATH_LONG_ARG = "--rulekeys-log-path";
+  private static final String STAMP_BUILD = "--stamp-build";
 
   private static final String BUCK_GIT_COMMIT_KEY = "buck.git_commit";
   private static final String PENDING_STAMPEDE_ID = "PENDING_STAMPEDE_ID";
@@ -267,6 +270,12 @@ public class BuildCommand extends AbstractCommand {
     usage = "If set, log a binary representation of rulekeys to this file."
   )
   private String ruleKeyLogPath = null;
+
+  @Option(
+      name = STAMP_BUILD,
+      usage = "If set, will attempt to add a build stamp to generated artefacts."
+  )
+  private BuildStamp.STAMP_KIND stampKind = STAMP_KIND.NONE;
 
   @Argument private List<String> arguments = new ArrayList<>();
 
@@ -1441,6 +1450,10 @@ public class BuildCommand extends AbstractCommand {
       listeners.add(distBuildClientEventListener);
     }
     return listeners.build();
+  }
+
+  public BuildStamp.STAMP_KIND getBuildStamp() {
+    return stampKind;
   }
 
   private static class AsyncJobStateAndCells {
