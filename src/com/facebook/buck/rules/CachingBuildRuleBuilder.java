@@ -408,6 +408,8 @@ class CachingBuildRuleBuilder {
             BuildInfo.MetadataKey.BUILD_ID);
     try {
       getBuildInfoRecorder().updateBuildMetadata();
+
+      executePostBuildSteps();
     } catch (IOException e) {
       throw new IOException(String.format("Failed to write metadata to disk for %s.", rule), e);
     }

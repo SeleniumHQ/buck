@@ -16,6 +16,10 @@
 
 package com.facebook.buck.jvm.java;
 
+import static com.facebook.buck.util.zip.ZipCompressionLevel.DEFAULT;
+import static com.facebook.buck.util.zip.ZipCompressionLevel.NONE;
+import static com.facebook.buck.util.zip.ZipOutputStreams.HandleDuplicates.APPEND_TO_ZIP;
+
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
@@ -27,32 +31,50 @@ import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.BuildStamp;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.rules.HasBuildStampingSteps;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
+import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.StepExecutionResult;
+import com.facebook.buck.step.StepExecutionResults;
+import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.step.fs.SymlinkFileStep;
 import com.facebook.buck.util.PatternsMatcher;
+import com.facebook.buck.util.zip.CustomZipEntry;
+import com.facebook.buck.util.zip.CustomZipOutputStream;
+import com.facebook.buck.util.zip.ZipOutputStreams;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.io.ByteStreams;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
+import java.util.jar.Attributes;
+import java.util.jar.JarFile;
+import java.util.jar.Manifest;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import javax.annotation.Nullable;
 
 @BuildsAnnotationProcessor
 public class JavaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
-    implements BinaryBuildRule, HasClasspathEntries {
+    implements BinaryBuildRule, HasClasspathEntries, HasBuildStampingSteps {
 
   // We're just propagating the runtime launcher through `getExecutiable`, so don't add it to the
   // rule key.
@@ -171,6 +193,84 @@ public class JavaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
     buildableContext.recordArtifact(outputFile);
     return commands.build();
+  }
+
+  @Override
+  public ImmutableList<Step> getBuildStampingSteps(BuildContext buildContext, BuildStamp stamp) {
+    Builder<Step> steps = ImmutableList.builder();
+
+    final Path outputJar = buildContext.getSourcePathResolver()
+        .getRelativePath(getSourcePathToOutput());
+
+    // Unzip the output, modify the manifest, rewrite the output
+    Path stampRoot = getOutputDirectory().resolve("temp-stamping");
+    Path stampedJar = stampRoot.resolve("stamped.jar");
+    steps.addAll(MakeCleanDirectoryStep.of(BuildCellRelativePath.of(stampRoot)));
+
+    steps.add(new Step() {
+      @Override
+      public StepExecutionResult execute(ExecutionContext context)
+          throws IOException, InterruptedException {
+
+        Manifest manifest = getProjectFilesystem().getJarManifest(outputJar);
+        if (manifest == null) {
+          manifest = new Manifest();
+        }
+
+        Attributes attrs = manifest.getEntries().getOrDefault("Build-Info", new Attributes());
+        attrs.putValue("Build-Revision", stamp.getSourceRevision());
+        attrs.putValue("Build-Time", stamp.getDatestamp());
+        attrs.putValue("Build-User", stamp.getUsername());
+        manifest.getEntries().put("Build-Info", attrs);
+
+        Path temp = stampRoot.resolve("stamped.jar");
+        try (
+            CustomZipOutputStream zos = ZipOutputStreams.newOutputStream(temp, APPEND_TO_ZIP);
+            InputStream is = getProjectFilesystem().newFileInputStream(outputJar);
+            ZipInputStream zis = new ZipInputStream(is)) {
+          // Write out our new manifest
+          CustomZipEntry entry = new CustomZipEntry("META-INF");
+          entry.setCompressionLevel(NONE.getValue());
+          zos.putNextEntry(entry);
+          zos.closeEntry();
+
+          entry = new CustomZipEntry(JarFile.MANIFEST_NAME);
+          entry.setCompressionLevel(DEFAULT.getValue());
+          zos.putNextEntry(entry);
+          manifest.write(zos);
+          zos.closeEntry();
+
+          // Now copy everything else, as is.
+          for (ZipEntry toCopy = zis.getNextEntry(); toCopy != null; toCopy = zis.getNextEntry()) {
+            if ("META-INF".equals(toCopy.getName()) ||
+                JarFile.MANIFEST_NAME.equals(toCopy.getName())) {
+              continue;
+            }
+
+            zos.putNextEntry(toCopy);
+            ByteStreams.copy(zis, zos);
+            zos.closeEntry();
+          }
+        }
+
+        return StepExecutionResults.SUCCESS;
+      }
+
+      @Override
+      public String getShortName() {
+        return "stamp";
+      }
+
+      @Override
+      public String getDescription(ExecutionContext context) {
+        return "Add build stamp";
+      }
+    });
+
+    steps.add(RmStep.of(BuildCellRelativePath.of(outputJar)));
+    steps.add(CopyStep.forFile(getProjectFilesystem(), stampedJar, outputJar));
+
+    return steps.build();
   }
 
   @Override
