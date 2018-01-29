@@ -270,7 +270,7 @@ abstract class AbstractBuildExecutorArgs {
 
   public abstract Clock getClock();
 
-  public abstract BuildStamp getBuildStamp();
+  public abstract Optional<BuildStamp> getBuildStamp();
 
   public abstract Cell getRootCell();
 

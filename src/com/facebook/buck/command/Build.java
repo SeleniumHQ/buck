@@ -83,7 +83,7 @@ public class Build implements Closeable {
   private final BuildEngine buildEngine;
   private final JavaPackageFinder javaPackageFinder;
   private final Clock clock;
-  private final BuildStamp stamp;
+  private final Optional<BuildStamp> stamp;
   private final BuildEngineBuildContext buildContext;
   private boolean symlinksCreated = false;
 
@@ -95,7 +95,7 @@ public class Build implements Closeable {
       JavaPackageFinder javaPackageFinder,
       Clock clock,
       ExecutionContext executionContext,
-      BuildStamp stamp,
+      Optional<BuildStamp> stamp,
       boolean isKeepGoing) {
     this.ruleResolver = ruleResolver;
     this.rootCell = rootCell;

@@ -83,6 +83,7 @@ import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.ActionGraphCache;
 import com.facebook.buck.rules.BuildInfoStoreManager;
 import com.facebook.buck.rules.BuildStamp;
+import com.facebook.buck.rules.BuildStamp.STAMP_KIND;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellProviderFactory;
 import com.facebook.buck.rules.DefaultCellPathResolver;
@@ -679,8 +680,6 @@ public final class Main {
         clock = new DefaultClock(enableThreadCpuTime);
       }
 
-      BuildStamp stamp = BuildStamp.STABLE;
-
       ParserConfig parserConfig = buckConfig.getView(ParserConfig.class);
       Watchman watchman =
           buildWatchman(context, parserConfig, projectWatchList, clientEnvironment, console, clock);
@@ -691,6 +690,19 @@ public final class Main {
                   processExecutor, pluginManager, sandboxExecutionStrategyFactory));
 
       ExecutableFinder executableFinder = new ExecutableFinder();
+
+      Optional<BuildStamp> stamp =
+          command
+              .getSubcommand()
+              .map(
+                  subcmd -> {
+                    if (subcmd instanceof BuildCommand) {
+                      return ((BuildCommand) subcmd).getBuildStamp();
+                    }
+                    return STAMP_KIND.NONE;
+                  })
+              .orElse(STAMP_KIND.NONE)
+              .getBuildStamp();
 
       Cell rootCell =
           CellProviderFactory.createForLocalBuild(
@@ -795,7 +807,7 @@ public final class Main {
       InvocationInfo invocationInfo =
           InvocationInfo.of(
               buildId,
-              superConsoleConfig.isEnabled(console, Platform.detect()),
+              superConsoleConfig.isEnabled(this.console, Platform.detect()),
               daemon.isPresent(),
               command.getSubCommandNameForLogging(),
               args,
@@ -804,7 +816,7 @@ public final class Main {
 
       GlobalStateManager.LoggerIsMappedToThreadScope loggerThreadMappingScope =
           GlobalStateManager.singleton()
-              .setupLoggers(invocationInfo, console.getStdErr(), stdErr, verbosity);
+              .setupLoggers(invocationInfo, this.console.getStdErr(), stdErr, verbosity);
       closeables.register(loggerThreadMappingScope);
 
       ExecutorService diskIoExecutorService = MostExecutors.newSingleThreadExecutor("Disk I/O");
@@ -844,7 +856,7 @@ public final class Main {
               createConsoleEventListener(
                   clock,
                   superConsoleConfig,
-                  console,
+                  this.console,
                   testConfig.getResultSummaryVerbosity(),
                   executionEnvironment,
                   webServer,
@@ -928,7 +940,7 @@ public final class Main {
                 commandEventListeners
                 );
 
-        if (buckConfig.isBuckConfigLocalWarningEnabled() && !console.getVerbosity().isSilent()) {
+        if (buckConfig.isBuckConfigLocalWarningEnabled() && !this.console.getVerbosity().isSilent()) {
           ImmutableList<Path> localConfigFiles =
               rootCell
                   .getAllCells()
@@ -1052,7 +1064,7 @@ public final class Main {
           exitCode =
               command.run(
                   CommandRunnerParams.of(
-                      console,
+                      this.console,
                       stdIn,
                       rootCell,
                       parserAndCaches.getVersionedTargetGraphCache(),
@@ -1108,7 +1120,7 @@ public final class Main {
         LOG.debug(t, "Failing build on exception.");
         closeHttpExecutorService(cacheBuckConfig, Optional.empty(), httpWriteExecutorService);
         closeDiskIoExecutorService(diskIoExecutorService);
-        flushAndCloseEventListeners(console, buildId, eventListeners);
+        flushAndCloseEventListeners(this.console, buildId, eventListeners);
         throw t;
       } finally {
         context.ifPresent(c -> c.removeAllClientListeners());
@@ -1140,7 +1152,7 @@ public final class Main {
       }
 
       closeDiskIoExecutorService(diskIoExecutorService);
-      flushAndCloseEventListeners(console, buildId, eventListeners);
+      flushAndCloseEventListeners(this.console, buildId, eventListeners);
       return exitCode;
     } finally {
       if (commandSemaphoreAcquired) {

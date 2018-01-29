@@ -153,7 +153,7 @@ public abstract class AbstractCommandRunnerParams {
   public abstract PluginManager getPluginManager();
 
   @Value.Parameter
-  public abstract BuildStamp getBuildStamp();
+  public abstract Optional<BuildStamp> getBuildStamp();
 
   /**
    * Create {@link BuildExecutorArgs} using this {@link CommandRunnerParams}.
