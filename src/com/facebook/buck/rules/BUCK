@@ -395,6 +395,7 @@ java_immutables_library(
         "ExportDependencies.java",
         "ExternalTestRunnerRule.java",
         "FilesystemBuildInfoStore.java",
+        "HasBuildStampingSteps.java",
         "HasCustomDepsLogic.java",
         "HasInstallHelpers.java",
         "HasPostBuildSteps.java",

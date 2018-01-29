@@ -68,6 +68,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
@@ -131,7 +132,7 @@ class CachingBuildRuleBuilder {
   private final BuildContext buildRuleBuildContext;
   private final ArtifactCache artifactCache;
   private final BuildId buildId;
-  private final BuildStamp stamp;
+  private final Optional<BuildStamp> stamp;
   private final RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter;
   private final Set<String> depsWithCacheMiss = Collections.synchronizedSet(new HashSet<>());
 
@@ -658,15 +659,20 @@ class CachingBuildRuleBuilder {
   }
 
   private void executePostBuildSteps() throws InterruptedException, StepFailedException {
+    Builder<Step> postBuildSteps = ImmutableList.builder();
+
     if (rule instanceof HasPostBuildSteps) {
-      executePostBuildSteps(((HasPostBuildSteps) rule).getPostBuildSteps(buildRuleBuildContext));
+      postBuildSteps.addAll(((HasPostBuildSteps) rule).getPostBuildSteps(buildRuleBuildContext));
     }
 
-    System.out.println("stamp = " + stamp);
+    if (rule instanceof HasBuildStampingSteps && stamp.isPresent()) {
+      stamp.map(
+          bs ->
+              postBuildSteps.addAll(
+                  ((HasBuildStampingSteps) rule).getBuildStampingSteps(buildRuleBuildContext, bs)));
+    }
 
-//    if (rule instanceof IsBuildStampable) {
-//      ((IsBuildStampable) rule).setBuildStamp(stamp);
-//    }
+    executePostBuildSteps(postBuildSteps.build());
   }
 
   private boolean shouldWriteOutputHashes(long outputSize) {
