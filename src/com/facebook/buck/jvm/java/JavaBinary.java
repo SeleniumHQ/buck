@@ -180,8 +180,9 @@ public class JavaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   public ImmutableList<Step> getBuildStampingSteps(BuildContext buildContext, BuildStamp stamp) {
     Builder<Step> steps = ImmutableList.builder();
 
-    ManifestBuildStamping.getBuildStampingSteps(
-        buildContext, stamp, getProjectFilesystem(), getSourcePathToOutput());
+    steps.addAll(
+        ManifestBuildStamping.getBuildStampingSteps(
+            buildContext, stamp, getProjectFilesystem(), getSourcePathToOutput()));
 
     return steps.build();
   }

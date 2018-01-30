@@ -454,6 +454,7 @@ public class DefaultJavaLibrary extends AbstractBuildRule
     steps.addAll(
         ManifestBuildStamping.getBuildStampingSteps(
             buildContext, stamp, getProjectFilesystem(), getSourcePathToOutput()));
+
     return steps.build();
   }
 }

@@ -42,6 +42,11 @@ class ManifestBuildStamping {
       BuildStamp stamp,
       ProjectFilesystem filesystem,
       SourcePath jarToModify) {
+
+    if (jarToModify == null) {
+      return ImmutableList.of();
+    }
+
     final Path outputJar = buildContext.getSourcePathResolver().getRelativePath(jarToModify);
 
     Builder<Step> steps = ImmutableList.builder();
