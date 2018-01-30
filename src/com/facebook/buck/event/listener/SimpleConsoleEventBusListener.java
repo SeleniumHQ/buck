@@ -505,7 +505,7 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
               grumble,
               jobsInfo,
               formatElapsedTime(now - startTime),
-              startEvent.toString()));
+              startEvent.toDisplayString()));
     }
 
     public boolean isPairedWith(BuckEvent other) {

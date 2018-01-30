@@ -114,6 +114,11 @@ public abstract class AbstractBuckEvent implements BuckEvent {
   @JsonIgnore
   protected abstract String getValueString();
 
+  @JsonIgnore
+  public String toDisplayString() {
+    return getValueString();
+  }
+
   @Override
   public String toString() {
     return String.format("%s(%s)", getEventName(), getValueString());
