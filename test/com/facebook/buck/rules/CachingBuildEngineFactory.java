@@ -17,6 +17,7 @@
 package com.facebook.buck.rules;
 
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
+import com.facebook.buck.rules.keys.RuleKeyDiagnostics;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.step.DefaultStepRunner;
@@ -108,8 +109,9 @@ public class CachingBuildEngineFactory {
   }
 
   public CachingBuildEngine build() {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+    SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
     if (ruleKeyFactories.isPresent()) {
-      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
       return new CachingBuildEngine(
           cachingBuildEngineDelegate,
           executorService,
@@ -122,10 +124,11 @@ public class CachingBuildEngineFactory {
           buildRuleResolver,
           buildInfoStoreManager,
           ruleFinder,
-          DefaultSourcePathResolver.from(ruleFinder),
+          sourcePathResolver,
           ruleKeyFactories.get(),
           remoteBuildRuleCompletionWaiter,
           resourceAwareSchedulingInfo,
+          RuleKeyDiagnostics.nop(),
           logBuildRuleFailuresInline);
     }
 
@@ -139,6 +142,8 @@ public class CachingBuildEngineFactory {
         maxDepFileCacheEntries,
         artifactCacheSizeLimit,
         buildRuleResolver,
+        ruleFinder,
+        sourcePathResolver,
         buildInfoStoreManager,
         resourceAwareSchedulingInfo,
         logBuildRuleFailuresInline,

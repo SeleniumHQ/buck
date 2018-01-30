@@ -34,9 +34,11 @@ import com.facebook.buck.rules.CachingBuildEngine.BuildMode;
 import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
 import com.facebook.buck.rules.CachingBuildEngineDelegate;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.MetadataChecker;
 import com.facebook.buck.rules.RemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
@@ -194,6 +196,8 @@ public class LocalBuildExecutor implements BuildExecutor {
 
     CachingBuildEngineBuckConfig engineConfig =
         args.getBuckConfig().getView(CachingBuildEngineBuckConfig.class);
+    SourcePathRuleFinder sourcePathRuleFinder =
+        new SourcePathRuleFinder(actionGraphAndResolver.getResolver());
 
     return new CachingBuildEngine(
         cachingBuildEngineDelegate,
@@ -205,6 +209,8 @@ public class LocalBuildExecutor implements BuildExecutor {
         engineConfig.getBuildMaxDepFileCacheEntries(),
         engineConfig.getBuildArtifactCacheSizeLimit(),
         actionGraphAndResolver.getResolver(),
+        sourcePathRuleFinder,
+        DefaultSourcePathResolver.from(sourcePathRuleFinder),
         args.getBuildInfoStoreManager(),
         engineConfig.getResourceAwareSchedulingInfo(),
         engineConfig.getConsoleLogBuildRuleFailuresInline(),
