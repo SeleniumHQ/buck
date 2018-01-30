@@ -19,6 +19,7 @@ package com.facebook.buck.cli;
 import static com.facebook.buck.rules.CellConfig.MalformedOverridesException;
 import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
 import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
@@ -471,7 +472,7 @@ public final class Main {
         } else {
           buildDateStr =
               new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US)
-                  .format(new Date(TimeUnit.SECONDS.toMillis(gitCommitTimestamp)));
+                  .format(new Date(SECONDS.toMillis(gitCommitTimestamp)));
         }
         String buildRev = System.getProperty("buck.git_commit", "(unknown)");
         LOG.debug("Starting up (build date %s, rev %s), args: %s", buildDateStr, buildRev, args);
@@ -1382,7 +1383,7 @@ public final class Main {
               "Awaiting termination of %s executor service. Waiting for all jobs to complete, "
                   + "or up to maximum of %s seconds...",
               executorName, closeTimeoutSeconds);
-          executor.awaitTermination(closeTimeoutSeconds, TimeUnit.SECONDS);
+          executor.awaitTermination(closeTimeoutSeconds, SECONDS);
           if (!executor.isTerminated()) {
             LOG.warn(
                 "%s executor service is still running after shutdown request and "
@@ -1663,7 +1664,7 @@ public final class Main {
           SUPER_CONSOLE_REFRESH_RATE.toMillis(), TimeUnit.MILLISECONDS);
       return superConsole;
     }
-    return new SimpleConsoleEventBusListener(
+    SimpleConsoleEventBusListener simpleConsole = new SimpleConsoleEventBusListener(
         console,
         clock,
         testResultSummaryVerbosity,
@@ -1674,6 +1675,8 @@ public final class Main {
         testLogPath,
         executionEnvironment,
         buildId);
+    simpleConsole.startRenderScheduler(1, SECONDS);
+    return simpleConsole;
   }
 
   /**
