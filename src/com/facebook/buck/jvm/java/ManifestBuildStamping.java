@@ -78,7 +78,7 @@ class ManifestBuildStamping {
             InputStream is = filesystem.newFileInputStream(outputJar);
             ZipInputStream zis = new ZipInputStream(is)) {
           // Write out our new manifest
-          CustomZipEntry entry = new CustomZipEntry("META-INF");
+          CustomZipEntry entry = new CustomZipEntry("META-INF/");
           entry.setCompressionLevel(NONE.getValue());
           zos.putNextEntry(entry);
           zos.closeEntry();
@@ -92,6 +92,7 @@ class ManifestBuildStamping {
           // Now copy everything else, as is.
           for (ZipEntry toCopy = zis.getNextEntry(); toCopy != null; toCopy = zis.getNextEntry()) {
             if ("META-INF".equals(toCopy.getName()) ||
+                "META-INF/".equals(toCopy.getName()) ||
                 JarFile.MANIFEST_NAME.equals(toCopy.getName())) {
               continue;
             }
