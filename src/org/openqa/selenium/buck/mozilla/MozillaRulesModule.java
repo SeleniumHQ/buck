@@ -20,7 +20,7 @@ import com.facebook.buck.module.BuckModule;
 import com.facebook.buck.zip.bundler.ZipBundlerModule;
 
 @BuckModule(
-    id = "org.openqa.seleniun.buck.mozilla.mozillarules",
+    id = "org.openqa.seleniun.buck.mozilla",
     dependencies = {
         ZipBundlerModule.class,
     }

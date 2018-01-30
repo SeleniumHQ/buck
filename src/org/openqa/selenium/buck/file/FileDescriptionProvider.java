@@ -29,7 +29,7 @@ public class FileDescriptionProvider implements DescriptionProvider {
 
   @Override
   public Collection<Description<?>> getDescriptions(DescriptionCreationContext context) {
-    return Stream.of(new BuildStampDescription(), new FolderDescription())
+    return Stream.of(new FolderDescription())
         .collect(Collectors.toCollection(HashSet::new));
   }
 }

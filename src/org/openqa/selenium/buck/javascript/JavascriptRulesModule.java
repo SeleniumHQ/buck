@@ -18,7 +18,6 @@ package org.openqa.selenium.buck.javascript;
 
 import com.facebook.buck.module.BuckModule;
 
-@BuckModule(
-    id = "org.openqa.seleniun.buck.javascript.closurerules")
+@BuckModule(id = "org.openqa.seleniun.buck.javascript")
 public class JavascriptRulesModule {
 }
