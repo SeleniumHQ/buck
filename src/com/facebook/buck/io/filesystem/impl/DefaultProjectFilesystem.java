@@ -894,10 +894,18 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
     // POSIX file permissions.  We'll use this information when unzipping.
     if (isExecutable(path)) {
       mode |= MorePosixFilePermissions.toMode(EnumSet.of(PosixFilePermission.OWNER_EXECUTE));
+      mode |= MorePosixFilePermissions.toMode(EnumSet.of(PosixFilePermission.GROUP_EXECUTE));
+      mode |= MorePosixFilePermissions.toMode(EnumSet.of(PosixFilePermission.OTHERS_EXECUTE));
     }
 
     if (isDirectory(path)) {
       mode |= MoreFiles.S_IFDIR;
+
+      if (Files.isReadable(path)) {
+        mode |= MorePosixFilePermissions.toMode(EnumSet.of(PosixFilePermission.OWNER_EXECUTE));
+        mode |= MorePosixFilePermissions.toMode(EnumSet.of(PosixFilePermission.GROUP_EXECUTE));
+        mode |= MorePosixFilePermissions.toMode(EnumSet.of(PosixFilePermission.OTHERS_EXECUTE));
+      }
     } else if (isFile(path)) {
       mode |= MoreFiles.S_IFREG;
     }
