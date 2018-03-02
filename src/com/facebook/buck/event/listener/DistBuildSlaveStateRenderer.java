@@ -60,11 +60,19 @@ public class DistBuildSlaveStateRenderer implements MultiStateRenderer {
     lineBuilder.append(String.format(" Server %d: ", slaveID));
 
     if (status.getTotalRulesCount() == 0) {
-      lineBuilder.append("Creating action graph...");
+      ImmutableList.Builder<String> columns = new ImmutableList.Builder<>();
+      columns.add("creating action graph");
+
+      if (status.getFilesMaterializedCount() > 0) {
+        columns.add(
+            String.format("materializing source files [%d]", status.getFilesMaterializedCount()));
+      }
+
+      lineBuilder.append(String.format("Preparing: %s ...", Joiner.on(", ").join(columns.build())));
     } else {
       String prefix = "Idle";
-      if (status.getRulesStartedCount() != 0) {
-        prefix = String.format("Working on %d jobs", status.getRulesStartedCount());
+      if (status.getRulesBuildingCount() != 0) {
+        prefix = String.format("Working on %d jobs", status.getRulesBuildingCount());
       }
 
       ImmutableList.Builder<String> columns = new ImmutableList.Builder<>();
@@ -80,10 +88,7 @@ public class DistBuildSlaveStateRenderer implements MultiStateRenderer {
         CacheRateStatsKeeper.CacheRateStatsUpdateEvent cacheStats =
             CacheRateStatsKeeper.getCacheRateStatsUpdateEventFromSerializedStats(
                 status.getCacheRateStats());
-        columns.add(
-            String.format(
-                "%d [%.1f%%] cache miss",
-                cacheStats.getCacheMissCount(), cacheStats.getCacheMissRate()));
+        columns.add(String.format("%.1f%% cache miss", cacheStats.getCacheMissRate()));
 
         if (cacheStats.getCacheErrorCount() != 0) {
           columns.add(
@@ -106,18 +111,13 @@ public class DistBuildSlaveStateRenderer implements MultiStateRenderer {
         }
       }
 
-      if (status.getFilesMaterializedCount() > 0) {
-        columns.add(String.format("%d files materialized", status.getFilesMaterializedCount()));
-      }
-
       lineBuilder.append(String.format("%s... %s", prefix, Joiner.on(", ").join(columns.build())));
     }
 
     if (status.getRulesFailureCount() != 0) {
       return ansi.asErrorText(lineBuilder.toString());
-    } else if (status.getTotalRulesCount() != 0
-        && status.getRulesSuccessCount() == status.getTotalRulesCount()) {
-      return ansi.asSuccessText(lineBuilder.toString());
+    } else if (status.getTotalRulesCount() > 0 && status.getRulesBuildingCount() == 0) {
+      return ansi.asWarningText(lineBuilder.toString());
     } else {
       return lineBuilder.toString();
     }
@@ -132,7 +132,7 @@ public class DistBuildSlaveStateRenderer implements MultiStateRenderer {
     int offset = (int) ((currentTimeMs / 400) % animationFrames.length());
     String glyph = "[" + animationFrames.charAt(offset) + "]";
 
-    if (status.getRulesStartedCount() == 0) {
+    if (status.getRulesBuildingCount() == 0) {
       if (status.getRulesFailureCount() != 0) {
         glyph = "[X]";
       } else {
@@ -143,7 +143,7 @@ public class DistBuildSlaveStateRenderer implements MultiStateRenderer {
     if (status.getRulesFailureCount() != 0) {
       return ansi.asErrorText(glyph);
     } else if (status.getTotalRulesCount() != 0
-        && status.getRulesSuccessCount() == status.getTotalRulesCount()) {
+        && status.getRulesFinishedCount() == status.getTotalRulesCount()) {
       return ansi.asSuccessText(glyph);
     } else {
       return glyph;

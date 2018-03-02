@@ -22,11 +22,13 @@ import static org.junit.Assert.assertNotNull;
 import com.facebook.buck.config.ActionGraphParallelizationMode;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.config.IncrementalActionGraphMode;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.listener.BroadcastEventListener;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
@@ -55,6 +57,7 @@ import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
@@ -115,7 +118,8 @@ public class DistBuildFileHashesIntegrationTest {
             rootCellConfig.getView(ParserConfig.class),
             typeCoercerFactory,
             constructorArgMarshaller,
-            knownBuildRuleTypesProvider);
+            knownBuildRuleTypesProvider,
+            new ExecutableFinder());
     TargetGraph targetGraph =
         parser.buildTargetGraph(
             BuckEventBusForTests.newInstance(),
@@ -190,7 +194,8 @@ public class DistBuildFileHashesIntegrationTest {
             rootCellConfig.getView(ParserConfig.class),
             typeCoercerFactory,
             constructorArgMarshaller,
-            knownBuildRuleTypesProvider);
+            knownBuildRuleTypesProvider,
+            new ExecutableFinder());
     TargetGraph targetGraph =
         parser.buildTargetGraph(
             BuckEventBusForTests.newInstance(),
@@ -229,7 +234,9 @@ public class DistBuildFileHashesIntegrationTest {
   private DistBuildFileHashes createDistBuildFileHashes(TargetGraph targetGraph, Cell rootCell)
       throws InterruptedException, IOException {
     ActionGraphCache cache =
-        new ActionGraphCache(rootCell.getBuckConfig().getMaxActionGraphCacheEntries());
+        new ActionGraphCache(
+            rootCell.getBuckConfig().getMaxActionGraphCacheEntries(),
+            rootCell.getBuckConfig().getMaxActionGraphNodeCacheEntries());
     ActionGraphAndResolver actionGraphAndResolver =
         cache.getActionGraph(
             BuckEventBusForTests.newInstance(),
@@ -239,7 +246,14 @@ public class DistBuildFileHashesIntegrationTest {
             TestRuleKeyConfigurationFactory.create(),
             ActionGraphParallelizationMode.DISABLED,
             Optional.empty(),
-            false);
+            false,
+            IncrementalActionGraphMode.DISABLED,
+            CloseableMemoizedSupplier.of(
+                () -> {
+                  throw new IllegalStateException(
+                      "should not use parallel executor for action graph construction in test");
+                },
+                ignored -> {}));
     BuildRuleResolver ruleResolver = actionGraphAndResolver.getResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     SourcePathResolver sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);

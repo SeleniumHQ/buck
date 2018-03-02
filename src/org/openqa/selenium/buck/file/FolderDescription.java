@@ -16,20 +16,17 @@
 
 package org.openqa.selenium.buck.file;
 
-import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasSrcs;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import org.immutables.value.Value;
 import java.util.Optional;
+import org.immutables.value.Value;
 
 public class FolderDescription implements Description<FolderArg> {
 
@@ -40,17 +37,14 @@ public class FolderDescription implements Description<FolderArg> {
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       FolderArg args) {
     return new Folder(
         buildTarget,
-        projectFilesystem,
-        new SourcePathRuleFinder(resolver),
+        context.getProjectFilesystem(),
+        new SourcePathRuleFinder(context.getBuildRuleResolver()),
         args.getOut().orElse(buildTarget.getShortName()),
         args.getSrcs());
   }

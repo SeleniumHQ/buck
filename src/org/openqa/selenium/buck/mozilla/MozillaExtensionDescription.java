@@ -16,17 +16,14 @@
 
 package org.openqa.selenium.buck.mozilla;
 
-import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableSortedSet;
 import org.immutables.value.Value;
@@ -40,17 +37,14 @@ public class MozillaExtensionDescription implements Description<MozillaExtension
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       MozillaExtensionArg args) {
     return new Xpi(
         buildTarget,
-        projectFilesystem,
-        new SourcePathRuleFinder(resolver),
+        context.getProjectFilesystem(),
+        new SourcePathRuleFinder(context.getBuildRuleResolver()),
         args.getChrome(),
         args.getComponents(),
         args.getContent(),

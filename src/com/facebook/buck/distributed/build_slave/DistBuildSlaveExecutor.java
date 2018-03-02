@@ -97,10 +97,10 @@ public class DistBuildSlaveExecutor {
               clientBuildId,
               false,
               args.getLogDirectoryPath(),
-              args.getBuildRuleFinishedPublisher(),
+              args.getCoordinatorBuildRuleEventsPublisher(),
               args.getBuckEventBus(),
               args.getExecutorService(),
-              args.getArtifactCacheFactory().remoteOnlyInstance(true),
+              args.getArtifactCacheFactory().remoteOnlyInstance(true, false),
               Futures.transform(
                   initializer.getDelegateAndGraphs(),
                   graphs -> {
@@ -151,7 +151,7 @@ public class DistBuildSlaveExecutor {
                   args.getRemoteCoordinatorAddress(),
                   OptionalInt.of(args.getRemoteCoordinatorPort()),
                   args.getDistBuildConfig(),
-                  args.getUnexpectedSlaveCacheMissTracker(),
+                  args.getMinionBuildProgressTracker(),
                   args.getDistBuildConfig().getMinionBuildCapacityRatio());
           break;
 
@@ -167,11 +167,11 @@ public class DistBuildSlaveExecutor {
                   args.getBuildSlaveRunId(),
                   localBuildExecutor,
                   args.getLogDirectoryPath(),
-                  args.getBuildRuleFinishedPublisher(),
-                  args.getUnexpectedSlaveCacheMissTracker(),
+                  args.getCoordinatorBuildRuleEventsPublisher(),
+                  args.getMinionBuildProgressTracker(),
                   args.getBuckEventBus(),
                   args.getExecutorService(),
-                  args.getArtifactCacheFactory().remoteOnlyInstance(true),
+                  args.getArtifactCacheFactory().remoteOnlyInstance(true, false),
                   args.getTimingStatsTracker(),
                   args.getHealthCheckStatsTracker(),
                   args.getDistBuildConfig().getCoordinatorBuildCapacityRatio());
@@ -251,6 +251,7 @@ public class DistBuildSlaveExecutor {
                 args.getExecutorService(),
                 KEEP_GOING,
                 true,
+                false,
                 args.getRuleKeyCacheScope(),
                 Optional.empty(),
                 Optional.empty(),

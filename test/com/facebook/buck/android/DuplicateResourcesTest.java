@@ -21,6 +21,7 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeFalse;
 
 import com.facebook.buck.config.ActionGraphParallelizationMode;
+import com.facebook.buck.config.IncrementalActionGraphMode;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.KeystoreDescription;
@@ -43,6 +44,7 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.IncrementingFakeClock;
@@ -243,13 +245,21 @@ public class DuplicateResourcesTest {
             keystore);
 
     ActionGraphAndResolver actionGraphAndResolver =
-        ActionGraphCache.getFreshActionGraph(
-            BuckEventBusForTests.newInstance(
-                new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1))),
-            new DefaultTargetNodeToBuildRuleTransformer(),
-            targetGraph,
-            ActionGraphParallelizationMode.DISABLED,
-            false);
+        new ActionGraphCache(1, 1)
+            .getFreshActionGraph(
+                BuckEventBusForTests.newInstance(
+                    new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1))),
+                new DefaultTargetNodeToBuildRuleTransformer(),
+                targetGraph,
+                ActionGraphParallelizationMode.DISABLED,
+                false,
+                IncrementalActionGraphMode.DISABLED,
+                CloseableMemoizedSupplier.of(
+                    () -> {
+                      throw new IllegalStateException(
+                          "should not use parallel executor for single threaded action graph construction in test");
+                    },
+                    ignored -> {}));
 
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(

@@ -48,6 +48,7 @@ import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
@@ -60,18 +61,19 @@ import com.facebook.buck.rules.ImplicitDepsInferringDescription;
 import com.facebook.buck.rules.MetadataProvidingDescription;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.swift.SwiftLibraryDescription;
+import com.facebook.buck.swift.SwiftRuntimeNativeLinkable;
 import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.unarchive.UnzipStep;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.versions.Version;
-import com.facebook.buck.zip.UnzipStep;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -148,17 +150,23 @@ public class AppleTestDescription
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       AppleTestDescriptionArg args) {
+    BuildRuleResolver resolver = context.getBuildRuleResolver();
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     if (!appleConfig.shouldUseSwiftDelegate()) {
       Optional<BuildRule> buildRule =
           appleLibraryDescription.createSwiftBuildRule(
-              buildTarget, projectFilesystem, params, resolver, cellRoots, args, Optional.of(this));
+              buildTarget,
+              projectFilesystem,
+              params,
+              resolver,
+              new SourcePathRuleFinder(resolver),
+              context.getCellPathResolver(),
+              args,
+              Optional.of(this));
 
       if (buildRule.isPresent()) {
         return buildRule.get();
@@ -254,11 +262,9 @@ public class AppleTestDescription
             .withAppendedFlavors(LinkerMapMode.NO_LINKER_MAP.getFlavor());
     BuildRule library =
         createTestLibraryRule(
-            targetGraph,
-            projectFilesystem,
+            context,
             params,
             resolver,
-            cellRoots,
             args,
             testHostWithTargetApp.flatMap(TestHostInfo::getTestHostAppBinarySourcePath),
             testHostWithTargetApp.map(TestHostInfo::getBlacklist).orElse(ImmutableSet.of()),
@@ -275,7 +281,7 @@ public class AppleTestDescription
             cxxPlatformFlavorDomain,
             defaultCxxFlavor,
             appleCxxPlatformFlavorDomain,
-            targetGraph,
+            context.getTargetGraph(),
             buildTarget.withAppendedFlavors(
                 BUNDLE_FLAVOR,
                 debugFormat.getFlavor(),
@@ -304,6 +310,7 @@ public class AppleTestDescription
             appleConfig.cacheBundlesAndPackages(),
             appleConfig.shouldVerifyBundleResources(),
             appleConfig.assetCatalogValidation(),
+            args.getAssetCatalogsCompilationOptions(),
             args.getCodesignFlags(),
             args.getCodesignIdentity(),
             Optional.empty());
@@ -397,7 +404,8 @@ public class AppleTestDescription
                                 .getAbsolutePath(
                                     Preconditions.checkNotNull(
                                         xctoolZipBuildRule.getSourcePathToOutput())),
-                            outputDirectory))
+                            outputDirectory,
+                            Optional.empty()))
                     .build();
               }
 
@@ -418,11 +426,9 @@ public class AppleTestDescription
   }
 
   private BuildRule createTestLibraryRule(
-      TargetGraph targetGraph,
-      ProjectFilesystem projectFilesystem,
+      BuildRuleCreationContext context,
       BuildRuleParams params,
       BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       AppleTestDescriptionArg args,
       Optional<SourcePath> testHostAppBinarySourcePath,
       ImmutableSet<BuildTarget> blacklist,
@@ -439,12 +445,10 @@ public class AppleTestDescription
     } else {
       library =
           appleLibraryDescription.createLibraryBuildRule(
-              targetGraph,
+              context,
               libraryTarget,
-              projectFilesystem,
               params,
               resolver,
-              cellRoots,
               args,
               // For now, instead of building all deps as dylibs and fixing up their install_names,
               // we'll just link them statically.
@@ -536,8 +540,14 @@ public class AppleTestDescription
     // ignored.
     ImmutableSet.Builder<BuildTarget> blacklistBuilder = ImmutableSet.builder();
     for (CxxPlatform platform : cxxPlatforms) {
-      blacklistBuilder.addAll(
-          NativeLinkables.getTransitiveNativeLinkables(platform, roots.values()).keySet());
+      ImmutableSet<BuildTarget> blacklistables =
+          NativeLinkables.getTransitiveNativeLinkables(platform, roots.values())
+              .entrySet()
+              .stream()
+              .filter(x -> !(x.getValue() instanceof SwiftRuntimeNativeLinkable))
+              .map(x -> x.getKey())
+              .collect(ImmutableSet.toImmutableSet());
+      blacklistBuilder.addAll(blacklistables);
     }
 
     if (!uiTestTargetAppBuildTarget.isPresent()) {
@@ -622,6 +632,7 @@ public class AppleTestDescription
           HasAppleBundleFields,
           HasAppleCodesignFields,
           HasContacts,
+          HasEntitlementsFile,
           HasTestTimeout {
     @Value.Default
     default boolean getRunTestSeparately() {

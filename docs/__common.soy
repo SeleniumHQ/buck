@@ -223,11 +223,14 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
             'ndk_library',
             'prebuilt_jar',
             'prebuilt_native_library',
+            'robolectric_test',
         ],
         'core': [
             'command_alias',
             'export_file',
             'genrule',
+            'http_archive',
+            'http_file',
             'remote_file',
             'worker_tool',
             'zip_file',
@@ -1440,13 +1443,19 @@ docsearch({
 {literal}<pre>
 git clone https://github.com/facebook/buck.git
 cd buck
-ant{/literal}{\n}
+ant{/literal}
 {if $withAlias and not $isWindows}
 sudo ln -s ${lb}PWD{rb}/bin/buck /usr/bin/buck
 {elseif not $isWindows}
-./bin/buck --help
+{literal}
+./bin/buck build --show-output buck
+buck-out/gen/programs/buck.pex --help
+{/literal}
 {else}
-.\bin\buck --help
+{literal}
+.\bin\buck build --show-output buck
+buck-out\gen\programs\buck.pex --help
+{/literal}
 {/if}
 </pre>
 {/template}

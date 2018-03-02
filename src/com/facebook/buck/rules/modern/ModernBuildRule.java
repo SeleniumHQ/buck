@@ -22,13 +22,17 @@ import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildOutputInitializer;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
+import com.facebook.buck.rules.CacheableBuildRule;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.HasRuntimeDeps;
 import com.facebook.buck.rules.InitializableFromDisk;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.rules.keys.AlterRuleKeys;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.rules.modern.impl.DefaultClassInfoFactory;
 import com.facebook.buck.rules.modern.impl.DefaultInputRuleResolver;
@@ -50,7 +54,7 @@ import javax.annotation.Nullable;
  * interfaces used by the build engine). Most of the overridden methods from
  * BuildRule/AbstractBuildRule are intentionally final to keep users on the safe path.
  *
- * <p>Deps, outputs and rulekeys are derived from the fields of the {@link Buildable}.
+ * <p>Deps, outputs, inputs and rulekeys are derived from the fields of the {@link Buildable}.
  *
  * <p>For simple ModernBuildRules (e.g. those that don't have any fields that can't be added to the
  * rulekey), the build rule class itself can (and should) implement Buildable. In this case, the
@@ -103,16 +107,18 @@ public class ModernBuildRule<T extends Buildable>
     implements BuildRule,
         HasRuntimeDeps,
         SupportsInputBasedRuleKey,
+        CacheableBuildRule,
         InitializableFromDisk<ModernBuildRule.DataHolder> {
   private final BuildTarget buildTarget;
   private final ProjectFilesystem filesystem;
-  private final InputRuleResolver inputRuleResolver;
   private final BuildOutputInitializer<DataHolder> buildOutputInitializer;
   private final OutputPathResolver outputPathResolver;
 
   private final Supplier<ImmutableSortedSet<BuildRule>> deps;
   private final T buildable;
   private final ClassInfo<T> classInfo;
+
+  private InputRuleResolver inputRuleResolver;
 
   protected ModernBuildRule(
       BuildTarget buildTarget,
@@ -143,12 +149,25 @@ public class ModernBuildRule<T extends Buildable>
     this.outputPathResolver =
         new DefaultOutputPathResolver(this.getProjectFilesystem(), this.getBuildTarget());
     this.buildable = buildableSource.transform(b -> b, clz -> clz.cast(this));
-    this.classInfo = DefaultClassInfoFactory.forBuildable(this.buildable);
+    this.classInfo = DefaultClassInfoFactory.forInstance(this.buildable);
   }
 
   private ImmutableSortedSet<BuildRule> computeDeps() {
     ImmutableSortedSet.Builder<BuildRule> depsBuilder = ImmutableSortedSet.naturalOrder();
     classInfo.computeDeps(buildable, inputRuleResolver, depsBuilder::add);
+    return depsBuilder.build();
+  }
+
+  /** Computes the inputs of the build rule. */
+  public ImmutableSortedSet<SourcePath> computeInputs() {
+    return computeInputs(getBuildable(), classInfo);
+  }
+
+  /** Computes the inputs of the build rule. */
+  public static <T extends Buildable> ImmutableSortedSet<SourcePath> computeInputs(
+      T buildable, ClassInfo<T> classInfo) {
+    ImmutableSortedSet.Builder<SourcePath> depsBuilder = ImmutableSortedSet.naturalOrder();
+    classInfo.getInputs(buildable, depsBuilder::add);
     return depsBuilder.build();
   }
 
@@ -162,6 +181,13 @@ public class ModernBuildRule<T extends Buildable>
     return null;
   }
 
+  @Override
+  public void updateBuildRuleResolver(
+      BuildRuleResolver ruleResolver,
+      SourcePathRuleFinder ruleFinder,
+      SourcePathResolver pathResolver) {
+    this.inputRuleResolver = new DefaultInputRuleResolver(ruleFinder);
+  }
   // -----------------------------------------------------------------------------------------------
   // ---------- These function's behaviors can be changed with interfaces on the Buildable ---------
   // -----------------------------------------------------------------------------------------------
@@ -195,12 +221,6 @@ public class ModernBuildRule<T extends Buildable>
         buildTarget, outputPathResolver.resolvePath(outputPath));
   }
 
-  protected final InputPath toInputPath(OutputPath outputPath) {
-    // TODO(cjhopman): either enforce that this is our own outputPath, or support actually
-    // converting other rule's outputs to our own inputs.
-    return new InputPath(getSourcePath(outputPath));
-  }
-
   @Override
   public final ImmutableSortedSet<BuildRule> getBuildDeps() {
     return deps.get();
@@ -227,10 +247,8 @@ public class ModernBuildRule<T extends Buildable>
 
     stepBuilder.addAll(
         buildable.getBuildSteps(
-            context.getEventBus(),
+            context,
             filesystem,
-            new DefaultInputPathResolver(context.getSourcePathResolver()),
-            getInputDataRetriever(),
             outputPathResolver,
             new DefaultBuildCellRelativePathFactory(
                 context.getBuildCellRootPath(), filesystem, Optional.of(outputPathResolver))));
@@ -244,26 +262,12 @@ public class ModernBuildRule<T extends Buildable>
     buildableContext.recordArtifact(outputPathResolver.getRootPath());
     // All the outputs are already forced to be within getGenDirectory(), and so this recording
     // isn't actually necessary.
-    classInfo.getOutputs(buildable, (name, output) -> recordOutput(buildableContext, output));
-
-    classInfo.getOutputData(buildable, (name, data) -> recordData(buildableContext, name, data));
+    classInfo.getOutputs(buildable, output -> recordOutput(buildableContext, output));
     return stepBuilder.build();
   }
 
   private void recordOutput(BuildableContext buildableContext, OutputPath output) {
     buildableContext.recordArtifact(outputPathResolver.resolvePath(output));
-  }
-
-  private void recordData(BuildableContext buildableContext, String name, OutputData outputData) {
-    buildableContext.getClass();
-    name.getClass();
-    outputData.getClass();
-    // TODO(cjhopman): implement
-    throw new UnsupportedOperationException();
-  }
-
-  private InputDataRetriever getInputDataRetriever() {
-    return new InputDataRetriever() {};
   }
 
   @Override
@@ -273,7 +277,7 @@ public class ModernBuildRule<T extends Buildable>
 
   @Override
   public final void appendToRuleKey(RuleKeyObjectSink sink) {
-    classInfo.appendToRuleKey(buildable, sink);
+    AlterRuleKeys.amendKey(sink, buildable);
   }
 
   @Override

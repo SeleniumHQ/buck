@@ -22,6 +22,7 @@ import com.facebook.buck.distributed.thrift.BuildJobStateCell;
 import com.facebook.buck.distributed.thrift.OrderedStringMapEntry;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.Cell;
+import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.util.config.Config;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -31,7 +32,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Keeps track of {@link Cell}s encountered while serializing the distributed build state. */
+/**
+ * Keeps track of {@link Cell}s encountered while serializing the distributed build state. This
+ * class is thread safe.
+ */
 public class DistBuildCellIndexer {
 
   public static final Integer ROOT_CELL_INDEX = 0;
@@ -42,7 +46,7 @@ public class DistBuildCellIndexer {
   final Map<Integer, ProjectFilesystem> localFilesystemsByCellIndex;
 
   public DistBuildCellIndexer(Cell rootCell) {
-    this.rootCell = rootCell;
+    this.rootCell = withCanonicalNameIfExists(rootCell);
     this.index = new HashMap<>();
     this.state = new HashMap<>();
     this.localFilesystemsByCellIndex = new HashMap<>();
@@ -50,22 +54,43 @@ public class DistBuildCellIndexer {
     Preconditions.checkState(ROOT_CELL_INDEX == this.getCellIndex(rootCell.getRoot()));
   }
 
-  public Map<Integer, ProjectFilesystem> getLocalFilesystemsByCellIndex() {
+  private Cell withCanonicalNameIfExists(Cell rootCell) {
+    if (rootCell.getCanonicalName().isPresent()) {
+      return rootCell;
+    }
+
+    // CellPathResolver.getCanonicalName(..) exists however that tries to hide the fact that the
+    // main cell has a canonical name, by return always empty string so in order to get the actual
+    // canonical name we need to look at the buckconfig. By using
+    // DefaultCellPathResolver.getCanonicalNames() we avoid duplicating the parsing code.
+    DefaultCellPathResolver resolver =
+        DefaultCellPathResolver.of(rootCell.getRoot(), rootCell.getBuckConfig().getConfig());
+    if (resolver.getCanonicalNames().containsKey(rootCell.getRoot())) {
+      return rootCell.withCanonicalName(resolver.getCanonicalNames().get(rootCell.getRoot()));
+    }
+
+    return rootCell;
+  }
+
+  /** @return ProjectFilesystems indexed by cell */
+  public synchronized Map<Integer, ProjectFilesystem> getLocalFilesystemsByCellIndex() {
     return localFilesystemsByCellIndex;
   }
 
-  public Map<Integer, BuildJobStateCell> getState() {
+  /** @return Cells by index */
+  public synchronized Map<Integer, BuildJobStateCell> getState() {
     return state;
   }
 
-  public Integer getCellIndex(Path input) {
+  /** @return Cell index for given path */
+  public synchronized Integer getCellIndex(Path input) {
     // Non-cell Paths are just stored in the root cell data marked as absolute paths.
     Integer i = rootCell.getKnownRoots().contains(input) ? index.get(input) : ROOT_CELL_INDEX;
     if (i == null) {
       i = index.size();
       index.put(input, i);
 
-      Cell cell = rootCell.getCellIgnoringVisibilityCheck(input);
+      Cell cell = withCanonicalNameIfExists(rootCell.getCellIgnoringVisibilityCheck(input));
       state.put(i, dumpCell(cell));
       localFilesystemsByCellIndex.put(i, cell.getFilesystem());
     }

@@ -22,10 +22,11 @@ import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.*;
 
-import com.facebook.buck.event.EventDispatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
@@ -35,17 +36,15 @@ import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.RuleKeyObjectSink;
 import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
+import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.keys.AlterRuleKeys;
 import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
 import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.ClassInfo;
-import com.facebook.buck.rules.modern.InputDataRetriever;
-import com.facebook.buck.rules.modern.InputPath;
-import com.facebook.buck.rules.modern.InputPathResolver;
 import com.facebook.buck.rules.modern.InputRuleResolver;
 import com.facebook.buck.rules.modern.ModernBuildRule;
-import com.facebook.buck.rules.modern.OutputData;
 import com.facebook.buck.rules.modern.OutputPath;
 import com.facebook.buck.rules.modern.OutputPathResolver;
 import com.facebook.buck.step.Step;
@@ -54,7 +53,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Paths;
 import java.util.Optional;
-import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -67,10 +65,7 @@ public class DefaultClassInfoTest {
   private Consumer<BuildRule> buildRuleConsumer = createStrictMock(Consumer.class);
 
   @SuppressWarnings("unchecked")
-  private BiConsumer<String, OutputPath> outputConsumer = createStrictMock(BiConsumer.class);
-
-  @SuppressWarnings("unchecked")
-  private BiConsumer<String, OutputData> outputDataConsumer = createStrictMock(BiConsumer.class);
+  private Consumer<OutputPath> outputConsumer = createStrictMock(Consumer.class);
 
   private RuleKeyObjectSink ruleKeyObjectSink = createStrictMock(RuleKeyObjectSink.class);
 
@@ -79,10 +74,8 @@ public class DefaultClassInfoTest {
   static class NoOpBuildable implements Buildable {
     @Override
     public ImmutableList<Step> getBuildSteps(
-        EventDispatcher eventDispatcher,
+        BuildContext buildContext,
         ProjectFilesystem filesystem,
-        InputPathResolver inputPathResolver,
-        InputDataRetriever inputDataRetriever,
         OutputPathResolver outputPathResolver,
         BuildCellRelativePathFactory buildCellPathFactory) {
       return ImmutableList.of();
@@ -91,10 +84,10 @@ public class DefaultClassInfoTest {
 
   private abstract static class BaseClass extends NoOpBuildable {
     private static final String BASE_NAME = "BaseClass";
-    private final InputPath baseInputPath;
-    final OutputPath baseOutputPath;
+    @AddToRuleKey private final SourcePath baseInputPath;
+    @AddToRuleKey final OutputPath baseOutputPath;
 
-    BaseClass(InputPath inputPath) {
+    BaseClass(SourcePath inputPath) {
       this.baseInputPath = inputPath;
       this.baseOutputPath = new OutputPath("baseOutput");
     }
@@ -102,13 +95,12 @@ public class DefaultClassInfoTest {
 
   private static class DerivedClass extends BaseClass {
     private static final Optional<String> STRING = Optional.empty();
-    private final ImmutableList<InputPath> inputs;
-    private final int value = 1;
-    private final long something = 2;
-    private final boolean enabled = true;
-    private final OutputData outputData = new OutputData();
+    @AddToRuleKey private final ImmutableList<SourcePath> inputs;
+    @AddToRuleKey private final int value = 1;
+    @AddToRuleKey private final long something = 2;
+    @AddToRuleKey private final boolean enabled = true;
 
-    DerivedClass(InputPath baseInputPath, ImmutableList<InputPath> inputs) {
+    DerivedClass(SourcePath baseInputPath, ImmutableList<SourcePath> inputs) {
       super(baseInputPath);
       this.inputs = inputs;
     }
@@ -131,44 +123,40 @@ public class DefaultClassInfoTest {
     BuildTargetSourcePath targetSourcePath3 =
         ExplicitBuildTargetSourcePath.of(target3, Paths.get("path"));
 
-    InputPath targetInputPath1 = new InputPath(targetSourcePath1);
-    InputPath targetInputPath2 = new InputPath(targetSourcePath2);
-    InputPath targetInputPath3 = new InputPath(targetSourcePath3);
-
     PathSourcePath pathSourcePath = FakeSourcePath.of(filesystem, "path");
-    InputPath pathInputPath = new InputPath(pathSourcePath);
 
     DerivedClass buildable =
         new DerivedClass(
-            targetInputPath1, ImmutableList.of(targetInputPath2, targetInputPath3, pathInputPath));
-    ClassInfo<DerivedClass> classInfo = DefaultClassInfoFactory.forBuildable(buildable);
+            targetSourcePath1,
+            ImmutableList.of(targetSourcePath2, targetSourcePath3, pathSourcePath));
+    ClassInfo<DerivedClass> classInfo = DefaultClassInfoFactory.forInstance(buildable);
     assertEquals("derived_class", classInfo.getType());
 
-    expect(ruleKeyObjectSink.setReflectively("BASE_NAME", "BaseClass"))
+    expect(
+            ruleKeyObjectSink.setReflectively(
+                ".class", "com.facebook.buck.rules.modern.impl.DefaultClassInfoTest$DerivedClass"))
         .andReturn(ruleKeyObjectSink);
-    expect(ruleKeyObjectSink.setReflectively("baseInputPath", targetSourcePath1))
-        .andReturn(ruleKeyObjectSink);
-    expect(ruleKeyObjectSink.setReflectively("baseOutputPath", "baseOutput"))
-        .andReturn(ruleKeyObjectSink);
-    expect(ruleKeyObjectSink.setReflectively("STRING", Optional.empty()))
-        .andReturn(ruleKeyObjectSink);
+    expect(ruleKeyObjectSink.setReflectively("enabled", true)).andReturn(ruleKeyObjectSink);
     expect(
             ruleKeyObjectSink.setReflectively(
                 "inputs", ImmutableList.of(targetSourcePath2, targetSourcePath3, pathSourcePath)))
         .andReturn(ruleKeyObjectSink);
-    expect(ruleKeyObjectSink.setReflectively("value", 1)).andReturn(ruleKeyObjectSink);
     expect(ruleKeyObjectSink.setReflectively("something", 2l)).andReturn(ruleKeyObjectSink);
-    expect(ruleKeyObjectSink.setReflectively("enabled", true)).andReturn(ruleKeyObjectSink);
-    expect(ruleKeyObjectSink.setReflectively("outputData", "")).andReturn(ruleKeyObjectSink);
+    expect(ruleKeyObjectSink.setReflectively("value", 1)).andReturn(ruleKeyObjectSink);
+
+    expect(ruleKeyObjectSink.setReflectively("baseInputPath", targetSourcePath1))
+        .andReturn(ruleKeyObjectSink);
+    expect(ruleKeyObjectSink.setReflectively("baseOutputPath", buildable.baseOutputPath))
+        .andReturn(ruleKeyObjectSink);
 
     replay(ruleKeyObjectSink);
-    classInfo.appendToRuleKey(buildable, ruleKeyObjectSink);
+    AlterRuleKeys.amendKey(ruleKeyObjectSink, buildable);
     verify(ruleKeyObjectSink);
 
-    expect(inputRuleResolver.resolve(targetInputPath1)).andReturn(Optional.of(rule1));
-    expect(inputRuleResolver.resolve(targetInputPath2)).andReturn(Optional.of(rule2));
-    expect(inputRuleResolver.resolve(targetInputPath3)).andReturn(Optional.of(rule3));
-    expect(inputRuleResolver.resolve(pathInputPath)).andReturn(Optional.empty());
+    expect(inputRuleResolver.resolve(targetSourcePath1)).andReturn(Optional.of(rule1));
+    expect(inputRuleResolver.resolve(targetSourcePath2)).andReturn(Optional.of(rule2));
+    expect(inputRuleResolver.resolve(targetSourcePath3)).andReturn(Optional.of(rule3));
+    expect(inputRuleResolver.resolve(pathSourcePath)).andReturn(Optional.empty());
 
     buildRuleConsumer.accept(rule1);
     buildRuleConsumer.accept(rule2);
@@ -178,13 +166,7 @@ public class DefaultClassInfoTest {
     classInfo.computeDeps(buildable, inputRuleResolver, buildRuleConsumer);
     verify(inputRuleResolver, buildRuleConsumer);
 
-    outputDataConsumer.accept("outputData", buildable.outputData);
-
-    replay(outputDataConsumer);
-    classInfo.getOutputData(buildable, outputDataConsumer);
-    verify(outputDataConsumer);
-
-    outputConsumer.accept("baseOutputPath", buildable.baseOutputPath);
+    outputConsumer.accept(buildable.baseOutputPath);
 
     replay(outputConsumer);
     classInfo.getOutputs(buildable, outputConsumer);
@@ -194,15 +176,10 @@ public class DefaultClassInfoTest {
   @Test(expected = Exception.class)
   public void testLambdaBuildable() {
     try {
-      DefaultClassInfoFactory.forBuildable(
-          (eventDispatcher,
-              filesystem,
-              inputPathResolver,
-              inputDataRetriever,
-              outputPathResolver,
-              buildCellPathFactory) -> null);
+      DefaultClassInfoFactory.forInstance(
+          (Buildable) (buildContext, filesystem, outputPathResolver, buildCellPathFactory) -> null);
     } catch (Exception e) {
-      assertThat(e.getMessage(), Matchers.containsString("cannot be synthetic"));
+      assertThat(e.getMessage(), Matchers.containsString("cannot be or reference synthetic"));
       assertThat(e.getMessage(), Matchers.containsString("DefaultClassInfoTest"));
       throw e;
     }
@@ -211,9 +188,10 @@ public class DefaultClassInfoTest {
   @Test(expected = Exception.class)
   public void testAnonymousBuildable() {
     try {
-      DefaultClassInfoFactory.forBuildable(new NoOpBuildable() {});
+      DefaultClassInfoFactory.forInstance(new NoOpBuildable() {});
     } catch (Exception e) {
-      assertThat(e.getMessage(), Matchers.containsString("cannot be anonymous classes"));
+      assertThat(
+          e.getMessage(), Matchers.containsString("cannot be or reference anonymous classes"));
       assertThat(e.getMessage(), Matchers.containsString("DefaultClassInfoTest"));
       throw e;
     }
@@ -223,9 +201,9 @@ public class DefaultClassInfoTest {
   public void testLocalBuildable() {
     try {
       class LocalBuildable extends NoOpBuildable {}
-      DefaultClassInfoFactory.forBuildable(new LocalBuildable());
+      DefaultClassInfoFactory.forInstance(new LocalBuildable());
     } catch (Exception e) {
-      assertThat(e.getMessage(), Matchers.containsString("cannot be local classes"));
+      assertThat(e.getMessage(), Matchers.containsString("cannot be or reference local classes"));
       assertThat(e.getMessage(), Matchers.containsString("LocalBuildable"));
       throw e;
     }
@@ -236,9 +214,11 @@ public class DefaultClassInfoTest {
   @Test(expected = Exception.class)
   public void testNonStaticInner() {
     try {
-      DefaultClassInfoFactory.forBuildable(new NonStaticInnerBuildable());
+      DefaultClassInfoFactory.forInstance(new NonStaticInnerBuildable());
     } catch (Exception e) {
-      assertThat(e.getMessage(), Matchers.containsString("cannot be inner non-static classes"));
+      assertThat(
+          e.getMessage(),
+          Matchers.containsString("cannot be or reference inner non-static classes"));
       assertThat(e.getMessage(), Matchers.containsString("NonStaticInnerBuildable"));
       throw e;
     }
@@ -251,7 +231,7 @@ public class DefaultClassInfoTest {
   @Test(expected = Exception.class)
   public void testNonFinalField() {
     try {
-      DefaultClassInfoFactory.forBuildable(new NonFinalFieldBuildable());
+      DefaultClassInfoFactory.forInstance(new NonFinalFieldBuildable());
     } catch (Exception e) {
       assertThat(
           e.getMessage(), Matchers.containsString("must be final (NonFinalFieldBuildable.value)"));
@@ -267,7 +247,7 @@ public class DefaultClassInfoTest {
   @Test(expected = Exception.class)
   public void testNonFinalStaticField() {
     try {
-      DefaultClassInfoFactory.forBuildable(new NonFinalStaticFieldBuildable());
+      DefaultClassInfoFactory.forInstance(new NonFinalStaticFieldBuildable());
     } catch (Exception e) {
       assertThat(
           e.getMessage(),
@@ -286,7 +266,7 @@ public class DefaultClassInfoTest {
   @Test(expected = Exception.class)
   public void testBadBase() {
     try {
-      DefaultClassInfoFactory.forBuildable(new DerivedFromBadBased());
+      DefaultClassInfoFactory.forInstance(new DerivedFromBadBased());
     } catch (Exception e) {
       assertThat(e.getMessage(), Matchers.containsString("must be final (BadBase.value)"));
       assertThat(e.getMessage(), Matchers.containsString("DerivedFromBadBased"));
@@ -297,7 +277,7 @@ public class DefaultClassInfoTest {
   @Test
   public void testSimpleModernBuildRule() {
     // Just tests that we can construct a class info from a "direct" ModernBuildRule.
-    DefaultClassInfoFactory.forBuildable(
+    DefaultClassInfoFactory.forInstance(
         new NoOpModernBuildRule(
             BuildTargetFactory.newInstance("//some:target"),
             new FakeProjectFilesystem(),
@@ -315,10 +295,8 @@ public class DefaultClassInfoTest {
 
     @Override
     public ImmutableList<Step> getBuildSteps(
-        EventDispatcher eventDispatcher,
+        BuildContext buildContext,
         ProjectFilesystem filesystem,
-        InputPathResolver inputPathResolver,
-        InputDataRetriever inputDataRetriever,
         OutputPathResolver outputPathResolver,
         BuildCellRelativePathFactory buildCellPathFactory) {
       return ImmutableList.of();

@@ -69,7 +69,7 @@ import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.rules.macros.OutputMacroExpander;
 import com.facebook.buck.rules.macros.StringWithMacros;
-import com.facebook.buck.rules.macros.StringWithMacrosArg;
+import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
@@ -141,6 +141,7 @@ public class CxxDescriptionEnhancer {
   public static HeaderSymlinkTree createHeaderSymlinkTree(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      SourcePathRuleFinder ruleFinder,
       HeaderMode mode,
       ImmutableMap<Path, SourcePath> headers,
       HeaderVisibility headerVisibility,
@@ -152,12 +153,18 @@ public class CxxDescriptionEnhancer {
         CxxDescriptionEnhancer.getHeaderSymlinkTreePath(
             projectFilesystem, buildTarget, headerVisibility, flavors);
     return CxxPreprocessables.createHeaderSymlinkTreeBuildRule(
-        headerSymlinkTreeTarget, projectFilesystem, headerSymlinkTreeRoot, headers, mode);
+        headerSymlinkTreeTarget,
+        projectFilesystem,
+        ruleFinder,
+        headerSymlinkTreeRoot,
+        headers,
+        mode);
   }
 
   public static HeaderSymlinkTree createHeaderSymlinkTree(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      SourcePathRuleFinder ruleFinder,
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       ImmutableMap<Path, SourcePath> headers,
@@ -166,6 +173,7 @@ public class CxxDescriptionEnhancer {
     return createHeaderSymlinkTree(
         buildTarget,
         projectFilesystem,
+        ruleFinder,
         getHeaderModeForPlatform(resolver, cxxPlatform, shouldCreateHeadersSymlinks),
         headers,
         headerVisibility,
@@ -175,6 +183,7 @@ public class CxxDescriptionEnhancer {
   public static SymlinkTree createSandboxSymlinkTree(
       BuildTarget baseBuildTarget,
       ProjectFilesystem projectFilesystem,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       ImmutableMap<Path, SourcePath> map) {
     BuildTarget sandboxSymlinkTreeTarget =
@@ -185,12 +194,19 @@ public class CxxDescriptionEnhancer {
             projectFilesystem, sandboxSymlinkTreeTarget);
 
     return new SymlinkTree(
-        sandboxSymlinkTreeTarget, projectFilesystem, sandboxSymlinkTreeRoot, map);
+        "cxx_sandbox",
+        sandboxSymlinkTreeTarget,
+        projectFilesystem,
+        sandboxSymlinkTreeRoot,
+        map,
+        ImmutableMultimap.of(),
+        ruleFinder);
   }
 
   public static HeaderSymlinkTree requireHeaderSymlinkTree(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      SourcePathRuleFinder ruleFinder,
       BuildRuleResolver ruleResolver,
       CxxPlatform cxxPlatform,
       ImmutableMap<Path, SourcePath> headers,
@@ -208,6 +224,7 @@ public class CxxDescriptionEnhancer {
                 createHeaderSymlinkTree(
                     untypedTarget,
                     projectFilesystem,
+                    ruleFinder,
                     ruleResolver,
                     cxxPlatform,
                     headers,
@@ -879,6 +896,7 @@ public class CxxDescriptionEnhancer {
         requireHeaderSymlinkTree(
             target,
             projectFilesystem,
+            ruleFinder,
             resolver,
             cxxPlatform,
             headers,
@@ -951,18 +969,21 @@ public class CxxDescriptionEnhancer {
 
     // Build up the linker flags, which support macro expansion.
     {
-      Optional<Function<String, String>> sanitizer =
-          Optional.of(getStringWithMacrosArgSanitizer(cxxPlatform));
       ImmutableList<AbstractMacroExpanderWithoutPrecomputedWork<? extends Macro>> expanders =
           ImmutableList.of(new CxxLocationMacroExpander(cxxPlatform), new OutputMacroExpander());
 
+      StringWithMacrosConverter macrosConverter =
+          StringWithMacrosConverter.builder()
+              .setBuildTarget(linkRuleTarget)
+              .setCellPathResolver(cellRoots)
+              .setResolver(resolver)
+              .setExpanders(expanders)
+              .setSanitizer(getStringWithMacrosArgSanitizer(cxxPlatform))
+              .build();
       CxxFlags.getFlagsWithMacrosWithPlatformMacroExpansion(
               linkerFlags, platformLinkerFlags, cxxPlatform)
           .stream()
-          .map(
-              f ->
-                  StringWithMacrosArg.of(
-                      f, expanders, sanitizer, linkRuleTarget, cellRoots, resolver))
+          .map(macrosConverter::convert)
           .forEach(argsBuilder::add);
     }
 
@@ -1074,6 +1095,7 @@ public class CxxDescriptionEnhancer {
               target,
               projectFilesystem,
               resolver,
+              ruleFinder,
               cxxPlatform,
               deps,
               binaryName,
@@ -1208,6 +1230,7 @@ public class CxxDescriptionEnhancer {
   public static SymlinkTree createSharedLibrarySymlinkTree(
       BuildTarget baseBuildTarget,
       ProjectFilesystem filesystem,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Iterable<? extends BuildRule> deps,
       Function<? super BuildRule, Optional<Iterable<? extends BuildRule>>> passthrough) {
@@ -1224,7 +1247,14 @@ public class CxxDescriptionEnhancer {
     for (Map.Entry<String, SourcePath> ent : libraries.entrySet()) {
       links.put(Paths.get(ent.getKey()), ent.getValue());
     }
-    return new SymlinkTree(symlinkTreeTarget, filesystem, symlinkTreeRoot, links.build());
+    return new SymlinkTree(
+        "cxx_binary",
+        symlinkTreeTarget,
+        filesystem,
+        symlinkTreeRoot,
+        links.build(),
+        ImmutableMultimap.of(),
+        ruleFinder);
   }
 
   public static SymlinkTree requireSharedLibrarySymlinkTree(
@@ -1238,7 +1268,12 @@ public class CxxDescriptionEnhancer {
             createSharedLibrarySymlinkTreeTarget(buildTarget, cxxPlatform.getFlavor()),
             ignored ->
                 createSharedLibrarySymlinkTree(
-                    buildTarget, filesystem, cxxPlatform, deps, n -> Optional.empty()));
+                    buildTarget,
+                    filesystem,
+                    new SourcePathRuleFinder(resolver),
+                    cxxPlatform,
+                    deps,
+                    n -> Optional.empty()));
   }
 
   private static BuildTarget createBinaryWithSharedLibrariesSymlinkTreeTarget(
@@ -1255,6 +1290,7 @@ public class CxxDescriptionEnhancer {
   private static SymlinkTree createBinaryWithSharedLibrariesSymlinkTree(
       BuildTarget baseBuildTarget,
       ProjectFilesystem filesystem,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Iterable<? extends BuildRule> deps,
       Path binaryName,
@@ -1275,13 +1311,21 @@ public class CxxDescriptionEnhancer {
       links.put(Paths.get(ent.getKey()), ent.getValue());
     }
     links.put(binaryName, binarySource);
-    return new SymlinkTree(symlinkTreeTarget, filesystem, symlinkTreeRoot, links.build());
+    return new SymlinkTree(
+        "cxx_binary",
+        symlinkTreeTarget,
+        filesystem,
+        symlinkTreeRoot,
+        links.build(),
+        ImmutableMultimap.of(),
+        ruleFinder);
   }
 
   private static SymlinkTree requireBinaryWithSharedLibrariesSymlinkTree(
       BuildTarget buildTarget,
       ProjectFilesystem filesystem,
       BuildRuleResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       CxxPlatform cxxPlatform,
       Iterable<? extends BuildRule> deps,
       Path binaryName,
@@ -1291,7 +1335,13 @@ public class CxxDescriptionEnhancer {
             createBinaryWithSharedLibrariesSymlinkTreeTarget(buildTarget, cxxPlatform.getFlavor()),
             ignored ->
                 createBinaryWithSharedLibrariesSymlinkTree(
-                    buildTarget, filesystem, cxxPlatform, deps, binaryName, binarySource));
+                    buildTarget,
+                    filesystem,
+                    ruleFinder,
+                    cxxPlatform,
+                    deps,
+                    binaryName,
+                    binarySource));
   }
 
   public static Flavor flavorForLinkableDepType(Linker.LinkableDepType linkableDepType) {
@@ -1347,7 +1397,7 @@ public class CxxDescriptionEnhancer {
           Paths.get(sourcePathResolver.getSourcePathName(buildTarget, sourcePath)), sourcePath);
     }
     return createSandboxSymlinkTree(
-        buildTarget, projectFilesystem, platform, ImmutableMap.copyOf(links));
+        buildTarget, projectFilesystem, ruleFinder, platform, ImmutableMap.copyOf(links));
   }
 
   /** Resolve the map of names to SourcePaths to a map of names to CxxSource objects. */
@@ -1378,13 +1428,15 @@ public class CxxDescriptionEnhancer {
       BuildRuleResolver resolver,
       CxxPlatform cxxPlatform,
       StringWithMacros flag) {
-    return StringWithMacrosArg.of(
-        flag,
-        ImmutableList.of(new CxxLocationMacroExpander(cxxPlatform), new OutputMacroExpander()),
-        Optional.of(getStringWithMacrosArgSanitizer(cxxPlatform)),
-        target,
-        cellPathResolver,
-        resolver);
+    StringWithMacrosConverter macrosConverter =
+        StringWithMacrosConverter.builder()
+            .setBuildTarget(target)
+            .setCellPathResolver(cellPathResolver)
+            .setResolver(resolver)
+            .addExpanders(new CxxLocationMacroExpander(cxxPlatform), new OutputMacroExpander())
+            .setSanitizer(getStringWithMacrosArgSanitizer(cxxPlatform))
+            .build();
+    return macrosConverter.convert(flag);
   }
 
   private static Function<String, String> getStringWithMacrosArgSanitizer(CxxPlatform platform) {

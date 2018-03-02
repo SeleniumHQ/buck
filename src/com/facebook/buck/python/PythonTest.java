@@ -21,13 +21,13 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableSupport;
+import com.facebook.buck.rules.CacheableBuildRule;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
 import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
@@ -37,6 +37,7 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -61,11 +62,15 @@ import java.util.stream.Stream;
 
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class PythonTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
-    implements TestRule, HasRuntimeDeps, ExternalTestRunnerRule, BinaryBuildRule {
+    implements TestRule,
+        HasRuntimeDeps,
+        ExternalTestRunnerRule,
+        BinaryBuildRule,
+        CacheableBuildRule {
 
   private final Supplier<? extends SortedSet<BuildRule>> originalDeclaredDeps;
-  @AddToRuleKey private final Supplier<ImmutableMap<String, String>> env;
-  @AddToRuleKey private final PythonBinary binary;
+  private final Supplier<ImmutableMap<String, Arg>> env;
+  private final PythonBinary binary;
   private final ImmutableSet<String> labels;
   private final Optional<Long> testRuleTimeoutMs;
   private final ImmutableSet<String> contacts;
@@ -76,7 +81,7 @@ public class PythonTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Supplier<? extends SortedSet<BuildRule>> originalDeclaredDeps,
-      Supplier<ImmutableMap<String, String>> env,
+      Supplier<ImmutableMap<String, Arg>> env,
       PythonBinary binary,
       ImmutableSet<String> labels,
       ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage,
@@ -96,7 +101,7 @@ public class PythonTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      Supplier<ImmutableMap<String, String>> env,
+      Supplier<ImmutableMap<String, Arg>> env,
       PythonBinary binary,
       ImmutableSet<String> labels,
       ImmutableList<Pair<Float, ImmutableSet<Path>>> neededCoverage,
@@ -157,7 +162,7 @@ public class PythonTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private ImmutableMap<String, String> getMergedEnv(SourcePathResolver pathResolver) {
     return new ImmutableMap.Builder<String, String>()
         .putAll(binary.getExecutableCommand().getEnvironment(pathResolver))
-        .putAll(env.get())
+        .putAll(Arg.stringify(env.get(), pathResolver))
         .build();
   }
 

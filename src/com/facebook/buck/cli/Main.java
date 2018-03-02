@@ -17,9 +17,10 @@
 package com.facebook.buck.cli;
 
 import static com.facebook.buck.rules.CellConfig.MalformedOverridesException;
+import static com.facebook.buck.util.AnsiEnvironmentChecking.NAILGUN_STDERR_ISTTY_ENV;
+import static com.facebook.buck.util.AnsiEnvironmentChecking.NAILGUN_STDOUT_ISTTY_ENV;
 import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator;
 import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
-import static java.util.concurrent.TimeUnit.SECONDS;
 
 import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
@@ -43,6 +44,7 @@ import com.facebook.buck.event.listener.ChromeTraceBuildListener;
 import com.facebook.buck.event.listener.FileSerializationEventBusListener;
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
 import com.facebook.buck.event.listener.LoadBalancerEventsListener;
+import com.facebook.buck.event.listener.LogUploaderListener;
 import com.facebook.buck.event.listener.LoggingBuildListener;
 import com.facebook.buck.event.listener.MachineReadableLoggerListener;
 import com.facebook.buck.event.listener.ParserProfilerLoggerListener;
@@ -122,7 +124,7 @@ import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessManager;
 import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.Verbosity;
-import com.facebook.buck.util.cache.CacheStatsTracker;
+import com.facebook.buck.util.cache.InstrumentingCacheStatsTracker;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
@@ -155,14 +157,15 @@ import com.facebook.buck.worker.WorkerProcessPool;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.eventbus.EventBus;
 import com.google.common.reflect.ClassPath;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import com.martiansoftware.nailgun.NGClientDisconnectReason;
 import com.martiansoftware.nailgun.NGContext;
 import com.martiansoftware.nailgun.NGListeningAddress;
 import com.martiansoftware.nailgun.NGServer;
@@ -175,6 +178,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
+import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -203,10 +207,10 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 import javax.annotation.Nullable;
 import org.immutables.value.Value;
 import org.kohsuke.args4j.CmdLineException;
@@ -239,6 +243,7 @@ public final class Main {
   private static final int DISK_IO_STATS_TIMEOUT_SECONDS = 10;
 
   private static final int EXECUTOR_SERVICES_TIMEOUT_SECONDS = 60;
+  private static final int EVENT_BUS_TIMEOUT_SECONDS = 15;
   private static final int COUNTER_AGGREGATOR_SERVICE_TIMEOUT_SECONDS = 20;
 
   private final InputStream stdIn;
@@ -472,7 +477,7 @@ public final class Main {
         } else {
           buildDateStr =
               new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US)
-                  .format(new Date(SECONDS.toMillis(gitCommitTimestamp)));
+                  .format(new Date(TimeUnit.SECONDS.toMillis(gitCommitTimestamp)));
         }
         String buildRev = System.getProperty("buck.git_commit", "(unknown)");
         LOG.debug("Starting up (build date %s, rev %s), args: %s", buildDateStr, buildRev, args);
@@ -602,12 +607,24 @@ public final class Main {
     // Setup the console.
     console = makeCustomConsole(context, verbosity, buckConfig);
 
+    DistBuildConfig distBuildConfig = new DistBuildConfig(buckConfig);
+    boolean isUsingDistributedBuild = false;
+
+    // Automatically use distributed build for supported repositories and users.
+    if (command.subcommand != null && command.subcommand instanceof BuildCommand) {
+      BuildCommand subcommand = (BuildCommand) command.subcommand;
+      if (!subcommand.isUseDistributedBuild() && distBuildConfig.shouldUseDistributedBuild()) {
+        isUsingDistributedBuild = true;
+        subcommand.setUseDistributedBuild(true);
+        subcommand.shouldPrintAutoDistributedBuildMessage(distBuildConfig);
+      }
+    }
+
     // Switch to async file logging, if configured. A few log samples will have already gone
     // via the regular file logger, but that's OK.
-    boolean isDistributedBuild =
+    boolean isDistBuildCommand =
         command.subcommand != null && command.subcommand instanceof DistBuildCommand;
-    if (isDistributedBuild) {
-      DistBuildConfig distBuildConfig = new DistBuildConfig(buckConfig);
+    if (isDistBuildCommand) {
       LogConfig.setUseAsyncFileLogging(distBuildConfig.isAsyncLoggingEnabled());
     }
 
@@ -687,17 +704,17 @@ public final class Main {
       ExecutableFinder executableFinder = new ExecutableFinder();
 
       Optional<BuildStamp> stamp =
-          command
-              .getSubcommand()
-              .map(
-                  subcmd -> {
-                    if (subcmd instanceof BuildCommand) {
-                      return ((BuildCommand) subcmd).getBuildStamp();
-                    }
-                    return STAMP_KIND.NONE;
-                  })
-              .orElse(STAMP_KIND.NONE)
-              .getBuildStamp();
+                    command.getSubcommand()
+                        .map(
+                            subcmd -> {
+                                if (subcmd instanceof BuildCommand) {
+                                    return ((BuildCommand) subcmd).getBuildStamp();
+                                  }
+                                return STAMP_KIND.NONE;
+                              })
+                        .orElse(STAMP_KIND.NONE)
+                        .getBuildStamp();
+
 
       Cell rootCell =
           CellProviderFactory.createForLocalBuild(
@@ -714,7 +731,9 @@ public final class Main {
 
       Optional<Daemon> daemon =
           context.isPresent() && (watchman != WatchmanFactory.NULL_WATCHMAN)
-              ? Optional.of(daemonLifecycleManager.getDaemon(rootCell, knownBuildRuleTypesProvider))
+              ? Optional.of(
+                  daemonLifecycleManager.getDaemon(
+                      rootCell, knownBuildRuleTypesProvider, executableFinder))
               : Optional.empty();
 
       // Used the cached provider, if present.
@@ -809,362 +828,384 @@ public final class Main {
               unexpandedCommandLineArgs,
               filesystem.getBuckPaths().getLogDir());
 
-      // Create and register the event buses that should listen to broadcast events.
-      // If the build doesn't have a daemon create a new instance.
-      BroadcastEventListener broadcastEventListener =
-          daemon.map(Daemon::getBroadcastEventListener).orElseGet(BroadcastEventListener::new);
+      try (DefaultBuckEventBus buildEventBus = new DefaultBuckEventBus(clock, buildId);
+          ) {
 
-      // The order of resources in the try-with-resources block is important: the BuckEventBus
-      // must be the last resource, so that it is closed first and can deliver its queued events
-      // to the other resources before they are closed.
-      try (GlobalStateManager.LoggerIsMappedToThreadScope loggerThreadMappingScope =
-              GlobalStateManager.singleton()
-                  .setupLoggers(invocationInfo, console.getStdErr(), stdErr, verbosity);
-          CloseableWrapper<ExecutorService, InterruptedException> diskIoExecutorService =
-              getExecutorWrapper(
-                  MostExecutors.newSingleThreadExecutor("Disk I/O"),
-                  "Disk IO",
-                  DISK_IO_STATS_TIMEOUT_SECONDS);
-          CloseableWrapper<ListeningExecutorService, InterruptedException>
-              httpWriteExecutorService =
-                  getExecutorWrapper(
-                      getHttpWriteExecutorService(cacheBuckConfig, isDistributedBuild),
-                      "HTTP Write",
-                      cacheBuckConfig.getHttpWriterShutdownTimeout());
-          CloseableWrapper<ListeningExecutorService, InterruptedException>
-              httpFetchExecutorService =
-                  getExecutorWrapper(
-                      getHttpFetchExecutorService(cacheBuckConfig),
-                      "HTTP Read",
-                      cacheBuckConfig.getHttpWriterShutdownTimeout());
-          CloseableWrapper<ScheduledExecutorService, InterruptedException>
-              counterAggregatorExecutor =
-                  getExecutorWrapper(
-                      Executors.newSingleThreadScheduledExecutor(
-                          new CommandThreadFactory("CounterAggregatorThread")),
-                      "CounterAggregatorExecutor",
-                      COUNTER_AGGREGATOR_SERVICE_TIMEOUT_SECONDS);
-          CloseableWrapper<ScheduledExecutorService, InterruptedException> scheduledExecutorPool =
-              getExecutorWrapper(
-                  Executors.newScheduledThreadPool(
-                      buckConfig.getNumThreadsForSchedulerPool(),
-                      new CommandThreadFactory(getClass().getName() + "SchedulerThreadPool")),
-                  "ScheduledExecutorService",
-                  EXECUTOR_SERVICES_TIMEOUT_SECONDS);
-          // Create a cached thread pool for cpu intensive tasks
-          CloseableWrapper<ListeningExecutorService, InterruptedException> cpuExecutorService =
-              getExecutorWrapper(
-                  listeningDecorator(Executors.newCachedThreadPool()),
-                  ExecutorPool.CPU.toString(),
-                  EXECUTOR_SERVICES_TIMEOUT_SECONDS);
-          // Create a thread pool for network I/O tasks
-          CloseableWrapper<ListeningExecutorService, InterruptedException> networkExecutorService =
-              getExecutorWrapper(
-                  newDirectExecutorService(),
-                  ExecutorPool.NETWORK.toString(),
-                  EXECUTOR_SERVICES_TIMEOUT_SECONDS);
-          CloseableWrapper<ListeningExecutorService, InterruptedException> projectExecutorService =
-              getExecutorWrapper(
-                  listeningDecorator(
-                      MostExecutors.newMultiThreadExecutor("Project", buckConfig.getNumThreads())),
-                  ExecutorPool.PROJECT.toString(),
-                  EXECUTOR_SERVICES_TIMEOUT_SECONDS);
-          BuildInfoStoreManager storeManager = new BuildInfoStoreManager();
-          AbstractConsoleEventBusListener consoleListener =
-              createConsoleEventListener(
-                  clock,
-                  superConsoleConfig,
-                  console,
-                  testConfig.getResultSummaryVerbosity(),
+        // Create and register the event buses that should listen to broadcast events.
+        // If the build doesn't have a daemon create a new instance.
+        BroadcastEventListener broadcastEventListener =
+            daemon.map(Daemon::getBroadcastEventListener).orElseGet(BroadcastEventListener::new);
+
+        try (GlobalStateManager.LoggerIsMappedToThreadScope loggerThreadMappingScope =
+                GlobalStateManager.singleton()
+                    .setupLoggers(invocationInfo, console.getStdErr(), stdErr, verbosity);
+            CloseableWrapper<ExecutorService, InterruptedException> diskIoExecutorService =
+                getExecutorWrapper(
+                    MostExecutors.newSingleThreadExecutor("Disk I/O"),
+                    "Disk IO",
+                    DISK_IO_STATS_TIMEOUT_SECONDS);
+            CloseableWrapper<ListeningExecutorService, InterruptedException>
+                httpWriteExecutorService =
+                    getExecutorWrapper(
+                        getHttpWriteExecutorService(cacheBuckConfig, isUsingDistributedBuild),
+                        "HTTP Write",
+                        cacheBuckConfig.getHttpWriterShutdownTimeout());
+            CloseableWrapper<ListeningExecutorService, InterruptedException>
+                stampedeSyncBuildHttpFetchExecutorService =
+                    getExecutorWrapper(
+                        getHttpFetchExecutorService(
+                            "heavy", cacheBuckConfig.getDownloadHeavyBuildHttpFetchConcurrency()),
+                        "Download Heavy Build HTTP Read",
+                        cacheBuckConfig.getHttpWriterShutdownTimeout());
+            CloseableWrapper<ListeningExecutorService, InterruptedException>
+                httpFetchExecutorService =
+                    getExecutorWrapper(
+                        getHttpFetchExecutorService(
+                            "standard", cacheBuckConfig.getHttpFetchConcurrency()),
+                        "HTTP Read",
+                        cacheBuckConfig.getHttpWriterShutdownTimeout());
+            CloseableWrapper<ScheduledExecutorService, InterruptedException>
+                counterAggregatorExecutor =
+                    getExecutorWrapper(
+                        Executors.newSingleThreadScheduledExecutor(
+                            new CommandThreadFactory("CounterAggregatorThread")),
+                        "CounterAggregatorExecutor",
+                        COUNTER_AGGREGATOR_SERVICE_TIMEOUT_SECONDS);
+            CloseableWrapper<ScheduledExecutorService, InterruptedException> scheduledExecutorPool =
+                getExecutorWrapper(
+                    Executors.newScheduledThreadPool(
+                        buckConfig.getNumThreadsForSchedulerPool(),
+                        new CommandThreadFactory(getClass().getName() + "SchedulerThreadPool")),
+                    "ScheduledExecutorService",
+                    EXECUTOR_SERVICES_TIMEOUT_SECONDS);
+            // Create a cached thread pool for cpu intensive tasks
+            CloseableWrapper<ListeningExecutorService, InterruptedException> cpuExecutorService =
+                getExecutorWrapper(
+                    listeningDecorator(Executors.newCachedThreadPool()),
+                    ExecutorPool.CPU.toString(),
+                    EXECUTOR_SERVICES_TIMEOUT_SECONDS);
+            // Create a thread pool for network I/O tasks
+            CloseableWrapper<ListeningExecutorService, InterruptedException>
+                networkExecutorService =
+                    getExecutorWrapper(
+                        newDirectExecutorService(),
+                        ExecutorPool.NETWORK.toString(),
+                        EXECUTOR_SERVICES_TIMEOUT_SECONDS);
+            CloseableWrapper<ListeningExecutorService, InterruptedException>
+                projectExecutorService =
+                    getExecutorWrapper(
+                        listeningDecorator(
+                            MostExecutors.newMultiThreadExecutor(
+                                "Project", buckConfig.getNumThreads())),
+                        ExecutorPool.PROJECT.toString(),
+                        EXECUTOR_SERVICES_TIMEOUT_SECONDS);
+            BuildInfoStoreManager storeManager = new BuildInfoStoreManager();
+            AbstractConsoleEventBusListener consoleListener =
+                createConsoleEventListener(
+                    clock,
+                    superConsoleConfig,
+                    console,
+                    testConfig.getResultSummaryVerbosity(),
+                    executionEnvironment,
+                    webServer,
+                    locale,
+                    filesystem.getBuckPaths().getLogDir().resolve("test.log"),
+                    buckConfig.isLogBuildIdToConsoleEnabled()
+                        ? Optional.of(buildId)
+                        : Optional.empty());
+            BroadcastEventListener.BroadcastEventBusClosable broadcastEventBusClosable =
+                broadcastEventListener.addEventBus(buildEventBus);
+            // This makes calls to LOG.error(...) post to the EventBus, instead of writing to
+            // stderr.
+            Closeable logErrorToEventBus =
+                loggerThreadMappingScope.setWriter(createWriterForConsole(consoleListener));
+            Scope ddmLibLogRedirector = DdmLibLogRedirector.redirectDdmLogger(buildEventBus);
+
+            // NOTE: This will only run during the lifetime of the process and will flush on close.
+            CounterRegistry counterRegistry =
+                new CounterRegistryImpl(
+                    counterAggregatorExecutor.get(),
+                    buildEventBus,
+                    buckConfig.getCountersFirstFlushIntervalMillis(),
+                    buckConfig.getCountersFlushIntervalMillis());
+            PerfStatsTracking perfStatsTracking =
+                new PerfStatsTracking(buildEventBus, invocationInfo);
+            ProcessTracker processTracker =
+                buckConfig.isProcessTrackerEnabled() && platform != Platform.WINDOWS
+                    ? new ProcessTracker(
+                        buildEventBus,
+                        invocationInfo,
+                        daemon.isPresent(),
+                        buckConfig.isProcessTrackerDeepEnabled())
+                    : null;
+            ArtifactCaches artifactCacheFactory =
+                new ArtifactCaches(
+                    cacheBuckConfig,
+                    buildEventBus,
+                    filesystem,
+                    executionEnvironment.getWifiSsid(),
+                    httpWriteExecutorService.get(),
+                    httpFetchExecutorService.get(),
+                    stampedeSyncBuildHttpFetchExecutorService.get(),
+                    diskIoExecutorService.get());
+
+            // This will get executed first once it gets out of try block and just wait for
+            // event bus to dispatch all pending events before we proceed to termination
+            // procedures
+            CloseableWrapper<BuckEventBus, InterruptedException> waitEvents =
+                getWaitEventsWrapper(buildEventBus); ) {
+
+          LOG.debug(invocationInfo.toLogLine());
+
+          buildEventBus.register(HANG_MONITOR.getHangMonitor());
+
+          ImmutableMap<ExecutorPool, ListeningExecutorService> executors =
+              ImmutableMap.of(
+                  ExecutorPool.CPU,
+                  cpuExecutorService.get(),
+                  ExecutorPool.NETWORK,
+                  networkExecutorService.get(),
+                  ExecutorPool.PROJECT,
+                  projectExecutorService.get());
+
+          ProgressEstimator progressEstimator =
+              new ProgressEstimator(
+                  filesystem
+                      .resolve(filesystem.getBuckPaths().getBuckOut())
+                      .resolve(ProgressEstimator.PROGRESS_ESTIMATIONS_JSON),
+                  buildEventBus);
+          consoleListener.setProgressEstimator(progressEstimator);
+
+          BuildEnvironmentDescription buildEnvironmentDescription =
+              getBuildEnvironmentDescription(
                   executionEnvironment,
+                  buckConfig);
+
+          Iterable<BuckEventListener> commandEventListeners =
+              command.getSubcommand().isPresent()
+                  ? command
+                      .getSubcommand()
+                      .get()
+                      .getEventListeners(executors, scheduledExecutorPool.get())
+                  : ImmutableList.of();
+
+          eventListeners =
+              addEventListeners(
+                  buildEventBus,
+                  daemon.map(d -> d.getFileEventBus()),
+                  rootCell.getFilesystem(),
+                  invocationInfo,
+                  rootCell.getBuckConfig(),
                   webServer,
-                  locale,
-                  filesystem.getBuckPaths().getLogDir().resolve("test.log"),
-                  buckConfig.isLogBuildIdToConsoleEnabled()
-                      ? Optional.of(buildId)
-                      : Optional.empty());
-          DefaultBuckEventBus buildEventBus = new DefaultBuckEventBus(clock, buildId);
-          BroadcastEventListener.BroadcastEventBusClosable broadcastEventBusClosable =
-              broadcastEventListener.addEventBus(buildEventBus);
-          // This makes calls to LOG.error(...) post to the EventBus, instead of writing to
-          // stderr.
-          Closeable logErrorToEventBus =
-              loggerThreadMappingScope.setWriter(createWriterForConsole(consoleListener));
-          Scope ddmLibLogRedirector = DdmLibLogRedirector.redirectDdmLogger(buildEventBus);
+                  clock,
+                  consoleListener,
+                  counterRegistry,
+                  commandEventListeners
+                  );
 
-          // NOTE: This will only run during the lifetime of the process and will flush on close.
-          CounterRegistry counterRegistry =
-              new CounterRegistryImpl(
-                  counterAggregatorExecutor.get(),
-                  buildEventBus,
-                  buckConfig.getCountersFirstFlushIntervalMillis(),
-                  buckConfig.getCountersFlushIntervalMillis());
-          PerfStatsTracking perfStatsTracking =
-              new PerfStatsTracking(buildEventBus, invocationInfo);
-          ProcessTracker processTracker =
-              buckConfig.isProcessTrackerEnabled() && platform != Platform.WINDOWS
-                  ? new ProcessTracker(
-                      buildEventBus,
-                      invocationInfo,
-                      daemon.isPresent(),
-                      buckConfig.isProcessTrackerDeepEnabled())
-                  : null;
-          ArtifactCaches artifactCacheFactory =
-              new ArtifactCaches(
-                  cacheBuckConfig,
-                  buildEventBus,
-                  filesystem,
-                  executionEnvironment.getWifiSsid(),
-                  httpWriteExecutorService.get(),
-                  httpFetchExecutorService.get(),
-                  diskIoExecutorService.get()); ) {
-
-        LOG.debug(invocationInfo.toLogLine());
-
-        buildEventBus.register(HANG_MONITOR.getHangMonitor());
-
-        ImmutableMap<ExecutorPool, ListeningExecutorService> executors =
-            ImmutableMap.of(
-                ExecutorPool.CPU,
-                cpuExecutorService.get(),
-                ExecutorPool.NETWORK,
-                networkExecutorService.get(),
-                ExecutorPool.PROJECT,
-                projectExecutorService.get());
-
-        ProgressEstimator progressEstimator =
-            new ProgressEstimator(
-                filesystem
-                    .resolve(filesystem.getBuckPaths().getBuckOut())
-                    .resolve(ProgressEstimator.PROGRESS_ESTIMATIONS_JSON),
-                buildEventBus);
-        consoleListener.setProgressEstimator(progressEstimator);
-
-        BuildEnvironmentDescription buildEnvironmentDescription =
-            getBuildEnvironmentDescription(
-                executionEnvironment,
-                buckConfig);
-
-        Iterable<BuckEventListener> commandEventListeners =
-            command.getSubcommand().isPresent()
-                ? command
-                    .getSubcommand()
-                    .get()
-                    .getEventListeners(executors, scheduledExecutorPool.get())
-                : ImmutableList.of();
-
-        eventListeners =
-            addEventListeners(
-                buildEventBus,
-                daemon.map(d -> d.getFileEventBus()),
-                rootCell.getFilesystem(),
-                invocationInfo,
-                rootCell.getBuckConfig(),
-                webServer,
-                clock,
-                consoleListener,
-                counterRegistry,
-                commandEventListeners
-                );
-
-        if (buckConfig.isBuckConfigLocalWarningEnabled() && !console.getVerbosity().isSilent()) {
-          ImmutableList<Path> localConfigFiles =
-              rootCell
-                  .getAllCells()
-                  .stream()
-                  .map(
-                      cell ->
-                          cell.getRoot().resolve(Configs.DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME))
-                  .filter(path -> Files.isRegularFile(path))
-                  .collect(ImmutableList.toImmutableList());
-          if (localConfigFiles.size() > 0) {
-            String message =
-                localConfigFiles.size() == 1
-                    ? "Using local configuration:"
-                    : "Using local configurations:";
-            buildEventBus.post(ConsoleEvent.warning(message));
-            for (Path localConfigFile : localConfigFiles) {
-              buildEventBus.post(ConsoleEvent.warning(String.format("- %s", localConfigFile)));
+          if (buckConfig.isBuckConfigLocalWarningEnabled() && !console.getVerbosity().isSilent()) {
+            ImmutableList<Path> localConfigFiles =
+                rootCell
+                    .getAllCells()
+                    .stream()
+                    .map(
+                        cell ->
+                            cell.getRoot().resolve(Configs.DEFAULT_BUCK_CONFIG_OVERRIDE_FILE_NAME))
+                    .filter(path -> Files.isRegularFile(path))
+                    .collect(ImmutableList.toImmutableList());
+            if (localConfigFiles.size() > 0) {
+              String message =
+                  localConfigFiles.size() == 1
+                      ? "Using local configuration:"
+                      : "Using local configurations:";
+              buildEventBus.post(ConsoleEvent.warning(message));
+              for (Path localConfigFile : localConfigFiles) {
+                buildEventBus.post(ConsoleEvent.warning(String.format("- %s", localConfigFile)));
+              }
             }
           }
-        }
 
-        if (commandMode == CommandMode.RELEASE && buckConfig.isPublicAnnouncementsEnabled()) {
-          PublicAnnouncementManager announcementManager =
-              new PublicAnnouncementManager(
-                  clock,
+          if (commandMode == CommandMode.RELEASE && buckConfig.isPublicAnnouncementsEnabled()) {
+            PublicAnnouncementManager announcementManager =
+                new PublicAnnouncementManager(
+                    clock,
+                    buildEventBus,
+                    consoleListener,
+                    buckConfig.getRepository().orElse("unknown"),
+                    new RemoteLogBuckConfig(buckConfig),
+                    executors.get(ExecutorPool.CPU));
+            announcementManager.getAndPostAnnouncements();
+          }
+
+          // This needs to be after the registration of the event listener so they can pick it up.
+          if (watchmanFreshInstanceAction == WatchmanWatcher.FreshInstanceAction.NONE) {
+            LOG.debug("new Buck daemon");
+            buildEventBus.post(DaemonEvent.newDaemonInstance());
+          }
+
+
+          VersionControlBuckConfig vcBuckConfig = new VersionControlBuckConfig(buckConfig);
+          VersionControlStatsGenerator vcStatsGenerator =
+              new VersionControlStatsGenerator(
+                  new DelegatingVersionControlCmdLineInterface(
+                      rootCell.getFilesystem().getRootPath(),
+                      new PrintStreamProcessExecutorFactory(),
+                      vcBuckConfig.getHgCmd(),
+                      buckConfig.getEnvironment()),
+                  vcBuckConfig.getPregeneratedVersionControlStats());
+          if (command.subcommand instanceof AbstractCommand
+              && !(command.subcommand instanceof DistBuildCommand)) {
+            AbstractCommand subcommand = (AbstractCommand) command.subcommand;
+            if (!commandMode.equals(CommandMode.TEST)) {
+              vcStatsGenerator.generateStatsAsync(
+                  subcommand.isSourceControlStatsGatheringEnabled()
+                      || vcBuckConfig.shouldGenerateStatistics(),
+                  diskIoExecutorService.get(),
+                  buildEventBus);
+            }
+          }
+          NetworkInfo.generateActiveNetworkAsync(diskIoExecutorService.get(), buildEventBus);
+
+          ImmutableList<String> remainingArgs =
+              args.isEmpty() ? ImmutableList.of() : args.subList(1, args.size());
+
+          CommandEvent.Started startedEvent =
+              CommandEvent.started(
+                  command.getDeclaredSubCommandName(),
+                  remainingArgs,
+                  daemon.isPresent(),
+                  getBuckPID());
+          buildEventBus.post(startedEvent);
+
+          ParserAndCaches parserAndCaches =
+              getParserAndCaches(
+                  context,
+                  watchmanFreshInstanceAction,
+                  filesystem,
+                  buckConfig,
+                  watchman,
+                  knownBuildRuleTypesProvider,
+                  rootCell,
+                  daemon,
+                  broadcastEventListener,
                   buildEventBus,
-                  consoleListener,
-                  buckConfig.getRepository().orElse("unknown"),
-                  new RemoteLogBuckConfig(buckConfig),
-                  executors.get(ExecutorPool.CPU));
-          announcementManager.getAndPostAnnouncements();
-        }
+                  executableFinder);
 
-        // This needs to be after the registration of the event listener so they can pick it up.
-        if (watchmanFreshInstanceAction == WatchmanWatcher.FreshInstanceAction.NONE) {
-          LOG.debug("new Buck daemon");
-          buildEventBus.post(DaemonEvent.newDaemonInstance());
-        }
+          // Because the Parser is potentially constructed before the CounterRegistry,
+          // we need to manually register its counters after it's created.
+          //
+          // The counters will be unregistered once the counter registry is closed.
+          counterRegistry.registerCounters(parserAndCaches.getParser().getCounters());
 
+          JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(rootCell.getFilesystem());
 
-        VersionControlBuckConfig vcBuckConfig = new VersionControlBuckConfig(buckConfig);
-        VersionControlStatsGenerator vcStatsGenerator =
-            new VersionControlStatsGenerator(
-                new DelegatingVersionControlCmdLineInterface(
-                    rootCell.getFilesystem().getRootPath(),
-                    new PrintStreamProcessExecutorFactory(),
-                    vcBuckConfig.getHgCmd(),
-                    buckConfig.getEnvironment()),
-                vcBuckConfig.getPregeneratedVersionControlStats());
-        if (command.subcommand instanceof AbstractCommand
-            && !(command.subcommand instanceof DistBuildCommand)) {
-          AbstractCommand subcommand = (AbstractCommand) command.subcommand;
-          if (!commandMode.equals(CommandMode.TEST)) {
-            vcStatsGenerator.generateStatsAsync(
-                subcommand.isSourceControlStatsGatheringEnabled()
-                    || vcBuckConfig.shouldGenerateStatistics(),
-                diskIoExecutorService.get(),
-                buildEventBus);
+          Optional<ProcessManager> processManager;
+          if (platform == Platform.WINDOWS) {
+            processManager = Optional.empty();
+          } else {
+            processManager = Optional.of(new PkillProcessManager(processExecutor));
           }
-        }
-        NetworkInfo.generateActiveNetworkAsync(diskIoExecutorService.get(), buildEventBus);
 
-        ImmutableList<String> remainingArgs =
-            args.isEmpty() ? ImmutableList.of() : args.subList(1, args.size());
-
-        CommandEvent.Started startedEvent =
-            CommandEvent.started(
-                command.getDeclaredSubCommandName(),
-                remainingArgs,
-                daemon.isPresent(),
-                getBuckPID());
-        buildEventBus.post(startedEvent);
-
-        ParserAndCaches parserAndCaches =
-            getParserAndCaches(
-                context,
-                watchmanFreshInstanceAction,
-                filesystem,
-                buckConfig,
-                watchman,
-                knownBuildRuleTypesProvider,
-                rootCell,
-                daemon,
-                broadcastEventListener,
-                buildEventBus);
-
-        // Because the Parser is potentially constructed before the CounterRegistry,
-        // we need to manually register its counters after it's created.
-        //
-        // The counters will be unregistered once the counter registry is closed.
-        counterRegistry.registerCounters(parserAndCaches.getParser().getCounters());
-
-        JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(rootCell.getFilesystem());
-
-        Optional<ProcessManager> processManager;
-        if (platform == Platform.WINDOWS) {
-          processManager = Optional.empty();
-        } else {
-          processManager = Optional.of(new PkillProcessManager(processExecutor));
-        }
-
-        // At this point, we have parsed options but haven't started
-        // running the command yet.  This is a good opportunity to
-        // augment the event bus with our serialize-to-file
-        // event-listener.
-        if (command.subcommand instanceof AbstractCommand) {
-          AbstractCommand subcommand = (AbstractCommand) command.subcommand;
-          Optional<Path> eventsOutputPath = subcommand.getEventsOutputPath();
-          if (eventsOutputPath.isPresent()) {
-            BuckEventListener listener =
-                new FileSerializationEventBusListener(eventsOutputPath.get());
-            buildEventBus.register(listener);
+          // At this point, we have parsed options but haven't started
+          // running the command yet.  This is a good opportunity to
+          // augment the event bus with our serialize-to-file
+          // event-listener.
+          if (command.subcommand instanceof AbstractCommand) {
+            AbstractCommand subcommand = (AbstractCommand) command.subcommand;
+            Optional<Path> eventsOutputPath = subcommand.getEventsOutputPath();
+            if (eventsOutputPath.isPresent()) {
+              BuckEventListener listener =
+                  new FileSerializationEventBusListener(eventsOutputPath.get());
+              buildEventBus.register(listener);
+            }
           }
-        }
 
-        buildEventBus.post(
-            new BuckInitializationDurationEvent(
-                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - initTimestamp)));
+          buildEventBus.post(
+              new BuckInitializationDurationEvent(
+                  TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - initTimestamp)));
 
-        try {
-          exitCode =
-              command.run(
-                  CommandRunnerParams.of(
-                      console,
-                      stdIn,
-                      rootCell,
-                      parserAndCaches.getVersionedTargetGraphCache(),
-                      artifactCacheFactory,
-                      parserAndCaches.getTypeCoercerFactory(),
-                      parserAndCaches.getParser(),
-                      buildEventBus,
-                      platform,
-                      clientEnvironment,
-                      rootCell
-                          .getBuckConfig()
-                          .getView(JavaBuckConfig.class)
-                          .createDefaultJavaPackageFinder(),
-                      clock,
-                      vcStatsGenerator,
-                      processManager,
-                      webServer,
-                      persistentWorkerPools,
-                      buckConfig,
-                      fileHashCache,
-                      executors,
-                      scheduledExecutorPool.get(),
-                      buildEnvironmentDescription,
-                      parserAndCaches.getActionGraphCache(),
-                      knownBuildRuleTypesProvider,
-                      storeManager,
-                      Optional.of(invocationInfo),
-                      parserAndCaches.getDefaultRuleKeyFactoryCacheRecycler(),
-                      projectFilesystemFactory,
-                      ruleKeyConfiguration,
-                      processExecutor,
-                      executableFinder,
-                      pluginManager,
-                      stamp));
-        } catch (InterruptedException | ClosedByInterruptException e) {
-          buildEventBus.post(CommandEvent.interrupted(startedEvent, ExitCode.SIGNAL_INTERRUPT));
-          throw e;
-        }
-        buildEventBus.post(
-            new CacheStatsEvent(
-                "versioned_target_graph_cache",
-                parserAndCaches.getVersionedTargetGraphCache().getCacheStats()));
-        buildEventBus.post(CommandEvent.finished(startedEvent, exitCode));
-      } finally {
-        context.ifPresent(c -> c.removeAllClientListeners());
-        // release global command semaphore earlier to allow other waiting command to execute
-        // close() is idempotent so it is ok to call it now
-        if (semaphore != null) {
-          semaphore.close();
-        }
+          try {
+            exitCode =
+                command.run(
+                    CommandRunnerParams.of(
+                        console,
+                        stdIn,
+                        rootCell,
+                        parserAndCaches.getVersionedTargetGraphCache(),
+                        artifactCacheFactory,
+                        parserAndCaches.getTypeCoercerFactory(),
+                        parserAndCaches.getParser(),
+                        buildEventBus,
+                        platform,
+                        clientEnvironment,
+                        rootCell
+                            .getBuckConfig()
+                            .getView(JavaBuckConfig.class)
+                            .createDefaultJavaPackageFinder(),
+                        clock,
+                        vcStatsGenerator,
+                        processManager,
+                        webServer,
+                        persistentWorkerPools,
+                        buckConfig,
+                        fileHashCache,
+                        executors,
+                        scheduledExecutorPool.get(),
+                        buildEnvironmentDescription,
+                        parserAndCaches.getActionGraphCache(),
+                        knownBuildRuleTypesProvider,
+                        storeManager,
+                        Optional.of(invocationInfo),
+                        parserAndCaches.getDefaultRuleKeyFactoryCacheRecycler(),
+                        projectFilesystemFactory,
+                        ruleKeyConfiguration,
+                        processExecutor,
+                        executableFinder,
+                        pluginManager,
+                        stamp));
+          } catch (InterruptedException | ClosedByInterruptException e) {
+            buildEventBus.post(CommandEvent.interrupted(startedEvent, ExitCode.SIGNAL_INTERRUPT));
+            throw e;
+          }
+          buildEventBus.post(
+              new CacheStatsEvent(
+                  "versioned_target_graph_cache",
+                  parserAndCaches.getVersionedTargetGraphCache().getCacheStats()));
+          buildEventBus.post(CommandEvent.finished(startedEvent, exitCode));
+        } finally {
+          // signal nailgun that we are not interested in client disconnect events anymore
+          context.ifPresent(NGContext::removeAllClientListeners);
 
-        if (daemon.isPresent() && shouldCleanUpTrash) {
-          // Clean up the trash in the background if this was a buckd
-          // read-write command. (We don't bother waiting for it to
-          // complete; the cleaner will ensure subsequent cleans are
-          // serialized with this one.)
-          TRASH_CLEANER.startCleaningDirectory(filesystem.getBuckPaths().getTrashDir());
-        }
+          // release global command semaphore earlier to allow other waiting command to execute
+          // close() is idempotent so it is ok to call it now
+          if (semaphore != null) {
+            semaphore.close();
+          }
 
-        // Exit Nailgun earlier if command succeeded to now block the client while performing
-        // telemetry upload in background
-        // For failures, always do it synchronously because exitCode in fact may be overridden up
-        // the stack
-        // TODO(buck_team): refactor this as in case of exception exitCode is reported incorrectly
-        // to the CommandEvent listener
-        if (exitCode == ExitCode.SUCCESS
-            && context.isPresent()
-            && !rootCell.getBuckConfig().getFlushEventsBeforeExit()) {
-          context.get().in.close(); // Avoid client exit triggering client disconnection handling.
-          context.get().exit(exitCode.getCode());
-        }
+          if (daemon.isPresent() && shouldCleanUpTrash) {
+            // Clean up the trash in the background if this was a buckd
+            // read-write command. (We don't bother waiting for it to
+            // complete; the cleaner will ensure subsequent cleans are
+            // serialized with this one.)
+            TRASH_CLEANER.startCleaningDirectory(filesystem.getBuckPaths().getTrashDir());
+          }
 
-        flushAndCloseEventListeners(console, buildId, eventListeners);
+          // Exit Nailgun earlier if command succeeded to now block the client while performing
+          // telemetry upload in background
+          // For failures, always do it synchronously because exitCode in fact may be overridden up
+          // the stack
+          // TODO(buck_team): refactor this as in case of exception exitCode is reported incorrectly
+          // to the CommandEvent listener
+          if (exitCode == ExitCode.SUCCESS
+              && context.isPresent()
+              && !rootCell.getBuckConfig().getFlushEventsBeforeExit()) {
+            context.get().in.close(); // Avoid client exit triggering client disconnection handling.
+            context.get().exit(exitCode.getCode());
+          }
+
+          // TODO(buck_team): refactor eventListeners for RAII
+          flushAndCloseEventListeners(console, buildId, eventListeners);
+        }
       }
     }
     return exitCode;
@@ -1195,7 +1236,8 @@ public final class Main {
       Cell rootCell,
       Optional<Daemon> daemonOptional,
       BroadcastEventListener broadcastEventListener,
-      BuckEventBus buildEventBus)
+      BuckEventBus buildEventBus,
+      ExecutableFinder executableFinder)
       throws IOException, InterruptedException {
     WatchmanWatcher watchmanWatcher = null;
     if (daemonOptional.isPresent() && watchman.getTransportPath().isPresent()) {
@@ -1218,6 +1260,14 @@ public final class Main {
       }
     }
 
+    ParserConfig parserConfig = rootCell.getBuckConfig().getView(ParserConfig.class);
+    if (parserConfig.shouldIgnoreEnvironmentVariablesChanges()
+        && parserConfig.isParserCacheMutationWarningEnabled()) {
+      buildEventBus.post(
+          ConsoleEvent.warning(
+              "WARNING: Environment variable changes won't discard the parser state."));
+    }
+
     // Create or get Parser and invalidate cached command parameters.
     ParserAndCaches parserAndCaches;
     if (watchmanWatcher != null) {
@@ -1238,7 +1288,7 @@ public final class Main {
               daemon.getParser(),
               daemon.getTypeCoercerFactory(),
               new InstrumentedVersionedTargetGraphCache(
-                  daemon.getVersionedTargetGraphCache(), new CacheStatsTracker()),
+                  daemon.getVersionedTargetGraphCache(), new InstrumentingCacheStatsTracker()),
               daemon.getActionGraphCache(),
               defaultRuleKeyFactoryCacheRecycler);
     } else {
@@ -1247,35 +1297,39 @@ public final class Main {
           ParserAndCaches.of(
               new Parser(
                   broadcastEventListener,
-                  rootCell.getBuckConfig().getView(ParserConfig.class),
+                  parserConfig,
                   typeCoercerFactory,
                   new ConstructorArgMarshaller(typeCoercerFactory),
-                  knownBuildRuleTypesProvider),
+                  knownBuildRuleTypesProvider,
+                  executableFinder),
               typeCoercerFactory,
               new InstrumentedVersionedTargetGraphCache(
-                  new VersionedTargetGraphCache(), new CacheStatsTracker()),
-              new ActionGraphCache(buckConfig.getMaxActionGraphCacheEntries()),
+                  new VersionedTargetGraphCache(), new InstrumentingCacheStatsTracker()),
+              new ActionGraphCache(
+                  buckConfig.getMaxActionGraphCacheEntries(),
+                  buckConfig.getMaxActionGraphNodeCacheEntries()),
               /* defaultRuleKeyFactoryCacheRecycler */ Optional.empty());
     }
     return parserAndCaches;
   }
 
-  private static void registerClientDisconnectedListener(NGContext context, Daemon daemon)
-      throws IOException {
+  private static void registerClientDisconnectedListener(NGContext context, Daemon daemon) {
     Thread mainThread = Thread.currentThread();
     context.addClientListener(
-        () -> {
+        reason -> {
+          LOG.info("Nailgun client disconnected with " + reason.toString());
           if (Main.isSessionLeader && Main.commandSemaphoreNgClient.orElse(null) == context) {
-            LOG.info(
-                "Killing background processes on nailgun client disconnection"
-                    + Throwables.getStackTraceAsString(new Throwable()));
             // Process no longer wants work done on its behalf.
+            LOG.debug("Killing background processes on client disconnect");
             BgProcessKiller.killBgProcesses();
           }
 
-          // signal daemon to complete required tasks and interrupt main thread
-          // this will hopefully trigger InterruptedException and program shutdown
-          daemon.interruptOnClientExit(mainThread);
+          if (reason != NGClientDisconnectReason.SESSION_SHUTDOWN) {
+            LOG.debug("Killing all Buck jobs on client disconnect by interrupting the main thread");
+            // signal daemon to complete required tasks and interrupt main thread
+            // this will hopefully trigger InterruptedException and program shutdown
+            daemon.interruptOnClientExit(mainThread);
+          }
         });
   }
 
@@ -1372,6 +1426,24 @@ public final class Main {
     return watchman;
   }
 
+  /**
+   * RAII wrapper which does not really close any object but waits for all events in given event bus
+   * to complete. We want to have it this way to safely start deinitializing event listeners
+   */
+  private static CloseableWrapper<BuckEventBus, InterruptedException> getWaitEventsWrapper(
+      BuckEventBus buildEventBus) {
+    return CloseableWrapper.of(
+        buildEventBus,
+        eventBus -> {
+          // wait for event bus to process all pending events
+          if (!eventBus.waitEvents(EVENT_BUS_TIMEOUT_SECONDS * 1000)) {
+            LOG.warn(
+                "Event bus did not complete all events within timeout; event listener's data"
+                    + "may be incorrect");
+          }
+        });
+  }
+
   private static <T extends ExecutorService>
       CloseableWrapper<T, InterruptedException> getExecutorWrapper(
           T executor, String executorName, long closeTimeoutSeconds) {
@@ -1383,20 +1455,22 @@ public final class Main {
               "Awaiting termination of %s executor service. Waiting for all jobs to complete, "
                   + "or up to maximum of %s seconds...",
               executorName, closeTimeoutSeconds);
-          executor.awaitTermination(closeTimeoutSeconds, SECONDS);
+          executor.awaitTermination(closeTimeoutSeconds, TimeUnit.SECONDS);
           if (!executor.isTerminated()) {
             LOG.warn(
                 "%s executor service is still running after shutdown request and "
                     + "%s second timeout. Shutting down forcefully..",
                 executorName, closeTimeoutSeconds);
             executor.shutdownNow();
+          } else {
+            LOG.info("Successfully terminated %s executor service.", executorName);
           }
         });
   }
 
   private static ListeningExecutorService getHttpWriteExecutorService(
-      ArtifactCacheBuckConfig buckConfig, boolean isDistributedBuild) {
-    if (isDistributedBuild || buckConfig.hasAtLeastOneWriteableCache()) {
+      ArtifactCacheBuckConfig buckConfig, boolean isUsingDistributedBuild) {
+    if (isUsingDistributedBuild || buckConfig.hasAtLeastOneWriteableCache()) {
       // Distributed builds need to upload from the local cache to the remote cache.
       ExecutorService executorService =
           MostExecutors.newMultiThreadExecutor(
@@ -1409,11 +1483,11 @@ public final class Main {
   }
 
   private static ListeningExecutorService getHttpFetchExecutorService(
-      ArtifactCacheBuckConfig buckConfig) {
+      String prefix, int fetchConcurrency) {
     return listeningDecorator(
         MostExecutors.newMultiThreadExecutor(
-            new ThreadFactoryBuilder().setNameFormat("cache-fetch-%d").build(),
-            buckConfig.getHttpFetchConcurrency()));
+            new ThreadFactoryBuilder().setNameFormat(prefix + "-cache-fetch-%d").build(),
+            fetchConcurrency));
   }
 
   private static ConsoleHandlerState.Writer createWriterForConsole(
@@ -1440,14 +1514,25 @@ public final class Main {
    * @return the client environment, which is either the process environment or the environment sent
    *     to the daemon by the Nailgun client. This method should always be used in preference to
    *     System.getenv() and should be the only call to System.getenv() within the Buck codebase to
-   *     ensure that the use of the Buck daemon is transparent.
+   *     ensure that the use of the Buck daemon is transparent. This also scrubs NG environment
+   *     variables if no context is actually present.
    */
   @SuppressWarnings({"unchecked", "rawtypes"}) // Safe as Property is a Map<String, String>.
   private static ImmutableMap<String, String> getClientEnvironment(Optional<NGContext> context) {
     if (context.isPresent()) {
       return ImmutableMap.<String, String>copyOf((Map) context.get().getEnv());
     } else {
-      return ImmutableMap.copyOf(System.getenv());
+
+      Builder<String, String> builder = ImmutableMap.builder();
+      System.getenv()
+          .entrySet()
+          .stream()
+          .filter(
+              e ->
+                  !NAILGUN_STDOUT_ISTTY_ENV.equals(e.getKey())
+                      && !NAILGUN_STDERR_ISTTY_ENV.equals(e.getKey()))
+          .forEach(builder::put);
+      return builder.build();
     }
   }
 
@@ -1582,6 +1667,12 @@ public final class Main {
     loadListenersFromBuckConfig(eventListenersBuilder, projectFilesystem, buckConfig);
     ArtifactCacheBuckConfig artifactCacheConfig = new ArtifactCacheBuckConfig(buckConfig);
 
+
+    eventListenersBuilder.add(
+        new LogUploaderListener(
+            chromeTraceConfig,
+            invocationInfo.getLogFilePath(),
+            invocationInfo.getLogDirectoryPath()));
     if (buckConfig.isRuleKeyLoggerEnabled()) {
       eventListenersBuilder.add(
           new RuleKeyLoggerListener(
@@ -1675,7 +1766,7 @@ public final class Main {
         testLogPath,
         executionEnvironment,
         buildId);
-    simpleConsole.startRenderScheduler(1, SECONDS);
+    simpleConsole.startRenderScheduler(1, TimeUnit.SECONDS);
     return simpleConsole;
   }
 
@@ -1810,12 +1901,20 @@ public final class Main {
 
   public static final class DaemonBootstrap {
     private static final int AFTER_COMMAND_AUTO_GC_DELAY_MS = 5000;
+    private static final int SUBSEQUENT_GC_DELAY_MS = 10000;
     private static @Nullable DaemonKillers daemonKillers;
-    private static AtomicReference<ScheduledFuture<?>> scheduledGC = new AtomicReference<>();
+    private static AtomicInteger activeTasks = new AtomicInteger(0);
 
     /** Single thread for running short-lived tasks outside the command context. */
     private static final ScheduledExecutorService housekeepingExecutorService =
         Executors.newSingleThreadScheduledExecutor();
+
+    private static final boolean isCMS =
+        ManagementFactory.getGarbageCollectorMXBeans()
+            .stream()
+            .filter(GarbageCollectorMXBean::isValid)
+            .map(GarbageCollectorMXBean::getName)
+            .anyMatch(Predicate.isEqual("ConcurrentMarkSweep"));
 
     public static void main(String[] args) {
       try {
@@ -1853,20 +1952,37 @@ public final class Main {
       return Preconditions.checkNotNull(daemonKillers, "Daemon killers should be initialized.");
     }
 
-    static void cancelGC() {
-      ScheduledFuture<?> oldScheduledGC = scheduledGC.getAndSet(null);
-      if (oldScheduledGC != null) {
-        oldScheduledGC.cancel(false);
-      }
+    static void commandStarted() {
+      activeTasks.incrementAndGet();
     }
 
-    static void scheduleGC() {
-      ScheduledFuture<?> oldScheduledGC =
-          scheduledGC.getAndSet(
-              housekeepingExecutorService.schedule(
-                  System::gc, AFTER_COMMAND_AUTO_GC_DELAY_MS, TimeUnit.MILLISECONDS));
-      if (oldScheduledGC != null) {
-        oldScheduledGC.cancel(false);
+    static void commandFinished() {
+      // Concurrent Mark and Sweep (CMS) garbage collector releases memory to operating system
+      // in multiple steps, even given that full collection is performed at each step. So if CMS
+      // collector is used we call System.gc() up to 4 times with some interval, and call it
+      // just once for any other major collector.
+      // With Java 9 we could just use -XX:-ShrinkHeapInSteps flag.
+      int nTimes = isCMS ? 4 : 1;
+
+      housekeepingExecutorService.schedule(
+          () -> collectGarbage(nTimes), AFTER_COMMAND_AUTO_GC_DELAY_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private static void collectGarbage(int nTimes) {
+      int tasks = activeTasks.decrementAndGet();
+      if (tasks > 0) {
+        return;
+      }
+      // Potentially there is a race condition - new command comes exactly at this point and got
+      // under GC right away. Unlucky. We ignore that.
+      System.gc();
+
+      // schedule next collection to release more memory to operating system if garbage collector
+      // releases it in steps
+      if (nTimes > 1) {
+        activeTasks.incrementAndGet();
+        housekeepingExecutorService.schedule(
+            () -> collectGarbage(nTimes - 1), SUBSEQUENT_GC_DELAY_MS, TimeUnit.MILLISECONDS);
       }
     }
   }
@@ -1937,12 +2053,12 @@ public final class Main {
     obtainResourceFileLock();
     try (IdleKiller.CommandExecutionScope ignored =
         DaemonBootstrap.getDaemonKillers().newCommandExecutionScope()) {
-      DaemonBootstrap.cancelGC();
+      DaemonBootstrap.commandStarted();
       new Main(context.out, context.err, context.in, Optional.of(context))
           .runMainThenExit(context.getArgs(), System.nanoTime());
     } finally {
       // Reclaim memory after a command finishes.
-      DaemonBootstrap.scheduleGC();
+      DaemonBootstrap.commandFinished();
     }
   }
 

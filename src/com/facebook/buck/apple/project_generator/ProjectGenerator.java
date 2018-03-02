@@ -118,6 +118,8 @@ import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
@@ -125,7 +127,7 @@ import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.StringWithMacros;
-import com.facebook.buck.rules.macros.StringWithMacrosArg;
+import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.shell.ExportFileDescriptionArg;
 import com.facebook.buck.swift.SwiftBuckConfig;
@@ -235,6 +237,9 @@ public class ProjectGenerator {
 
     /** Generate an umbrella header for modular targets without one for use in a modulemap */
     GENERATE_MISSING_UMBRELLA_HEADER,
+
+    /** Add linker flags to OTHER_LDFLAGS to force load of libraries with link_whole = true */
+    FORCE_LOAD_LINK_WHOLE_LIBRARIES,
   }
 
   /** Standard options for generating a separated project */
@@ -413,6 +418,10 @@ public class ProjectGenerator {
 
   private boolean shouldGenerateMissingUmbrellaHeaders() {
     return options.contains(Option.GENERATE_MISSING_UMBRELLA_HEADER);
+  }
+
+  private boolean shouldAddLinkerFlagsForLinkWholeLibraries() {
+    return options.contains(Option.FORCE_LOAD_LINK_WHOLE_LIBRARIES);
   }
 
   public ImmutableMap<BuildTarget, PBXTarget> getBuildTargetToGeneratedTargetMap() {
@@ -905,10 +914,13 @@ public class ProjectGenerator {
   private ImmutableList<String> convertStringWithMacros(
       TargetNode<?, ?> node, Iterable<StringWithMacros> flags) {
 
+    // TODO(cjhopman): This seems really broken, it's totally inconsistent about what resolver is
+    // provided. This should either just do rule resolution like normal or maybe do its own custom
+    // MacroReplacer<>.
     LocationMacroExpander locationMacroExpander =
         new LocationMacroExpander() {
           @Override
-          public String expandFrom(
+          public Arg expandFrom(
               BuildTarget target,
               CellPathResolver cellNames,
               BuildRuleResolver ignored,
@@ -928,7 +940,10 @@ public class ProjectGenerator {
             }
 
             requiredBuildTargetsBuilder.add(locationMacroTarget);
-            return super.expandFrom(target, cellNames, resolver, input);
+            return StringArg.of(
+                Arg.stringify(
+                    super.expandFrom(target, cellNames, resolver, input),
+                    DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver))));
           }
         };
 
@@ -936,15 +951,14 @@ public class ProjectGenerator {
         new SingleThreadedBuildRuleResolver(
             TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer(), buckEventBus);
     ImmutableList.Builder<String> result = new ImmutableList.Builder<>();
+    StringWithMacrosConverter macrosConverter =
+        StringWithMacrosConverter.of(
+            node.getBuildTarget(),
+            node.getCellNames(),
+            emptyBuildRuleResolver,
+            ImmutableList.of(locationMacroExpander));
     for (StringWithMacros flag : flags) {
-      StringWithMacrosArg.of(
-              flag,
-              ImmutableList.of(locationMacroExpander),
-              Optional.empty(),
-              node.getBuildTarget(),
-              node.getCellNames(),
-              emptyBuildRuleResolver)
-          .appendToCommandLine(result::add, defaultPathResolver);
+      macrosConverter.convert(flag).appendToCommandLine(result::add, defaultPathResolver);
     }
     return result.build();
   }
@@ -1200,6 +1214,11 @@ public class ProjectGenerator {
 
     extraSettingsBuilder.putAll(swiftDepsSettingsBuilder.build());
 
+    setAppIconSettings(
+        recursiveAssetCatalogs, directAssetCatalogs, buildTarget, defaultSettingsBuilder);
+    setLaunchImageSettings(
+        recursiveAssetCatalogs, directAssetCatalogs, buildTarget, defaultSettingsBuilder);
+
     ImmutableSortedMap<Path, SourcePath> publicCxxHeaders = getPublicCxxHeaders(targetNode);
     if (isModularAppleLibrary(targetNode) && isFrameworkProductType(productType)) {
       // Modular frameworks should not include Buck-generated hmaps as they break the VFS overlay
@@ -1422,37 +1441,53 @@ public class ProjectGenerator {
           targetSpecificSwiftFlags.addAll(collectModularTargetSpecificSwiftFlags(targetNode));
         }
 
+        ImmutableList<String> testingOverlay = getFlagsForExcludesForModulesUnderTests(targetNode);
         Iterable<String> otherSwiftFlags =
             Iterables.concat(
                 swiftBuckConfig.getCompilerFlags().orElse(DEFAULT_SWIFTFLAGS),
                 targetSpecificSwiftFlags.build());
+
         Iterable<String> otherCFlags =
-            Iterables.concat(
-                cxxBuckConfig.getFlags("cflags").orElse(DEFAULT_CFLAGS),
-                convertStringWithMacros(
-                    targetNode, collectRecursiveExportedPreprocessorFlags(targetNode)),
-                convertStringWithMacros(
-                    targetNode, targetNode.getConstructorArg().getCompilerFlags()),
-                convertStringWithMacros(
-                    targetNode, targetNode.getConstructorArg().getPreprocessorFlags()));
+            ImmutableList.<String>builder()
+                .addAll(cxxBuckConfig.getCflags().orElse(DEFAULT_CFLAGS))
+                .addAll(
+                    convertStringWithMacros(
+                        targetNode, collectRecursiveExportedPreprocessorFlags(targetNode)))
+                .addAll(
+                    convertStringWithMacros(
+                        targetNode, targetNode.getConstructorArg().getCompilerFlags()))
+                .addAll(
+                    convertStringWithMacros(
+                        targetNode, targetNode.getConstructorArg().getPreprocessorFlags()))
+                .addAll(testingOverlay)
+                .build();
         Iterable<String> otherCxxFlags =
-            Iterables.concat(
-                cxxBuckConfig.getFlags("cxxflags").orElse(DEFAULT_CXXFLAGS),
-                convertStringWithMacros(
-                    targetNode, collectRecursiveExportedPreprocessorFlags(targetNode)),
-                convertStringWithMacros(
-                    targetNode, targetNode.getConstructorArg().getCompilerFlags()),
-                convertStringWithMacros(
-                    targetNode, targetNode.getConstructorArg().getPreprocessorFlags()));
+            ImmutableList.<String>builder()
+                .addAll(cxxBuckConfig.getCxxflags().orElse(DEFAULT_CXXFLAGS))
+                .addAll(
+                    convertStringWithMacros(
+                        targetNode, collectRecursiveExportedPreprocessorFlags(targetNode)))
+                .addAll(
+                    convertStringWithMacros(
+                        targetNode, targetNode.getConstructorArg().getCompilerFlags()))
+                .addAll(
+                    convertStringWithMacros(
+                        targetNode, targetNode.getConstructorArg().getPreprocessorFlags()))
+                .addAll(testingOverlay)
+                .build();
+
         Iterable<String> otherLdFlags =
-            Iterables.concat(
-                appleConfig.linkAllObjC() ? ImmutableList.of("-ObjC") : ImmutableList.of(),
-                convertStringWithMacros(
-                    targetNode,
-                    Iterables.concat(
-                        targetNode.getConstructorArg().getLinkerFlags(),
-                        collectRecursiveExportedLinkerFlags(targetNode))),
-                swiftDebugLinkerFlagsBuilder.build());
+            ImmutableList.<String>builder()
+                .addAll(appleConfig.linkAllObjC() ? ImmutableList.of("-ObjC") : ImmutableList.of())
+                .addAll(
+                    convertStringWithMacros(
+                        targetNode,
+                        Iterables.concat(
+                            targetNode.getConstructorArg().getLinkerFlags(),
+                            collectRecursiveExportedLinkerFlags(targetNode))))
+                .addAll(collectRecursiveForceLoadLinkerFlags(targetNode))
+                .addAll(swiftDebugLinkerFlagsBuilder.build())
+                .build();
 
         appendConfigsBuilder
             .put(
@@ -1580,6 +1615,46 @@ public class ProjectGenerator {
     return target;
   }
 
+  private void setAppIconSettings(
+      ImmutableSet<AppleAssetCatalogDescriptionArg> recursiveAssetCatalogs,
+      ImmutableSet<AppleAssetCatalogDescriptionArg> directAssetCatalogs,
+      BuildTarget buildTarget,
+      ImmutableMap.Builder<String, String> defaultSettingsBuilder) {
+    ImmutableList<String> appIcon =
+        Stream.concat(directAssetCatalogs.stream(), recursiveAssetCatalogs.stream())
+            .map(x -> x.getAppIcon())
+            .filter(Optional::isPresent)
+            .map(Optional::get)
+            .collect(ImmutableList.toImmutableList());
+    if (appIcon.size() > 1) {
+      throw new HumanReadableException(
+          "At most one asset catalog in the dependencies of %s " + "can have a app_icon",
+          buildTarget);
+    } else if (appIcon.size() == 1) {
+      defaultSettingsBuilder.put("ASSETCATALOG_COMPILER_APPICON_NAME", appIcon.get(0));
+    }
+  }
+
+  private void setLaunchImageSettings(
+      ImmutableSet<AppleAssetCatalogDescriptionArg> recursiveAssetCatalogs,
+      ImmutableSet<AppleAssetCatalogDescriptionArg> directAssetCatalogs,
+      BuildTarget buildTarget,
+      ImmutableMap.Builder<String, String> defaultSettingsBuilder) {
+    ImmutableList<String> launchImage =
+        Stream.concat(directAssetCatalogs.stream(), recursiveAssetCatalogs.stream())
+            .map(x -> x.getLaunchImage())
+            .filter(Optional::isPresent)
+            .map(Optional::get)
+            .collect(ImmutableList.toImmutableList());
+    if (launchImage.size() > 1) {
+      throw new HumanReadableException(
+          "At most one asset catalog in the dependencies of %s " + "can have a launch_image",
+          buildTarget);
+    } else if (launchImage.size() == 1) {
+      defaultSettingsBuilder.put("ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME", launchImage.get(0));
+    }
+  }
+
   private boolean shouldEmbedSwiftRuntimeInBundleTarget(
       Optional<? extends TargetNode<? extends HasAppleBundleFields, ?>> bundle) {
     return bundle
@@ -1595,6 +1670,7 @@ public class ProjectGenerator {
                             case PLUGIN:
                             case BUNDLE:
                             case XCTEST:
+                            case PREFPANE:
                             case XPC:
                               // All of the above bundles can have loaders which do not contain
                               // a Swift runtime, so it must get bundled to ensure they run.
@@ -1609,6 +1685,27 @@ public class ProjectGenerator {
                         },
                         stringExtension -> false))
         .orElse(false);
+  }
+
+  private ImmutableList<String> getFlagsForExcludesForModulesUnderTests(
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> testingTarget) {
+    ImmutableList.Builder<String> testingOverlayBuilder = new ImmutableList.Builder<>();
+    visitRecursivePrivateHeaderSymlinkTreesForTests(
+        testingTarget,
+        (targetUnderTest, headerVisibility) -> {
+          // If we are testing a modular apple_library, we expose it non-modular. This allows the
+          // testing target to see both the public and private interfaces of the tested target
+          // without triggering header errors related to modules. We hide the module definition by
+          // using a filesystem overlay that overrides the module.modulemap with an empty file.
+          if (isModularAppleLibrary(targetUnderTest)) {
+            testingOverlayBuilder.add("-ivfsoverlay");
+            Path vfsOverlay =
+                getTestingModulemapVFSOverlayLocationFromSymlinkTreeRoot(
+                    getPathToHeaderSymlinkTree(targetUnderTest, HeaderVisibility.PUBLIC));
+            testingOverlayBuilder.add("$REPO_ROOT/" + vfsOverlay.toString());
+          }
+        });
+    return testingOverlayBuilder.build();
   }
 
   private boolean isFrameworkProductType(ProductType productType) {
@@ -2219,6 +2316,22 @@ public class ProjectGenerator {
               new ModuleMap(moduleName.get(), ModuleMap.SwiftMode.NO_SWIFT).render(),
               headerSymlinkTreeRoot.resolve(moduleName.get()).resolve("module.modulemap"));
         }
+        Path absoluteModuleRoot =
+            projectFilesystem
+                .getRootPath()
+                .resolve(headerSymlinkTreeRoot.resolve(moduleName.get()));
+        VFSOverlay vfsOverlay =
+            new VFSOverlay(
+                ImmutableSortedMap.of(
+                    absoluteModuleRoot.resolve("module.modulemap"),
+                    absoluteModuleRoot.resolve("testing.modulemap")));
+
+        projectFilesystem.writeContentsToPath(
+            vfsOverlay.render(),
+            getTestingModulemapVFSOverlayLocationFromSymlinkTreeRoot(headerSymlinkTreeRoot));
+        projectFilesystem.writeContentsToPath(
+            "", // empty modulemap to allow non-modular imports for testing
+            headerSymlinkTreeRoot.resolve(moduleName.get()).resolve("testing.modulemap"));
       }
     }
     headerSymlinkTrees.add(headerSymlinkTreeRoot);
@@ -2382,6 +2495,9 @@ public class ProjectGenerator {
         case PLUGIN:
           return Optional.of(
               CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.PLUGINS));
+        case PREFPANE:
+          return Optional.of(
+              CopyFilePhaseDestinationSpec.of(PBXCopyFilesBuildPhase.Destination.RESOURCES));
         case APP:
           if (isWatchApplicationNode(targetNode)) {
             return Optional.of(
@@ -2627,6 +2743,11 @@ public class ProjectGenerator {
 
   private Path getObjcModulemapVFSOverlayLocationFromSymlinkTreeRoot(Path headerSymlinkTreeRoot) {
     return headerSymlinkTreeRoot.resolve("objc-module-overlay.yaml");
+  }
+
+  private Path getTestingModulemapVFSOverlayLocationFromSymlinkTreeRoot(
+      Path headerSymlinkTreeRoot) {
+    return headerSymlinkTreeRoot.resolve("testing-overlay.yaml");
   }
 
   private Path getHeaderMapLocationFromSymlinkTreeRoot(Path headerSymlinkTreeRoot) {
@@ -2955,6 +3076,40 @@ public class ProjectGenerator {
         .toList();
   }
 
+  private ImmutableList<String> collectRecursiveForceLoadLinkerFlags(TargetNode<?, ?> targetNode) {
+
+    if (shouldAddLinkerFlagsForLinkWholeLibraries()) {
+      return collectRecursiveLibraryDepTargetsWithOptions(targetNode, false)
+          .append(targetNode)
+          .transform(
+              input ->
+                  input
+                      .castArg(CxxLibraryDescription.CommonArg.class)
+                      .flatMap(this::getForceLoadLinkerFlag))
+          .filter(Optional::isPresent)
+          .transform(input -> input.get())
+          .toList();
+    } else {
+      return ImmutableList.of();
+    }
+  }
+
+  private Optional<String> getForceLoadLinkerFlag(
+      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> targetNode) {
+    CxxLibraryDescription.CommonArg arg = targetNode.getConstructorArg();
+    if (arg.getLinkWhole().orElse(false)) {
+      String flag =
+          "-Wl,-force_load,"
+              + appleConfig.getForceLoadLibraryPath()
+              + "/lib"
+              + getProductNameForBuildTargetNode(targetNode)
+              + ".a";
+      return Optional.of(flag);
+    } else {
+      return Optional.empty();
+    }
+  }
+
   private Iterable<PatternMatchedCollection<ImmutableList<StringWithMacros>>>
       collectRecursiveExportedPlatformLinkerFlags(TargetNode<?, ?> targetNode) {
     return FluentIterable.from(
@@ -3015,7 +3170,6 @@ public class ProjectGenerator {
     if (containsSwiftSources) {
       libsWithSources = libsWithSources.filter(this::isLibraryWithSwiftSources);
     }
-
     return libsWithSources;
   }
 

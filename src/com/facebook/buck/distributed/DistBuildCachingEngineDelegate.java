@@ -17,7 +17,6 @@
 package com.facebook.buck.distributed;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuckVersion;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.CachingBuildEngineDelegate;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -41,8 +40,6 @@ import java.util.concurrent.TimeoutException;
  * distributed build.
  */
 public class DistBuildCachingEngineDelegate implements CachingBuildEngineDelegate {
-  private static final long DEFAULT_PENDING_FILE_MATERIALIZATION_TIMEOUT_SECONDS = 30;
-
   private final StackedFileHashCache remoteStackedFileHashCache;
   private final ImmutableList<MaterializerDummyFileHashCache> materializerFileHashCaches;
   private final LoadingCache<ProjectFilesystem, DefaultRuleKeyFactory>
@@ -54,6 +51,7 @@ public class DistBuildCachingEngineDelegate implements CachingBuildEngineDelegat
       SourcePathRuleFinder ruleFinder,
       StackedFileHashCache remoteStackedFileHashCache,
       StackedFileHashCache materializingStackedFileHashCache,
+      RuleKeyConfiguration ruleKeyConfiguration,
       long pendingFileMaterializationTimeoutSeconds) {
     this.remoteStackedFileHashCache = remoteStackedFileHashCache;
     this.pendingFileMaterializationTimeoutSeconds = pendingFileMaterializationTimeoutSeconds;
@@ -62,7 +60,7 @@ public class DistBuildCachingEngineDelegate implements CachingBuildEngineDelegat
             sourcePathResolver,
             ruleFinder,
             materializingStackedFileHashCache,
-            RuleKeyConfiguration.builder().setSeed(0).setCoreKey(BuckVersion.getVersion()).build());
+            ruleKeyConfiguration);
 
     this.materializerFileHashCaches =
         materializingStackedFileHashCache
@@ -71,25 +69,6 @@ public class DistBuildCachingEngineDelegate implements CachingBuildEngineDelegat
             .filter(cache -> cache instanceof MaterializerDummyFileHashCache)
             .map(cache -> (MaterializerDummyFileHashCache) cache)
             .collect(ImmutableList.toImmutableList());
-  }
-
-  /**
-   * @param sourcePathResolver Distributed build source parse resolver.
-   * @param ruleFinder Used by the distributed build rule key factories.
-   * @param remoteStackedFileHashCache Cache that only requires SHA1.
-   * @param materializingStackedFileHashCache Cache that writes the files to the disk.
-   */
-  public DistBuildCachingEngineDelegate(
-      SourcePathResolver sourcePathResolver,
-      SourcePathRuleFinder ruleFinder,
-      StackedFileHashCache remoteStackedFileHashCache,
-      StackedFileHashCache materializingStackedFileHashCache) {
-    this(
-        sourcePathResolver,
-        ruleFinder,
-        remoteStackedFileHashCache,
-        materializingStackedFileHashCache,
-        DEFAULT_PENDING_FILE_MATERIALIZATION_TIMEOUT_SECONDS);
   }
 
   @Override
@@ -116,14 +95,21 @@ public class DistBuildCachingEngineDelegate implements CachingBuildEngineDelegat
 
     ListenableFuture<?> pendingFilesFuture = Futures.allAsList(fileMaterializationFutures);
 
+    long pendingFuturesBeforeWait =
+        fileMaterializationFutures.stream().filter(x -> !x.isDone()).count();
     try {
       pendingFilesFuture.get(pendingFileMaterializationTimeoutSeconds, TimeUnit.SECONDS);
-    } catch (InterruptedException | ExecutionException | TimeoutException e) {
+    } catch (InterruptedException | ExecutionException | TimeoutException exception) {
+      long pendingFuturesAfterWait =
+          fileMaterializationFutures.stream().filter(x -> !x.isDone()).count();
       throw new RuntimeException(
           String.format(
-              "Unexpected error encountered while waiting for files to be materialized: [%s].",
-              e.getMessage()),
-          e);
+              "Unexpected error encountered while waiting for files to be materialized. "
+                  + "pendingFuturesBeforeWait=[%d] "
+                  + "pendingFuturesAfterWait=[%d] "
+                  + "totalFileMaterializationFutures=[%d].",
+              pendingFuturesBeforeWait, pendingFuturesAfterWait, fileMaterializationFutures.size()),
+          exception);
     }
   }
 }

@@ -18,7 +18,9 @@ package com.facebook.buck.counters;
 
 import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.EventKey;
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableCollection;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.eventbus.Subscribe;
 import java.io.Closeable;
@@ -40,10 +42,12 @@ public interface CounterRegistry extends Closeable {
   class AsyncCounterRegistrationEvent extends AbstractBuckEvent {
 
     private ImmutableCollection<Counter> counters;
+    private final String countersString;
 
-    public AsyncCounterRegistrationEvent(ImmutableCollection<Counter> counters) {
+    public AsyncCounterRegistrationEvent(ImmutableList<Counter> counters) {
       super(EventKey.unique());
       this.counters = counters;
+      this.countersString = Joiner.on(",").join(counters); // CSV, based on List ordering.
     }
 
     public ImmutableCollection<Counter> getCounters() {
@@ -51,8 +55,8 @@ public interface CounterRegistry extends Closeable {
     }
 
     @Override
-    public String getValueString() {
-      return toString();
+    protected String getValueString() {
+      return countersString;
     }
 
     @Override

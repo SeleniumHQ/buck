@@ -20,11 +20,11 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AddToRuleKey;
 import com.facebook.buck.rules.BinaryBuildRule;
 import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleParams;
+import com.facebook.buck.rules.CacheableBuildRule;
 import com.facebook.buck.rules.CommandTool;
 import com.facebook.buck.rules.ExternalTestRunnerRule;
 import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
@@ -61,16 +61,16 @@ import java.util.stream.Stream;
  */
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class ShTest extends NoopBuildRuleWithDeclaredAndExtraDeps
-    implements TestRule, HasRuntimeDeps, ExternalTestRunnerRule, BinaryBuildRule {
+    implements TestRule,
+        HasRuntimeDeps,
+        ExternalTestRunnerRule,
+        BinaryBuildRule,
+        CacheableBuildRule {
 
-  @AddToRuleKey private final ImmutableList<Arg> args;
-  @AddToRuleKey private final ImmutableMap<String, Arg> env;
-  @AddToRuleKey private final Optional<String> type;
-
-  @AddToRuleKey
-  @SuppressWarnings("PMD.UnusedPrivateField")
+  private final ImmutableList<Arg> args;
+  private final ImmutableMap<String, Arg> env;
+  private final Optional<String> type;
   private final ImmutableSortedSet<? extends SourcePath> resources;
-
   private final Optional<Long> testRuleTimeoutMs;
   private final ImmutableSet<String> contacts;
   private final boolean runTestSeparately;

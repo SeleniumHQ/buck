@@ -112,6 +112,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @AddToRuleKey private final ImmutableMap<String, String> infoPlistSubstitutions;
 
+  @AddToRuleKey private final Optional<SourcePath> entitlementsFile;
+
   @AddToRuleKey private final Optional<BuildRule> binary;
 
   @AddToRuleKey private final Optional<AppleDsym> appleDsym;
@@ -209,6 +211,17 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.infoPlist = infoPlist;
     this.infoPlistSubstitutions = ImmutableMap.copyOf(infoPlistSubstitutions);
     this.binary = binary;
+    Optional<SourcePath> entitlementsFile = Optional.empty();
+    if (binary.isPresent()) {
+      Optional<HasEntitlementsFile> hasEntitlementsFile =
+          buildRuleResolver.requireMetadata(
+              binary.get().getBuildTarget(), HasEntitlementsFile.class);
+      if (hasEntitlementsFile.isPresent()) {
+        entitlementsFile = hasEntitlementsFile.get().getEntitlementsFile();
+      }
+    }
+    this.entitlementsFile = entitlementsFile;
+
     this.appleDsym = appleDsym;
     this.extraBinaries = extraBinaries;
     this.destinations = destinations;
@@ -302,6 +315,10 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   public Optional<BuildRule> getBinary() {
     return binary;
+  }
+
+  public Optional<AppleDsym> getAppleDsym() {
+    return appleDsym;
   }
 
   public boolean isLegacyWatchApp() {
@@ -530,37 +547,45 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       } else {
         // Copy the .mobileprovision file if the platform requires it, and sign the executable.
         Optional<Path> entitlementsPlist = Optional.empty();
-        final Path srcRoot =
-            getProjectFilesystem().getRootPath().resolve(getBuildTarget().getBasePath());
-        Optional<String> entitlementsPlistString =
-            InfoPlistSubstitution.getVariableExpansionForPlatform(
-                CODE_SIGN_ENTITLEMENTS,
-                platform.getName(),
-                withDefaults(
-                    infoPlistSubstitutions,
-                    ImmutableMap.of(
-                        "SOURCE_ROOT", srcRoot.toString(),
-                        "SRCROOT", srcRoot.toString())));
+
+        // Try to use the entitlements file specified in the bundle's binary first.
         entitlementsPlist =
-            entitlementsPlistString.map(
-                entitlementsPlistName -> {
-                  ProjectFilesystem filesystem = getProjectFilesystem();
-                  Path originalEntitlementsPlist =
-                      srcRoot.resolve(Paths.get(entitlementsPlistName));
-                  Path entitlementsPlistWithSubstitutions =
-                      BuildTargets.getScratchPath(
-                          filesystem, getBuildTarget(), "%s-Entitlements.plist");
+            entitlementsFile.map(p -> context.getSourcePathResolver().getAbsolutePath(p));
 
-                  stepsBuilder.add(
-                      new FindAndReplaceStep(
-                          filesystem,
-                          originalEntitlementsPlist,
-                          entitlementsPlistWithSubstitutions,
-                          InfoPlistSubstitution.createVariableExpansionFunction(
-                              infoPlistSubstitutions)));
+        // Fall back to getting CODE_SIGN_ENTITLEMENTS from info_plist_substitutions.
+        if (!entitlementsPlist.isPresent()) {
+          final Path srcRoot =
+              getProjectFilesystem().getRootPath().resolve(getBuildTarget().getBasePath());
+          Optional<String> entitlementsPlistString =
+              InfoPlistSubstitution.getVariableExpansionForPlatform(
+                  CODE_SIGN_ENTITLEMENTS,
+                  platform.getName(),
+                  withDefaults(
+                      infoPlistSubstitutions,
+                      ImmutableMap.of(
+                          "SOURCE_ROOT", srcRoot.toString(),
+                          "SRCROOT", srcRoot.toString())));
+          entitlementsPlist =
+              entitlementsPlistString.map(
+                  entitlementsPlistName -> {
+                    ProjectFilesystem filesystem = getProjectFilesystem();
+                    Path originalEntitlementsPlist =
+                        srcRoot.resolve(Paths.get(entitlementsPlistName));
+                    Path entitlementsPlistWithSubstitutions =
+                        BuildTargets.getScratchPath(
+                            filesystem, getBuildTarget(), "%s-Entitlements.plist");
 
-                  return filesystem.resolve(entitlementsPlistWithSubstitutions);
-                });
+                    stepsBuilder.add(
+                        new FindAndReplaceStep(
+                            filesystem,
+                            originalEntitlementsPlist,
+                            entitlementsPlistWithSubstitutions,
+                            InfoPlistSubstitution.createVariableExpansionFunction(
+                                infoPlistSubstitutions)));
+
+                    return filesystem.resolve(entitlementsPlistWithSubstitutions);
+                  });
+        }
 
         signingEntitlementsTempPath =
             Optional.of(

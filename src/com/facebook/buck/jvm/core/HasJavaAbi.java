@@ -24,7 +24,7 @@ import com.facebook.buck.rules.BuildTargetSourcePath;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.util.zip.Unzip;
+import com.facebook.buck.util.unarchive.Unzip;
 import com.facebook.infer.annotation.Assertions;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -113,7 +113,7 @@ public interface HasJavaAbi {
   }
 
   class JarContentsSupplier {
-    private final SourcePathResolver resolver;
+    private SourcePathResolver resolver;
     @Nullable private final SourcePath jarSourcePath;
     @Nullable private ImmutableSortedSet<SourcePath> contents;
     @Nullable private ImmutableSet<String> contentPaths;
@@ -168,6 +168,10 @@ public interface HasJavaAbi {
 
     public boolean jarContains(String path) {
       return contentPaths.contains(path);
+    }
+
+    public void updateSourcePathResolver(SourcePathResolver resolver) {
+      this.resolver = resolver;
     }
   }
 }

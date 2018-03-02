@@ -35,6 +35,7 @@ import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
+import com.facebook.buck.rules.RuleDepsCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
@@ -50,14 +51,15 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 public class CacheOptimizedBuildTargetsQueueFactoryTest {
+  public static final int MOST_BUILD_RULES_FINISHED_PERCENTAGE = 100;
 
   private ArtifactCacheByBuildRule artifactCache;
-  private BuildRuleFinishedPublisher ruleFinishedPublisher;
+  private CoordinatorBuildRuleEventsPublisher ruleFinishedPublisher;
 
   @Before
   public void setUp() {
     this.artifactCache = null;
-    this.ruleFinishedPublisher = EasyMock.createMock(BuildRuleFinishedPublisher.class);
+    this.ruleFinishedPublisher = EasyMock.createMock(CoordinatorBuildRuleEventsPublisher.class);
   }
 
   private BuildTargetsQueue createQueueWithLocalCacheHits(
@@ -69,8 +71,10 @@ public class CacheOptimizedBuildTargetsQueueFactoryTest {
             ImmutableList.of(),
             localCacheHitTargets.stream().map(resolver::getRule).collect(Collectors.toList()));
 
-    return new CacheOptimizedBuildTargetsQueueFactory(resolver, artifactCache, false)
-        .createBuildTargetsQueue(topLevelTargets, ruleFinishedPublisher);
+    return new CacheOptimizedBuildTargetsQueueFactory(
+            resolver, artifactCache, false, new RuleDepsCache(resolver))
+        .createBuildTargetsQueue(
+            topLevelTargets, ruleFinishedPublisher, MOST_BUILD_RULES_FINISHED_PERCENTAGE);
   }
 
   private BuildTargetsQueue createQueueWithRemoteCacheHits(
@@ -83,8 +87,10 @@ public class CacheOptimizedBuildTargetsQueueFactoryTest {
             remoteCacheHitTargets.stream().map(resolver::getRule).collect(Collectors.toList()),
             ImmutableList.of());
 
-    return new CacheOptimizedBuildTargetsQueueFactory(resolver, artifactCache, false)
-        .createBuildTargetsQueue(topLevelTargets, ruleFinishedPublisher);
+    return new CacheOptimizedBuildTargetsQueueFactory(
+            resolver, artifactCache, false, new RuleDepsCache(resolver))
+        .createBuildTargetsQueue(
+            topLevelTargets, ruleFinishedPublisher, MOST_BUILD_RULES_FINISHED_PERCENTAGE);
   }
 
   @Test

@@ -44,6 +44,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.io.Files;
@@ -119,7 +120,8 @@ abstract class GoDescriptors {
     }
 
     BuildTarget target = createSymlinkTreeTarget(buildTarget);
-    SymlinkTree symlinkTree = makeSymlinkTree(target, projectFilesystem, pathResolver, linkables);
+    SymlinkTree symlinkTree =
+        makeSymlinkTree(target, projectFilesystem, ruleFinder, pathResolver, linkables);
     resolver.addToIndex(symlinkTree);
 
     ImmutableList.Builder<SourcePath> extraAsmOutputsBuilder = ImmutableList.builder();
@@ -141,6 +143,9 @@ abstract class GoDescriptors {
           .addAll(ruleFinder.filterBuildRuleInputs(lib.getGeneratedGoSource()));
     }
 
+    ImmutableSet<SourcePath> compileSrcs = compileSrcBuilder.build();
+    ImmutableList<BuildRule> srcDependencies = getDependenciesFromSources(ruleFinder, compileSrcs);
+
     LOG.verbose("Symlink tree for compiling %s: %s", buildTarget, symlinkTree.getLinks());
 
     return new GoCompile(
@@ -148,7 +153,8 @@ abstract class GoDescriptors {
         projectFilesystem,
         params
             .copyAppendingExtraDeps(linkableDepsBuilder.build())
-            .copyAppendingExtraDeps(ImmutableList.of(symlinkTree)),
+            .copyAppendingExtraDeps(ImmutableList.of(symlinkTree))
+            .copyAppendingExtraDeps(srcDependencies),
         symlinkTree,
         packageName,
         getPackageImportMap(
@@ -241,6 +247,7 @@ abstract class GoDescriptors {
         makeSymlinkTree(
             target,
             projectFilesystem,
+            ruleFinder,
             pathResolver,
             requireTransitiveGoLinkables(
                 buildTarget,
@@ -380,9 +387,23 @@ abstract class GoDescriptors {
     return linkables.build();
   }
 
+  /**
+   * Make sure that if any srcs elements are a build rule, we add it as a dependency, so we wait for
+   * it to finish running before using the source
+   */
+  private static ImmutableList<BuildRule> getDependenciesFromSources(
+      SourcePathRuleFinder ruleFinder, ImmutableSet<SourcePath> srcs) {
+    return srcs.stream()
+        .map(ruleFinder::getRule)
+        .filter(Optional::isPresent)
+        .map(Optional::get)
+        .collect(ImmutableList.toImmutableList());
+  }
+
   private static SymlinkTree makeSymlinkTree(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver,
       ImmutableSet<GoLinkable> linkables) {
     ImmutableMap.Builder<Path, SourcePath> treeMapBuilder = ImmutableMap.builder();
@@ -406,7 +427,14 @@ abstract class GoDescriptors {
 
     Path root = BuildTargets.getScratchPath(projectFilesystem, buildTarget, "__%s__tree");
 
-    return new SymlinkTree(buildTarget, projectFilesystem, root, treeMap);
+    return new SymlinkTree(
+        "go_linkable",
+        buildTarget,
+        projectFilesystem,
+        root,
+        treeMap,
+        ImmutableMultimap.of(),
+        ruleFinder);
   }
 
   /**

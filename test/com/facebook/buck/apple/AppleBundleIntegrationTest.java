@@ -314,6 +314,7 @@ public class AppleBundleIntegrationTest {
     assertTrue(checkCodeSigning(embeddedFrameworkPath));
   }
 
+  // Specifying entitlments file via apple_binary entitlements_file
   @Test
   public void simpleApplicationBundleWithCodeSigningAndEntitlements()
       throws IOException, InterruptedException {
@@ -333,6 +334,41 @@ public class AppleBundleIntegrationTest {
             filesystem,
             target.withAppendedFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
             "%s"));
+    workspace.assertFilesEqual(
+        Paths.get("DemoApp.xcent.expected"),
+        BuildTargets.getScratchPath(
+            filesystem,
+            target.withAppendedFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+            "%s.xcent"));
+
+    Path appPath =
+        workspace.getPath(
+            BuildTargets.getGenPath(
+                    filesystem,
+                    target.withAppendedFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+                    "%s")
+                .resolve(target.getShortName() + ".app"));
+    assertTrue(Files.exists(appPath.resolve(target.getShortName())));
+
+    assertTrue(checkCodeSigning(appPath));
+  }
+
+  // Legacy method -- specifying entitlments file via info_plist_substitutions
+  @Test
+  public void simpleApplicationBundleWithCodeSigningAndEntitlementsUsingInfoPlistSubstitutions()
+      throws IOException, InterruptedException {
+    assumeTrue(FakeAppleDeveloperEnvironment.supportsCodeSigning());
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "simple_application_bundle_with_codesigning_and_entitlements", tmp);
+    workspace.setUp();
+
+    BuildTarget target =
+        BuildTargetFactory.newInstance(
+            "//:DemoAppUsingInfoPlistSubstitutions#iphoneos-arm64,no-debug");
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+
     workspace.assertFilesEqual(
         Paths.get("DemoApp.xcent.expected"),
         BuildTargets.getScratchPath(
@@ -777,6 +813,17 @@ public class AppleBundleIntegrationTest {
         "%s/" + appTarget.getShortName() + ".app/Assets.car");
   }
 
+  @Test
+  public void appleAssetCatalogsWithCompilationOptions() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "apple_asset_catalogs_are_included_in_bundle", tmp);
+    workspace.setUp();
+    BuildTarget target =
+        BuildTargetFactory.newInstance("//:DemoAppWithAssetCatalogCompilationOptions#no-debug");
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+  }
+
   private void assertFileInOutputContainsString(
       String needle, ProjectWorkspace workspace, BuildTarget target, String genPathFormat)
       throws IOException {
@@ -1194,6 +1241,64 @@ public class AppleBundleIntegrationTest {
     Path XPCServiceInfoPlistPath = XPCServicePath.resolve("Contents/Info.plist");
     assertTrue(Files.exists(XPCServiceBinaryPath));
     assertTrue(Files.exists(XPCServiceInfoPlistPath));
+  }
+
+  @Test
+  public void macAppWithPlugin() throws IOException, InterruptedException {
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "apple_osx_app_with_plugin", tmp);
+    workspace.setUp();
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:App#no-debug");
+    ProcessResult buildResult =
+        workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+    buildResult.assertSuccess();
+
+    Path appPath =
+        workspace.getPath(
+            BuildTargets.getGenPath(
+                    filesystem,
+                    target.withAppendedFlavors(
+                        AppleDebugFormat.NONE.getFlavor(),
+                        AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+                    "%s")
+                .resolve(target.getShortName() + ".app"));
+    Path pluginPath = appPath.resolve("Contents/PlugIns/Plugin.plugin");
+    Path pluginBinaryPath = pluginPath.resolve("Contents/MacOS/Plugin");
+    Path pluginInfoPlistPath = pluginPath.resolve("Contents/Info.plist");
+    assertTrue(Files.exists(pluginBinaryPath));
+    assertTrue(Files.exists(pluginInfoPlistPath));
+  }
+
+  @Test
+  public void macAppWithPrefPane() throws IOException, InterruptedException {
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "apple_osx_app_with_prefpane", tmp);
+    workspace.setUp();
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:App#no-debug");
+    ProcessResult buildResult =
+        workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+    buildResult.assertSuccess();
+
+    Path appPath =
+        workspace.getPath(
+            BuildTargets.getGenPath(
+                    filesystem,
+                    target.withAppendedFlavors(
+                        AppleDebugFormat.NONE.getFlavor(),
+                        AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+                    "%s")
+                .resolve(target.getShortName() + ".app"));
+    Path prefPanePath = appPath.resolve("Contents/Resources/PrefPane.prefPane");
+    Path prefPaneBinaryPath = prefPanePath.resolve("Contents/MacOS/PrefPane");
+    Path prefPaneInfoPlistPath = prefPanePath.resolve("Contents/Info.plist");
+    assertTrue(Files.exists(prefPaneBinaryPath));
+    assertTrue(Files.exists(prefPaneInfoPlistPath));
   }
 
   @Test

@@ -25,6 +25,7 @@ import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal;
 import com.facebook.buck.graph.GraphTraversable;
 import com.facebook.buck.graph.MutableDirectedGraph;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.WatchmanOverflowEvent;
 import com.facebook.buck.io.WatchmanPathEvent;
 import com.facebook.buck.log.Logger;
@@ -86,31 +87,30 @@ public class Parser {
   private final ConstructorArgMarshaller marshaller;
   private final TypeCoercerFactory typeCoercerFactory;
   private final KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
+  private final ParserPythonInterpreterProvider parserPythonInterpreterProvider;
 
   public Parser(
       BroadcastEventListener broadcastEventListener,
       ParserConfig parserConfig,
       TypeCoercerFactory typeCoercerFactory,
       ConstructorArgMarshaller marshaller,
-      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider) {
+      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
+      ExecutableFinder executableFinder) {
     this.typeCoercerFactory = typeCoercerFactory;
     this.permState =
         new DaemonicParserState(
-            broadcastEventListener, typeCoercerFactory, parserConfig.getNumParsingThreads());
+            broadcastEventListener,
+            typeCoercerFactory,
+            parserConfig.getNumParsingThreads(),
+            parserConfig.shouldIgnoreEnvironmentVariablesChanges());
     this.marshaller = marshaller;
     this.knownBuildRuleTypesProvider = knownBuildRuleTypesProvider;
+    this.parserPythonInterpreterProvider =
+        new ParserPythonInterpreterProvider(parserConfig, executableFinder);
   }
 
-  protected DaemonicParserState getPermState() {
+  public DaemonicParserState getPermState() {
     return permState;
-  }
-
-  protected TypeCoercerFactory getTypeCoercerFactory() {
-    return typeCoercerFactory;
-  }
-
-  protected ConstructorArgMarshaller getMarshaller() {
-    return marshaller;
   }
 
   @VisibleForTesting
@@ -140,8 +140,11 @@ public class Parser {
 
     try (PerBuildState state =
         new PerBuildState(
-            this,
+            typeCoercerFactory,
+            permState,
+            marshaller,
             eventBus,
+            parserPythonInterpreterProvider,
             executor,
             cell,
             knownBuildRuleTypesProvider,
@@ -160,8 +163,11 @@ public class Parser {
       throws BuildFileParseException, BuildTargetException {
     try (PerBuildState state =
         new PerBuildState(
-            this,
+            typeCoercerFactory,
+            permState,
+            marshaller,
             eventBus,
+            parserPythonInterpreterProvider,
             executor,
             cell,
             knownBuildRuleTypesProvider,
@@ -218,8 +224,11 @@ public class Parser {
 
     try (PerBuildState state =
         new PerBuildState(
-            this,
+            typeCoercerFactory,
+            permState,
+            marshaller,
             eventBus,
+            parserPythonInterpreterProvider,
             executor,
             cell,
             knownBuildRuleTypesProvider,
@@ -256,8 +265,11 @@ public class Parser {
 
     try (final PerBuildState state =
         new PerBuildState(
-            this,
+            typeCoercerFactory,
+            permState,
+            marshaller,
             eventBus,
+            parserPythonInterpreterProvider,
             executor,
             rootCell,
             knownBuildRuleTypesProvider,
@@ -379,8 +391,11 @@ public class Parser {
 
     try (PerBuildState state =
         new PerBuildState(
-            this,
+            typeCoercerFactory,
+            permState,
+            marshaller,
             eventBus,
+            parserPythonInterpreterProvider,
             executor,
             rootCell,
             knownBuildRuleTypesProvider,
@@ -418,8 +433,11 @@ public class Parser {
 
     try (PerBuildState state =
         new PerBuildState(
-            this,
+            typeCoercerFactory,
+            permState,
+            marshaller,
             eventBus,
+            parserPythonInterpreterProvider,
             executor,
             rootCell,
             knownBuildRuleTypesProvider,

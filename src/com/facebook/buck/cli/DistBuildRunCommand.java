@@ -24,29 +24,32 @@ import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildState;
 import com.facebook.buck.distributed.FileContentsProvider;
 import com.facebook.buck.distributed.FileMaterializationStatsTracker;
-import com.facebook.buck.distributed.build_slave.BuildRuleFinishedPublisher;
 import com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTracker;
 import com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTracker.SlaveEvents;
+import com.facebook.buck.distributed.build_slave.CoordinatorBuildRuleEventsPublisher;
 import com.facebook.buck.distributed.build_slave.DistBuildSlaveExecutor;
 import com.facebook.buck.distributed.build_slave.HealthCheckStatsTracker;
-import com.facebook.buck.distributed.build_slave.NoOpUnexpectedSlaveCacheMissTracker;
-import com.facebook.buck.distributed.build_slave.UnexpectedSlaveCacheMissTracker;
+import com.facebook.buck.distributed.build_slave.MinionBuildProgressTracker;
+import com.facebook.buck.distributed.build_slave.NoOpMinionBuildProgressTracker;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.listener.DistBuildSlaveEventBusListener;
-import com.facebook.buck.event.listener.NoOpBuildRuleFinishedPublisher;
+import com.facebook.buck.event.listener.NoOpCoordinatorBuildRuleEventsPublisher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.EventPostingRuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
+import com.facebook.buck.rules.keys.TrackedRuleKeyCache;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.cache.InstrumentingCacheStatsTracker;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.facebook.buck.util.types.Pair;
@@ -64,6 +67,7 @@ import javax.annotation.Nullable;
 import org.kohsuke.args4j.Option;
 
 public class DistBuildRunCommand extends AbstractDistBuildCommand {
+  private static final Logger LOG = Logger.get(DistBuildRunCommand.class);
 
   public static final String BUILD_STATE_FILE_ARG_NAME = "--build-state-file";
   public static final String BUILD_STATE_FILE_ARG_USAGE = "File containing the BuildStateJob data.";
@@ -103,11 +107,11 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
 
   @Nullable private DistBuildSlaveEventBusListener slaveEventListener;
 
-  private BuildRuleFinishedPublisher buildRuleFinishedPublisher =
-      new NoOpBuildRuleFinishedPublisher();
+  private CoordinatorBuildRuleEventsPublisher coordinatorBuildRuleEventsPublisher =
+      new NoOpCoordinatorBuildRuleEventsPublisher();
 
-  private UnexpectedSlaveCacheMissTracker unexpectedSlaveCacheMissTracker =
-      new NoOpUnexpectedSlaveCacheMissTracker();
+  private MinionBuildProgressTracker minionBuildProgressTracker =
+      new NoOpMinionBuildProgressTracker();
 
   private final FileMaterializationStatsTracker fileMaterializationStatsTracker =
       new FileMaterializationStatsTracker();
@@ -133,6 +137,8 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
     if (stampedeId.isPresent()) {
       params.getBuckEventBus().post(new DistBuildRunEvent(stampedeId.get(), getBuildSlaveRunId()));
     }
+
+    LOG.info("Starting DistBuildRunCommand.");
 
     timeStatsTracker.startTimer(SlaveEvents.TOTAL_RUNTIME);
     timeStatsTracker.startTimer(SlaveEvents.DIST_BUILD_PREPARATION_TIME);
@@ -180,7 +186,9 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                 new CommandThreadManager(getClass().getName(), concurrencyLimit);
             RuleKeyCacheScope<RuleKey> ruleKeyCacheScope =
                 new EventPostingRuleKeyCacheScope<>(
-                    params.getBuckEventBus(), new DefaultRuleKeyCache<>())) {
+                    params.getBuckEventBus(),
+                    new TrackedRuleKeyCache<>(
+                        new DefaultRuleKeyCache<>(), new InstrumentingCacheStatsTracker()))) {
           // Note that we cannot use the same pool of build threads for file materialization
           // because usually all build threads are waiting for files to be materialized, and
           // there is no thread left for the FileContentsProvider(s) to use.
@@ -208,16 +216,21 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                   multiSourceFileContentsProvider,
                   healthCheckStatsTracker,
                   timeStatsTracker,
-                  getBuildRuleFinishedPublisher(),
-                  getUnexpectedSlaveCacheMissTracker(),
+                  getCoordinatorBuildRuleEventsPublisher(),
+                  getMinionBuildProgressTracker(),
                   ruleKeyCacheScope);
 
           distBuildExecutor.onBuildSlavePreparationCompleted(
               () -> timeStatsTracker.stopTimer(SlaveEvents.DIST_BUILD_PREPARATION_TIME));
 
+          LOG.info("Starting to process build with DistBuildExecutor.");
           // All preparation work is done, so start building.
           int returnCode = distBuildExecutor.buildAndReturnExitCode();
+          LOG.info(
+              "%s returned with exit code: [%d].",
+              distBuildExecutor.getClass().getName(), returnCode);
           multiSourceFileContentsProvider.close();
+          LOG.info("Successfully shut down the source file provider.");
           timeStatsTracker.stopTimer(SlaveEvents.TOTAL_RUNTIME);
 
           if (slaveEventListener != null) {
@@ -331,17 +344,17 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
               healthCheckStatsTracker,
               scheduledExecutorService);
 
-      buildRuleFinishedPublisher = slaveEventListener;
-      unexpectedSlaveCacheMissTracker = slaveEventListener;
+      coordinatorBuildRuleEventsPublisher = slaveEventListener;
+      minionBuildProgressTracker = slaveEventListener;
     }
   }
 
-  private BuildRuleFinishedPublisher getBuildRuleFinishedPublisher() {
-    return Preconditions.checkNotNull(buildRuleFinishedPublisher);
+  private CoordinatorBuildRuleEventsPublisher getCoordinatorBuildRuleEventsPublisher() {
+    return Preconditions.checkNotNull(coordinatorBuildRuleEventsPublisher);
   }
 
-  private UnexpectedSlaveCacheMissTracker getUnexpectedSlaveCacheMissTracker() {
-    return Preconditions.checkNotNull(unexpectedSlaveCacheMissTracker);
+  private MinionBuildProgressTracker getMinionBuildProgressTracker() {
+    return Preconditions.checkNotNull(minionBuildProgressTracker);
   }
 
   @Override

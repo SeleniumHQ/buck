@@ -16,22 +16,19 @@
 
 package org.openqa.selenium.buck.mozilla;
 
-import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.io.Files;
-import org.immutables.value.Value;
 import java.nio.file.Path;
+import org.immutables.value.Value;
 
 public class MozillaXptDescription implements Description<MozillaXptArg> {
 
@@ -42,20 +39,18 @@ public class MozillaXptDescription implements Description<MozillaXptArg> {
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       MozillaXptArg args) {
-    Path sourcePath = DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver))
+    Path sourcePath = DefaultSourcePathResolver.from(
+        new SourcePathRuleFinder(context.getBuildRuleResolver()))
         .getRelativePath(args.getSrc());
     String name = Files.getNameWithoutExtension(sourcePath.toString()) + ".xpt";
 
     return new Xpt(
         buildTarget,
-        projectFilesystem,
+        context.getProjectFilesystem(),
         params,
         name,
         args.getSrc(),

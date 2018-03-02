@@ -41,6 +41,7 @@ import com.facebook.buck.apple.xcode.XCScheme;
 import com.facebook.buck.config.ActionGraphParallelizationMode;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.config.IncrementalActionGraphMode;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
@@ -66,6 +67,7 @@ import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.shell.GenruleDescriptionArg;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.timing.IncrementingFakeClock;
 import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableSet;
@@ -964,11 +966,19 @@ public class WorkspaceAndProjectGeneratorTest {
   private Function<TargetNode<?, ?>, BuildRuleResolver> getBuildRuleResolverForNodeFunction(
       final TargetGraph targetGraph) {
     return input ->
-        ActionGraphCache.getFreshActionGraph(
+        new ActionGraphCache(1, 1)
+            .getFreshActionGraph(
                 BuckEventBusForTests.newInstance(),
                 targetGraph.getSubgraph(ImmutableSet.of(input)),
                 ActionGraphParallelizationMode.DISABLED,
-                false)
+                false,
+                IncrementalActionGraphMode.DISABLED,
+                CloseableMemoizedSupplier.of(
+                    () -> {
+                      throw new IllegalStateException(
+                          "should not use parallel executor for single threaded action graph construction in test");
+                    },
+                    ignored -> {}))
             .getResolver();
   }
 }

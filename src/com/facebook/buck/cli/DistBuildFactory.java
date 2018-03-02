@@ -17,6 +17,7 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
+import com.facebook.buck.config.resources.ResourcesConfig;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildMode;
 import com.facebook.buck.distributed.DistBuildService;
@@ -27,12 +28,12 @@ import com.facebook.buck.distributed.FrontendService;
 import com.facebook.buck.distributed.MultiSourceContentsProvider;
 import com.facebook.buck.distributed.ServerContentsProvider;
 import com.facebook.buck.distributed.build_client.LogStateTracker;
-import com.facebook.buck.distributed.build_slave.BuildRuleFinishedPublisher;
 import com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTracker;
+import com.facebook.buck.distributed.build_slave.CoordinatorBuildRuleEventsPublisher;
 import com.facebook.buck.distributed.build_slave.DistBuildSlaveExecutor;
 import com.facebook.buck.distributed.build_slave.DistBuildSlaveExecutorArgs;
 import com.facebook.buck.distributed.build_slave.HealthCheckStatsTracker;
-import com.facebook.buck.distributed.build_slave.UnexpectedSlaveCacheMissTracker;
+import com.facebook.buck.distributed.build_slave.MinionBuildProgressTracker;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -123,8 +124,8 @@ public abstract class DistBuildFactory {
       FileContentsProvider fileContentsProvider,
       HealthCheckStatsTracker healthCheckStatsTracker,
       BuildSlaveTimingStatsTracker timingStatsTracker,
-      BuildRuleFinishedPublisher buildRuleFinishedPublisher,
-      UnexpectedSlaveCacheMissTracker unexpectedSlaveCacheMissTracker,
+      CoordinatorBuildRuleEventsPublisher coordinatorBuildRuleEventsPublisher,
+      MinionBuildProgressTracker minionBuildProgressTracker,
       RuleKeyCacheScope<RuleKey> ruleKeyCacheScope) {
     Preconditions.checkArgument(state.getCells().size() > 0);
 
@@ -132,6 +133,9 @@ public abstract class DistBuildFactory {
     // overridden with the local buck config (i.e. the build slave).
     ArtifactCacheFactory distBuildArtifactCacheFactory =
         params.getArtifactCacheFactory().cloneWith(state.getRemoteRootCellConfig());
+
+    // ResourceConfig based on buckconfig local to Stampede worker.
+    ResourcesConfig resource = params.getBuckConfig().getView(ResourcesConfig.class);
 
     DistBuildSlaveExecutor executor =
         new DistBuildSlaveExecutor(
@@ -162,10 +166,13 @@ public abstract class DistBuildFactory {
                 .setProjectFilesystemFactory(params.getProjectFilesystemFactory())
                 .setTimingStatsTracker(timingStatsTracker)
                 .setKnownBuildRuleTypesProvider(params.getKnownBuildRuleTypesProvider())
-                .setBuildRuleFinishedPublisher(buildRuleFinishedPublisher)
-                .setUnexpectedSlaveCacheMissTracker(unexpectedSlaveCacheMissTracker)
+                .setCoordinatorBuildRuleEventsPublisher(coordinatorBuildRuleEventsPublisher)
+                .setMinionBuildProgressTracker(minionBuildProgressTracker)
                 .setHealthCheckStatsTracker(healthCheckStatsTracker)
                 .setRuleKeyCacheScope(ruleKeyCacheScope)
+                .setMaxActionGraphParallelism(resource.getMaximumResourceAmounts().getCpu())
+                .setActionGraphParallelizationMode(
+                    params.getBuckConfig().getActionGraphParallelizationMode())
                 .build());
     return executor;
   }

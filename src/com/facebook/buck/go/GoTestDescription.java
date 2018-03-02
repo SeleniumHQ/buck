@@ -26,6 +26,7 @@ import com.facebook.buck.model.Flavor;
 import com.facebook.buck.model.Flavored;
 import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.rules.BuildRule;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableSupport;
@@ -43,7 +44,6 @@ import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.Tool;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.HumanReadableException;
@@ -183,12 +183,9 @@ public class GoTestDescription
 
   @Override
   public BuildRule createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      final BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       GoTestDescriptionArg args) {
     GoToolchain goToolchain = getGoToolchain();
     GoPlatform platform =
@@ -197,8 +194,10 @@ public class GoTestDescription
             .getValue(buildTarget)
             .orElse(goToolchain.getDefaultPlatform());
 
+    BuildRuleResolver resolver = context.getBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
 
     GoTestCoverStep.Mode coverageMode;
     ImmutableSortedSet.Builder<BuildRule> extraDeps = ImmutableSortedSet.<BuildRule>naturalOrder();
@@ -380,20 +379,19 @@ public class GoTestDescription
       final GoLibraryDescriptionArg libraryArg =
           resolver.requireMetadata(args.getLibrary().get(), GoLibraryDescriptionArg.class).get();
 
-      final BuildRuleParams originalParams = params;
       BuildRuleParams testTargetParams =
           params
               .withDeclaredDeps(
                   () ->
                       ImmutableSortedSet.<BuildRule>naturalOrder()
-                          .addAll(originalParams.getDeclaredDeps().get())
+                          .addAll(params.getDeclaredDeps().get())
                           .addAll(resolver.getAllRules(libraryArg.getDeps()))
                           .build())
               .withExtraDeps(
                   () -> {
                     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
                     return ImmutableSortedSet.<BuildRule>naturalOrder()
-                        .addAll(originalParams.getExtraDeps().get())
+                        .addAll(params.getExtraDeps().get())
                         // Make sure to include dynamically generated sources as deps.
                         .addAll(ruleFinder.filterBuildRuleInputs(libraryArg.getSrcs()))
                         .build();
@@ -417,7 +415,7 @@ public class GoTestDescription
                   .addAll(args.getAssemblerFlags())
                   .build(),
               platform,
-              params
+              testTargetParams
                   .getDeclaredDeps()
                   .get()
                   .stream()

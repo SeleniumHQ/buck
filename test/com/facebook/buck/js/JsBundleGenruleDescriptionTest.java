@@ -42,6 +42,9 @@ import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.macros.LocationMacro;
+import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.sandbox.NoSandboxExecutionStrategy;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -244,12 +247,7 @@ public class JsBundleGenruleDescriptionTest {
     assertEquals(
         jsBundleAndroid.getRequiredPackageables(), setup.genrule().getRequiredPackageables());
 
-    AndroidPackageableCollector collector = EasyMock.createMock(AndroidPackageableCollector.class);
-    expect(
-            collector.addAssetsDirectory(
-                setup.rule().getBuildTarget(), setup.genrule().getSourcePathToOutput()))
-        .andReturn(collector);
-    replay(collector);
+    AndroidPackageableCollector collector = packageableCollectorMock(setup);
     setup.genrule().addToCollector(collector);
     verify(collector);
   }
@@ -259,8 +257,7 @@ public class JsBundleGenruleDescriptionTest {
     setupWithSkipResources(JsFlavors.ANDROID);
 
     assertEquals(ImmutableList.of(), setup.genrule().getRequiredPackageables());
-    AndroidPackageableCollector collector = EasyMock.createMock(AndroidPackageableCollector.class);
-    replay(collector);
+    AndroidPackageableCollector collector = packageableCollectorMock(setup);
     setup.genrule().addToCollector(collector);
     verify(collector);
   }
@@ -380,7 +377,7 @@ public class JsBundleGenruleDescriptionTest {
             .arbitraryRule(locationTarget)
             .bundleGenrule(
                 builderOptions(
-                    String.format("$(location %s)", locationTarget.getFullyQualifiedName())))
+                    StringWithMacrosUtils.format("%s", LocationMacro.of(locationTarget))))
             .build();
 
     BuildRule buildRule = scenario.resolver.requireRule(genruleTarget);
@@ -570,7 +567,8 @@ public class JsBundleGenruleDescriptionTest {
                 .getRelativePath(setup.genrule().getSourcePathToMisc())));
   }
 
-  private JsBundleGenruleBuilder.Options builderOptions(BuildTarget bundleTarget, String cmd) {
+  private JsBundleGenruleBuilder.Options builderOptions(
+      BuildTarget bundleTarget, StringWithMacros cmd) {
     return JsBundleGenruleBuilder.Options.of(genruleTarget, bundleTarget).setCmd(cmd);
   }
 
@@ -578,7 +576,7 @@ public class JsBundleGenruleDescriptionTest {
     return builderOptions(bundleTarget, null);
   }
 
-  private JsBundleGenruleBuilder.Options builderOptions(String cmd) {
+  private JsBundleGenruleBuilder.Options builderOptions(StringWithMacros cmd) {
     return builderOptions(defaultBundleTarget, cmd);
   }
 
@@ -634,5 +632,15 @@ public class JsBundleGenruleDescriptionTest {
     BuildRuleResolver resolver() {
       return scenario.resolver;
     }
+  }
+
+  private static AndroidPackageableCollector packageableCollectorMock(TestSetup setup) {
+    AndroidPackageableCollector collector = EasyMock.createMock(AndroidPackageableCollector.class);
+    expect(
+            collector.addAssetsDirectory(
+                setup.rule().getBuildTarget(), setup.genrule().getSourcePathToOutput()))
+        .andReturn(collector);
+    replay(collector);
+    return collector;
   }
 }

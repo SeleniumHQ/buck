@@ -60,6 +60,7 @@ import com.facebook.buck.test.CoverageReportFormat;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.external.ExternalTestRunEvent;
 import com.facebook.buck.test.external.ExternalTestSpecCalculationEvent;
+import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.ForwardingProcessListener;
@@ -92,6 +93,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.ResourceBundle;
 import java.util.Set;
+import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import javax.annotation.Nullable;
@@ -253,7 +255,7 @@ public class TestCommand extends BuildCommand {
     if (isDebugEnabled()) {
       return 1;
     }
-    return buckConfig.getNumThreads();
+    return buckConfig.getNumTestThreads();
   }
 
   public int getNumTestManagedThreads(ResourcesConfig resourcesConfig) {
@@ -295,6 +297,16 @@ public class TestCommand extends BuildCommand {
     return builder.build();
   }
 
+  private ConcurrencyLimit getTestConcurrencyLimit(CommandRunnerParams params) {
+    ResourcesConfig resourcesConfig = params.getBuckConfig().getView(ResourcesConfig.class);
+    return new ConcurrencyLimit(
+        getNumTestThreads(params.getBuckConfig()),
+        resourcesConfig.getResourceAllocationFairness(),
+        getNumTestManagedThreads(resourcesConfig),
+        resourcesConfig.getDefaultResourceAmounts(),
+        resourcesConfig.getMaximumResourceAmounts());
+  }
+
   private ExitCode runTestsInternal(
       CommandRunnerParams params,
       BuildEngine buildEngine,
@@ -308,15 +320,8 @@ public class TestCommand extends BuildCommand {
           "unexpected arguments after \"--\" when using internal runner");
     }
 
-    ResourcesConfig resourcesConfig = params.getBuckConfig().getView(ResourcesConfig.class);
-    ConcurrencyLimit concurrencyLimit =
-        new ConcurrencyLimit(
-            getNumTestThreads(params.getBuckConfig()),
-            resourcesConfig.getResourceAllocationFairness(),
-            getNumTestManagedThreads(resourcesConfig),
-            resourcesConfig.getDefaultResourceAmounts(),
-            resourcesConfig.getMaximumResourceAmounts());
-    try (CommandThreadManager testPool = new CommandThreadManager("Test-Run", concurrencyLimit)) {
+    try (CommandThreadManager testPool =
+        new CommandThreadManager("Test-Run", getTestConcurrencyLimit(params))) {
       SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(build.getRuleResolver());
       int exitCodeInt =
           TestRunning.runTests(
@@ -410,8 +415,7 @@ public class TestCommand extends BuildCommand {
             .addAllCommand(withDashArguments)
             .setEnvironment(params.getEnvironment())
             .addCommand("--buck-test-info", infoFile.toString())
-            .addCommand(
-                "--jobs", String.valueOf(getConcurrencyLimit(params.getBuckConfig()).threadLimit))
+            .addCommand("--jobs", String.valueOf(getTestConcurrencyLimit(params).threadLimit))
             .setDirectory(params.getCell().getFilesystem().getRootPath())
             .build();
     ForwardingProcessListener processListener =
@@ -449,7 +453,9 @@ public class TestCommand extends BuildCommand {
     LOG.debug("Running with arguments %s", getArguments());
 
     try (CommandThreadManager pool =
-        new CommandThreadManager("Test", getConcurrencyLimit(params.getBuckConfig()))) {
+            new CommandThreadManager("Test", getConcurrencyLimit(params.getBuckConfig()));
+        CloseableMemoizedSupplier<ForkJoinPool, RuntimeException> poolSupplier =
+            getForkJoinPoolSupplier(params.getBuckConfig())) {
       // Post the build started event, setting it to the Parser recorded start time if appropriate.
       BuildEvent.Started started = BuildEvent.started(getArguments());
       if (params.getParser().getParseStartTime().isPresent()) {
@@ -549,7 +555,8 @@ public class TestCommand extends BuildCommand {
                   params.getBuckEventBus(),
                   targetGraphAndBuildTargets.getTargetGraph(),
                   params.getBuckConfig(),
-                  params.getRuleKeyConfiguration());
+                  params.getRuleKeyConfiguration(),
+                  poolSupplier);
       // Look up all of the test rules in the action graph.
       Iterable<TestRule> testRules =
           Iterables.filter(actionGraphAndResolver.getActionGraph().getNodes(), TestRule.class);

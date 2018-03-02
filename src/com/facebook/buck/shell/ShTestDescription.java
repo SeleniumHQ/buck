@@ -19,10 +19,10 @@ package com.facebook.buck.shell;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.rules.BuildRuleCreationContext;
 import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.CommonDescriptionArg;
 import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.HasContacts;
@@ -31,7 +31,6 @@ import com.facebook.buck.rules.HasTestTimeout;
 import com.facebook.buck.rules.PathSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.macros.AbstractMacroExpanderWithoutPrecomputedWork;
@@ -40,7 +39,7 @@ import com.facebook.buck.rules.macros.ExecutableMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.StringWithMacros;
-import com.facebook.buck.rules.macros.StringWithMacrosArg;
+import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.FluentIterable;
@@ -51,7 +50,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.stream.Stream;
 import org.immutables.value.Value;
 
@@ -77,25 +75,23 @@ public class ShTestDescription implements Description<ShTestDescriptionArg> {
 
   @Override
   public ShTest createBuildRule(
-      TargetGraph targetGraph,
+      BuildRuleCreationContext context,
       BuildTarget buildTarget,
-      ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
-      CellPathResolver cellRoots,
       ShTestDescriptionArg args) {
+    BuildRuleResolver resolver = context.getBuildRuleResolver();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
-    Function<StringWithMacros, Arg> toArg =
-        arg ->
-            StringWithMacrosArg.of(
-                arg, MACRO_EXPANDERS, Optional.empty(), buildTarget, cellRoots, resolver);
+    ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
+    StringWithMacrosConverter macrosConverter =
+        StringWithMacrosConverter.of(
+            buildTarget, context.getCellPathResolver(), resolver, MACRO_EXPANDERS);
     ImmutableList<Arg> testArgs =
         Stream.concat(
                 Optionals.toStream(args.getTest()).map(SourcePathArg::of),
-                args.getArgs().stream().map(toArg))
+                args.getArgs().stream().map(macrosConverter::convert))
             .collect(ImmutableList.toImmutableList());
     ImmutableMap<String, Arg> testEnv =
-        ImmutableMap.copyOf(Maps.transformValues(args.getEnv(), toArg::apply));
+        ImmutableMap.copyOf(Maps.transformValues(args.getEnv(), macrosConverter::convert));
     return new ShTest(
         buildTarget,
         projectFilesystem,

@@ -24,6 +24,7 @@ import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.listener.BroadcastEventListener;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.Parser;
@@ -60,6 +61,8 @@ import org.junit.Test;
 
 public class BuckQueryEnvironmentTest {
 
+  private static final TypeCoercerFactory TYPE_COERCER_FACTORY = new DefaultTypeCoercerFactory();
+
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   private BuckQueryEnvironment buckQueryEnvironment;
@@ -88,6 +91,7 @@ public class BuckQueryEnvironmentTest {
                 BuckPluginManagerFactory.createPluginManager(),
                 new TestSandboxExecutionStrategyFactory()));
 
+    ExecutableFinder executableFinder = new ExecutableFinder();
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     Parser parser =
         new Parser(
@@ -95,12 +99,16 @@ public class BuckQueryEnvironmentTest {
             cell.getBuckConfig().getView(ParserConfig.class),
             typeCoercerFactory,
             new ConstructorArgMarshaller(typeCoercerFactory),
-            knownBuildRuleTypesProvider);
+            knownBuildRuleTypesProvider,
+            executableFinder);
     BuckEventBus eventBus = BuckEventBusForTests.newInstance();
     parserState =
         new PerBuildState(
-            parser,
+            typeCoercerFactory,
+            new ConstructorArgMarshaller(typeCoercerFactory),
+            parser.getPermState(),
             eventBus,
+            executableFinder,
             executor,
             cell,
             knownBuildRuleTypesProvider,
@@ -119,7 +127,8 @@ public class BuckQueryEnvironmentTest {
             parserState,
             executor,
             targetPatternEvaluator,
-            null /* TODO */);
+            null /* TODO */,
+            TYPE_COERCER_FACTORY);
     cellRoot = workspace.getDestPath();
   }
 

@@ -19,17 +19,15 @@ package org.openqa.selenium.buck.file;
 
 import static com.facebook.buck.util.zip.ZipCompressionLevel.DEFAULT;
 
-import com.facebook.buck.event.EventDispatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.rules.BuildContext;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
 import com.facebook.buck.rules.modern.Buildable;
-import com.facebook.buck.rules.modern.InputDataRetriever;
-import com.facebook.buck.rules.modern.InputPath;
-import com.facebook.buck.rules.modern.InputPathResolver;
 import com.facebook.buck.rules.modern.ModernBuildRule;
 import com.facebook.buck.rules.modern.OutputPath;
 import com.facebook.buck.rules.modern.OutputPathResolver;
@@ -42,14 +40,16 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Ordering;
 import java.nio.file.Path;
 import javax.annotation.Nullable;
 
 public class Folder extends ModernBuildRule<Folder> implements Buildable {
+  @AddToRuleKey
   private final String folderName;
+  @AddToRuleKey
   private final OutputPath output;
-  private final ImmutableSortedSet<InputPath> srcs;
+  @AddToRuleKey
+  private final ImmutableSortedSet<SourcePath> srcs;
 
   protected Folder(
       BuildTarget target,
@@ -61,18 +61,13 @@ public class Folder extends ModernBuildRule<Folder> implements Buildable {
 
     this.folderName = Preconditions.checkNotNull(folderName);
     this.output = new OutputPath(String.format("%s.src.zip", target.getShortName()));
-    this.srcs =
-        srcs.stream()
-            .map(InputPath::new)
-            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
+    this.srcs = srcs;
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      EventDispatcher eventDispatcher,
+      BuildContext buildContext,
       ProjectFilesystem filesystem,
-      InputPathResolver inputPathResolver,
-      InputDataRetriever inputDataRetriever,
       OutputPathResolver outputPathResolver,
       BuildCellRelativePathFactory buildCellPathFactory) {
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
@@ -92,10 +87,8 @@ public class Folder extends ModernBuildRule<Folder> implements Buildable {
         buildCellPathFactory,
         steps,
         scratch,
-        srcs.stream()
-            .map(InputPath::getLimitedSourcePath)
-            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
-        inputPathResolver.getLimitedSourcePathResolver());
+        srcs,
+        buildContext.getSourcePathResolver());
     steps.add(
         new ZipStep(
             getProjectFilesystem(),

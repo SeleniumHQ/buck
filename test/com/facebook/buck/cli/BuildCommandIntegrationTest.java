@@ -23,7 +23,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
+import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.log.thrift.rulekeys.FullRuleKey;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.testutil.ProcessResult;
@@ -201,6 +204,28 @@ public class BuildCommandIntegrationTest {
   }
 
   @Test
+  public void lastOutputDirForAppleBundle() throws InterruptedException, IOException {
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "apple_app_bundle", tmp);
+    workspace.setUp();
+    ProcessResult runBuckResult =
+        workspace.runBuckBuild(
+            "-c", "build.create_build_output_symlinks_enabled=true", "//:DemoApp#dwarf-and-dsym");
+    runBuckResult.assertSuccess();
+    assertTrue(
+        Files.exists(
+            workspace.getBuckPaths().getLastOutputDir().toAbsolutePath().resolve("DemoApp.app")));
+    assertTrue(
+        Files.exists(
+            workspace
+                .getBuckPaths()
+                .getLastOutputDir()
+                .toAbsolutePath()
+                .resolve("DemoAppBinary#apple-dsym,iphonesimulator-x86_64.dSYM")));
+  }
+
+  @Test
   public void writesBinaryRuleKeysToDisk() throws IOException, TException {
     Path logFile = tmp.newFile("out.bin");
     ProjectWorkspace workspace =
@@ -215,16 +240,5 @@ public class BuildCommandIntegrationTest {
     // Three rules, they could have any number of sub-rule keys and contributors
     assertTrue(ruleKeys.size() >= 3);
     assertTrue(ruleKeys.stream().anyMatch(ruleKey -> ruleKey.name.equals("//:bar")));
-  }
-
-  @Test
-  public void buildWithPrehook() throws IOException {
-    ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "just_build", tmp);
-    workspace.setUp();
-    ProcessResult result =
-        workspace.runBuckBuild("//:bar", "-c", "build.prehook_script=prehook.sh").assertSuccess();
-    assertThat(result.getStderr(), Matchers.containsString("The prehook script ran."));
-    assertThat(result.getStderr(), Matchers.containsString("\"prehook_script\" : \"prehook.sh\""));
   }
 }

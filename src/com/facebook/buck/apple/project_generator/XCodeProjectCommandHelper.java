@@ -22,6 +22,7 @@ import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescriptionArg;
+import com.facebook.buck.apple.project_generator.ProjectGenerator.Option;
 import com.facebook.buck.cli.output.PathOutputPresenter;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ProjectTestsMode;
@@ -315,7 +316,8 @@ public class XCodeProjectCommandHelper {
             appleConfig.shouldUseHeaderMapsInXcodeProject(),
             appleConfig.shouldMergeHeaderMapsInXcodeProject(),
             appleConfig.shouldGenerateHeaderSymlinkTreesOnly(),
-            appleConfig.shouldGenerateMissingUmbrellaHeaders());
+            appleConfig.shouldGenerateMissingUmbrellaHeaders(),
+            appleConfig.shouldAddLinkerFlagsForLinkWholeLibraries());
 
     LOG.debug("Xcode project generation: Generates workspaces for targets");
 
@@ -518,7 +520,8 @@ public class XCodeProjectCommandHelper {
       boolean shouldUseHeaderMaps,
       boolean shouldMergeHeaderMaps,
       boolean shouldGenerateHeaderSymlinkTreesOnly,
-      boolean shouldGenerateMissingUmbrellaHeaders) {
+      boolean shouldGenerateMissingUmbrellaHeaders,
+      boolean shouldAddLinkerFlagsForLinkWholeLibraries) {
     ImmutableSet.Builder<ProjectGenerator.Option> optionsBuilder = ImmutableSet.builder();
     if (isReadonly) {
       optionsBuilder.add(ProjectGenerator.Option.GENERATE_READ_ONLY_FILES);
@@ -539,6 +542,9 @@ public class XCodeProjectCommandHelper {
     }
     if (shouldMergeHeaderMaps) {
       optionsBuilder.add(ProjectGenerator.Option.MERGE_HEADER_MAPS);
+    }
+    if (shouldAddLinkerFlagsForLinkWholeLibraries) {
+      optionsBuilder.add(Option.FORCE_LOAD_LINK_WHOLE_LIBRARIES);
     }
     if (shouldGenerateHeaderSymlinkTreesOnly) {
       optionsBuilder.add(ProjectGenerator.Option.GENERATE_HEADERS_SYMLINK_TREES_ONLY);
@@ -644,12 +650,13 @@ public class XCodeProjectCommandHelper {
     LOG.debug("Displaying prompt %s..", prompt);
     console.getStdOut().print(console.getAnsi().asWarningText(prompt + " [Y/n] "));
 
-    Optional<String> result;
-    try (InputStreamReader stdinReader = new InputStreamReader(System.in, Charsets.UTF_8);
-        BufferedReader bufferedStdinReader = new BufferedReader(stdinReader)) {
-      result = Optional.ofNullable(bufferedStdinReader.readLine());
-    }
-    LOG.debug("Result of prompt: [%s]", result);
+    // Do not close readers! Otherwise they close System.in in turn
+    // Another design may be to provide reader in the context, to use instead of System.in
+    BufferedReader bufferedStdinReader =
+        new BufferedReader(new InputStreamReader(System.in, Charsets.UTF_8));
+    Optional<String> result = Optional.ofNullable(bufferedStdinReader.readLine());
+
+    LOG.debug("Result of prompt: [%s]", result.orElse(""));
     return result.isPresent()
         && (result.get().isEmpty() || result.get().toLowerCase(Locale.US).startsWith("y"));
   }

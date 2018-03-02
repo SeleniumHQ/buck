@@ -46,6 +46,7 @@ import javax.annotation.Nullable;
  */
 public class MultiThreadedBuildRuleResolver implements BuildRuleResolver {
   private final ForkJoinPool forkJoinPool;
+
   private final TargetGraph targetGraph;
   private final TargetNodeToBuildRuleTransformer buildRuleGenerator;
   @Nullable private final BuckEventBus eventBus;
@@ -108,6 +109,8 @@ public class MultiThreadedBuildRuleResolver implements BuildRuleResolver {
             wrap(key -> buildRuleGenerator.transform(targetGraph, this, targetGraph.get(target)))));
   }
 
+  /** Please use {@code computeIfAbsent} instead */
+  @Deprecated
   @Override
   public <T extends BuildRule> T addToIndex(T buildRule) {
     buildRuleIndex.compute(

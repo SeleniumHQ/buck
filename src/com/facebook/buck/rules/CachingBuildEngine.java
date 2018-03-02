@@ -452,9 +452,18 @@ public class CachingBuildEngine implements BuildEngine, Closeable {
   }
 
   private boolean shouldKeepGoing(BuildEngineBuildContext buildContext) {
-    return firstFailure == null
-        || buildMode == BuildMode.POPULATE_FROM_REMOTE_CACHE
-        || buildContext.isKeepGoing();
+    boolean keepGoing =
+        firstFailure == null
+            || buildMode == BuildMode.POPULATE_FROM_REMOTE_CACHE
+            || buildContext.isKeepGoing();
+
+    if (!keepGoing) {
+      // Ensure any pending/future cache fetch requests are not processed.
+      // Note: these are processed on a different Executor from the one used by the build engine.
+      buildContext.getArtifactCache().skipPendingAndFutureAsyncFetches();
+    }
+
+    return keepGoing;
   }
 
   @VisibleForTesting
@@ -467,7 +476,8 @@ public class CachingBuildEngine implements BuildEngine, Closeable {
       SupportsDependencyFileRuleKey rule, BuckEventBus eventBus, RuleKeyFactories ruleKeyFactories)
       throws IOException {
     try (Scope scope =
-        RuleKeyCalculationEvent.scope(eventBus, RuleKeyCalculationEvent.Type.MANIFEST)) {
+        RuleKeyCalculationEvent.scope(
+            eventBus, RuleKeyCalculationEvent.Type.MANIFEST, rule.getBuildTarget())) {
       return Optional.of(ruleKeyFactories.getDepFileRuleKeyFactory().buildManifestKey(rule));
     } catch (SizeLimiter.SizeLimitException ex) {
       return Optional.empty();

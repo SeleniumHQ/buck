@@ -27,7 +27,7 @@ import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.GetWorkResponse;
 import com.facebook.buck.distributed.thrift.StampedeId;
-import com.facebook.buck.event.listener.NoOpBuildRuleFinishedPublisher;
+import com.facebook.buck.event.listener.NoOpCoordinatorBuildRuleEventsPublisher;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.SettableFuture;
@@ -158,7 +158,7 @@ public class ThriftCoordinatorServerIntegrationTest {
         future,
         STAMPEDE_ID,
         eventListener,
-        new NoOpBuildRuleFinishedPublisher(),
+        new NoOpCoordinatorBuildRuleEventsPublisher(),
         EasyMock.createNiceMock(MinionHealthTracker.class),
         EasyMock.createNiceMock(DistBuildService.class));
   }
@@ -199,7 +199,7 @@ public class ThriftCoordinatorServerIntegrationTest {
                 queueFuture,
                 STAMPEDE_ID,
                 eventListener,
-                new NoOpBuildRuleFinishedPublisher(),
+                new NoOpCoordinatorBuildRuleEventsPublisher(),
                 EasyMock.createNiceMock(MinionHealthTracker.class),
                 EasyMock.createNiceMock(DistBuildService.class));
         ThriftCoordinatorClient client =
@@ -244,7 +244,7 @@ public class ThriftCoordinatorServerIntegrationTest {
                 queueFuture,
                 STAMPEDE_ID,
                 eventListener,
-                new NoOpBuildRuleFinishedPublisher(),
+                new NoOpCoordinatorBuildRuleEventsPublisher(),
                 EasyMock.createNiceMock(MinionHealthTracker.class),
                 distBuildService);
         ThriftCoordinatorClient client =
@@ -255,8 +255,7 @@ public class ThriftCoordinatorServerIntegrationTest {
       server.checkBuildStatusIsNotTerminated();
 
       Assert.assertEquals(
-          ExitCode.DISTRIBUTED_BUILD_SUCCESSFUL.getCode(),
-          server.waitUntilBuildCompletesAndReturnExitCode());
+          ExitCode.SUCCESSFUL.getCode(), server.waitUntilBuildCompletesAndReturnExitCode());
     }
   }
 
@@ -283,7 +282,7 @@ public class ThriftCoordinatorServerIntegrationTest {
                 queueFuture,
                 STAMPEDE_ID,
                 eventListener,
-                new NoOpBuildRuleFinishedPublisher(),
+                new NoOpCoordinatorBuildRuleEventsPublisher(),
                 EasyMock.createNiceMock(MinionHealthTracker.class),
                 distBuildService);
         ThriftCoordinatorClient client =

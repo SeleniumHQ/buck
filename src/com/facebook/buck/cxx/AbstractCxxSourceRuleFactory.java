@@ -393,6 +393,8 @@ abstract class AbstractCxxSourceRuleFactory {
 
     depsBuilder.add(source);
 
+    // TODO(steveo): this does not account for `precompiledHeaderRule`.
+
     // Build the CxxCompile rule and add it to our sorted set of build rules.
     return CxxPreprocessAndCompile.compile(
         target,
@@ -490,6 +492,7 @@ abstract class AbstractCxxSourceRuleFactory {
                       cFlags,
                       source.getPath(),
                       source.getType(),
+                      getPreInclude(),
                       getCompileOutputPath(target, name),
                       preprocessorDelegateValue.getPreprocessorDelegate(),
                       inferConfig);

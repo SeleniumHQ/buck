@@ -33,13 +33,14 @@ import com.facebook.buck.rules.BuildRuleParams;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableSupport;
+import com.facebook.buck.rules.CacheableBuildRule;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.WriteToFileArg;
 import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
-import com.facebook.buck.rules.macros.OutputToFileExpanderUtils;
 import com.facebook.buck.rules.macros.WorkerMacroArg;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.sandbox.SandboxProperties;
@@ -108,6 +109,7 @@ import java.util.stream.Collectors;
  *   <li><code>SRCS</code> will be a space-delimited string expansion of the <code>srcs</code>
  *       attribute where each element of <code>srcs</code> will be translated into an absolute path.
  *   <li><code>SRCDIR</code> will be a directory containing all files mentioned in the srcs.
+ *   <li><code>TMP</code> will be a temporary directory which can be used for intermediate results
  *   <li><code>OUT</code> is the output file for the <code>genrule()</code>. The file specified by
  *       this variable must always be written by this command. If not, the execution of this rule
  *       will be considered a failure, halting the build process.
@@ -129,7 +131,7 @@ import java.util.stream.Collectors;
  * <p>Note that the <code>SRCDIR</code> is populated by symlinking the sources.
  */
 public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
-    implements HasOutputName, SupportsInputBasedRuleKey {
+    implements HasOutputName, SupportsInputBasedRuleKey, CacheableBuildRule {
 
   /**
    * The order in which elements are specified in the {@code srcs} attribute of a genrule matters.
@@ -146,7 +148,7 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @AddToRuleKey private final boolean isCacheable;
   @AddToRuleKey private final String environmentExpansionSeparator;
 
-  private final BuildRuleResolver buildRuleResolver;
+  private BuildRuleResolver buildRuleResolver;
   private final SandboxExecutionStrategy sandboxExecutionStrategy;
   protected final Path pathToOutDirectory;
   protected final Path pathToOutFile;
@@ -336,9 +338,7 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
             getProjectFilesystem().resolve(pathToTmpDirectory).toString(),
             getProjectFilesystem().resolve(pathToOutDirectory).toString(),
             getProjectFilesystem()
-                .resolve(
-                    OutputToFileExpanderUtils.getMacroPath(
-                        getProjectFilesystem(), getBuildTarget()))
+                .resolve(WriteToFileArg.getMacroPath(getProjectFilesystem(), getBuildTarget()))
                 .toString())
         .addAllowedToReadMetadataPaths(
             getProjectFilesystem().getRootPath().toAbsolutePath().toString())
@@ -377,9 +377,9 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   public WorkerShellStep createWorkerShellStep(BuildContext context) {
     return new WorkerShellStep(
         getBuildTarget(),
-        convertToWorkerJobParams(cmd),
-        convertToWorkerJobParams(bash),
-        convertToWorkerJobParams(cmdExe),
+        convertToWorkerJobParams(context.getSourcePathResolver(), cmd),
+        convertToWorkerJobParams(context.getSourcePathResolver(), bash),
+        convertToWorkerJobParams(context.getSourcePathResolver(), cmdExe),
         new WorkerProcessPoolFactory(getProjectFilesystem())) {
       @Override
       protected ImmutableMap<String, String> getEnvironmentVariables() {
@@ -390,12 +390,13 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     };
   }
 
-  private static Optional<WorkerJobParams> convertToWorkerJobParams(Optional<Arg> arg) {
+  private static Optional<WorkerJobParams> convertToWorkerJobParams(
+      SourcePathResolver resolver, Optional<Arg> arg) {
     return arg.map(
         arg1 -> {
           WorkerMacroArg workerMacroArg = (WorkerMacroArg) arg1;
           return WorkerJobParams.of(
-              workerMacroArg.getJobArgs(),
+              workerMacroArg.getJobArgs(resolver),
               WorkerProcessParams.of(
                   workerMacroArg.getTempDir(),
                   workerMacroArg.getStartupCommand(),
@@ -502,7 +503,10 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     }
     commands.add(
         new SymlinkTreeStep(
-            getProjectFilesystem(), pathToSrcDirectory, ImmutableSortedMap.copyOf(linksBuilder)));
+            "genrule_srcs",
+            getProjectFilesystem(),
+            pathToSrcDirectory,
+            ImmutableSortedMap.copyOf(linksBuilder)));
   }
 
   /** Get the output name of the generated file, as listed in the BUCK file. */
@@ -519,5 +523,13 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @Override
   public final boolean isCacheable() {
     return isCacheable;
+  }
+
+  @Override
+  public void updateBuildRuleResolver(
+      BuildRuleResolver ruleResolver,
+      SourcePathRuleFinder ruleFinder,
+      SourcePathResolver pathResolver) {
+    this.buildRuleResolver = ruleResolver;
   }
 }

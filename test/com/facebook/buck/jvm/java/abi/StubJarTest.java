@@ -32,9 +32,10 @@ import com.facebook.buck.jvm.java.testutil.compiler.TestCompiler;
 import com.facebook.buck.model.BuildId;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.util.timing.FakeClock;
+import com.facebook.buck.util.unarchive.ArchiveFormat;
+import com.facebook.buck.util.unarchive.ExistingFileMode;
 import com.facebook.buck.util.zip.DeterministicManifest;
 import com.facebook.buck.util.zip.JarBuilder;
-import com.facebook.buck.util.zip.Unzip;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -1409,6 +1410,33 @@ public class StubJarTest {
             "",
             "",
             "  @Lcom/example/buck/Foo;(typeValue=com.example.buck.Dependency.class)",
+            "}")
+        .createAndCheckStubJar();
+  }
+
+  @Test
+  public void preservesAnnotationsWithConstrainedTypeValues() throws IOException {
+    createAnnotationFullJar()
+        .addFullJarToClasspathAlways()
+        .setSourceFile(
+            "Dependency.java",
+            "package com.example.buck;",
+            "public interface Dependency extends Runnable { }")
+        .createStubJar()
+        .addStubJarToClasspath()
+        .setSourceFile(
+            "A.java",
+            "package com.example.buck;",
+            "@Foo(runnableValues={Dependency.class})",
+            "public @interface A {}")
+        .addExpectedStub(
+            "com/example/buck/A",
+            "// class version 52.0 (52)",
+            "// access flags 0x2601",
+            "public abstract @interface com/example/buck/A implements java/lang/annotation/Annotation  {",
+            "",
+            "",
+            "  @Lcom/example/buck/Foo;(runnableValues={com.example.buck.Dependency.class})",
             "}")
         .createAndCheckStubJar();
   }
@@ -4075,11 +4103,14 @@ public class StubJarTest {
             temp.newFolder());
 
     Path classDir = temp.newFolder().toPath();
-    Unzip.extractZipFile(
-        new DefaultProjectFilesystemFactory(),
-        fullJarPath,
-        classDir,
-        Unzip.ExistingFileMode.OVERWRITE);
+
+    ArchiveFormat.ZIP
+        .getUnarchiver()
+        .extractArchive(
+            new DefaultProjectFilesystemFactory(),
+            fullJarPath,
+            classDir,
+            ExistingFileMode.OVERWRITE);
 
     Path stubJarPath = createStubJar(classDir);
     tester
@@ -4812,6 +4843,7 @@ public class StubJarTest {
             "  Retention[] annotationArrayValue() default {};",
             "  RetentionPolicy enumValue () default RetentionPolicy.CLASS;",
             "  Class typeValue() default Foo.class;",
+            "  Class<? extends Runnable>[] runnableValues() default {};",
             "  @Target({TYPE_PARAMETER, TYPE_USE})",
             "  @interface TypeAnnotation { }",
             "}")

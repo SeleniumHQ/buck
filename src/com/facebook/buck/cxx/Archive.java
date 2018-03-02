@@ -31,6 +31,7 @@ import com.facebook.buck.rules.BuildRule;
 import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.rules.BuildableSupport;
+import com.facebook.buck.rules.CacheableBuildRule;
 import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.SourcePathResolver;
@@ -48,17 +49,19 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.SortedSet;
 
 /**
  * A {@link com.facebook.buck.rules.BuildRule} which builds an "ar" archive from input files
  * represented as {@link com.facebook.buck.rules.SourcePath}.
  */
-public class Archive extends AbstractBuildRule implements SupportsInputBasedRuleKey {
+public class Archive extends AbstractBuildRule
+    implements SupportsInputBasedRuleKey, CacheableBuildRule {
 
   @AddToRuleKey private final Archiver archiver;
   @AddToRuleKey private ImmutableList<String> archiverFlags;
-  @AddToRuleKey private final Tool ranlib;
+  @AddToRuleKey private final Optional<Tool> ranlib;
   @AddToRuleKey private ImmutableList<String> ranlibFlags;
   @AddToRuleKey private final ArchiveContents contents;
 
@@ -78,7 +81,7 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
       ImmutableSortedSet<BuildRule> deps,
       Archiver archiver,
       ImmutableList<String> archiverFlags,
-      Tool ranlib,
+      Optional<Tool> ranlib,
       ImmutableList<String> ranlibFlags,
       ArchiveContents contents,
       Path output,
@@ -93,6 +96,9 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
         !LinkerMapMode.FLAVOR_DOMAIN.containsAnyOf(buildTarget.getFlavors()),
         "Static archive rule %s should not have any Linker Map Mode flavors",
         this);
+    if (archiver.isRanLibStepRequired()) {
+      Preconditions.checkArgument(ranlib.isPresent(), "ranlib is required", this);
+    }
     this.deps = deps;
     this.archiver = archiver;
     this.archiverFlags = archiverFlags;
@@ -120,7 +126,7 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
         ruleFinder,
         platform.getAr().resolve(resolver),
         platform.getArflags(),
-        platform.getRanlib().resolve(resolver),
+        platform.getRanlib().map(r -> r.resolve(resolver)),
         platform.getRanlibflags(),
         contents,
         output,
@@ -140,7 +146,7 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
       SourcePathRuleFinder ruleFinder,
       Archiver archiver,
       ImmutableList<String> arFlags,
-      Tool ranlib,
+      Optional<Tool> ranlib,
       ImmutableList<String> ranlibFlags,
       ArchiveContents contents,
       Path output,
@@ -224,8 +230,8 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
           new RanlibStep(
               getBuildTarget(),
               getProjectFilesystem(),
-              ranlib.getEnvironment(resolver),
-              ranlib.getCommandPrefix(resolver),
+              ranlib.get().getEnvironment(resolver),
+              ranlib.get().getCommandPrefix(resolver),
               ranlibFlags,
               output));
     }

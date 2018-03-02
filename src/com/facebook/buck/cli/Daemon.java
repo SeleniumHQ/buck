@@ -25,6 +25,7 @@ import com.facebook.buck.event.FileHashCacheEvent;
 import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
 import com.facebook.buck.httpserver.WebServer;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.WatchmanCursor;
 import com.facebook.buck.io.WatchmanWatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -81,6 +82,7 @@ final class Daemon implements Closeable {
   Daemon(
       Cell rootCell,
       KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
+      ExecutableFinder executableFinder,
       Optional<WebServer> webServerToReuse) {
     this.rootCell = rootCell;
     this.fileEventBus = new EventBus("file-change-events");
@@ -104,7 +106,9 @@ final class Daemon implements Closeable {
 
     this.broadcastEventListener = new BroadcastEventListener();
     this.actionGraphCache =
-        new ActionGraphCache(rootCell.getBuckConfig().getMaxActionGraphCacheEntries());
+        new ActionGraphCache(
+            rootCell.getBuckConfig().getMaxActionGraphCacheEntries(),
+            rootCell.getBuckConfig().getMaxActionGraphNodeCacheEntries());
     this.versionedTargetGraphCache = new VersionedTargetGraphCache();
     this.knownBuildRuleTypesProvider = knownBuildRuleTypesProvider;
 
@@ -115,7 +119,8 @@ final class Daemon implements Closeable {
             rootCell.getBuckConfig().getView(ParserConfig.class),
             typeCoercerFactory,
             new ConstructorArgMarshaller(typeCoercerFactory),
-            knownBuildRuleTypesProvider);
+            knownBuildRuleTypesProvider,
+            executableFinder);
     fileEventBus.register(parser);
 
     // Build the the rule key cache recycler.
@@ -237,8 +242,6 @@ final class Daemon implements Closeable {
     // so needs to be left in a consistent state even if the current command is interrupted
     // due to a client disconnection.
     synchronized (parser) {
-      LOG.debug("Nailgun server is shutting down");
-
       // signal to the main thread that we want to exit
       threadToInterrupt.interrupt();
     }

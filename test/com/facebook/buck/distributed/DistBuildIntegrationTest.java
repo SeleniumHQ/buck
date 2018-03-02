@@ -16,6 +16,8 @@
 
 package com.facebook.buck.distributed;
 
+import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildStatusResponse;
 import com.facebook.buck.distributed.thrift.FrontendRequest;
@@ -74,6 +76,81 @@ public class DistBuildIntegrationTest {
   @Test
   public void canBuildJavaCode() throws Exception {
     runSimpleDistBuildScenario("simple_java_target", "//:lib1");
+  }
+
+  @Test
+  public void canBuildAppleBundles() throws Exception {
+    final Path sourceFolderPath = temporaryFolder.newFolder("source");
+    final Path destinationFolderPath = temporaryFolder.newFolder("destination");
+    final Path stateFilePath = temporaryFolder.getRoot().resolve("state_dump.bin");
+
+    Assume.assumeTrue(Platform.detect() == Platform.MACOS);
+    Assume.assumeTrue(
+        AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    String scenario = "apple_bundle";
+    ProjectWorkspace sourceWorkspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, scenario, sourceFolderPath);
+    sourceWorkspace.setUp();
+
+    sourceWorkspace
+        .runBuckBuild(
+            "//:DemoApp#iphonesimulator-x86_64,no-debug",
+            "--distributed",
+            "--build-state-file",
+            stateFilePath.toString())
+        .assertSuccess();
+
+    ProjectWorkspace destinationWorkspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "empty", destinationFolderPath);
+    destinationWorkspace.setUp();
+
+    runDistBuildWithFakeFrontend(
+            destinationWorkspace,
+            "--build-state-file",
+            stateFilePath.toString(),
+            "--buildslave-run-id",
+            "i_am_slave_with_run_id_42")
+        .assertSuccess();
+  }
+
+  @Test
+  public void canBuildJumpingIntoSecondaryCellAndBackToMainCell() throws Exception {
+    testCrossCell("multi_cell_out_and_back");
+  }
+
+  @Test
+  public void canBuildCrossCellWithGenRules() throws Exception {
+    testCrossCell("multi_cell_genrule_target");
+  }
+
+  private void testCrossCell(String scenario) throws Exception {
+    final Path sourceFolderPath = temporaryFolder.newFolder("source");
+    final Path destinationFolderPath = temporaryFolder.newFolder("destination");
+    final Path stateFilePath = temporaryFolder.getRoot().resolve("state_dump.bin");
+
+    ProjectWorkspace mainCellWorkspace = setupCell(scenario, "main_cell", sourceFolderPath);
+    setupCell(scenario, "secondary_cell", sourceFolderPath);
+
+    mainCellWorkspace
+        .runBuckBuild(
+            "//:cross_cell_gen_rule",
+            "--distributed",
+            "--build-state-file",
+            stateFilePath.toString())
+        .assertSuccess();
+
+    ProjectWorkspace destinationWorkspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "empty", destinationFolderPath);
+    destinationWorkspace.setUp();
+
+    runDistBuildWithFakeFrontend(
+            destinationWorkspace,
+            "--build-state-file",
+            stateFilePath.toString(),
+            "--buildslave-run-id",
+            "i_am_slave_with_run_id_42")
+        .assertSuccess();
   }
 
   @Test

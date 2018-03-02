@@ -27,6 +27,7 @@ import com.facebook.buck.distributed.thrift.OrderedStringMapEntry;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.CellProvider;
@@ -57,6 +58,8 @@ import org.pf4j.PluginManager;
 
 /** Saves and restores the state of a build to/from a thrift data structure. */
 public class DistBuildState {
+  private static final Logger LOG = Logger.get(DistBuildState.class);
+
   private final BuildJobState remoteState;
   private final ImmutableBiMap<Integer, Cell> cells;
   private final Map<ProjectFilesystem, BuildJobStateFileHashes> fileHashes;
@@ -109,8 +112,14 @@ public class DistBuildState {
       throws IOException, InterruptedException {
     Preconditions.checkArgument(topLevelTargets.size() > 0);
     BuildJobState jobState = new BuildJobState();
+
+    LOG.info("Setting file hashes..");
     jobState.setFileHashes(fileHashes.getFileHashes());
+    LOG.info("Finished setting file hashes.");
+
+    LOG.info("Setting cells..");
     jobState.setCells(distributedBuildCellIndexer.getState());
+    LOG.info("Finished setting cells.");
 
     clientStatsTracker.ifPresent(tracker -> tracker.startTimer(LOCAL_TARGET_GRAPH_SERIALIZATION));
     jobState.setTargetGraph(
@@ -147,6 +156,7 @@ public class DistBuildState {
 
     Path uniqueBuildRoot = Files.createTempDirectory(sandboxPath, "build");
 
+    DistBuildCellParams rootCellParams = null;
     for (Map.Entry<Integer, BuildJobStateCell> remoteCellEntry : jobState.getCells().entrySet()) {
       BuildJobStateCell remoteCell = remoteCellEntry.getValue();
 
@@ -164,8 +174,7 @@ public class DistBuildState {
           remoteCell.getCanonicalName().isEmpty()
               ? Optional.empty()
               : Optional.of(remoteCell.getCanonicalName());
-      cellParams.put(
-          cellRoot,
+      DistBuildCellParams currentCellParams =
           DistBuildCellParams.of(
               buckConfig,
               projectFilesystem,
@@ -173,11 +182,18 @@ public class DistBuildState {
               environment,
               processExecutor,
               executableFinder,
-              pluginManager));
+              pluginManager);
+      cellParams.put(cellRoot, currentCellParams);
       cellIndex.put(remoteCellEntry.getKey(), cellRoot);
+
+      if (remoteCellEntry.getKey() == DistBuildCellIndexer.ROOT_CELL_INDEX) {
+        rootCellParams = currentCellParams;
+      }
     }
 
-    CellProvider cellProvider = CellProviderFactory.createForDistributedBuild(cellParams.build());
+    CellProvider cellProvider =
+        CellProviderFactory.createForDistributedBuild(
+            Preconditions.checkNotNull(rootCellParams), cellParams.build());
 
     ImmutableBiMap<Integer, Cell> cells =
         ImmutableBiMap.copyOf(Maps.transformValues(cellIndex.build(), cellProvider::getCellByPath));
@@ -233,7 +249,7 @@ public class DistBuildState {
 
   public TargetGraphAndBuildTargets createTargetGraph(
       DistBuildTargetGraphCodec codec, KnownBuildRuleTypesProvider knownBuildRuleTypesProvider)
-      throws IOException {
+      throws InterruptedException {
     return codec.createTargetGraph(
         remoteState.getTargetGraph(),
         key -> Preconditions.checkNotNull(cells.get(key)),

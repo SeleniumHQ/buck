@@ -22,6 +22,7 @@ import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.Hint;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.Types;
+import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -129,11 +130,21 @@ public class ParamInfo implements Comparable<ParamInfo> {
     }
     this.name = builder.toString();
 
-    this.typeCoercer = typeCoercerFactory.typeCoercerForType(setter.getGenericParameterTypes()[0]);
+    try {
+      this.typeCoercer =
+          typeCoercerFactory.typeCoercerForType(setter.getGenericParameterTypes()[0]);
+    } catch (Exception e) {
+      throw new BuckUncheckedExecutionException(
+          e, "When getting ParamInfo for %s.%s.", setter.getDeclaringClass().getName(), name);
+    }
   }
 
   public String getName() {
     return name;
+  }
+
+  public TypeCoercer<?> getTypeCoercer() {
+    return typeCoercer;
   }
 
   public boolean isOptional() {
@@ -180,17 +191,21 @@ public class ParamInfo implements Comparable<ParamInfo> {
    *
    * @param traversal traversal to apply on the values.
    * @param dto the object whose field will be traversed.
-   * @see TypeCoercer#traverse(Object, TypeCoercer.Traversal)
+   * @see TypeCoercer#traverse(CellPathResolver, Object, TypeCoercer.Traversal)
    */
-  public void traverse(Traversal traversal, Object dto) {
-    traverseHelper(typeCoercer, traversal, dto);
+  public void traverse(CellPathResolver cellPathResolver, Traversal traversal, Object dto) {
+    traverseHelper(cellPathResolver, typeCoercer, traversal, dto);
   }
 
   @SuppressWarnings("unchecked")
-  private <U> void traverseHelper(TypeCoercer<U> typeCoercer, Traversal traversal, Object dto) {
+  private <U> void traverseHelper(
+      CellPathResolver cellPathResolver,
+      TypeCoercer<U> typeCoercer,
+      Traversal traversal,
+      Object dto) {
     U object = (U) get(dto);
     if (object != null) {
-      typeCoercer.traverse(object, traversal);
+      typeCoercer.traverse(cellPathResolver, object, traversal);
     }
   }
 

@@ -27,6 +27,7 @@ import com.facebook.buck.distributed.DistBuildCellIndexer;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildCreatedEvent;
 import com.facebook.buck.distributed.DistBuildService;
+import com.facebook.buck.distributed.DistBuildService.DistBuildRejectedException;
 import com.facebook.buck.distributed.build_slave.CacheOptimizedBuildTargetsQueueFactory;
 import com.facebook.buck.distributed.thrift.BuckVersion;
 import com.facebook.buck.distributed.thrift.BuildJob;
@@ -102,8 +103,8 @@ public class PreBuildPhase {
       String repository,
       String tenantId,
       ListenableFuture<ParallelRuleKeyCalculator<RuleKey>> localRuleKeyCalculatorFuture)
-      throws IOException {
-    EventSender eventSender = new EventSender(eventBus);
+      throws IOException, DistBuildRejectedException {
+    ConsoleEventsDispatcher consoleEventsDispatcher = new ConsoleEventsDispatcher(eventBus);
 
     distBuildClientStats.startTimer(CREATE_DISTRIBUTED_BUILD);
     List<String> buildTargets =
@@ -122,7 +123,8 @@ public class PreBuildPhase {
 
     LOG.info("Created job. Build id = " + stampedeId.getId());
 
-    eventSender.postDistBuildStatusEvent(job, ImmutableList.of(), "SERIALIZING AND UPLOADING DATA");
+    consoleEventsDispatcher.postDistBuildStatusEvent(
+        job, ImmutableList.of(), "SERIALIZING AND UPLOADING DATA");
 
     List<ListenableFuture<?>> asyncJobs = new LinkedList<>();
 
@@ -184,16 +186,19 @@ public class PreBuildPhase {
                     new DistBuildArtifactCacheImpl(
                         actionAndTargetGraphs.getActionGraphAndResolver().getResolver(),
                         networkExecutorService,
-                        buildExecutorArgs.getArtifactCacheFactory().remoteOnlyInstance(true),
+                        buildExecutorArgs.getArtifactCacheFactory().remoteOnlyInstance(true, false),
                         eventBus,
                         localRuleKeyCalculator,
                         Optional.of(
-                            buildExecutorArgs.getArtifactCacheFactory().localOnlyInstance(true)))) {
+                            buildExecutorArgs
+                                .getArtifactCacheFactory()
+                                .localOnlyInstance(true, false)))) {
 
                   return new CacheOptimizedBuildTargetsQueueFactory(
                           actionAndTargetGraphs.getActionGraphAndResolver().getResolver(),
                           artifactCache,
-                          /* isDeepRemoteBuild */ false)
+                          /* isDeepRemoteBuild */ false,
+                          localRuleKeyCalculator.getRuleDepsCache())
                       .uploadCriticalNodesFromLocalCache(topLevelTargets, distBuildClientStats);
 
                 } catch (Exception e) {
@@ -209,7 +214,7 @@ public class PreBuildPhase {
             Futures.allAsList(asyncJobs),
             results -> {
               LOG.info("Finished async preparation of stampede job.");
-              eventSender.postDistBuildStatusEvent(
+              consoleEventsDispatcher.postDistBuildStatusEvent(
                   job, ImmutableList.of(), "STARTING REMOTE BUILD");
 
               // Everything is now setup remotely to run the distributed build. No more local prep.

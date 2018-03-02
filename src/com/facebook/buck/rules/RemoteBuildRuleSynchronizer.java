@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import javax.annotation.concurrent.GuardedBy;
 
 /**
  * Used by distributed build client to synchronize the local build and remote build state, which
@@ -39,13 +40,12 @@ public class RemoteBuildRuleSynchronizer
   private final Set<String> completedRules = new HashSet<>();
   private final Set<String> startedRules = new HashSet<>();
   private boolean remoteBuildFinished = false;
+  private final SettableFuture<Void> mostBuildRulesFinished = SettableFuture.create();
 
-  private final boolean alwaysWaitForRemoteBuildBeforeProceedingLocally;
+  @GuardedBy("this")
+  private boolean alwaysWaitForRemoteBuildBeforeProceedingLocally = false;
 
-  public RemoteBuildRuleSynchronizer(boolean alwaysWaitForRemoteBuildBeforeProceedingLocally) {
-    this.alwaysWaitForRemoteBuildBeforeProceedingLocally =
-        alwaysWaitForRemoteBuildBeforeProceedingLocally;
-  }
+  public RemoteBuildRuleSynchronizer() {}
 
   @Override
   public synchronized ListenableFuture<Void> waitForBuildRuleToFinishRemotely(BuildRule buildRule) {
@@ -59,6 +59,11 @@ public class RemoteBuildRuleSynchronizer
 
     LOG.info(String.format("Returning future that waits for build target [%s]", buildTarget));
     return createCompletionFutureIfNotPresent(buildTarget);
+  }
+
+  @Override
+  public ListenableFuture<Void> waitForMostBuildRulesToFinishRemotely() {
+    return mostBuildRulesFinished;
   }
 
   @Override
@@ -102,8 +107,23 @@ public class RemoteBuildRuleSynchronizer
     for (SettableFuture<Void> resultFuture : resultFuturesByBuildTarget.values()) {
       resultFuture.set(null);
     }
+
+    // If for whatever reason the 'most build rules finished' event wasn't received, we can
+    // be sure that at this point most build rules are finished, so unlock this Future too.
+    signalMostBuildRulesFinished();
+
     // Set flag so that all future waitForBuildRuleToFinishRemotely calls return immediately.
     remoteBuildFinished = true;
+  }
+
+  @Override
+  public void signalMostBuildRulesFinished() {
+    if (mostBuildRulesFinished.isDone()) {
+      return;
+    }
+
+    LOG.info("Most build rules finished.");
+    mostBuildRulesFinished.set(null);
   }
 
   @VisibleForTesting
@@ -117,5 +137,9 @@ public class RemoteBuildRuleSynchronizer
     }
 
     return Preconditions.checkNotNull(resultFuturesByBuildTarget.get(buildTarget));
+  }
+
+  public synchronized void switchToAlwaysWaitingMode() {
+    alwaysWaitForRemoteBuildBeforeProceedingLocally = true;
   }
 }

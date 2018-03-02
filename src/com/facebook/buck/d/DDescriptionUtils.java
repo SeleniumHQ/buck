@@ -50,6 +50,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Map;
@@ -173,15 +174,19 @@ abstract class DDescriptionUtils {
       BuildTarget target,
       ProjectFilesystem projectFilesystem,
       SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder,
       SourceList sources) {
     Preconditions.checkState(target.getFlavors().contains(SOURCE_LINK_TREE));
     return new SymlinkTree(
+        "d_src",
         target,
         projectFilesystem,
         BuildTargets.getGenPath(projectFilesystem, target, "%s"),
         MoreMaps.transformKeys(
             sources.toNameMap(target, pathResolver, "srcs"),
-            MorePaths.toPathFn(projectFilesystem.getRootPath().getFileSystem())));
+            MorePaths.toPathFn(projectFilesystem.getRootPath().getFileSystem())),
+        ImmutableMultimap.of(),
+        ruleFinder);
   }
 
   private static ImmutableMap<BuildTarget, DLibrary> getTransitiveDLibraryRules(

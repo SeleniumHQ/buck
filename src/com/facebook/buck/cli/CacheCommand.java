@@ -34,7 +34,8 @@ import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
-import com.facebook.buck.util.zip.Unzip;
+import com.facebook.buck.util.unarchive.ArchiveFormat;
+import com.facebook.buck.util.unarchive.ExistingFileMode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -135,7 +136,7 @@ public class CacheCommand extends AbstractCommand {
 
     List<ArtifactRunner> results = null;
     try (ArtifactCache cache =
-            params.getArtifactCacheFactory().newInstance(isRequestForDistributed);
+            params.getArtifactCacheFactory().newInstance(isRequestForDistributed, false);
         CommandThreadManager pool =
             new CommandThreadManager("Build", getConcurrencyLimit(params.getBuckConfig()))) {
       WeightedListeningExecutorService executor = pool.getWeightedListeningExecutorService();
@@ -304,11 +305,13 @@ public class CacheCommand extends AbstractCommand {
     ImmutableList<Path> paths;
     try {
       paths =
-          Unzip.extractZipFile(
-              projectFilesystemFactory,
-              artifact.toAbsolutePath(),
-              tmpDir,
-              Unzip.ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
+          ArchiveFormat.ZIP
+              .getUnarchiver()
+              .extractArchive(
+                  projectFilesystemFactory,
+                  artifact.toAbsolutePath(),
+                  tmpDir,
+                  ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
     } catch (IOException e) {
       resultString.append(String.format("%s %s !(Unable to extract) %s\n", ruleKey, buckTarget, e));
       return false;
