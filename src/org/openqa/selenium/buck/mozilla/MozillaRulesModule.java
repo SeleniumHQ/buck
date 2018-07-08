@@ -16,13 +16,12 @@
 
 package org.openqa.selenium.buck.mozilla;
 
+import com.facebook.buck.features.zip.rules.ZipRulesModule;
 import com.facebook.buck.module.BuckModule;
-import com.facebook.buck.zip.bundler.ZipBundlerModule;
 
 @BuckModule(
-    id = "org.openqa.seleniun.buck.mozilla",
     dependencies = {
-        ZipBundlerModule.class,
+        ZipRulesModule.class,
     }
 )
 public class MozillaRulesModule { }

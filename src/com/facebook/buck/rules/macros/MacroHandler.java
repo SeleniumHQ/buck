@@ -16,23 +16,23 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.model.macros.MacroFinder;
 import com.facebook.buck.model.macros.MacroMatchResult;
 import com.facebook.buck.model.macros.MacroReplacer;
 import com.facebook.buck.model.macros.StringMacroCombiner;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -56,12 +56,10 @@ public class MacroHandler {
   }
 
   public Function<String, String> getExpander(
-      final BuildTarget target,
-      final CellPathResolver cellNames,
-      final BuildRuleResolver resolver) {
+      BuildTarget target, CellPathResolver cellNames, ActionGraphBuilder graphBuilder) {
     return blob -> {
       try {
-        return expand(target, cellNames, resolver, blob);
+        return expand(target, cellNames, graphBuilder, blob);
       } catch (MacroException e) {
         throw new HumanReadableException("%s: %s", target, e.getMessage());
       }
@@ -87,53 +85,50 @@ public class MacroHandler {
   }
 
   public String expand(
-      final BuildTarget target,
-      final CellPathResolver cellNames,
-      final BuildRuleResolver resolver,
-      String blob)
+      BuildTarget target, CellPathResolver cellNames, ActionGraphBuilder graphBuilder, String blob)
       throws MacroException {
-    return expand(target, cellNames, resolver, blob, new HashMap<>());
+    return expand(target, cellNames, graphBuilder, blob, new HashMap<>());
   }
 
   public String expand(
-      final BuildTarget target,
-      final CellPathResolver cellNames,
-      final BuildRuleResolver resolver,
+      BuildTarget target,
+      CellPathResolver cellNames,
+      ActionGraphBuilder graphBuilder,
       String blob,
       Map<MacroMatchResult, Object> precomputedWorkCache)
       throws MacroException {
     ImmutableMap<String, MacroReplacer<String>> replacers =
-        getMacroReplacers(target, cellNames, resolver, precomputedWorkCache);
+        getMacroReplacers(target, cellNames, graphBuilder, precomputedWorkCache);
     return MacroFinder.replace(replacers, blob, true, new StringMacroCombiner());
   }
 
   private ImmutableMap<String, MacroReplacer<String>> getMacroReplacers(
-      final BuildTarget target,
-      final CellPathResolver cellNames,
-      final BuildRuleResolver resolver,
+      BuildTarget target,
+      CellPathResolver cellNames,
+      ActionGraphBuilder graphBuilder,
       Map<MacroMatchResult, Object> precomputedWorkCache) {
     ImmutableMap.Builder<String, MacroReplacer<String>> replacers = ImmutableMap.builder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
-    for (final Map.Entry<String, MacroExpander> entry : expanders.entrySet()) {
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    for (Map.Entry<String, MacroExpander> entry : expanders.entrySet()) {
       MacroReplacer<String> replacer;
-      final boolean shouldOutputToFile = entry.getKey().startsWith("@");
+      boolean shouldOutputToFile = entry.getKey().startsWith("@");
       try {
-        final MacroExpander expander = getExpander(entry.getKey());
+        MacroExpander expander = getExpander(entry.getKey());
         replacer =
             input -> {
               Object precomputedWork =
                   ensurePrecomputedWork(
-                      input, expander, precomputedWorkCache, target, cellNames, resolver);
+                      input, expander, precomputedWorkCache, target, cellNames, graphBuilder);
               if (shouldOutputToFile) {
                 return Arg.stringify(
                     expander.expandForFile(
-                        target, cellNames, resolver, input.getMacroInput(), precomputedWork),
+                        target, cellNames, graphBuilder, input.getMacroInput(), precomputedWork),
                     pathResolver);
               } else {
                 return Arg.stringify(
                     expander.expand(
-                        target, cellNames, resolver, input.getMacroInput(), precomputedWork),
+                        target, cellNames, graphBuilder, input.getMacroInput(), precomputedWork),
                     pathResolver);
               }
             };
@@ -146,15 +141,15 @@ public class MacroHandler {
   }
 
   public ImmutableList<BuildRule> extractBuildTimeDeps(
-      BuildTarget target, CellPathResolver cellNames, BuildRuleResolver resolver, String blob)
+      BuildTarget target, CellPathResolver cellNames, ActionGraphBuilder graphBuilder, String blob)
       throws MacroException {
-    return extractBuildTimeDeps(target, cellNames, resolver, blob, new HashMap<>());
+    return extractBuildTimeDeps(target, cellNames, graphBuilder, blob, new HashMap<>());
   }
 
   public ImmutableList<BuildRule> extractBuildTimeDeps(
       BuildTarget target,
       CellPathResolver cellNames,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       String blob,
       Map<MacroMatchResult, Object> precomputedWorkCache)
       throws MacroException {
@@ -163,9 +158,9 @@ public class MacroHandler {
               @AddToRuleKey
               private final Object object =
                   extractRuleKeyAppendables(
-                      target, cellNames, resolver, blob, precomputedWorkCache);
+                      target, cellNames, graphBuilder, blob, precomputedWorkCache);
             },
-            new SourcePathRuleFinder(resolver))
+            new SourcePathRuleFinder(graphBuilder))
         .collect(ImmutableList.toImmutableList());
   }
 
@@ -193,7 +188,7 @@ public class MacroHandler {
   public ImmutableList<Object> extractRuleKeyAppendables(
       BuildTarget target,
       CellPathResolver cellNames,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       String blob,
       Map<MacroMatchResult, Object> precomputedWorkCache)
       throws MacroException {
@@ -206,10 +201,10 @@ public class MacroHandler {
       MacroExpander expander = getExpander(matchResult.getMacroType());
       Object precomputedWork =
           ensurePrecomputedWork(
-              matchResult, expander, precomputedWorkCache, target, cellNames, resolver);
+              matchResult, expander, precomputedWorkCache, target, cellNames, graphBuilder);
       Object ruleKeyAppendable =
           expander.extractRuleKeyAppendables(
-              target, cellNames, resolver, matchResult.getMacroInput(), precomputedWork);
+              target, cellNames, graphBuilder, matchResult.getMacroInput(), precomputedWork);
       if (ruleKeyAppendable != null) {
         targets.add(ruleKeyAppendable);
       }
@@ -228,12 +223,12 @@ public class MacroHandler {
       Map<MacroMatchResult, Object> precomputedWorkCache,
       BuildTarget target,
       CellPathResolver cellNames,
-      BuildRuleResolver resolver)
+      ActionGraphBuilder graphBuilder)
       throws MacroException {
     if (!precomputedWorkCache.containsKey(matchResult)) {
       precomputedWorkCache.put(
           matchResult,
-          expander.precomputeWork(target, cellNames, resolver, matchResult.getMacroInput()));
+          expander.precomputeWork(target, cellNames, graphBuilder, matchResult.getMacroInput()));
     }
     return precomputedWorkCache.get(matchResult);
   }

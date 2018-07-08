@@ -17,6 +17,7 @@
 package com.facebook.buck.util.versioncontrol;
 
 import com.google.common.collect.ImmutableSet;
+import java.io.InputStream;
 
 public class FakeVersionControlCmdLineInterface extends NoOpCmdLineInterface {
 
@@ -27,19 +28,18 @@ public class FakeVersionControlCmdLineInterface extends NoOpCmdLineInterface {
   }
 
   @Override
-  public boolean isSupportedVersionControlSystem() throws InterruptedException {
+  public boolean isSupportedVersionControlSystem() {
     return true;
   }
 
   @Override
-  public String currentRevisionId()
-      throws VersionControlCommandFailedException, InterruptedException {
+  public String currentRevisionId() {
     return versionControlStats.getCurrentRevisionId();
   }
 
   @Override
-  public String diffBetweenRevisions(String baseRevision, String tipRevision)
-      throws VersionControlCommandFailedException, InterruptedException {
+  public VersionControlSupplier<InputStream> diffBetweenRevisions(
+      String baseRevision, String tipRevision) throws VersionControlCommandFailedException {
     if (!versionControlStats.getDiff().isPresent()) {
       throw new VersionControlCommandFailedException("");
     }
@@ -47,14 +47,12 @@ public class FakeVersionControlCmdLineInterface extends NoOpCmdLineInterface {
   }
 
   @Override
-  public ImmutableSet<String> changedFiles(String fromRevisionId)
-      throws VersionControlCommandFailedException, InterruptedException {
+  public ImmutableSet<String> changedFiles(String fromRevisionId) {
     return versionControlStats.getPathsChangedInWorkingDirectory();
   }
 
   @Override
-  public FastVersionControlStats fastVersionControlStats()
-      throws InterruptedException, VersionControlCommandFailedException {
+  public FastVersionControlStats fastVersionControlStats() {
     return FastVersionControlStats.of(
         versionControlStats.getCurrentRevisionId(),
         versionControlStats.getBaseBookmarks(),

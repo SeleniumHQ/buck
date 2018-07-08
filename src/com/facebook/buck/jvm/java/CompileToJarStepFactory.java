@@ -16,13 +16,13 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.shell.BashStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -259,7 +259,7 @@ public abstract class CompileToJarStepFactory implements ConfiguredCompiler {
     }
     ImmutableMap<String, String> envVars = envVarBuilder.build();
 
-    for (final String postprocessClassesCommand : postprocessClassesCommands) {
+    for (String postprocessClassesCommand : postprocessClassesCommands) {
       BashStep bashStep =
           new BashStep(
               target, filesystem.getRootPath(), postprocessClassesCommand + " " + outputDirectory) {

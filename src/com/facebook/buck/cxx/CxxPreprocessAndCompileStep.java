@@ -160,13 +160,13 @@ class CxxPreprocessAndCompileStep implements Step {
         .addAll(
             sanitizer.getCompilationFlags(
                 compiler, filesystem.getRootPath(), headerPathNormalizer.getPrefixMap()))
+        .addAll(compiler.outputArgs(output.toString()))
         .add("-c")
         .addAll(
             depFile
                 .map(depFile -> compiler.outputDependenciesArgs(depFile.toString()))
                 .orElseGet(ImmutableList::of))
         .add(input.toString())
-        .addAll(compiler.outputArgs(output.toString()))
         .build();
   }
 
@@ -207,8 +207,7 @@ class CxxPreprocessAndCompileStep implements Step {
     return result;
   }
 
-  private void processResult(ProcessExecutor.Result result, ExecutionContext context)
-      throws IOException {
+  private void processResult(ProcessExecutor.Result result, ExecutionContext context) {
     // If we generated any error output, print that to the console.
     String err = result.getStderr().orElse("");
     if (!err.isEmpty()) {

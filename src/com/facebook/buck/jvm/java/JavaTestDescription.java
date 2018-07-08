@@ -16,6 +16,22 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.HasContacts;
+import com.facebook.buck.core.description.arg.HasTestTimeout;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.SymlinkTree;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
@@ -26,28 +42,12 @@ import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.toolchain.JavaCxxPlatformProvider;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasContacts;
-import com.facebook.buck.rules.HasTestTimeout;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.macros.AbstractMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -63,7 +63,7 @@ import java.util.Optional;
 import java.util.logging.Level;
 
 public class JavaTestDescription
-    implements Description<JavaTestDescriptionArg>,
+    implements DescriptionWithTargetGraph<JavaTestDescriptionArg>,
         ImplicitDepsInferringDescription<JavaTestDescription.AbstractJavaTestDescriptionArg>,
         VersionRoot<JavaTestDescriptionArg> {
 
@@ -98,11 +98,11 @@ public class JavaTestDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       JavaTestDescriptionArg args) {
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     CellPathResolver cellRoots = context.getCellPathResolver();
     JavacOptions javacOptions =
@@ -112,10 +112,10 @@ public class JavaTestDescription
                 .getJavacOptions(),
             buildTarget,
             projectFilesystem,
-            resolver,
+            graphBuilder,
             args);
 
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     CxxLibraryEnhancement cxxLibraryEnhancement =
         new CxxLibraryEnhancement(
             buildTarget,
@@ -123,7 +123,7 @@ public class JavaTestDescription
             params,
             args.getUseCxxLibraries(),
             args.getCxxLibraryWhitelist(),
-            resolver,
+            graphBuilder,
             ruleFinder,
             getCxxPlatform(args));
     params = cxxLibraryEnhancement.updatedParams;
@@ -132,26 +132,28 @@ public class JavaTestDescription
         DefaultJavaLibrary.rulesBuilder(
                 buildTarget.withAppendedFlavors(JavaTest.COMPILED_TESTS_LIBRARY_FLAVOR),
                 projectFilesystem,
+                context.getToolchainProvider(),
                 params,
-                resolver,
+                graphBuilder,
                 cellRoots,
-                new JavaConfiguredCompilerFactory(javaBuckConfig),
+                new JavaConfiguredCompilerFactory(
+                    javaBuckConfig, JavacFactory.getDefault(toolchainProvider)),
                 javaBuckConfig,
                 args)
             .setJavacOptions(javacOptions)
+            .setToolchainProvider(context.getToolchainProvider())
             .build();
 
     if (HasJavaAbi.isAbiTarget(buildTarget)) {
       return defaultJavaLibraryRules.buildAbi();
     }
 
-    JavaLibrary testsLibrary = resolver.addToIndex(defaultJavaLibraryRules.buildLibrary());
+    JavaLibrary testsLibrary = graphBuilder.addToIndex(defaultJavaLibraryRules.buildLibrary());
 
     StringWithMacrosConverter macrosConverter =
         StringWithMacrosConverter.builder()
             .setBuildTarget(buildTarget)
             .setCellPathResolver(cellRoots)
-            .setResolver(resolver)
             .setExpanders(MACRO_EXPANDERS)
             .build();
 
@@ -175,7 +177,8 @@ public class JavaTestDescription
             .map(Optional::of)
             .orElse(javaBuckConfig.getDelegate().getDefaultTestRuleTimeoutMs()),
         args.getTestCaseTimeoutMs(),
-        ImmutableMap.copyOf(Maps.transformValues(args.getEnv(), macrosConverter::convert)),
+        ImmutableMap.copyOf(
+            Maps.transformValues(args.getEnv(), x -> macrosConverter.convert(x, graphBuilder))),
         args.getRunTestSeparately(),
         args.getForkMode(),
         args.getStdOutLogLevel(),
@@ -244,14 +247,14 @@ public class JavaTestDescription
         ProjectFilesystem projectFilesystem,
         BuildRuleParams params,
         Optional<Boolean> useCxxLibraries,
-        final ImmutableSet<BuildTarget> cxxLibraryWhitelist,
-        BuildRuleResolver resolver,
+        ImmutableSet<BuildTarget> cxxLibraryWhitelist,
+        ActionGraphBuilder graphBuilder,
         SourcePathRuleFinder ruleFinder,
         CxxPlatform cxxPlatform) {
       if (useCxxLibraries.orElse(false)) {
         SymlinkTree nativeLibsSymlinkTree =
             buildNativeLibsSymlinkTreeRule(
-                buildTarget, projectFilesystem, ruleFinder, params, cxxPlatform);
+                buildTarget, projectFilesystem, graphBuilder, ruleFinder, params, cxxPlatform);
 
         // If the cxxLibraryWhitelist is present, remove symlinks that were not requested.
         // They could point to old, invalid versions of the library in question.
@@ -280,7 +283,7 @@ public class JavaTestDescription
                   ruleFinder);
         }
 
-        resolver.addToIndex(nativeLibsSymlinkTree);
+        graphBuilder.addToIndex(nativeLibsSymlinkTree);
         updatedParams =
             params.copyAppendingExtraDeps(
                 ImmutableList.<BuildRule>builder()
@@ -295,7 +298,7 @@ public class JavaTestDescription
                     .build());
         nativeLibsEnvironment =
             ImmutableMap.of(
-                cxxPlatform.getLd().resolve(resolver).searchPathEnvVar(),
+                cxxPlatform.getLd().resolve(graphBuilder).searchPathEnvVar(),
                 nativeLibsSymlinkTree.getRoot().toString());
       } else {
         updatedParams = params;
@@ -306,12 +309,14 @@ public class JavaTestDescription
     public static SymlinkTree buildNativeLibsSymlinkTreeRule(
         BuildTarget buildTarget,
         ProjectFilesystem projectFilesystem,
+        ActionGraphBuilder graphBuilder,
         SourcePathRuleFinder ruleFinder,
         BuildRuleParams buildRuleParams,
         CxxPlatform cxxPlatform) {
       return CxxDescriptionEnhancer.createSharedLibrarySymlinkTree(
           buildTarget,
           projectFilesystem,
+          graphBuilder,
           ruleFinder,
           cxxPlatform,
           buildRuleParams.getBuildDeps(),

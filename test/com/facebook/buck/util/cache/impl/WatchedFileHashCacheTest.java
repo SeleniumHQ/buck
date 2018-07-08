@@ -32,7 +32,6 @@ import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.HashCodeAndFileType;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 import java.io.File;
 import java.io.IOException;
@@ -144,8 +143,7 @@ public class WatchedFileHashCacheTest {
   }
 
   @Test
-  public void directoryHashChangesWhenFileInsideDirectoryChanges()
-      throws InterruptedException, IOException {
+  public void directoryHashChangesWhenFileInsideDirectoryChanges() throws IOException {
     ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     WatchedFileHashCache cache = new WatchedFileHashCache(filesystem, fileHashCacheMode);
     tmp.newFolder("foo", "bar");
@@ -169,8 +167,7 @@ public class WatchedFileHashCacheTest {
     Path dir = Paths.get("foo/bar/baz");
     filesystem.mkdirs(dir);
 
-    HashCodeAndFileType value =
-        HashCodeAndFileType.ofDirectory(HashCode.fromInt(42), ImmutableSet.of());
+    HashCodeAndFileType value = HashCodeAndFileType.ofDirectory(HashCode.fromInt(42));
     cache.fileHashCacheEngine.put(dir, value);
     cache.fileHashCacheEngine.putSize(dir, 1234L);
     cache.onFileSystemChange(
@@ -232,7 +229,7 @@ public class WatchedFileHashCacheTest {
   }
 
   @Test
-  public void thatWillGetIsCorrect() throws IOException, InterruptedException {
+  public void thatWillGetIsCorrect() throws IOException {
     ProjectFilesystem filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     Path buckOut = filesystem.getBuckPaths().getBuckOut();
     filesystem.mkdirs(buckOut);

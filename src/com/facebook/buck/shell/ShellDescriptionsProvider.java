@@ -17,9 +17,9 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.DescriptionCreationContext;
-import com.facebook.buck.rules.DescriptionProvider;
+import com.facebook.buck.core.description.DescriptionCreationContext;
+import com.facebook.buck.core.model.targetgraph.DescriptionProvider;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.environment.Platform;
 import java.util.Arrays;
@@ -30,16 +30,18 @@ import org.pf4j.Extension;
 public class ShellDescriptionsProvider implements DescriptionProvider {
 
   @Override
-  public Collection<Description<?>> getDescriptions(DescriptionCreationContext context) {
+  public Collection<DescriptionWithTargetGraph<?>> getDescriptions(
+      DescriptionCreationContext context) {
     ToolchainProvider toolchainProvider = context.getToolchainProvider();
     BuckConfig config = context.getBuckConfig();
 
     return Arrays.asList(
         new CommandAliasDescription(Platform.detect()),
-        new ExportFileDescription(),
+        new ExportFileDescription(config),
         new GenruleDescription(toolchainProvider, config, context.getSandboxExecutionStrategy()),
         new ShBinaryDescription(),
         new ShTestDescription(config),
+        new TestSuiteDescription(),
         new WorkerToolDescription(config));
   }
 }

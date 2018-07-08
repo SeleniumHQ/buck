@@ -16,17 +16,17 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -98,7 +98,7 @@ abstract class AbstractNewPrebuiltCxxLibraryPaths implements PrebuiltCxxLibraryP
   }
 
   Optional<SourcePath> getLibrary(
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CxxPlatform cxxPlatform,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions,
       String parameter,
@@ -110,18 +110,18 @@ abstract class AbstractNewPrebuiltCxxLibraryPaths implements PrebuiltCxxLibraryP
     return path.map(
         p ->
             CxxGenruleDescription.fixupSourcePath(
-                resolver, new SourcePathRuleFinder(resolver), cxxPlatform, p));
+                graphBuilder, new SourcePathRuleFinder(graphBuilder), cxxPlatform, p));
   }
 
   @Override
   public Optional<SourcePath> getSharedLibrary(
       ProjectFilesystem filesystem,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       CxxPlatform cxxPlatform,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions) {
     return getLibrary(
-        resolver,
+        graphBuilder,
         cxxPlatform,
         selectedVersions,
         "shared_lib",
@@ -133,12 +133,12 @@ abstract class AbstractNewPrebuiltCxxLibraryPaths implements PrebuiltCxxLibraryP
   @Override
   public Optional<SourcePath> getStaticLibrary(
       ProjectFilesystem filesystem,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       CxxPlatform cxxPlatform,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions) {
     return getLibrary(
-        resolver,
+        graphBuilder,
         cxxPlatform,
         selectedVersions,
         "static_lib",
@@ -150,12 +150,12 @@ abstract class AbstractNewPrebuiltCxxLibraryPaths implements PrebuiltCxxLibraryP
   @Override
   public Optional<SourcePath> getStaticPicLibrary(
       ProjectFilesystem filesystem,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       CxxPlatform cxxPlatform,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions) {
     return getLibrary(
-        resolver,
+        graphBuilder,
         cxxPlatform,
         selectedVersions,
         "static_pic_lib",
@@ -167,7 +167,7 @@ abstract class AbstractNewPrebuiltCxxLibraryPaths implements PrebuiltCxxLibraryP
   @Override
   public ImmutableList<SourcePath> getIncludeDirs(
       ProjectFilesystem filesystem,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       CxxPlatform cxxPlatform,
       Optional<ImmutableMap<BuildTarget, Version>> selectedVersions) {
@@ -180,6 +180,9 @@ abstract class AbstractNewPrebuiltCxxLibraryPaths implements PrebuiltCxxLibraryP
             selectedVersions,
             getVersionedHeaderDirs());
     return CxxGenruleDescription.fixupSourcePaths(
-        resolver, new SourcePathRuleFinder(resolver), cxxPlatform, dirs.orElse(ImmutableList.of()));
+        graphBuilder,
+        new SourcePathRuleFinder(graphBuilder),
+        cxxPlatform,
+        dirs.orElse(ImmutableList.of()));
   }
 }

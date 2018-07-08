@@ -16,7 +16,7 @@
 
 package com.facebook.buck.rules.modern.impl;
 
-import com.facebook.buck.rules.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.OutputPath;
 import com.facebook.buck.testutil.MoreAsserts;
@@ -29,7 +29,7 @@ public class OutputPathVisitorTest extends AbstractValueVisitorTest {
 
   private ImmutableList<OutputPath> getOutputs(Buildable value) {
     ImmutableList.Builder<OutputPath> builder = ImmutableList.builder();
-    DefaultClassInfoFactory.forInstance(value).getOutputs(value, builder::add);
+    DefaultClassInfoFactory.forInstance(value).visit(value, new OutputPathVisitor(builder::add));
     return builder.build();
   }
 
@@ -37,7 +37,9 @@ public class OutputPathVisitorTest extends AbstractValueVisitorTest {
   @Test
   public void outputPath() {
     WithOutputPath value = new WithOutputPath();
-    MoreAsserts.assertIterablesEquals(ImmutableList.of(value.output), getOutputs(value));
+    MoreAsserts.assertIterablesEquals(
+        ImmutableList.of(value.output, value.publicOutput, value.publicAsOutputPath),
+        getOutputs(value));
   }
 
   @Override
@@ -56,6 +58,73 @@ public class OutputPathVisitorTest extends AbstractValueVisitorTest {
   @Test
   public void addsToRuleKey() {
     MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithAddsToRuleKey()));
+  }
+
+  @Override
+  @Test
+  public void pattern() throws Exception {
+    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithPattern()));
+  }
+
+  @Override
+  @Test
+  public void anEnum() throws Exception {
+    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithEnum()));
+  }
+
+  @Override
+  @Test
+  public void nonHashableSourcePathContainer() throws Exception {
+    MoreAsserts.assertIterablesEquals(
+        ImmutableList.of(), getOutputs(new WithNonHashableSourcePathContainer()));
+  }
+
+  @Override
+  @Test
+  public void sortedMap() throws Exception {
+    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithSortedMap()));
+  }
+
+  @Override
+  @Test
+  public void supplier() throws Exception {
+    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithSupplier()));
+  }
+
+  @Override
+  @Test
+  public void nullable() throws Exception {
+    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithNullable()));
+  }
+
+  @Override
+  @Test
+  public void either() throws Exception {
+    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithEither()));
+  }
+
+  @Override
+  @Test
+  public void excluded() throws Exception {
+    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithExcluded()));
+  }
+
+  @Override
+  @Test
+  public void immutables() throws Exception {
+    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithImmutables()));
+  }
+
+  @Override
+  @Test
+  public void stringified() throws Exception {
+    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithStringified()));
+  }
+
+  @Override
+  @Test
+  public void wildcards() throws Exception {
+    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithWildcards()));
   }
 
   static class WithOutputPathList implements FakeBuildable {
@@ -81,6 +150,11 @@ public class OutputPathVisitorTest extends AbstractValueVisitorTest {
   }
 
   @Override
+  public void optionalInt() {
+    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new WithOptionalInt()));
+  }
+
+  @Override
   @Test
   public void simple() {
     MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new Simple()));
@@ -89,7 +163,7 @@ public class OutputPathVisitorTest extends AbstractValueVisitorTest {
   @Override
   @Test
   public void superClass() {
-    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new Derived()));
+    MoreAsserts.assertIterablesEquals(ImmutableList.of(), getOutputs(new TwiceDerived()));
   }
 
   @Override

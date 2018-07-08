@@ -16,45 +16,41 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.jvm.java.ConfiguredCompilerFactory;
-import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaConfiguredCompilerFactory;
+import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.kotlin.KotlinBuckConfig;
 import com.facebook.buck.jvm.kotlin.KotlinConfiguredCompilerFactory;
 import com.facebook.buck.jvm.scala.ScalaBuckConfig;
 import com.facebook.buck.jvm.scala.ScalaConfiguredCompilerFactory;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.HumanReadableException;
 
 public class DefaultAndroidLibraryCompilerFactory implements AndroidLibraryCompilerFactory {
-  private final ToolchainProvider toolchainProvider;
   private final JavaBuckConfig javaConfig;
   private final ScalaBuckConfig scalaConfig;
   private final KotlinBuckConfig kotlinBuckConfig;
 
   public DefaultAndroidLibraryCompilerFactory(
-      ToolchainProvider toolchainProvider,
-      JavaBuckConfig javaConfig,
-      ScalaBuckConfig scalaConfig,
-      KotlinBuckConfig kotlinBuckConfig) {
-    this.toolchainProvider = toolchainProvider;
+      JavaBuckConfig javaConfig, ScalaBuckConfig scalaConfig, KotlinBuckConfig kotlinBuckConfig) {
     this.javaConfig = javaConfig;
     this.scalaConfig = scalaConfig;
     this.kotlinBuckConfig = kotlinBuckConfig;
   }
 
   @Override
-  public ConfiguredCompilerFactory getCompiler(AndroidLibraryDescription.JvmLanguage language) {
-    ExtraClasspathProvider extraClasspathProvider = new AndroidClasspathProvider(toolchainProvider);
+  public ConfiguredCompilerFactory getCompiler(
+      AndroidLibraryDescription.JvmLanguage language, JavacFactory javacFactory) {
     switch (language) {
       case JAVA:
-        return new JavaConfiguredCompilerFactory(javaConfig, extraClasspathProvider);
+        return new JavaConfiguredCompilerFactory(
+            javaConfig, AndroidClasspathProvider::new, javacFactory);
       case SCALA:
-        return new ScalaConfiguredCompilerFactory(scalaConfig, javaConfig, extraClasspathProvider);
+        return new ScalaConfiguredCompilerFactory(
+            scalaConfig, AndroidClasspathProvider::new, javacFactory);
       case KOTLIN:
         return new KotlinConfiguredCompilerFactory(
-            kotlinBuckConfig, javaConfig, extraClasspathProvider);
+            kotlinBuckConfig, AndroidClasspathProvider::new, javacFactory);
     }
     throw new HumanReadableException("Unsupported `language` parameter value: %s", language);
   }

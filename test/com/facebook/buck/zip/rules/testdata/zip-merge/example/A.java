@@ -1,4 +1,0 @@
-package example;
-
-class A {
-}

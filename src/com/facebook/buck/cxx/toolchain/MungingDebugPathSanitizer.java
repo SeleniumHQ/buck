@@ -22,6 +22,9 @@ import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.WRITE;
 
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.rules.modern.PathSerialization;
 import com.facebook.buck.util.ByteBufferReplacer;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -45,12 +48,16 @@ import java.util.Optional;
  * DW_AT_comp_dir DWARF field).
  */
 public class MungingDebugPathSanitizer extends DebugPathSanitizer {
-
   private static final DebugSectionFinder DEBUG_SECTION_FINDER = new DebugSectionFinder();
 
+  @AddToRuleKey(stringify = true)
+  @CustomFieldBehavior(PathSerialization.class)
   private final Path compilationDirectory;
-  private final int pathSize;
-  private final char separator;
+
+  @AddToRuleKey private final int pathSize;
+  @AddToRuleKey private final char separator;
+
+  @CustomFieldBehavior(OtherSerialization.class)
   private final ImmutableBiMap<Path, String> other;
 
   /**
@@ -60,6 +67,7 @@ public class MungingDebugPathSanitizer extends DebugPathSanitizer {
    */
   public MungingDebugPathSanitizer(
       int pathSize, char separator, Path compilationDirectory, ImmutableBiMap<Path, String> other) {
+    Preconditions.checkState(!compilationDirectory.isAbsolute());
     this.compilationDirectory = compilationDirectory;
     this.pathSize = pathSize;
     this.separator = separator;

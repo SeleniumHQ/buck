@@ -18,13 +18,12 @@ package com.facebook.buck.rules.keys;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.type.BuildRuleType;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.io.ArchiveMemberPath;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourceRoot;
 import com.facebook.buck.rules.keys.hasher.CountingRuleKeyHasher;
 import com.facebook.buck.rules.keys.hasher.GuavaRuleKeyHasher;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
@@ -83,6 +82,13 @@ public class CountingRuleKeyHasherTest {
     assertEquals(
         newGuavaHasher().putNumber((double) 42).hash(),
         newCountHasher().putNumber((double) 42).hash());
+    assertEquals(
+        newGuavaHasher().putCharacter((char) 0).hash(),
+        newCountHasher().putCharacter((char) 0).hash());
+    assertEquals(
+        newGuavaHasher().putCharacter((char) 42).hash(),
+        newCountHasher().putCharacter((char) 42).hash());
+
     assertEquals(newGuavaHasher().putString("").hash(), newCountHasher().putString("").hash());
     assertEquals(newGuavaHasher().putString("42").hash(), newCountHasher().putString("42").hash());
     assertEquals(
@@ -299,6 +305,10 @@ public class CountingRuleKeyHasherTest {
     hasher.putNumber((double) 0);
     assertEquals(++count, hasher.getCount());
     hasher.putNumber((double) 42).putNumber((double) 43);
+    assertEquals(count += 2, hasher.getCount());
+    hasher.putCharacter((char) 0);
+    assertEquals(++count, hasher.getCount());
+    hasher.putCharacter((char) 42).putCharacter((char) 43);
     assertEquals(count += 2, hasher.getCount());
     hasher.putString("");
     assertEquals(++count, hasher.getCount());

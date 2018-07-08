@@ -22,10 +22,10 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.facebook.buck.rules.TestCellPathResolver;
+import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.ErrorLogger;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -59,7 +59,7 @@ public class BuilderParamInfoTest {
   }
 
   @Test
-  public void optionalsForAbstractClass() throws Exception {
+  public void optionalsForAbstractClass() {
     for (ParamInfo param :
         CoercedTypeCache.INSTANCE
             .getAllParamInfo(new DefaultTypeCoercerFactory(), DtoWithOptionals.class)
@@ -69,7 +69,7 @@ public class BuilderParamInfoTest {
   }
 
   @Test
-  public void optionalsForInterface() throws Exception {
+  public void optionalsForInterface() {
     for (ParamInfo param :
         CoercedTypeCache.INSTANCE
             .getAllParamInfo(new DefaultTypeCoercerFactory(), DtoWithOptionalsFromInterface.class)
@@ -93,18 +93,18 @@ public class BuilderParamInfoTest {
   }
 
   @Test
-  public void get() throws Exception {
+  public void get() {
     assertEquals(
         "foo", getParamInfo().get(DtoWithOneParameter.builder().setSomeString("foo").build()));
   }
 
   @Test
-  public void getName() throws Exception {
+  public void getName() {
     assertEquals("someString", getParamInfo().getName());
   }
 
   @Test
-  public void getPythonName() throws Exception {
+  public void getPythonName() {
     assertEquals("some_string", getParamInfo().getPythonName());
   }
 

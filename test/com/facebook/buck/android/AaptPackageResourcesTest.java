@@ -18,26 +18,25 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertNotEquals;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -51,7 +50,7 @@ import org.junit.Test;
 
 public class AaptPackageResourcesTest {
 
-  private BuildRuleResolver ruleResolver;
+  private ActionGraphBuilder graphBuilder;
   private SourcePathRuleFinder ruleFinder;
   private SourcePathResolver pathResolver;
   private BuildTarget aaptTarget;
@@ -95,13 +94,11 @@ public class AaptPackageResourcesTest {
             .build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(resourceNode, resourceNode2);
-    ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    resource1 = (AndroidResource) ruleResolver.requireRule(resourceNode.getBuildTarget());
-    resource2 = (AndroidResource) ruleResolver.requireRule(resourceNode2.getBuildTarget());
+    graphBuilder = new TestActionGraphBuilder(targetGraph);
+    resource1 = (AndroidResource) graphBuilder.requireRule(resourceNode.getBuildTarget());
+    resource2 = (AndroidResource) graphBuilder.requireRule(resourceNode2.getBuildTarget());
 
-    ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    ruleFinder = new SourcePathRuleFinder(graphBuilder);
     pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     aaptTarget = BuildTargetFactory.newInstance("//foo:bar");
 
@@ -118,14 +115,12 @@ public class AaptPackageResourcesTest {
     SourcePath manifest;
     FilteredResourcesProvider filteredResourcesProvider;
     ImmutableList<HasAndroidResourceDeps> hasAndroidResourceDeps;
-    AndroidBinary.PackageType packageType;
     ManifestEntries manifestEntries;
 
     AaptConstructorArgs() {
       manifest = createPathSourcePath("AndroidManifest.xml", "content");
       filteredResourcesProvider = new IdentityResourcesProvider(ImmutableList.of());
       hasAndroidResourceDeps = ImmutableList.of();
-      packageType = AndroidBinary.PackageType.DEBUG;
       manifestEntries = ManifestEntries.empty();
     }
   }
@@ -267,8 +262,9 @@ public class AaptPackageResourcesTest {
                 filesystem,
                 TestAndroidPlatformTargetFactory.create(),
                 ruleFinder,
-                ruleResolver,
+                graphBuilder,
                 constructorArgs.manifest,
+                ImmutableList.of(),
                 constructorArgs.filteredResourcesProvider,
                 constructorArgs.hasAndroidResourceDeps,
                 false,

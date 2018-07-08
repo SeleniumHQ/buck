@@ -21,12 +21,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Joiner;
 import java.io.IOException;
 import org.hamcrest.Matchers;
@@ -73,13 +73,13 @@ public class MainIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "includes_override", tmp);
     workspace.setUp();
     workspace
-        .runBuckCommand("targets", "--config", "buildfile.includes=//includes.py")
+        .runBuckCommand("targets", "--config", "buildfile.includes=//includes.py", "//...")
         .assertSuccess();
     workspace
-        .runBuckCommand("targets", "--config", "//buildfile.includes=//includes.py")
+        .runBuckCommand("targets", "--config", "//buildfile.includes=//includes.py", "//...")
         .assertSuccess();
     workspace
-        .runBuckCommand("targets", "--config", "repo//buildfile.includes=//includes.py")
+        .runBuckCommand("targets", "--config", "repo//buildfile.includes=//includes.py", "//...")
         .assertSuccess();
   }
 

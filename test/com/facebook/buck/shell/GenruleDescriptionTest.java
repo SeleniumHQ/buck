@@ -16,23 +16,23 @@
 
 package com.facebook.buck.shell;
 
-import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
+import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TargetNodeFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.macros.ClasspathMacro;
@@ -40,7 +40,6 @@ import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.rules.visibility.VisibilityPattern;
 import com.facebook.buck.sandbox.NoSandboxExecutionStrategy;
 import com.facebook.buck.testutil.AllExistingProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -87,7 +86,7 @@ public class GenruleDescriptionTest {
             instance);
     TargetNode<GenruleDescriptionArg, GenruleDescription> targetNode =
         new TargetNodeFactory(new DefaultTypeCoercerFactory())
-            .create(
+            .createFromObject(
                 Hashing.sha1().hashString(buildTarget.getFullyQualifiedName(), UTF_8),
                 genruleDescription,
                 constructorArg,
@@ -108,7 +107,7 @@ public class GenruleDescriptionTest {
   }
 
   @Test
-  public void testClasspathTransitiveDepsBecomeFirstOrderDeps() throws Exception {
+  public void testClasspathTransitiveDepsBecomeFirstOrderDeps() {
     TargetNode<?, ?> transitiveDepNode =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//exciting:dep"))
             .addSrc(Paths.get("Dep.java"))
@@ -126,13 +125,11 @@ public class GenruleDescriptionTest {
 
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(transitiveDepNode, depNode, genruleNode);
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
 
-    BuildRule dep = resolver.requireRule(depNode.getBuildTarget());
-    BuildRule transitiveDep = resolver.requireRule(transitiveDepNode.getBuildTarget());
-    BuildRule genrule = resolver.requireRule(genruleNode.getBuildTarget());
+    BuildRule dep = graphBuilder.requireRule(depNode.getBuildTarget());
+    BuildRule transitiveDep = graphBuilder.requireRule(transitiveDepNode.getBuildTarget());
+    BuildRule genrule = graphBuilder.requireRule(genruleNode.getBuildTarget());
 
     assertThat(genrule.getBuildDeps(), Matchers.containsInAnyOrder(dep, transitiveDep));
   }

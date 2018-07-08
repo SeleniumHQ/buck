@@ -16,30 +16,30 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.toolchain.ArchiveContents;
 import com.facebook.buck.cxx.toolchain.Archiver;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.CacheableBuildRule;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
-import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.FileScrubberStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -53,11 +53,10 @@ import java.util.Optional;
 import java.util.SortedSet;
 
 /**
- * A {@link com.facebook.buck.rules.BuildRule} which builds an "ar" archive from input files
- * represented as {@link com.facebook.buck.rules.SourcePath}.
+ * A {@link BuildRule} which builds an "ar" archive from input files represented as {@link
+ * SourcePath}.
  */
-public class Archive extends AbstractBuildRule
-    implements SupportsInputBasedRuleKey, CacheableBuildRule {
+public class Archive extends AbstractBuildRule implements SupportsInputBasedRuleKey {
 
   @AddToRuleKey private final Archiver archiver;
   @AddToRuleKey private ImmutableList<String> archiverFlags;
@@ -135,10 +134,9 @@ public class Archive extends AbstractBuildRule
   }
 
   /**
-   * Construct an {@link com.facebook.buck.cxx.Archive} from a {@link
-   * com.facebook.buck.rules.BuildRuleParams} object representing a target node. In particular, make
-   * sure to trim dependencies to *only* those that provide the input {@link
-   * com.facebook.buck.rules.SourcePath}.
+   * Construct an {@link com.facebook.buck.cxx.Archive} from a {@link BuildRuleParams} object
+   * representing a target node. In particular, make sure to trim dependencies to *only* those that
+   * provide the input {@link SourcePath}.
    */
   public static Archive from(
       BuildTarget target,
@@ -153,16 +151,17 @@ public class Archive extends AbstractBuildRule
       ImmutableList<SourcePath> inputs,
       boolean cacheable) {
 
-    ImmutableSortedSet<BuildRule> deps =
-        ImmutableSortedSet.<BuildRule>naturalOrder()
-            .addAll(ruleFinder.filterBuildRuleInputs(inputs))
-            .addAll(BuildableSupport.getDepsCollection(archiver, ruleFinder))
-            .build();
+    ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
+
+    deps.addAll(ruleFinder.filterBuildRuleInputs(inputs))
+        .addAll(BuildableSupport.getDepsCollection(archiver, ruleFinder));
+
+    ranlib.ifPresent(r -> deps.addAll(BuildableSupport.getDepsCollection(r, ruleFinder)));
 
     return new Archive(
         target,
         projectFilesystem,
-        deps,
+        deps.build(),
         archiver,
         arFlags,
         ranlib,

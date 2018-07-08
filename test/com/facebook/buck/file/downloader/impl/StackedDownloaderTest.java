@@ -26,13 +26,13 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.file.downloader.Downloader;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.jimfs.Configuration;
@@ -106,8 +106,7 @@ public class StackedDownloaderTest {
   }
 
   @Test
-  public void createDownloadersForEachEntryInTheMavenRepositoriesSection()
-      throws InterruptedException, IOException {
+  public void createDownloadersForEachEntryInTheMavenRepositoriesSection() throws IOException {
     boolean isWindows = Platform.detect() == Platform.WINDOWS;
     Configuration configuration = isWindows ? Configuration.windows() : Configuration.unix();
     FileSystem vfs = Jimfs.newFileSystem(configuration);
@@ -123,7 +122,7 @@ public class StackedDownloaderTest {
             .setFilesystem(TestProjectFilesystems.createProjectFilesystem(projectRoot))
             .setSections(
                 "[maven_repositories]",
-                "local = " + m2Root.toString(),
+                "local = " + m2Root,
                 "central = https://repo1.maven.org/maven2")
             .build();
 
@@ -155,7 +154,7 @@ public class StackedDownloaderTest {
   }
 
   @Test
-  public void shouldFallBackToTheDeprecatedMechanismForCreatingMavenRepos() throws IOException {
+  public void shouldFallBackToTheDeprecatedMechanismForCreatingMavenRepos() {
     // Set up a config so we expect to see both a local and a remote maven repo.
     BuckConfig config =
         FakeBuckConfig.builder()
@@ -243,7 +242,7 @@ public class StackedDownloaderTest {
   }
 
   @Test
-  public void shouldUseRetryingDownloaderIfMaxNumberOfRetriesIsSet() throws IOException {
+  public void shouldUseRetryingDownloaderIfMaxNumberOfRetriesIsSet() {
     BuckConfig config =
         FakeBuckConfig.builder().setSections("[download]", "max_number_of_retries = 1").build();
 
@@ -253,14 +252,14 @@ public class StackedDownloaderTest {
   }
 
   @Test
-  public void shouldNotUseRetryingDownloaderIfMaxNumberOfRetriesIsSet() throws IOException {
+  public void shouldNotUseRetryingDownloaderIfMaxNumberOfRetriesIsSet() {
     BuckConfig config = FakeBuckConfig.builder().build();
     Downloader downloader =
         StackedDownloader.createFromConfig(config, new ToolchainProviderBuilder().build());
     assertThat(downloader, not(includes(RetryingDownloader.class)));
   }
 
-  private Matcher<Downloader> includes(final Class<? extends Downloader> clazz) {
+  private Matcher<Downloader> includes(Class<? extends Downloader> clazz) {
     return new BaseMatcher<Downloader>() {
       @Override
       public void describeTo(Description description) {

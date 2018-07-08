@@ -21,18 +21,17 @@ import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.type.BuildRuleType;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourceRoot;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher.Container;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher.Wrapper;
@@ -89,6 +88,8 @@ public final class CommonRuleKeyHasherTest {
                     .map(num -> pair.apply(num.getFirst(), h -> h.putNumber(num.getSecond())))
                     .iterator())
             .add(
+                pair.apply("(char) 0", h -> h.putCharacter((char) 0)),
+                pair.apply("(char) 42", h -> h.putCharacter((char) 42)),
                 pair.apply("\"\"", h -> h.putString("")),
                 pair.apply("\"42\"", h -> h.putString("42")),
                 pair.apply("\"4\", \"2\"", h -> h.putString("4").putString("2")),
@@ -163,6 +164,7 @@ public final class CommonRuleKeyHasherTest {
                 pair.apply("Container<MAP, 42>", h -> h.putContainer(Container.MAP, 42)),
                 pair.apply("Wrapper<SUPPLIER>", h -> h.putWrapper(Wrapper.SUPPLIER)),
                 pair.apply("Wrapper<OPTIONAL>", h -> h.putWrapper(Wrapper.OPTIONAL)),
+                pair.apply("Wrapper<OPTIONAL_INT>", h -> h.putWrapper(Wrapper.OPTIONAL_INT)),
                 pair.apply("Wrapper<EITHER_LEFT>", h -> h.putWrapper(Wrapper.EITHER_LEFT)),
                 pair.apply("Wrapper<EITHER_RIGHT>", h -> h.putWrapper(Wrapper.EITHER_RIGHT)),
                 pair.apply("Wrapper<BUILD_RULE>", h -> h.putWrapper(Wrapper.BUILD_RULE)),

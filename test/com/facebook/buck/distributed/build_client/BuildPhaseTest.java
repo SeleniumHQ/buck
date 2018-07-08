@@ -30,12 +30,30 @@ import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.command.BuildExecutorArgs;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionNotifier;
+import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
+import com.facebook.buck.core.build.engine.delegate.CachingBuildEngineDelegate;
+import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDelegate;
+import com.facebook.buck.core.build.engine.impl.DefaultRuleDepsCache;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.ActionGraph;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
+import com.facebook.buck.core.model.graph.ActionAndTargetGraphs;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.distributed.BuildSlaveEventWrapper;
 import com.facebook.buck.distributed.ClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.distributed.DistBuildUtil;
-import com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory;
+import com.facebook.buck.distributed.DistLocalBuildMode;
+import com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory;
 import com.facebook.buck.distributed.thrift.BuckVersion;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildMode;
@@ -50,30 +68,15 @@ import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
 import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.ConsoleEventSeverity;
 import com.facebook.buck.distributed.thrift.LogLineBatchRequest;
+import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.MultiGetBuildSlaveRealTimeLogsResponse;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.distributed.thrift.StreamLogs;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.ActionAndTargetGraphs;
-import com.facebook.buck.rules.ActionGraph;
-import com.facebook.buck.rules.ActionGraphAndResolver;
-import com.facebook.buck.rules.BuildInfoStoreManager;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CachingBuildEngineDelegate;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
-import com.facebook.buck.rules.NoOpRemoteBuildRuleCompletionNotifier;
-import com.facebook.buck.rules.ParallelRuleKeyCalculator;
-import com.facebook.buck.rules.RuleDepsCache;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGraphAndBuildTargets;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
@@ -111,6 +114,7 @@ import org.junit.Test;
 
 public class BuildPhaseTest {
   private static final String BUILD_LABEL = "unit_test";
+  private static final String MINION_TYPE = "standard_type";
   private static final int POLL_MILLIS = 1;
   private static final String MINION_QUEUE_NAME = "awesome_test_queue";
   private static final int NUM_MINIONS = 2;
@@ -125,6 +129,7 @@ public class BuildPhaseTest {
   private ClientStatsTracker distBuildClientStatsTracker;
   private ConsoleEventsDispatcher consoleEventsDispatcher;
   private BuildPhase buildPhase;
+  private BuildExecutorArgs executorArgs;
 
   @Before
   public void setUp() throws IOException, InterruptedException {
@@ -133,17 +138,41 @@ public class BuildPhaseTest {
     scheduler = Executors.newSingleThreadScheduledExecutor();
     buckVersion = new BuckVersion();
     buckVersion.setGitHash("thishashisamazing");
-    distBuildClientStatsTracker = new ClientStatsTracker(BUILD_LABEL);
+    distBuildClientStatsTracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
     directExecutor =
         new FakeWeightedListeningExecutorService(MoreExecutors.newDirectExecutorService());
     mockEventBus = EasyMock.createMock(BuckEventBus.class);
     stampedeId = new StampedeId();
     stampedeId.setId("uber-cool-stampede-id");
     consoleEventsDispatcher = new ConsoleEventsDispatcher(mockEventBus);
+    BuckConfig buckConfig =
+        FakeBuckConfig.builder()
+            .setSections(
+                ImmutableMap.of("stampede", ImmutableMap.of("minion_queue", MINION_QUEUE_NAME)))
+            .build();
+    executorArgs =
+        BuildExecutorArgs.builder()
+            .setArtifactCacheFactory(new NoopArtifactCache.NoopArtifactCacheFactory())
+            .setBuckEventBus(mockEventBus)
+            .setBuildInfoStoreManager(new BuildInfoStoreManager())
+            .setClock(new DefaultClock())
+            .setConsole(new TestConsole())
+            .setPlatform(Platform.detect())
+            .setProjectFilesystemFactory(new FakeProjectFilesystemFactory())
+            .setRuleKeyConfiguration(
+                ConfigRuleKeyConfigurationFactory.create(
+                    FakeBuckConfig.builder().build(),
+                    TestBuckModuleManagerFactory.create(
+                        BuckPluginManagerFactory.createPluginManager())))
+            .setRootCell(
+                new TestCellBuilder()
+                    .setFilesystem(new FakeProjectFilesystem())
+                    .setBuckConfig(buckConfig)
+                    .build())
+            .build();
   }
 
   private void createBuildPhase(
-      BuildExecutorArgs executorArgs,
       ImmutableSet<BuildTarget> topLevelTargets,
       ActionAndTargetGraphs graphs,
       Optional<CachingBuildEngineDelegate> buildEngineDelegate) {
@@ -159,11 +188,14 @@ public class BuildPhaseTest {
             scheduler,
             POLL_MILLIS,
             new NoOpRemoteBuildRuleCompletionNotifier(),
-            consoleEventsDispatcher);
+            consoleEventsDispatcher,
+            new DefaultClock(),
+            600,
+            500);
   }
 
   private void createBuildPhase() {
-    createBuildPhase(null, ImmutableSet.of(), null, Optional.empty());
+    createBuildPhase(ImmutableSet.of(), null, Optional.empty());
   }
 
   @After
@@ -179,65 +211,41 @@ public class BuildPhaseTest {
   public void testCoordinatorIsRunInLocalCoordinatorMode()
       throws IOException, InterruptedException {
     // Create the full BuildPhase for local coordinator mode.
-    BuckConfig buckConfig =
-        FakeBuckConfig.builder()
-            .setSections(
-                ImmutableMap.of("stampede", ImmutableMap.of("minion_queue", MINION_QUEUE_NAME)))
-            .build();
-
-    BuildExecutorArgs executorArgs =
-        BuildExecutorArgs.builder()
-            .setArtifactCacheFactory(new NoopArtifactCache.NoopArtifactCacheFactory())
-            .setBuckEventBus(mockEventBus)
-            .setBuildInfoStoreManager(new BuildInfoStoreManager())
-            .setClock(new DefaultClock())
-            .setConsole(new TestConsole())
-            .setPlatform(Platform.detect())
-            .setProjectFilesystemFactory(new FakeProjectFilesystemFactory())
-            .setRuleKeyConfiguration(
-                ConfigRuleKeyConfigurationFactory.create(
-                    FakeBuckConfig.builder().build(),
-                    BuckPluginManagerFactory.createPluginManager()))
-            .setRootCell(
-                new TestCellBuilder()
-                    .setFilesystem(new FakeProjectFilesystem())
-                    .setBuckConfig(buckConfig)
-                    .build())
-            .build();
-
-    BuildRuleResolver resolver = CustomBuildRuleResolverFactory.createSimpleResolver();
+    ActionGraphBuilder graphBuilder = CustomActiongGraphBuilderFactory.createSimpleBuilder();
     ImmutableSet<BuildTarget> targets =
-        ImmutableSet.of(BuildTargetFactory.newInstance(CustomBuildRuleResolverFactory.ROOT_TARGET));
+        ImmutableSet.of(
+            BuildTargetFactory.newInstance(CustomActiongGraphBuilderFactory.ROOT_TARGET));
 
     ActionAndTargetGraphs graphs =
         ActionAndTargetGraphs.builder()
-            .setActionGraphAndResolver(
-                ActionGraphAndResolver.of(new ActionGraph(resolver.getBuildRules()), resolver))
+            .setActionGraphAndBuilder(
+                ActionGraphAndBuilder.of(
+                    new ActionGraph(graphBuilder.getBuildRules()), graphBuilder))
             .setUnversionedTargetGraph(TargetGraphAndBuildTargets.of(TargetGraph.EMPTY, targets))
             .build();
 
     FileHashCache fileHashCache = FakeFileHashCache.createFromStrings(ImmutableMap.of());
 
     createBuildPhase(
-        executorArgs,
-        targets,
-        graphs,
-        Optional.of(new LocalCachingBuildEngineDelegate(fileHashCache)));
+        targets, graphs, Optional.of(new LocalCachingBuildEngineDelegate(fileHashCache)));
 
     // Set expectations.
     mockDistBuildService.reportCoordinatorIsAlive(stampedeId);
     expectLastCall().anyTimes();
 
-    final BuildJob job0 = new BuildJob().setStampedeId(stampedeId).setStatus(BuildStatus.BUILDING);
-    final BuildJob job1 =
+    BuildJob job0 = new BuildJob().setStampedeId(stampedeId).setStatus(BuildStatus.BUILDING);
+    BuildJob job1 =
         new BuildJob()
             .setStampedeId(stampedeId)
             .setStatus(BuildStatus.BUILDING)
-            .setBuildModeInfo(new BuildModeInfo().setNumberOfMinions(NUM_MINIONS));
-    final BuildJob job2 =
+            .setBuildModeInfo(
+                new BuildModeInfo()
+                    .setTotalNumberOfMinions(NUM_MINIONS)
+                    .setMode(BuildMode.DISTRIBUTED_BUILD_WITH_LOCAL_COORDINATOR));
+    BuildJob job2 =
         new BuildJob().setStampedeId(stampedeId).setStatus(BuildStatus.FINISHED_SUCCESSFULLY);
-    final ImmutableList<BuildJob> jobs = ImmutableList.of(job0, job1, job2);
-    final AtomicInteger testStage = new AtomicInteger(0);
+    ImmutableList<BuildJob> jobs = ImmutableList.of(job0, job1, job2);
+    AtomicInteger testStage = new AtomicInteger(0);
     expect(mockDistBuildService.startBuild(stampedeId, false)).andReturn(jobs.get(0)).times(1);
 
     expect(mockDistBuildService.getCurrentBuildJobState(stampedeId))
@@ -253,7 +261,12 @@ public class BuildPhaseTest {
             })
         .once();
 
-    mockDistBuildService.enqueueMinions(stampedeId, NUM_MINIONS, MINION_QUEUE_NAME);
+    mockDistBuildService.enqueueMinions(
+        eq(stampedeId),
+        anyString(),
+        eq(NUM_MINIONS),
+        eq(MINION_QUEUE_NAME),
+        eq(MinionType.STANDARD_SPEC));
     expectLastCall()
         .andAnswer(
             () -> {
@@ -269,12 +282,13 @@ public class BuildPhaseTest {
     replay(mockEventBus);
 
     SourcePathRuleFinder ruleFinder =
-        new SourcePathRuleFinder(graphs.getActionGraphAndResolver().getResolver());
+        new SourcePathRuleFinder(graphs.getActionGraphAndBuilder().getActionGraphBuilder());
 
     buildPhase.runDistBuildAndUpdateConsoleStatus(
         directExecutor,
         stampedeId,
         BuildMode.DISTRIBUTED_BUILD_WITH_LOCAL_COORDINATOR,
+        DistLocalBuildMode.WAIT_FOR_REMOTE,
         FakeInvocationInfoFactory.create(),
         Futures.immediateFuture(
             new ParallelRuleKeyCalculator<RuleKey>(
@@ -287,7 +301,7 @@ public class BuildPhaseTest {
                     new TrackedRuleKeyCache<RuleKey>(
                         new DefaultRuleKeyCache<>(), new NoOpCacheStatsTracker()),
                     Optional.empty()),
-                new RuleDepsCache(graphs.getActionGraphAndResolver().getResolver()),
+                new DefaultRuleDepsCache(graphs.getActionGraphAndBuilder().getActionGraphBuilder()),
                 (buckEventBus, rule) -> () -> {})));
 
     verify(mockDistBuildService);
@@ -298,7 +312,7 @@ public class BuildPhaseTest {
   public void testFetchingSlaveEvents()
       throws IOException, ExecutionException, InterruptedException {
     createBuildPhase();
-    final BuildJob job = PostBuildPhaseTest.createBuildJobWithSlaves(stampedeId);
+    BuildJob job = PostBuildPhaseTest.createBuildJobWithSlaves(stampedeId);
     List<BuildSlaveRunId> buildSlaveRunIds =
         job.getBuildSlaves()
             .stream()
@@ -373,10 +387,10 @@ public class BuildPhaseTest {
   public void testRealTimeLogStreaming()
       throws IOException, ExecutionException, InterruptedException {
     createBuildPhase();
-    final BuildJob job = PostBuildPhaseTest.createBuildJobWithSlaves(stampedeId);
+    BuildJob job = PostBuildPhaseTest.createBuildJobWithSlaves(stampedeId);
 
     // Test that we don't fetch logs if the tracker says we don't need to.
-    expect(mockLogStateTracker.createRealtimeLogRequests(job.getBuildSlaves()))
+    expect(mockLogStateTracker.createStreamLogRequests(job.getBuildSlaves()))
         .andReturn(ImmutableList.of());
 
     // Test that we fetch logs properly if everything looks good.
@@ -384,7 +398,7 @@ public class BuildPhaseTest {
     logRequest1.setBatchNumber(5);
     LogLineBatchRequest logRequest2 = new LogLineBatchRequest();
     logRequest2.setBatchNumber(10);
-    expect(mockLogStateTracker.createRealtimeLogRequests(job.getBuildSlaves()))
+    expect(mockLogStateTracker.createStreamLogRequests(job.getBuildSlaves()))
         .andReturn(ImmutableList.of(logRequest1, logRequest2));
 
     MultiGetBuildSlaveRealTimeLogsResponse logsResponse =
@@ -415,7 +429,7 @@ public class BuildPhaseTest {
   public void testFetchingSlaveStatuses()
       throws IOException, ExecutionException, InterruptedException {
     createBuildPhase();
-    final BuildJob job = PostBuildPhaseTest.createBuildJobWithSlaves(stampedeId);
+    BuildJob job = PostBuildPhaseTest.createBuildJobWithSlaves(stampedeId);
     List<BuildSlaveRunId> buildSlaveRunIds =
         job.getBuildSlaves()
             .stream()

@@ -18,19 +18,17 @@ package com.facebook.buck.shell;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
@@ -46,15 +44,13 @@ public class ShTestDescriptionTest {
 
   @Test
   public void argsWithLocationMacro() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     BuildRule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
-            .build(resolver);
+            .build(graphBuilder);
     ShTestBuilder shTestBuilder =
         new ShTestBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setTest(FakeSourcePath.of("test.sh"))
@@ -62,7 +58,7 @@ public class ShTestDescriptionTest {
                 ImmutableList.of(
                     StringWithMacrosUtils.format("%s", LocationMacro.of(dep.getBuildTarget()))));
     assertThat(shTestBuilder.build().getParseDeps(), Matchers.hasItem(dep.getBuildTarget()));
-    ShTest shTest = shTestBuilder.build(resolver);
+    ShTest shTest = shTestBuilder.build(graphBuilder);
     assertThat(shTest.getBuildDeps(), Matchers.contains(dep));
     assertThat(
         Arg.stringify(shTest.getArgs(), pathResolver),
@@ -71,15 +67,13 @@ public class ShTestDescriptionTest {
 
   @Test
   public void envWithLocationMacro() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     BuildRule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
-            .build(resolver);
+            .build(graphBuilder);
     ShTestBuilder shTestBuilder =
         new ShTestBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setTest(FakeSourcePath.of("test.sh"))
@@ -88,7 +82,7 @@ public class ShTestDescriptionTest {
                     "LOC",
                     StringWithMacrosUtils.format("%s", LocationMacro.of(dep.getBuildTarget()))));
     assertThat(shTestBuilder.build().getParseDeps(), Matchers.hasItem(dep.getBuildTarget()));
-    ShTest shTest = shTestBuilder.build(resolver);
+    ShTest shTest = shTestBuilder.build(graphBuilder);
     assertThat(shTest.getBuildDeps(), Matchers.contains(dep));
     assertThat(
         Arg.stringify(shTest.getEnv(), pathResolver),

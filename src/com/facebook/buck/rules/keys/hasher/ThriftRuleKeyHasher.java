@@ -18,6 +18,10 @@ package com.facebook.buck.rules.keys.hasher;
 
 import static com.facebook.buck.log.thrift.rulekeys.Value._Fields.STRING_VALUE;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.type.BuildRuleType;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
@@ -31,11 +35,7 @@ import com.facebook.buck.log.thrift.rulekeys.RuleKeyHash;
 import com.facebook.buck.log.thrift.rulekeys.Sha1;
 import com.facebook.buck.log.thrift.rulekeys.TargetPath;
 import com.facebook.buck.log.thrift.rulekeys.Value;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourceRoot;
+import com.facebook.buck.rules.keys.SourceRoot;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.hash.HashCode;
 import java.nio.file.Path;
@@ -87,6 +87,11 @@ public class ThriftRuleKeyHasher implements RuleKeyHasher<FullRuleKey> {
   @Override
   public RuleKeyHasher<FullRuleKey> putNull() {
     return push(Value.nullValue(new NullValue()));
+  }
+
+  @Override
+  public RuleKeyHasher<FullRuleKey> putCharacter(char val) {
+    return push(Value.numberValue(val));
   }
 
   @Override

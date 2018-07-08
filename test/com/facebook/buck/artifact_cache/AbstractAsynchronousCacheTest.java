@@ -22,9 +22,10 @@ import static org.junit.Assert.assertTrue;
 import com.facebook.buck.artifact_cache.AbstractAsynchronousCache.CacheEventListener;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.util.RichStream;
@@ -50,15 +51,15 @@ public class AbstractAsynchronousCacheTest {
     List<ImmutableList<RuleKey>> requestedRuleKeys = new ArrayList<>();
 
     try (AbstractAsynchronousCache cache =
-        new RequestedKeyRecordingAsynchronousCache(
-            service, filesystem, requestedRuleKeys, 3, 3); ) {
+        new RequestedKeyRecordingAsynchronousCache(service, filesystem, requestedRuleKeys, 3, 3)) {
 
       List<ListenableFuture<CacheResult>> results = new ArrayList<>();
       List<RuleKey> keys = new ArrayList<>();
       for (int i = 0; i < 10; i++) {
         RuleKey key = new RuleKey(HashCode.fromInt(i));
         keys.add(key);
-        results.add(cache.fetchAsync(key, LazyPath.ofInstance(filesystem.getPath("path" + i))));
+        results.add(
+            cache.fetchAsync(null, key, LazyPath.ofInstance(filesystem.getPath("path" + i))));
       }
 
       service.run();
@@ -105,12 +106,12 @@ public class AbstractAsynchronousCacheTest {
     List<ImmutableList<RuleKey>> requestedRuleKeys = new ArrayList<>();
 
     try (AbstractAsynchronousCache cache =
-        new RequestedKeyRecordingAsynchronousCache(
-            service, filesystem, requestedRuleKeys, 3, 3); ) {
+        new RequestedKeyRecordingAsynchronousCache(service, filesystem, requestedRuleKeys, 3, 3)) {
 
       // Make an async fetch request and allow it to run on the Executor
       ListenableFuture<CacheResult> fetchRequestOne =
           cache.fetchAsync(
+              null,
               new RuleKey(HashCode.fromInt(1)),
               LazyPath.ofInstance(filesystem.getPath("path_one")));
 
@@ -122,6 +123,7 @@ public class AbstractAsynchronousCacheTest {
       // run the request on the Executor => it should be skipped
       ListenableFuture<CacheResult> fetchRequestTwo =
           cache.fetchAsync(
+              null,
               new RuleKey(HashCode.fromInt(2)),
               LazyPath.ofInstance(filesystem.getPath("path_two")));
       cache.skipPendingAndFutureAsyncFetches();
@@ -133,6 +135,7 @@ public class AbstractAsynchronousCacheTest {
       // Make a further request and ensure it also gets skipped.
       ListenableFuture<CacheResult> fetchRequestThree =
           cache.fetchAsync(
+              null,
               new RuleKey(HashCode.fromInt(3)),
               LazyPath.ofInstance(filesystem.getPath("path_three")));
 
@@ -160,7 +163,7 @@ public class AbstractAsynchronousCacheTest {
     public void fetchScheduled(RuleKey ruleKey) {}
 
     @Override
-    public CacheEventListener.FetchRequestEvents fetchStarted(RuleKey ruleKey) {
+    public CacheEventListener.FetchRequestEvents fetchStarted(BuildTarget target, RuleKey ruleKey) {
       return new FetchRequestEvents() {
         @Override
         public void finished(FetchResult result) {}
@@ -172,7 +175,7 @@ public class AbstractAsynchronousCacheTest {
 
     @Override
     public CacheEventListener.MultiFetchRequestEvents multiFetchStarted(
-        ImmutableList<RuleKey> keys) {
+        ImmutableList<BuildTarget> targets, ImmutableList<RuleKey> keys) {
       return new MultiFetchRequestEvents() {
         @Override
         public void skipped(int keyIndex) {}
@@ -215,14 +218,13 @@ public class AbstractAsynchronousCacheTest {
     }
 
     @Override
-    protected FetchResult fetchImpl(RuleKey ruleKey, LazyPath output) throws IOException {
+    protected FetchResult fetchImpl(RuleKey ruleKey, LazyPath output) {
       requestedRuleKeys.add(ImmutableList.of(ruleKey));
       return hit();
     }
 
     @Override
-    protected MultiContainsResult multiContainsImpl(ImmutableSet<RuleKey> ruleKeys)
-        throws IOException {
+    protected MultiContainsResult multiContainsImpl(ImmutableSet<RuleKey> ruleKeys) {
       throw new UnsupportedOperationException("multiContains is not supported");
     }
 
@@ -235,18 +237,18 @@ public class AbstractAsynchronousCacheTest {
     }
 
     @Override
-    protected StoreResult storeImpl(ArtifactInfo info, Path file) throws IOException {
+    protected StoreResult storeImpl(ArtifactInfo info, Path file) {
       return null;
     }
 
     @Override
-    protected CacheDeleteResult deleteImpl(List<RuleKey> ruleKeys) throws IOException {
+    protected CacheDeleteResult deleteImpl(List<RuleKey> ruleKeys) {
       throw new RuntimeException("Delete operation is not supported");
     }
 
     @Override
     protected MultiFetchResult multiFetchImpl(
-        Iterable<AbstractAsynchronousCache.FetchRequest> requests) throws IOException {
+        Iterable<AbstractAsynchronousCache.FetchRequest> requests) {
       List<FetchResult> result = new ArrayList<>();
       result.add(hit());
       ImmutableList<RuleKey> keys =

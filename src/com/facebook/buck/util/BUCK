@@ -11,11 +11,7 @@ java_library(
     deps = [],
 )
 
-# TODO(cjhopman): Move HumanReadableException to exceptions/
-EXCEPTION_SRCS = [
-    "ExceptionWithHumanReadableMessage.java",
-    "HumanReadableException.java",
-] + glob(["exceptions/*.java"])
+EXCEPTION_SRCS = glob(["exceptions/*.java"])
 
 java_library(
     name = "exceptions",
@@ -38,6 +34,7 @@ IO_SRCS = [
     "FilteredDirectoryCopier.java",
     "ListeningCharsetDecoder.java",
     "ListeningCharsetEncoder.java",
+    "NamedTemporaryDirectory.java",
     "PkillProcessManager.java",
     "SimpleProcessListener.java",
     "TimeFormat.java",
@@ -55,6 +52,7 @@ java_immutables_library(
         ":exceptions",
         ":process_executor",
         ":util",
+        "//src/com/facebook/buck/core/exceptions:exceptions",
         "//src/com/facebook/buck/io:io",
         "//src/com/facebook/buck/io/file:file",
         "//src/com/facebook/buck/io/filesystem:filesystem",
@@ -128,13 +126,13 @@ java_library(
 java_immutables_library(
     name = "util",
     srcs = glob(
-        include = ["*.java"],
+        ["*.java"],
         exclude = CONSTANT_SRCS + EXCEPTION_SRCS + IO_SRCS +
                   PACKAGED_RESOURCE_SRCS + PROCESS_EXECUTOR_SRCS,
     ),
     exported_deps = [
+        "//src/com/facebook/buck/util/function:function",
         "//src/com/facebook/buck/util/types:types",
-        "//third-party/java/bazel:skylark-lang",
         "//third-party/java/guava:guava",
         "//third-party/java/jackson:jackson-databind",
     ],
@@ -146,14 +144,15 @@ java_immutables_library(
     ],
     deps = [
         ":exceptions",
+        "//src/com/facebook/buck/core/cell/name:name",
+        "//src/com/facebook/buck/core/exceptions:exceptions",
+        "//src/com/facebook/buck/core/exceptions/handler:handler",
         "//src/com/facebook/buck/event:interfaces",
         "//src/com/facebook/buck/log:api",
-        "//src/com/facebook/buck/rules:relative_cell_name",
-        "//src/com/facebook/buck/skylark/json:json",
         "//src/com/facebook/buck/util/environment:platform",
+        "//src/com/facebook/buck/util/function:function",
         "//third-party/java/guava:guava",
+        "//third-party/java/infer-annotations:infer-annotations",
         "//third-party/java/jackson:jackson-annotations",
-        "//third-party/java/jackson:jackson-datatype-guava",
-        "//third-party/java/jackson:jackson-datatype-jdk8",
     ],
 )

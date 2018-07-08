@@ -15,6 +15,8 @@
  */
 package com.facebook.buck.ide.intellij.lang.scala;
 
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.ide.intellij.BaseIjModuleRule;
 import com.facebook.buck.ide.intellij.ModuleBuildContext;
 import com.facebook.buck.ide.intellij.model.IjModuleFactoryResolver;
@@ -23,8 +25,6 @@ import com.facebook.buck.ide.intellij.model.IjProjectConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.scala.ScalaLibraryDescription;
 import com.facebook.buck.jvm.scala.ScalaLibraryDescriptionArg;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.TargetNode;
 
 public class ScalaLibraryModuleRule extends BaseIjModuleRule<ScalaLibraryDescriptionArg> {
 
@@ -36,7 +36,7 @@ public class ScalaLibraryModuleRule extends BaseIjModuleRule<ScalaLibraryDescrip
   }
 
   @Override
-  public Class<? extends Description<?>> getDescriptionClass() {
+  public Class<? extends DescriptionWithTargetGraph<?>> getDescriptionClass() {
     return ScalaLibraryDescription.class;
   }
 

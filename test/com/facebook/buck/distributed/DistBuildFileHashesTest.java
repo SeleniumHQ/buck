@@ -22,35 +22,33 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.ActionGraph;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.ArchiveMemberSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.distributed.testutil.FakeFileContentsProvider;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.io.ArchiveMemberPath;
-import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.ActionGraph;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.ArchiveMemberSourcePath;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.TestCellBuilder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.slb.ThriftUtil;
 import com.facebook.buck.util.cache.FileHashCacheMode;
@@ -99,7 +97,7 @@ public class DistBuildFileHashesTest {
     protected final FileSystem secondJavaFs;
 
     protected final ActionGraph actionGraph;
-    protected final BuildRuleResolver buildRuleResolver;
+    protected final ActionGraphBuilder graphBuilder;
     protected final SourcePathRuleFinder ruleFinder;
     protected final SourcePathResolver sourcePathResolver;
     protected final DistBuildFileHashes distributedBuildFileHashes;
@@ -112,13 +110,11 @@ public class DistBuildFileHashesTest {
       secondProjectFilesystem = second;
       secondJavaFs = secondProjectFilesystem.getRootPath().getFileSystem();
 
-      buildRuleResolver =
-          new SingleThreadedBuildRuleResolver(
-              TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-      ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+      graphBuilder = new TestActionGraphBuilder();
+      ruleFinder = new SourcePathRuleFinder(graphBuilder);
       sourcePathResolver = DefaultSourcePathResolver.from(ruleFinder);
-      setUpRules(buildRuleResolver, sourcePathResolver);
-      actionGraph = new ActionGraph(buildRuleResolver.getBuildRules());
+      setUpRules(graphBuilder, sourcePathResolver);
+      actionGraph = new ActionGraph(graphBuilder.getBuildRules());
       BuckConfig buckConfig = createBuckConfig();
       Cell rootCell =
           new TestCellBuilder().setFilesystem(projectFilesystem).setBuckConfig(buckConfig).build();
@@ -149,10 +145,10 @@ public class DistBuildFileHashesTest {
     }
 
     protected abstract void setUpRules(
-        BuildRuleResolver resolver, SourcePathResolver sourcePathResolver)
+        ActionGraphBuilder graphBuilder, SourcePathResolver sourcePathResolver)
         throws IOException, NoSuchBuildTargetException;
 
-    private StackedFileHashCache createFileHashCache() throws InterruptedException {
+    private StackedFileHashCache createFileHashCache() {
       ImmutableList.Builder<ProjectFileHashCache> cacheList = ImmutableList.builder();
       cacheList.add(
           DefaultFileHashCache.createDefaultFileHashCache(
@@ -186,7 +182,8 @@ public class DistBuildFileHashesTest {
     }
 
     @Override
-    protected void setUpRules(BuildRuleResolver resolver, SourcePathResolver sourcePathResolver)
+    protected void setUpRules(
+        ActionGraphBuilder graphBuilder, SourcePathResolver sourcePathResolver)
         throws IOException, NoSuchBuildTargetException {
       javaSrcPath = getPath("src", "A.java");
 
@@ -199,7 +196,7 @@ public class DistBuildFileHashesTest {
               BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:java_lib"),
               projectFilesystem)
           .addSrc(javaSrcPath)
-          .build(resolver, projectFilesystem);
+          .build(graphBuilder, projectFilesystem);
     }
   }
 
@@ -373,7 +370,8 @@ public class DistBuildFileHashesTest {
     }
 
     @Override
-    protected void setUpRules(BuildRuleResolver resolver, SourcePathResolver sourcePathResolver)
+    protected void setUpRules(
+        ActionGraphBuilder graphBuilder, SourcePathResolver sourcePathResolver)
         throws IOException, NoSuchBuildTargetException {
       archivePath = getPath("src", "archive.jar");
       archiveMemberPath = getPath("Archive.class");
@@ -388,7 +386,7 @@ public class DistBuildFileHashesTest {
       }
 
       BuildTarget target = BuildTargetFactory.newInstance("//:with_tool");
-      resolver.addToIndex(
+      graphBuilder.addToIndex(
           new BuildRuleWithToolAndPath(
               target,
               projectFilesystem,
@@ -400,8 +398,8 @@ public class DistBuildFileHashesTest {
 
     @Override
     public void close() throws IOException {
-      MoreFiles.deleteRecursively(firstFolder);
-      MoreFiles.deleteRecursively(secondFolder);
+      MostFiles.deleteRecursively(firstFolder);
+      MostFiles.deleteRecursively(secondFolder);
     }
   }
 
@@ -446,12 +444,12 @@ public class DistBuildFileHashesTest {
 
   @Test
   public void worksCrossCell() throws Exception {
-    final Fixture f =
+    Fixture f =
         new Fixture(tempDir) {
 
           @Override
           protected void setUpRules(
-              BuildRuleResolver resolver, SourcePathResolver sourcePathResolver)
+              ActionGraphBuilder graphBuilder, SourcePathResolver sourcePathResolver)
               throws IOException, NoSuchBuildTargetException {
             Path firstPath = javaFs.getPath("src", "A.java");
 
@@ -466,14 +464,14 @@ public class DistBuildFileHashesTest {
                         projectFilesystem.getRootPath(), "//:java_lib_at_root"),
                     projectFilesystem)
                 .addSrc(firstPath)
-                .build(resolver, projectFilesystem);
+                .build(graphBuilder, projectFilesystem);
 
             JavaLibraryBuilder.createBuilder(
                     BuildTargetFactory.newInstance(
                         secondProjectFilesystem.getRootPath(), "//:java_lib_at_secondary"),
                     secondProjectFilesystem)
                 .addSrc(secondPath)
-                .build(resolver, secondProjectFilesystem);
+                .build(graphBuilder, secondProjectFilesystem);
           }
 
           @Override

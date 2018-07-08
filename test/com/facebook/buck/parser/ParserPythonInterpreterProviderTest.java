@@ -21,9 +21,9 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -54,7 +54,7 @@ public class ParserPythonInterpreterProviderTest {
   }
 
   @Test
-  public void whenParserPythonDoesNotExistThenItIsNotUsed() throws IOException {
+  public void whenParserPythonDoesNotExistThenItIsNotUsed() {
     String invalidPath = temporaryFolder.getRoot().toAbsolutePath() + "DoesNotExist";
     BuckConfig buckConfig =
         FakeBuckConfig.builder()

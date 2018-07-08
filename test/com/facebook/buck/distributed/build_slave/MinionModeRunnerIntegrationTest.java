@@ -16,25 +16,31 @@
 
 package com.facebook.buck.distributed.build_slave;
 
-import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.CHAIN_TOP_TARGET;
-import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.LEAF_TARGET;
-import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.LEFT_TARGET;
-import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.RIGHT_TARGET;
-import static com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory.ROOT_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.CHAIN_TOP_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.LEAF_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.LEFT_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.RIGHT_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.ROOT_TARGET;
 
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.command.BuildExecutor;
+import com.facebook.buck.core.build.engine.BuildEngineResult;
+import com.facebook.buck.core.build.engine.BuildResult;
+import com.facebook.buck.core.build.engine.BuildRuleStatus;
+import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.build.engine.impl.CachingBuildEngine;
+import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
+import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.StampedeId;
+import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildEngineResult;
-import com.facebook.buck.rules.BuildResult;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleStatus;
-import com.facebook.buck.rules.BuildRuleSuccessType;
-import com.facebook.buck.rules.CachingBuildEngine;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.slb.ThriftException;
+import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Futures;
@@ -56,9 +62,12 @@ import org.junit.rules.TemporaryFolder;
 public class MinionModeRunnerIntegrationTest {
 
   private static final StampedeId STAMPEDE_ID = ThriftCoordinatorServerIntegrationTest.STAMPEDE_ID;
+  private static final MinionType MINION_TYPE = MinionType.STANDARD_SPEC;
   private static final int MAX_PARALLEL_WORK_UNITS = 10;
   private static final long POLL_LOOP_INTERVAL_MILLIS = 9;
   private static final int CONNECTION_TIMEOUT_MILLIS = 1000;
+  private static final BuckEventBus BUCK_EVENT_BUS =
+      new DefaultBuckEventBus(FakeClock.doNotCare(), new BuildId());
 
   @Rule public TemporaryFolder tempDir = new TemporaryFolder();
 
@@ -73,12 +82,14 @@ public class MinionModeRunnerIntegrationTest {
             OptionalInt.of(4242),
             Futures.immediateFuture(localBuilder),
             STAMPEDE_ID,
+            MINION_TYPE,
             new BuildSlaveRunId().setId("sl1"),
-            MAX_PARALLEL_WORK_UNITS,
+            new SingleBuildCapacityTracker(MAX_PARALLEL_WORK_UNITS),
             checker,
             POLL_LOOP_INTERVAL_MILLIS,
             new NoOpMinionBuildProgressTracker(),
-            CONNECTION_TIMEOUT_MILLIS);
+            CONNECTION_TIMEOUT_MILLIS,
+            BUCK_EVENT_BUS);
 
     minion.runAndReturnExitCode(createFakeHeartbeatService());
     Assert.fail("The previous line should've thrown an exception.");
@@ -91,7 +102,7 @@ public class MinionModeRunnerIntegrationTest {
         .andReturn(
             new Closeable() {
               @Override
-              public void close() throws IOException {}
+              public void close() {}
             })
         .anyTimes();
     EasyMock.replay(service);
@@ -109,16 +120,18 @@ public class MinionModeRunnerIntegrationTest {
             OptionalInt.of(4242),
             Futures.immediateFuture(localBuilder),
             STAMPEDE_ID,
+            MINION_TYPE,
             new BuildSlaveRunId().setId("sl2"),
-            MAX_PARALLEL_WORK_UNITS,
+            new SingleBuildCapacityTracker(MAX_PARALLEL_WORK_UNITS),
             checker,
             POLL_LOOP_INTERVAL_MILLIS,
             new NoOpMinionBuildProgressTracker(),
-            CONNECTION_TIMEOUT_MILLIS);
+            CONNECTION_TIMEOUT_MILLIS,
+            BUCK_EVENT_BUS);
 
-    int exitCode = minion.runAndReturnExitCode(createFakeHeartbeatService());
+    ExitCode exitCode = minion.runAndReturnExitCode(createFakeHeartbeatService());
     // Server does not exit because the build has already been marked as finished.
-    Assert.assertEquals(0, exitCode);
+    Assert.assertEquals(ExitCode.SUCCESS, exitCode);
   }
 
   @Test
@@ -164,9 +177,9 @@ public class MinionModeRunnerIntegrationTest {
     //         |
     //         +-- (miss target 3)
 
-    final String MISS_TARGET_1 = ROOT_TARGET + "_miss1";
-    final String MISS_TARGET_2 = ROOT_TARGET + "_miss2";
-    final String MISS_TARGET_3 = ROOT_TARGET + "_miss3";
+    String MISS_TARGET_1 = ROOT_TARGET + "_miss1";
+    String MISS_TARGET_2 = ROOT_TARGET + "_miss2";
+    String MISS_TARGET_3 = ROOT_TARGET + "_miss3";
 
     MinionBuildProgressTracker unexpectedCacheMissTracker =
         EasyMock.createMock(MinionBuildProgressTracker.class);
@@ -175,7 +188,7 @@ public class MinionModeRunnerIntegrationTest {
     EasyMock.expect(
             buildExecutor.waitForBuildToFinish(
                 EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject()))
-        .andReturn(0)
+        .andReturn(ExitCode.SUCCESS)
         .anyTimes();
 
     EasyMock.expect(buildExecutor.initializeBuild(EasyMock.anyObject()))
@@ -254,14 +267,16 @@ public class MinionModeRunnerIntegrationTest {
               OptionalInt.of(server.getPort()),
               Futures.immediateFuture(buildExecutor),
               STAMPEDE_ID,
+              MINION_TYPE,
               new BuildSlaveRunId().setId("sl3"),
-              MAX_PARALLEL_WORK_UNITS,
+              new SingleBuildCapacityTracker(MAX_PARALLEL_WORK_UNITS),
               checker,
               POLL_LOOP_INTERVAL_MILLIS,
               unexpectedCacheMissTracker,
-              CONNECTION_TIMEOUT_MILLIS);
-      int exitCode = minion.runAndReturnExitCode(service);
-      Assert.assertEquals(0, exitCode);
+              CONNECTION_TIMEOUT_MILLIS,
+              BUCK_EVENT_BUS);
+      ExitCode exitCode = minion.runAndReturnExitCode(service);
+      Assert.assertEquals(ExitCode.SUCCESS, exitCode);
     }
   }
 
@@ -274,7 +289,8 @@ public class MinionModeRunnerIntegrationTest {
   }
 
   private ThriftCoordinatorServer createServer() throws NoSuchBuildTargetException, IOException {
-    BuildTargetsQueue queue = BuildTargetsQueueTest.createDiamondDependencyQueueWithChainFromLeaf();
+    BuildTargetsQueue queue =
+        ReverseDepBuildTargetsQueueTest.createDiamondDependencyQueueWithChainFromLeaf();
     return ThriftCoordinatorServerIntegrationTest.createServerOnRandomPort(queue);
   }
 
@@ -291,16 +307,14 @@ public class MinionModeRunnerIntegrationTest {
     }
 
     @Override
-    public int buildLocallyAndReturnExitCode(
-        Iterable<String> targetsToBuild, Optional<Path> pathToBuildReport)
-        throws IOException, InterruptedException {
+    public ExitCode buildLocallyAndReturnExitCode(
+        Iterable<String> targetsToBuild, Optional<Path> pathToBuildReport) {
       buildTargets.addAll(ImmutableList.copyOf((targetsToBuild)));
-      return 0;
+      return ExitCode.SUCCESS;
     }
 
     @Override
-    public List<BuildEngineResult> initializeBuild(Iterable<String> targetsToBuild)
-        throws IOException {
+    public List<BuildEngineResult> initializeBuild(Iterable<String> targetsToBuild) {
 
       buildTargets.addAll(ImmutableList.copyOf((targetsToBuild)));
 
@@ -324,11 +338,11 @@ public class MinionModeRunnerIntegrationTest {
     }
 
     @Override
-    public int waitForBuildToFinish(
+    public ExitCode waitForBuildToFinish(
         Iterable<String> targetsToBuild,
         List<BuildEngineResult> resultFutures,
         Optional<Path> pathToBuildReport) {
-      return 0;
+      return ExitCode.SUCCESS;
     }
 
     @Override
@@ -337,7 +351,7 @@ public class MinionModeRunnerIntegrationTest {
     }
 
     @Override
-    public void shutdown() throws IOException {
+    public void shutdown() {
       // Nothing to cleanup in this implementation
     }
   }

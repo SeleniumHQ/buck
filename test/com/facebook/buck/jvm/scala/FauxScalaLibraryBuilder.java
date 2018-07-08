@@ -18,13 +18,13 @@ package com.facebook.buck.jvm.scala;
 
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVAC_OPTIONS;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.hash.HashCode;
@@ -32,7 +32,9 @@ import java.nio.file.Path;
 
 public class FauxScalaLibraryBuilder
     extends AbstractNodeBuilder<
-        ScalaLibraryDescriptionArg.Builder, ScalaLibraryDescriptionArg, ScalaLibraryDescription,
+        ScalaLibraryDescriptionArg.Builder,
+        ScalaLibraryDescriptionArg,
+        ScalaLibraryDescription,
         BuildRule> {
 
   private final ProjectFilesystem projectFilesystem;

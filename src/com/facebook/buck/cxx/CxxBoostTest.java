@@ -16,20 +16,21 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.test.rule.ExternalTestRunnerRule;
+import com.facebook.buck.core.test.rule.ExternalTestRunnerTestSpec;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.ExternalTestRunnerRule;
-import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
-import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
-import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestRunningOptions;
@@ -51,7 +52,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Stack;
-import java.util.function.Supplier;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -80,11 +81,11 @@ class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTestRunner
       BuildRuleParams params,
       BuildRule binary,
       Tool executable,
-      ImmutableMap<String, String> env,
-      Supplier<ImmutableList<String>> args,
+      ImmutableMap<String, Arg> env,
+      ImmutableList<Arg> args,
       ImmutableSortedSet<? extends SourcePath> resources,
       ImmutableSet<SourcePath> additionalCoverageTargets,
-      Supplier<ImmutableSortedSet<BuildRule>> additionalDeps,
+      Function<SourcePathRuleFinder, ImmutableSortedSet<BuildRule>> additionalDeps,
       ImmutableSet<String> labels,
       ImmutableSet<String> contacts,
       boolean runTestSeparately,
@@ -234,8 +235,7 @@ class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTestRunner
   public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return Stream.concat(
         super.getRuntimeDeps(ruleFinder),
-        BuildableSupport.getDepsCollection(getExecutableCommand(), ruleFinder)
-            .stream()
+        BuildableSupport.getDeps(getExecutableCommand(), ruleFinder)
             .map(BuildRule::getBuildTarget));
   }
 
@@ -249,7 +249,7 @@ class CxxBoostTest extends CxxTest implements HasRuntimeDeps, ExternalTestRunner
         .setType("boost")
         .addAllCommand(
             getExecutableCommand().getCommandPrefix(buildContext.getSourcePathResolver()))
-        .addAllCommand(getArgs().get())
+        .addAllCommand(Arg.stringify(getArgs(), buildContext.getSourcePathResolver()))
         .putAllEnv(getEnv(buildContext.getSourcePathResolver()))
         .addAllLabels(getLabels())
         .addAllContacts(getContacts())

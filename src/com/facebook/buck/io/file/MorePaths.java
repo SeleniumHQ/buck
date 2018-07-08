@@ -16,15 +16,16 @@
 
 package com.facebook.buck.io.file;
 
+import com.facebook.buck.cli.bootstrapper.filesystem.BuckUnixPath;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Streams;
 import com.google.common.io.ByteSource;
 import java.io.IOException;
 import java.io.InputStream;
@@ -32,13 +33,15 @@ import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import javax.annotation.Nullable;
 
 /**
  * Common functions that are done with a {@link Path}. If a function is going to take a {@link
- * ProjectFilesystem}, then it should be in {@link MoreProjectFilesystems} instead.
+ * ProjectFilesystem}, then it should be in {@link com.facebook.buck.io.MoreProjectFilesystems}
+ * instead.
  */
 public class MorePaths {
 
@@ -165,9 +168,9 @@ public class MorePaths {
    * Filters out {@link Path} objects from {@code paths} that aren't a subpath of {@code root} and
    * returns a set of paths relative to {@code root}.
    */
-  public static ImmutableSet<Path> filterForSubpaths(Iterable<Path> paths, final Path root) {
-    final Path normalizedRoot = root.toAbsolutePath().normalize();
-    return FluentIterable.from(paths)
+  public static ImmutableSet<Path> filterForSubpaths(Iterable<Path> paths, Path root) {
+    Path normalizedRoot = root.toAbsolutePath().normalize();
+    return Streams.stream(paths)
         .filter(
             input -> {
               if (input.isAbsolute()) {
@@ -176,7 +179,7 @@ public class MorePaths {
                 return true;
               }
             })
-        .transform(
+        .map(
             input -> {
               if (input.isAbsolute()) {
                 return relativize(normalizedRoot, input);
@@ -184,7 +187,7 @@ public class MorePaths {
                 return input;
               }
             })
-        .toSet();
+        .collect(ImmutableSet.toImmutableSet());
   }
 
   /** Expands "~/foo" into "/home/zuck/foo". Returns regular paths unmodified. */
@@ -199,7 +202,7 @@ public class MorePaths {
     return homePath.resolve(path.subpath(1, path.getNameCount()));
   }
 
-  public static ByteSource asByteSource(final Path path) {
+  public static ByteSource asByteSource(Path path) {
     return new ByteSource() {
       @Override
       public InputStream openStream() throws IOException {
@@ -245,7 +248,7 @@ public class MorePaths {
     return Optional.of(p.subpath(prefix.getNameCount(), p.getNameCount()));
   }
 
-  public static Function<String, Path> toPathFn(final FileSystem fileSystem) {
+  public static Function<String, Path> toPathFn(FileSystem fileSystem) {
     return input -> fileSystem.getPath(input);
   }
 
@@ -295,6 +298,11 @@ public class MorePaths {
    * value.
    */
   public static Path dropInternalCaches(Path p) {
+    // This optimization does nothing for BuckUnixPath, and in fact wastes time.
+    // Just bail without pessimizing in that case.
+    if (p instanceof BuckUnixPath) {
+      return p;
+    }
     return p.getFileSystem().getPath(p.toString());
   }
 
@@ -342,18 +350,38 @@ public class MorePaths {
     int commonPrefix = getCommonPrefixLength(paths);
     return RichStream.from(paths)
         .findFirst()
+        .flatMap(
+            firstPath -> {
+              Path root = firstPath.getRoot();
+              for (Path path : paths) {
+                if (!Objects.equals(path.getRoot(), root)) {
+                  return Optional.empty();
+                }
+              }
+              if (commonPrefix == 0 && root == null) {
+                // TODO(cjhopman): This is odd. I think it should return Optional.empty() when
+                // there's no common prefix, but this matches previous behavior.
+                root = firstPath.getFileSystem().getPath("");
+              }
+              Path prefixPath =
+                  commonPrefix == 0
+                      ? root
+                      : root == null
+                          ? firstPath.subpath(0, commonPrefix)
+                          : root.resolve(firstPath.subpath(0, commonPrefix));
+              return Optional.of(
+                  new Pair<>(prefixPath, getPrefixStrippedPaths(paths, commonPrefix)));
+            });
+  }
+
+  private static ImmutableList<Path> getPrefixStrippedPaths(
+      Iterable<Path> paths, int commonPrefix) {
+    return RichStream.from(paths)
         .map(
-            firstPath ->
-                new Pair<>(
-                    commonPrefix == 0
-                        ? firstPath.getFileSystem().getPath("")
-                        : firstPath.subpath(0, commonPrefix),
-                    RichStream.from(paths)
-                        .map(
-                            p ->
-                                commonPrefix == p.getNameCount()
-                                    ? p.getFileSystem().getPath("")
-                                    : p.subpath(commonPrefix, p.getNameCount()))
-                        .toImmutableList()));
+            p ->
+                commonPrefix == p.getNameCount()
+                    ? p.getFileSystem().getPath("")
+                    : p.subpath(commonPrefix, p.getNameCount()))
+        .toImmutableList();
   }
 }

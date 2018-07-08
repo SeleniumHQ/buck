@@ -30,7 +30,15 @@ import static org.junit.Assume.assumeThat;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.android.AssumeAndroidPlatform;
+import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
+import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.build.engine.BuildRuleStatus;
+import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
@@ -39,25 +47,17 @@ import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRuleStatus;
-import com.facebook.buck.rules.BuildRuleSuccessType;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.InferHelper;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
@@ -190,7 +190,7 @@ public class CxxBinaryIntegrationTest {
     CxxBuckConfig cxxBuckConfig = new CxxBuckConfig(workspace.asCell().getBuckConfig());
     CxxPlatform cxxPlatform = CxxPlatformUtils.build(cxxBuckConfig);
     BuildTarget inputBuildTarget = BuildTargetFactory.newInstance("//foo:binary_with_deps");
-    final String inputBuildTargetName =
+    String inputBuildTargetName =
         inputBuildTarget
             .withFlavors(CxxInferEnhancer.InferFlavors.INFER.getFlavor())
             .getFullyQualifiedName();
@@ -601,8 +601,7 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
-  public void testInferCxxBinaryWithDepsEmitsAllTheDependenciesResultsDirs()
-      throws InterruptedException, IOException {
+  public void testInferCxxBinaryWithDepsEmitsAllTheDependenciesResultsDirs() throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(this, tmp, Optional.empty());
     workspace.setupCxxSandboxing(sandboxSources);
@@ -706,10 +705,10 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
-  public void inferShouldBeAbleToUseMultipleXCell() throws InterruptedException, IOException {
+  public void inferShouldBeAbleToUseMultipleXCell() throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
 
-    final Path rootWorkspacePath = tmp.getRoot();
+    Path rootWorkspacePath = tmp.getRoot();
 
     // create infertest workspace
     ProjectWorkspace root = InferHelper.setupWorkspace(this, rootWorkspacePath, "infertest");
@@ -759,7 +758,7 @@ public class CxxBinaryIntegrationTest {
 
   @Test
   public void testInferCxxBinaryWithDiamondDepsEmitsAllBuildRulesInvolvedWhenCacheHit()
-      throws InterruptedException, IOException {
+      throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(this, tmp, Optional.empty());
     workspace.enableDirCache();
@@ -878,7 +877,7 @@ public class CxxBinaryIntegrationTest {
 
   @Test
   public void testInferCaptureAllCxxBinaryWithDiamondDepsEmitsAllBuildRulesInvolvedWhenCacheHit()
-      throws InterruptedException, IOException {
+      throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(this, tmp, Optional.empty());
     workspace.enableDirCache();
@@ -963,7 +962,7 @@ public class CxxBinaryIntegrationTest {
 
   @Test
   public void testInferCxxBinaryWithDiamondDepsHasRuntimeDepsOfAllCaptureRulesWhenCacheHits()
-      throws InterruptedException, IOException {
+      throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(this, tmp, Optional.empty());
     workspace.enableDirCache();
@@ -1097,7 +1096,7 @@ public class CxxBinaryIntegrationTest {
 
   @Test
   public void testInferCxxBinaryWithDiamondDepsEmitsAllTransitiveCaptureRulesOnce()
-      throws InterruptedException, IOException {
+      throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(this, tmp, Optional.empty());
     workspace.setupCxxSandboxing(sandboxSources);
@@ -1174,7 +1173,7 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
-  public void testInferCxxBinarySkipsBlacklistedFiles() throws InterruptedException, IOException {
+  public void testInferCxxBinarySkipsBlacklistedFiles() throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
     ProjectWorkspace workspace =
         InferHelper.setupCxxInferWorkspace(this, tmp, Optional.of(".*one\\.c"));
@@ -1229,8 +1228,7 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
-  public void testInferCxxBinaryRunsOnAllFilesWhenBlacklistIsNotSpecified()
-      throws InterruptedException, IOException {
+  public void testInferCxxBinaryRunsOnAllFilesWhenBlacklistIsNotSpecified() throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(this, tmp, Optional.empty());
     workspace.setupCxxSandboxing(sandboxSources);
@@ -1282,8 +1280,7 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
-  public void testInferCxxBinaryWithCachedDepsGetsAllItsTransitiveDeps()
-      throws InterruptedException, IOException {
+  public void testInferCxxBinaryWithCachedDepsGetsAllItsTransitiveDeps() throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(this, tmp, Optional.empty());
     workspace.enableDirCache();
@@ -1333,8 +1330,7 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
-  public void testInferCxxBinaryMergesAllReportsOfDependencies()
-      throws InterruptedException, IOException {
+  public void testInferCxxBinaryMergesAllReportsOfDependencies() throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(this, tmp, Optional.empty());
     workspace.setupCxxSandboxing(sandboxSources);
@@ -1361,8 +1357,7 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
-  public void testInferCxxBinaryWritesSpecsListFilesOfTransitiveDependencies()
-      throws InterruptedException, IOException {
+  public void testInferCxxBinaryWritesSpecsListFilesOfTransitiveDependencies() throws IOException {
     assumeTrue(Platform.detect() != Platform.WINDOWS);
     ProjectWorkspace workspace = InferHelper.setupCxxInferWorkspace(this, tmp, Optional.empty());
     workspace.setupCxxSandboxing(sandboxSources);
@@ -1420,7 +1415,7 @@ public class CxxBinaryIntegrationTest {
     Path firstCompilerPath = tmp.newFolder("path1");
     Path firstCompiler = firstCompilerPath.resolve(executable);
     filesystem.writeContentsToPath(
-        "#!/bin/sh\n" + "exec " + executableLocation.toString() + " \"$@\"\n", firstCompiler);
+        "#!/bin/sh\n" + "exec " + executableLocation + " \"$@\"\n", firstCompiler);
 
     // Write script as slightly different faux clang++/g++ binary
     Path secondCompilerPath = tmp.newFolder("path2");
@@ -1428,13 +1423,13 @@ public class CxxBinaryIntegrationTest {
     filesystem.writeContentsToPath(
         "#!/bin/sh\n"
             + "exec "
-            + executableLocation.toString()
+            + executableLocation
             + " \"$@\"\n"
             + "# Comment to make hash different.\n",
         secondCompiler);
 
     // Make the second faux clang++/g++ binary executable
-    MoreFiles.makeExecutable(secondCompiler);
+    MostFiles.makeExecutable(secondCompiler);
 
     // Run two builds, each with different compiler "binaries".  In the first
     // instance, both binaries are in the PATH but the first binary is not
@@ -1445,9 +1440,9 @@ public class CxxBinaryIntegrationTest {
             Optional.empty(),
             ImmutableMap.of(
                 "PATH",
-                firstCompilerPath.toString()
+                firstCompilerPath
                     + pathSeparator
-                    + secondCompilerPath.toString()
+                    + secondCompilerPath
                     + pathSeparator
                     + System.getenv("PATH")),
             "build",
@@ -1459,7 +1454,7 @@ public class CxxBinaryIntegrationTest {
     // Now, make the first faux clang++/g++ binary executable.  In this second
     // instance, both binaries are still in the PATH but the first binary is
     // now marked executable and so is picked up; causing a rebuild.
-    MoreFiles.makeExecutable(firstCompiler);
+    MostFiles.makeExecutable(firstCompiler);
 
     workspace
         .runBuckCommandWithEnvironmentOverridesAndContext(
@@ -1467,9 +1462,9 @@ public class CxxBinaryIntegrationTest {
             Optional.empty(),
             ImmutableMap.of(
                 "PATH",
-                firstCompilerPath.toString()
+                firstCompilerPath
                     + pathSeparator
-                    + secondCompilerPath.toString()
+                    + secondCompilerPath
                     + pathSeparator
                     + System.getenv("PATH")),
             "build",
@@ -1481,7 +1476,7 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
-  public void testLinkMapIsCached() throws Exception {
+  public void testLinkMapIsNotCached() throws Exception {
     // Currently we only support Apple platforms for generating link maps.
     assumeTrue(Platform.detect() == Platform.MACOS);
 
@@ -1505,7 +1500,39 @@ public class CxxBinaryIntegrationTest {
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     BuckBuildLog buildLog = workspace.getBuildLog();
     buildLog.assertTargetBuiltLocally(target.toString());
-    assertThat(Files.exists(Paths.get(outputPath.toString() + "-LinkMap.txt")), is(true));
+    assertThat(Files.exists(Paths.get(outputPath + "-LinkMap.txt")), is(true));
+  }
+
+  @Test
+  public void testLinkMapIsCached() throws Exception {
+    // Currently we only support Apple platforms for generating link maps.
+    assumeTrue(Platform.detect() == Platform.MACOS);
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "simple", tmp);
+    workspace.setUp();
+    workspace.enableDirCache();
+    workspace.setupCxxSandboxing(sandboxSources);
+    ProjectFilesystem filesystem =
+        TestProjectFilesystems.createProjectFilesystem(workspace.getDestPath());
+
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:simple");
+    workspace
+        .runBuckCommand("build", "-c", "cxx.cache_binaries=true", target.getFullyQualifiedName())
+        .assertSuccess();
+
+    Path outputPath = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s"));
+
+    /*
+     * Check that building after clean will use the cache
+     */
+    workspace.runBuckCommand("clean", "--keep-cache").assertSuccess();
+    workspace
+        .runBuckCommand("build", "-c", "cxx.cache_binaries=true", target.toString())
+        .assertSuccess();
+    BuckBuildLog buildLog = workspace.getBuildLog();
+    buildLog.assertTargetWasFetchedFromCache(target.toString());
+    assertThat(Files.exists(Paths.get(outputPath + "-LinkMap.txt")), is(true));
   }
 
   @Test
@@ -1520,8 +1547,7 @@ public class CxxBinaryIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance(workspace.getDestPath(), "//foo:simple");
     CxxSourceRuleFactory cxxSourceRuleFactory =
         CxxSourceRuleFactoryHelper.of(workspace.getDestPath(), target, cxxPlatform, cxxBuckConfig);
-    BuildTarget binaryTarget =
-        CxxDescriptionEnhancer.createCxxLinkTarget(target, Optional.<LinkerMapMode>empty());
+    BuildTarget binaryTarget = CxxDescriptionEnhancer.createCxxLinkTarget(target, Optional.empty());
     String sourceName = "simple.cpp";
     String sourceFull = "foo/" + sourceName;
     BuildTarget compileTarget = cxxSourceRuleFactory.createCompileBuildTarget(sourceName);
@@ -1624,8 +1650,7 @@ public class CxxBinaryIntegrationTest {
         BuildTargetFactory.newInstance(workspace.getDestPath(), "//foo:simple_with_header");
     CxxSourceRuleFactory cxxSourceRuleFactory =
         CxxSourceRuleFactoryHelper.of(workspace.getDestPath(), target, cxxPlatform, cxxBuckConfig);
-    BuildTarget binaryTarget =
-        CxxDescriptionEnhancer.createCxxLinkTarget(target, Optional.<LinkerMapMode>empty());
+    BuildTarget binaryTarget = CxxDescriptionEnhancer.createCxxLinkTarget(target, Optional.empty());
     String sourceName = "simple_with_header.cpp";
     String headerName = "simple_with_header.h";
     String headerFull = "foo/" + headerName;
@@ -1697,8 +1722,7 @@ public class CxxBinaryIntegrationTest {
         BuildTargetFactory.newInstance(workspace.getDestPath(), "//foo:binary_with_dep");
     CxxSourceRuleFactory cxxSourceRuleFactory =
         CxxSourceRuleFactoryHelper.of(workspace.getDestPath(), target, cxxPlatform, cxxBuckConfig);
-    BuildTarget binaryTarget =
-        CxxDescriptionEnhancer.createCxxLinkTarget(target, Optional.<LinkerMapMode>empty());
+    BuildTarget binaryTarget = CxxDescriptionEnhancer.createCxxLinkTarget(target, Optional.empty());
     String sourceName = "foo.cpp";
     BuildTarget compileTarget = cxxSourceRuleFactory.createCompileBuildTarget(sourceName);
     BuildTarget headerSymlinkTreeTarget =
@@ -1928,7 +1952,7 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
-  public void resolveHeadersBehindSymlinkTreesInError() throws InterruptedException, IOException {
+  public void resolveHeadersBehindSymlinkTreesInError() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "resolved", tmp);
     workspace.setUp();
@@ -2307,8 +2331,7 @@ public class CxxBinaryIntegrationTest {
   }
 
   @Test
-  public void testStrippedBinaryOutputDiffersFromUnstripped()
-      throws IOException, InterruptedException {
+  public void testStrippedBinaryOutputDiffersFromUnstripped() throws IOException {
     assumeTrue(Platform.detect() == Platform.MACOS);
 
     BuildTarget unstrippedTarget = BuildTargetFactory.newInstance("//:test");
@@ -2394,7 +2417,7 @@ public class CxxBinaryIntegrationTest {
         .getBuildLog()
         .assertTargetBuiltLocally(
             CxxDescriptionEnhancer.createCxxLinkTarget(
-                    BuildTargetFactory.newInstance("//foo:simple"), Optional.<LinkerMapMode>empty())
+                    BuildTargetFactory.newInstance("//foo:simple"), Optional.empty())
                 .toString());
   }
 
@@ -2402,9 +2425,7 @@ public class CxxBinaryIntegrationTest {
   public void testThinArchives() throws IOException {
     CxxPlatform cxxPlatform =
         CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
     assumeTrue(cxxPlatform.getAr().resolve(ruleResolver).supportsThinArchives());
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "simple", tmp);
@@ -2434,8 +2455,7 @@ public class CxxBinaryIntegrationTest {
         .getBuildLog()
         .assertTargetBuiltLocally(
             CxxDescriptionEnhancer.createCxxLinkTarget(
-                    BuildTargetFactory.newInstance("//foo:binary_with_dep"),
-                    Optional.<LinkerMapMode>empty())
+                    BuildTargetFactory.newInstance("//foo:binary_with_dep"), Optional.empty())
                 .toString());
     ImmutableSortedSet<Path> subsequentObjects =
         findFiles(tmp.getRoot(), tmp.getRoot().getFileSystem().getPathMatcher("glob:**/*.o"));
@@ -2495,9 +2515,53 @@ public class CxxBinaryIntegrationTest {
             "has dependencies using headers that can be included using the same path"));
   }
 
-  private ImmutableSortedSet<Path> findFiles(Path root, final PathMatcher matcher)
-      throws IOException {
-    final ImmutableSortedSet.Builder<Path> files = ImmutableSortedSet.naturalOrder();
+  @Test
+  public void conflictingHeadersWithWhitelistSucceeds() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "headers_conflicts", tmp);
+    workspace.setUp();
+    workspace
+        .runBuckBuild("-c", "cxx.conflicting_header_basename_whitelist=public.h", ":main")
+        .assertSuccess();
+  }
+
+  @Test
+  public void testPlatformDependenciesNotResolvedEagerly() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_binary_platform_deps", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild(":binary#working-platform").assertSuccess();
+  }
+
+  @Test
+  public void testLinkMapCreated() throws IOException {
+    assumeThat(Platform.detect(), is(Platform.MACOS));
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_binary_linkmap", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild(":binary#linkmap").assertSuccess();
+  }
+
+  @Test
+  public void testLinkMapNotCreated() throws IOException {
+    assumeThat(Platform.detect(), is(Platform.LINUX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_binary_linkmap", tmp);
+    workspace.setUp();
+    try {
+      workspace.runBuckBuild(":binary#linkmap");
+    } catch (HumanReadableException e) {
+      assertEquals(
+          "Linker for target //:binary#linkmap does not support linker maps.",
+          e.getHumanReadableErrorMessage());
+    }
+  }
+
+  private ImmutableSortedSet<Path> findFiles(Path root, PathMatcher matcher) throws IOException {
+    ImmutableSortedSet.Builder<Path> files = ImmutableSortedSet.naturalOrder();
     Files.walkFileTree(
         root,
         new SimpleFileVisitor<Path>() {

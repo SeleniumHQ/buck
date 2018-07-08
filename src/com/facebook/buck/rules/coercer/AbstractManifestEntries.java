@@ -15,12 +15,13 @@
  */
 package com.facebook.buck.rules.coercer;
 
-import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.rulekey.RuleKeyAppendable;
+import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.google.common.collect.ImmutableMap;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.immutables.value.Value;
 
 /**
@@ -31,13 +32,13 @@ import org.immutables.value.Value;
 @BuckStyleImmutable
 abstract class AbstractManifestEntries implements RuleKeyAppendable {
   @Value.Parameter
-  protected abstract Optional<Integer> getMinSdkVersion();
+  protected abstract OptionalInt getMinSdkVersion();
 
   @Value.Parameter
-  protected abstract Optional<Integer> getTargetSdkVersion();
+  protected abstract OptionalInt getTargetSdkVersion();
 
   @Value.Parameter
-  protected abstract Optional<Integer> getVersionCode();
+  protected abstract OptionalInt getVersionCode();
 
   @Value.Parameter
   protected abstract Optional<String> getVersionName();

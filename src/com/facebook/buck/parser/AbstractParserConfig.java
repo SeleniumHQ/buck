@@ -17,9 +17,9 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ConfigView;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.WatchmanWatcher;
 import com.facebook.buck.parser.api.Syntax;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -38,9 +38,17 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   public static final String INCLUDES_PROPERTY_NAME = "includes";
 
   private static final long NUM_PARSING_THREADS_DEFAULT = 1L;
+  private static final int TARGET_PARSER_THRESHOLD = 100000;
 
   public enum GlobHandler {
     PYTHON,
+    WATCHMAN,
+    ;
+  }
+
+  /** Glob handler supported by Skylark parser. */
+  public enum SkylarkGlobHandler {
+    JAVA,
     WATCHMAN,
     ;
   }
@@ -121,9 +129,18 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   }
 
   @Value.Lazy
-  public Optional<BuildFileSearchMethod> getBuildFileSearchMethod() {
-    return getDelegate()
-        .getEnum("project", "build_file_search_method", BuildFileSearchMethod.class);
+  public BuildFileSearchMethod getBuildFileSearchMethod() {
+    Optional<BuildFileSearchMethod> buildFileSearchMethod =
+        getDelegate().getEnum("project", "build_file_search_method", BuildFileSearchMethod.class);
+    if (buildFileSearchMethod.isPresent()) {
+      return buildFileSearchMethod.get();
+    } else if (getAllowSymlinks() == ParserConfig.AllowSymlinks.FORBID) {
+      // If unspecified, only use Watchman in repositories which enforce a "no symlinks" rule
+      // (Watchman doesn't follow symlinks).
+      return BuildFileSearchMethod.WATCHMAN;
+    } else {
+      return BuildFileSearchMethod.FILESYSTEM_CRAWL;
+    }
   }
 
   @Value.Lazy
@@ -258,5 +275,22 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   @Value.Lazy
   public boolean shouldIgnoreEnvironmentVariablesChanges() {
     return getDelegate().getBooleanValue("parser", "ignore_environment_variables_changes", false);
+  }
+
+  /** @return the type of the glob handler used by the Skylark parser. */
+  @Value.Lazy
+  public SkylarkGlobHandler getSkylarkGlobHandler() {
+    return getDelegate()
+        .getEnum("parser", "skylark_glob_handler", SkylarkGlobHandler.class)
+        .orElse(SkylarkGlobHandler.JAVA);
+  }
+
+  /**
+   * @return the parser target threshold. When the current targets produced exceed this value, a
+   *     warning is emitted.
+   */
+  @Value.Lazy
+  public int getParserTargetThreshold() {
+    return getDelegate().getInteger("parser", "target_threshold").orElse(TARGET_PARSER_THRESHOLD);
   }
 }

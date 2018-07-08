@@ -16,33 +16,40 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.event.FlushConsoleEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.parser.ProjectBuildFileParserFactory;
+import com.facebook.buck.parser.DefaultProjectBuildFileParserFactory;
+import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
-import com.facebook.buck.rules.BuckPyFunction;
+import com.facebook.buck.parser.function.BuckPyFunction;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreStrings;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonGenerator.Feature;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.devtools.build.lib.syntax.SkylarkNestedSet;
+import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.SortedSet;
 import java.util.TreeSet;
@@ -66,10 +73,9 @@ public class AuditRulesCommand extends AbstractCommand {
   private static final ImmutableSet<String> LAST_PROPERTIES = ImmutableSet.of("deps", "visibility");
 
   @Option(
-    name = "--type",
-    aliases = {"-t"},
-    usage = "The types of rule to filter by"
-  )
+      name = "--type",
+      aliases = {"-t"},
+      usage = "The types of rule to filter by")
   @Nullable
   private List<String> types = null;
 
@@ -96,35 +102,55 @@ public class AuditRulesCommand extends AbstractCommand {
       throws IOException, InterruptedException {
     ProjectFilesystem projectFilesystem = params.getCell().getFilesystem();
     try (ProjectBuildFileParser parser =
-        ProjectBuildFileParserFactory.createBuildFileParser(
-            params.getCell(),
-            new DefaultTypeCoercerFactory(),
-            params.getConsole(),
-            params.getBuckEventBus(),
-            params.getExecutableFinder(),
-            params.getKnownBuildRuleTypesProvider().get(params.getCell()).getDescriptions())) {
-      PrintStream out = params.getConsole().getStdOut();
-      for (String pathToBuildFile : getArguments()) {
-        if (!json) {
-          // Print a comment with the path to the build file.
-          out.printf("# %s\n\n", pathToBuildFile);
+        new DefaultProjectBuildFileParserFactory(
+                new DefaultTypeCoercerFactory(),
+                params.getConsole(),
+                new ParserPythonInterpreterProvider(
+                    params.getCell().getBuckConfig(), params.getExecutableFinder()),
+                params.getKnownBuildRuleTypesProvider())
+            .createBuildFileParser(params.getBuckEventBus(), params.getCell())) {
+      /*
+       * The super console does a bunch of rewriting over the top of the console such that
+       * simultaneously writing to stdout and stderr in an interactive session is problematic.
+       * (Overwritten characters, lines never showing up, etc). As such, writing to stdout directly
+       * stops superconsole rendering (no errors appear). Because of all of this, we need to
+       * just buffer the output and print it to stdout at the end fo the run. The downside
+       * is that we have to buffer all of the output in memory, and it could potentially be large,
+       * however, we'll just have to accept that tradeoff for now to get both error messages
+       * from the parser, and the final output
+       */
+
+      try (ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+          PrintStream out = new PrintStream(new BufferedOutputStream(byteOut))) {
+        for (String pathToBuildFile : getArguments()) {
+          if (!json) {
+            // Print a comment with the path to the build file.
+            out.printf("# %s\n\n", pathToBuildFile);
+          }
+
+          // Resolve the path specified by the user.
+          Path path = Paths.get(pathToBuildFile);
+          if (!path.isAbsolute()) {
+            Path root = projectFilesystem.getRootPath();
+            path = root.resolve(path);
+          }
+
+          // Parse the rules from the build file.
+          List<Map<String, Object>> rawRules;
+          rawRules = parser.getBuildFileManifest(path, new AtomicLong()).getTargets();
+
+          // Format and print the rules from the raw data, filtered by type.
+          ImmutableSet<String> types = getTypes();
+          Predicate<String> includeType = type -> types.isEmpty() || types.contains(type);
+          printRulesToStdout(out, rawRules, includeType);
         }
 
-        // Resolve the path specified by the user.
-        Path path = Paths.get(pathToBuildFile);
-        if (!path.isAbsolute()) {
-          Path root = projectFilesystem.getRootPath();
-          path = root.resolve(path);
-        }
-
-        // Parse the rules from the build file.
-        List<Map<String, Object>> rawRules;
-        rawRules = parser.getAll(path, new AtomicLong());
-
-        // Format and print the rules from the raw data, filtered by type.
-        final ImmutableSet<String> types = getTypes();
-        Predicate<String> includeType = type -> types.isEmpty() || types.contains(type);
-        printRulesToStdout(params, rawRules, includeType);
+        // Make sure we tell the event listener to flush, otherwise there is a race condition where
+        // the event listener might not have flushed, we dirty the stream, and then it will not
+        // render the last frame (see {@link SuperConsoleEventListener})
+        params.getBuckEventBus().post(new FlushConsoleEvent());
+        out.close();
+        params.getConsole().getStdOut().write(byteOut.toByteArray());
       }
     }
 
@@ -137,19 +163,18 @@ public class AuditRulesCommand extends AbstractCommand {
   }
 
   private void printRulesToStdout(
-      CommandRunnerParams params,
-      List<Map<String, Object>> rawRules,
-      final Predicate<String> includeType)
+      PrintStream stdOut, List<Map<String, Object>> rawRules, Predicate<String> includeType)
       throws IOException {
-    Iterable<Map<String, Object>> filteredRules =
-        FluentIterable.from(rawRules)
+    ImmutableList<Map<String, Object>> filteredRules =
+        rawRules
+            .stream()
             .filter(
                 rawRule -> {
                   String type = (String) rawRule.get(BuckPyFunction.TYPE_PROPERTY_NAME);
                   return includeType.test(type);
-                });
-
-    PrintStream stdOut = params.getConsole().getStdOut();
+                })
+            .sorted(Comparator.comparing(rule -> ((String) rule.getOrDefault("name", ""))))
+            .collect(ImmutableList.toImmutableList());
 
     if (json) {
       Map<String, Object> rulesKeyedByName = new HashMap<>();
@@ -162,7 +187,7 @@ public class AuditRulesCommand extends AbstractCommand {
       // We create a new JsonGenerator that does not close the stream.
       try (JsonGenerator generator =
           ObjectMappers.createGenerator(stdOut)
-              .disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET)
+              .disable(Feature.AUTO_CLOSE_TARGET)
               .useDefaultPrettyPrinter()) {
         ObjectMappers.WRITER.writeValue(generator, rulesKeyedByName);
       }
@@ -209,7 +234,7 @@ public class AuditRulesCommand extends AbstractCommand {
     }
 
     // Close the rule definition.
-    out.printf(")\n\n");
+    out.print(")\n\n");
   }
 
   private boolean shouldInclude(@Nullable Object rawValue) {
@@ -219,7 +244,7 @@ public class AuditRulesCommand extends AbstractCommand {
   }
 
   /**
-   * @param value in a Map returned by {@link ProjectBuildFileParser#getAll(Path, AtomicLong)}.
+   * @param value a map representing a raw build target.
    * @return a string that represents the Python equivalent of the value.
    */
   @VisibleForTesting
@@ -253,7 +278,7 @@ public class AuditRulesCommand extends AbstractCommand {
       StringBuilder out = new StringBuilder("{\n");
 
       String indentPlus1 = indent + INDENT;
-      for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
+      for (Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
         out.append(indentPlus1)
             .append(createDisplayString(indentPlus1, entry.getKey()))
             .append(": ")

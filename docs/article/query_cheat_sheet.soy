@@ -32,6 +32,13 @@
     {param content}
 
 <p>
+<b>Note</b>: For a complete description of the <code>buck query</code> language with
+many additional examples, see the {call buck.cmd_query /} reference page.
+</p>
+
+<hr/>
+
+<p>
 <ul style="line-height:0.5em">
   <li>
     <a href="#find-existing-targets">
@@ -120,7 +127,7 @@
     <p><pre class="prettyprint lang-js">
 {literal}
 buck query "deps('//foo:bar')"
-buck query "deps('//foo:bar', 1)"
+buck query "deps('//foo:bar', 1, first_order_deps())"
 buck query "deps(set('//foo:bar' '//foo:lib' '//foo/baz:util'))"
 {/literal}
     </pre></p>

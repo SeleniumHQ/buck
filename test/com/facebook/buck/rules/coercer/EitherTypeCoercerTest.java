@@ -16,7 +16,7 @@
 
 package com.facebook.buck.rules.coercer;
 
-import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
+import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -36,10 +36,10 @@ public class EitherTypeCoercerTest {
 
   @Test
   public void canCoercePairWrappedInEither() throws CoerceFailedException {
-    final EitherTypeCoercer<Pair<String, String>, String> coercer =
+    EitherTypeCoercer<Pair<String, String>, String> coercer =
         new EitherTypeCoercer<>(new PairTypeCoercer<>(id, id), id);
 
-    final Either<Pair<String, String>, String> seen =
+    Either<Pair<String, String>, String> seen =
         coercer.coerce(
             createCellRoots(filesystem), filesystem, basePath, Arrays.asList("abc", "de"));
 

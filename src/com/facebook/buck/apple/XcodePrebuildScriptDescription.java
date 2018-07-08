@@ -16,13 +16,13 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.Flavored;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.google.common.collect.ImmutableSet;
 
 /**
@@ -42,7 +42,7 @@ import com.google.common.collect.ImmutableSet;
  * Buck and Xcode build. Those rules do nothing when building with Buck.
  */
 public class XcodePrebuildScriptDescription
-    implements Description<XcodeScriptDescriptionArg>, Flavored {
+    implements DescriptionWithTargetGraph<XcodeScriptDescriptionArg>, Flavored {
 
   @Override
   public Class<XcodeScriptDescriptionArg> getConstructorArgType() {
@@ -51,7 +51,7 @@ public class XcodePrebuildScriptDescription
 
   @Override
   public NoopBuildRuleWithDeclaredAndExtraDeps createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       XcodeScriptDescriptionArg args) {

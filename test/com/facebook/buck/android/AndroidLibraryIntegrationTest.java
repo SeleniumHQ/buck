@@ -18,13 +18,13 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.jvm.kotlin.KotlinTestAssumptions;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.HumanReadableException;
 import java.io.IOException;
 import org.junit.Before;
 import org.junit.Rule;
@@ -88,6 +88,15 @@ public class AndroidLibraryIntegrationTest extends AbiCompilationModeTest {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
     KotlinTestAssumptions.assumeCompilerAvailable(workspace.asCell().getBuckConfig());
     ProcessResult result = workspace.runBuckBuild("//kotlin/com/sample/lib:lib_mixed_sources");
+    result.assertSuccess();
+  }
+
+  @Test
+  public void testAndroidKotlinLibraryNoKotlinSourcesCompilation() throws Exception {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
+    KotlinTestAssumptions.assumeCompilerAvailable(workspace.asCell().getBuckConfig());
+    ProcessResult result =
+        workspace.runBuckBuild("//kotlin/com/sample/lib:lib_mixed_no_kotlin_sources");
     result.assertSuccess();
   }
 

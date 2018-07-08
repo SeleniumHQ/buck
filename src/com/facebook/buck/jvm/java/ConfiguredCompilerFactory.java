@@ -16,11 +16,12 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableCollection;
 import javax.annotation.Nullable;
 
@@ -34,7 +35,8 @@ public abstract class ConfiguredCompilerFactory {
       ProjectFilesystem projectFilesystem,
       @Nullable JvmLibraryArg args,
       JavacOptions javacOptions,
-      BuildRuleResolver buildRuleResolver);
+      BuildRuleResolver buildRuleResolver,
+      ToolchainProvider toolchainProvider);
 
   public boolean trackClassUsage(@SuppressWarnings("unused") JavacOptions javacOptions) {
     return false;

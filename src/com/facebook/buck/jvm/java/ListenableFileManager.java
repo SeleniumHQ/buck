@@ -16,7 +16,6 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.google.common.base.Preconditions;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -24,10 +23,8 @@ import java.io.OutputStream;
 import java.io.Reader;
 import java.io.Writer;
 import java.util.ArrayList;
-import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import javax.annotation.concurrent.NotThreadSafe;
 import javax.tools.FileObject;
@@ -164,7 +161,7 @@ class ListenableFileManager extends ForwardingStandardJavaFileManager {
   private class TrackingIterable implements Iterable<JavaFileObject> {
     private final Iterable<? extends JavaFileObject> inner;
 
-    public TrackingIterable(final Iterable<? extends JavaFileObject> inner) {
+    public TrackingIterable(Iterable<? extends JavaFileObject> inner) {
       this.inner = inner;
     }
 
@@ -178,7 +175,7 @@ class ListenableFileManager extends ForwardingStandardJavaFileManager {
 
     private final Iterator<? extends JavaFileObject> inner;
 
-    public TrackingIterator(final Iterator<? extends JavaFileObject> inner) {
+    public TrackingIterator(Iterator<? extends JavaFileObject> inner) {
       this.inner = inner;
     }
 
@@ -199,22 +196,15 @@ class ListenableFileManager extends ForwardingStandardJavaFileManager {
   }
 
   private class FileObjectWrapper {
-    private final Map<JavaFileObject, JavaFileObject> javaFileObjectCache = new IdentityHashMap<>();
-
     public FileObject wrap(FileObject inner) {
       if (inner instanceof JavaFileObject) {
         return wrap((JavaFileObject) inner);
       }
-
       return inner;
     }
 
     public JavaFileObject wrap(JavaFileObject inner) {
-      if (!javaFileObjectCache.containsKey(inner)) {
-        javaFileObjectCache.put(inner, new ListenableJavaFileObject(inner));
-      }
-
-      return Preconditions.checkNotNull(javaFileObjectCache.get(inner));
+      return new ListenableJavaFileObject(inner);
     }
   }
 

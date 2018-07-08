@@ -19,14 +19,14 @@ package com.facebook.buck.shell;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.tool.BinaryBuildRule;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BinaryBuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CommandTool;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
@@ -51,7 +51,8 @@ public class GenruleBinary extends Genrule implements BinaryBuildRule {
       Optional<String> environmentExpansionSeparator,
       Optional<AndroidPlatformTarget> androidPlatformTarget,
       Optional<AndroidNdk> androidNdk,
-      Optional<AndroidSdkLocation> androidSdkLocation) {
+      Optional<AndroidSdkLocation> androidSdkLocation,
+      boolean noRemote) {
     super(
         buildTarget,
         projectFilesystem,
@@ -69,7 +70,8 @@ public class GenruleBinary extends Genrule implements BinaryBuildRule {
         environmentExpansionSeparator,
         androidPlatformTarget,
         androidNdk,
-        androidSdkLocation);
+        androidSdkLocation,
+        noRemote);
   }
 
   @Override

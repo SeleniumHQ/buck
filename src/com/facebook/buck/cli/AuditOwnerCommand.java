@@ -17,10 +17,14 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildState;
+import com.facebook.buck.parser.PerBuildStateFactory;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
+import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -59,22 +63,29 @@ public class AuditOwnerCommand extends AbstractCommand {
     try (CommandThreadManager pool =
             new CommandThreadManager("Audit", getConcurrencyLimit(params.getBuckConfig()));
         PerBuildState parserState =
-            new PerBuildState(
-                params.getTypeCoercerFactory(),
-                new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
-                params.getParser().getPermState(),
-                params.getBuckEventBus(),
-                params.getExecutableFinder(),
-                pool.getListeningExecutorService(),
-                params.getCell(),
-                params.getKnownBuildRuleTypesProvider(),
-                getEnableParserProfiling(),
-                PerBuildState.SpeculativeParsing.ENABLED)) {
+            new PerBuildStateFactory()
+                .create(
+                    params.getTypeCoercerFactory(),
+                    params.getParser().getPermState(),
+                    new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
+                    params.getBuckEventBus(),
+                    new ParserPythonInterpreterProvider(
+                        params.getCell().getBuckConfig(), params.getExecutableFinder()),
+                    pool.getListeningExecutorService(),
+                    params.getCell(),
+                    params.getKnownBuildRuleTypesProvider(),
+                    getEnableParserProfiling(),
+                    SpeculativeParsing.ENABLED)) {
       BuckQueryEnvironment env =
           BuckQueryEnvironment.from(
               params, parserState, pool.getListeningExecutorService(), getEnableParserProfiling());
       return QueryCommand.runMultipleQuery(
-          params, env, "owner('%s')", getArguments(), shouldGenerateJsonOutput());
+          params,
+          env,
+          "owner('%s')",
+          getArguments(),
+          shouldGenerateJsonOutput(),
+          ImmutableSet.of());
     } catch (Exception e) {
       if (e.getCause() instanceof InterruptedException) {
         throw (InterruptedException) e.getCause();

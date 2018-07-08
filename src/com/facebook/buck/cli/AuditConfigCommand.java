@@ -17,13 +17,13 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.rules.Cell;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.BuckCellArg;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.ObjectMappers;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
@@ -80,15 +80,15 @@ public class AuditConfigCommand extends AbstractCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(final CommandRunnerParams params)
+  public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
     if (shouldGenerateTabbedOutput() && shouldGenerateJsonOutput()) {
       throw new CommandLineException("--json and --tab cannot both be specified");
     }
 
-    final Cell rootCell = params.getCell();
+    Cell rootCell = params.getCell();
 
-    final ImmutableSortedSet<ConfigValue> configs =
+    ImmutableSortedSet<ConfigValue> configs =
         getArguments()
             .stream()
             .flatMap(
@@ -149,7 +149,7 @@ public class AuditConfigCommand extends AbstractCommand {
   }
 
   private void printTabbedOutput(
-      final CommandRunnerParams params, ImmutableSortedSet<ConfigValue> configs) {
+      CommandRunnerParams params, ImmutableSortedSet<ConfigValue> configs) {
     for (ConfigValue config : configs) {
       params
           .getConsole()
@@ -158,8 +158,7 @@ public class AuditConfigCommand extends AbstractCommand {
     }
   }
 
-  private void printJsonOutput(
-      final CommandRunnerParams params, ImmutableSortedSet<ConfigValue> configs)
+  private void printJsonOutput(CommandRunnerParams params, ImmutableSortedSet<ConfigValue> configs)
       throws IOException {
     ImmutableMap.Builder<String, Optional<String>> jsBuilder;
     jsBuilder = ImmutableMap.builder();
@@ -172,7 +171,7 @@ public class AuditConfigCommand extends AbstractCommand {
   }
 
   private void printBuckconfigOutput(
-      final CommandRunnerParams params, ImmutableSortedSet<ConfigValue> configs) {
+      CommandRunnerParams params, ImmutableSortedSet<ConfigValue> configs) {
     ImmutableListMultimap<String, ConfigValue> iniData =
         FluentIterable.from(configs)
             .filter(config -> config.getSection() != "" && config.getValue().isPresent())
@@ -186,7 +185,7 @@ public class AuditConfigCommand extends AbstractCommand {
             .getStdOut()
             .println(String.format("    %s = %s", config.getProperty(), config.getValue().get()));
       }
-      params.getConsole().getStdOut().println("");
+      params.getConsole().getStdOut().println();
     }
   }
 

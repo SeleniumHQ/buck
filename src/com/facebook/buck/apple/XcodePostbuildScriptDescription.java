@@ -16,11 +16,11 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 
 /**
  * Description for an xcode_postbuild_script rule which runs a shell script after the 'copy
@@ -39,7 +39,8 @@ import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
  * similarly to apk_genrule, or should be removed entirely if possible. Those rules do nothing when
  * building with Buck.
  */
-public class XcodePostbuildScriptDescription implements Description<XcodeScriptDescriptionArg> {
+public class XcodePostbuildScriptDescription
+    implements DescriptionWithTargetGraph<XcodeScriptDescriptionArg> {
 
   @Override
   public Class<XcodeScriptDescriptionArg> getConstructorArgType() {
@@ -48,7 +49,7 @@ public class XcodePostbuildScriptDescription implements Description<XcodeScriptD
 
   @Override
   public NoopBuildRuleWithDeclaredAndExtraDeps createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       XcodeScriptDescriptionArg args) {

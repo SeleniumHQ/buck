@@ -31,6 +31,7 @@ import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientSt
 import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientStat.UPLOAD_MISSING_FILES;
 import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientStat.UPLOAD_TARGET_GRAPH;
 
+import com.google.common.base.Strings;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -57,24 +58,45 @@ public class ClientStatsTrackerTest {
   private static final int MISSING_FILES_UPLOADED_COUNT = 2001;
   private static final String BUCK_CLIENT_ERROR_MESSAGE = "Some error message";
   private static final String BUILD_LABEL = "unit_test";
+  private static final String MINION_TYPE = "standard_type";
+
+  @Test
+  public void testGenerateStatsDoesNotThrowOnEmptyStampedeId() {
+    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
+    tracker.setDistributedBuildExitCode(0);
+    tracker.setIsLocalFallbackBuildEnabled(false);
+    DistBuildClientStats stats = tracker.generateStats();
+    Assert.assertNotNull(stats);
+    Assert.assertFalse(Strings.isNullOrEmpty(stats.stampedeId()));
+  }
 
   @Test(expected = java.lang.IllegalArgumentException.class)
   public void testGenerateThrowsExceptionWhenStatsNotRecorded() {
-    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL);
+    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
     tracker.generateStats();
   }
 
   @Test
   public void testGenerateSucceedsWhenAllStandardStatsSet() {
-    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL);
+    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
     initializeCommonStats(tracker);
     DistBuildClientStats stats = tracker.generateStats();
     assertCommonStats(stats);
   }
 
+  @Test
+  public void testBuildLabelOverrideWorks() {
+    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
+    String newLabel = "this-label-is-better";
+    tracker.setUserOrInferredBuildLabel(newLabel);
+    initializeCommonStats(tracker);
+    DistBuildClientStats stats = tracker.generateStats();
+    Assert.assertEquals(newLabel, stats.userOrInferredBuildLabel());
+  }
+
   @Test(expected = java.lang.IllegalArgumentException.class)
   public void testGenerateFailsWhenLocalBuildButMissingLocalBuildFields() {
-    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL);
+    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
     initializeCommonStats(tracker);
     tracker.setPerformedLocalBuild(true);
     tracker.generateStats();
@@ -82,20 +104,20 @@ public class ClientStatsTrackerTest {
 
   @Test(expected = java.lang.IllegalArgumentException.class)
   public void testGenerateFailsWhenNoStampedeId() {
-    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL);
+    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
     tracker.generateStats();
   }
 
   @Test(expected = java.lang.IllegalArgumentException.class)
   public void testGenerateFailsWhenNoErrorButRequiredFieldMissing() {
-    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL);
+    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
     tracker.setStampedeId(STAMPEDE_ID_ONE);
     tracker.generateStats();
   }
 
   @Test
   public void testGeneratesPartialResultWhenErrorButRequiredFields() {
-    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL);
+    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
     tracker.setBuckClientError(true);
     tracker.setBuckClientErrorMessage(BUCK_CLIENT_ERROR_MESSAGE);
 
@@ -107,10 +129,12 @@ public class ClientStatsTrackerTest {
     DistBuildClientStats stats = tracker.generateStats();
 
     Assert.assertEquals(STAMPEDE_ID_ONE, stats.stampedeId());
-    Assert.assertEquals(DISTRIBUTED_BUILD_EXIT_CODE, (long) stats.distributedBuildExitCode().get());
+    Assert.assertEquals(
+        DISTRIBUTED_BUILD_EXIT_CODE, (long) stats.distributedBuildExitCode().getAsInt());
     Assert.assertEquals(IS_LOCAL_FALLBACK_BUILD_ENABLED, stats.isLocalFallbackBuildEnabled().get());
     Assert.assertEquals(BUCK_CLIENT_ERROR_MESSAGE, stats.buckClientErrorMessage().get());
-    Assert.assertEquals(BUILD_LABEL, stats.buildLabel());
+    Assert.assertEquals(BUILD_LABEL, stats.userOrInferredBuildLabel());
+    Assert.assertEquals(MINION_TYPE, stats.minionType());
     Assert.assertTrue(stats.buckClientError());
 
     Assert.assertFalse(stats.localPreparationDurationMs().isPresent());
@@ -126,7 +150,7 @@ public class ClientStatsTrackerTest {
 
   @Test
   public void testGenerateSucceedsWhenLocalBuildAndHasLocalBuildFields() {
-    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL);
+    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
     initializeCommonStats(tracker);
     tracker.setPerformedLocalBuild(true);
     tracker.setDurationMs(PERFORM_LOCAL_BUILD, PERFORM_LOCAL_BUILD_DURATION);
@@ -140,7 +164,7 @@ public class ClientStatsTrackerTest {
 
     Assert.assertTrue(stats.performedLocalBuild());
     Assert.assertTrue(stats.localBuildExitCode().isPresent());
-    Assert.assertEquals(LOCAL_BUILD_EXIT_CODE, (long) stats.localBuildExitCode().get());
+    Assert.assertEquals(LOCAL_BUILD_EXIT_CODE, (long) stats.localBuildExitCode().getAsInt());
     Assert.assertEquals(PERFORM_LOCAL_BUILD_DURATION, (long) stats.localBuildDurationMs().get());
     Assert.assertEquals(
         POST_BUILD_ANALYSIS_DURATION_MS, (long) stats.postBuildAnalysisDurationMs().get());
@@ -155,14 +179,14 @@ public class ClientStatsTrackerTest {
   @Test
   public void testRacingBuildFinishedFirstIsPopulatedWhenRacingBuildIsPerformed() {
     // Racing build not performed.
-    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL);
+    ClientStatsTracker tracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
     initializeCommonStats(tracker);
     DistBuildClientStats stats = tracker.generateStats();
     Assert.assertFalse(stats.performedRacingBuild());
     Assert.assertFalse(stats.racingBuildFinishedFirst().isPresent());
 
     // Racing build performed.
-    tracker = new ClientStatsTracker(BUILD_LABEL);
+    tracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
     initializeCommonStats(tracker);
     tracker.setPerformedRacingBuild(true);
     tracker.setRacingBuildFinishedFirst(false);
@@ -199,7 +223,8 @@ public class ClientStatsTrackerTest {
   private void assertCommonStats(DistBuildClientStats stats) {
     Assert.assertEquals(STAMPEDE_ID_ONE, stats.stampedeId());
     Assert.assertEquals(IS_LOCAL_FALLBACK_BUILD_ENABLED, stats.isLocalFallbackBuildEnabled().get());
-    Assert.assertEquals(DISTRIBUTED_BUILD_EXIT_CODE, (long) stats.distributedBuildExitCode().get());
+    Assert.assertEquals(
+        DISTRIBUTED_BUILD_EXIT_CODE, (long) stats.distributedBuildExitCode().getAsInt());
     Assert.assertEquals(
         LOCAL_GRAPH_CONSTRUCTION_DURATION, (long) stats.localGraphConstructionDurationMs().get());
     Assert.assertEquals(

@@ -16,25 +16,21 @@
 
 package com.facebook.buck.apple.toolchain;
 
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorConvertible;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorConvertible;
-import com.facebook.buck.rules.Tool;
-import com.facebook.buck.rules.ToolProvider;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.function.Function;
 import org.immutables.value.Value;
 
 /** Adds Apple-specific tools to {@link CxxPlatform}. */
 @Value.Immutable(copy = true)
 @BuckStyleImmutable
 abstract class AbstractAppleCxxPlatform implements FlavorConvertible {
-
-  public static final Function<String, String> SWIFT_VERSION_TO_TOOLCHAIN_IDENTIFIER =
-      version -> "com.apple.dt.toolchain.Swift_" + version.replaceAll("\\D", "_");
 
   public abstract CxxPlatform getCxxPlatform();
 

@@ -12,6 +12,7 @@
       <sourceFolder url="file://$MODULE_DIR$/test/com/facebook/buck/config/testdata" type="java-resource" />
       <sourceFolder url="file://$MODULE_DIR$/test/com/facebook/buck/apple/toolchain/impl/testdata" type="java-test-resource" />
       <sourceFolder url="file://$MODULE_DIR$/test/com/facebook/buck/android/toolchain/ndk/impl/testdata" type="java-test-resource" />
+      <sourceFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cli/testdata" type="java-test-resource" relativeOutputPath="com/facebook/buck/cli/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/.buckd" />
       <excludeFolder url="file://$MODULE_DIR$/buck-out" />
       <excludeFolder url="file://$MODULE_DIR$/build" />
@@ -25,9 +26,9 @@
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/apple/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/apple/xcode/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/apple/xcode/xcspec/testdata" />
-      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/autodeps/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cli/bootstrapper/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cli/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/core/model/actiongraph/computation/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/crosscell/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cxx/elf/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cxx/testdata" />
@@ -36,6 +37,8 @@
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/distributed/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/dotnet/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/event/listener/integration/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/features/gwt/testdata/gwt_binary" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/features/zip/rules/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/go/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/go/testdata/go_test/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/gwt/testdata" />
@@ -59,13 +62,16 @@
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/parser/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/python/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/rage/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/rules/modern/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/rules/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/rust/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/shell/filegroup/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/shell/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/step/fs/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/swift/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/test/labels/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/testrunner/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/testutil/endtoend/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/testutil/integration/testlibs" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/testutil/packaged_resource/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/util/versioncontrol/testdata" />
@@ -96,10 +102,9 @@
     <orderEntry type="library" name="eden" level="project" />
     <orderEntry type="library" name="java-thrift-dependencies" level="project" />
     <orderEntry type="library" name="xz-java-1.5" level="project" />
-    <orderEntry type="library" name="jna-4.4.0" level="project" />
-    <orderEntry type="library" name="jna-platform-4.4.0" level="project" />
+    <orderEntry type="library" name="jna" level="project" />
+    <orderEntry type="library" name="jna-platform" level="project" />
     <orderEntry type="library" name="diffutils-1.3.0" level="project" />
-    <orderEntry type="library" name="jdom" level="project" />
     <orderEntry type="library" name="okio" level="project" />
     <orderEntry type="library" name="okhttp" level="project" />
     <orderEntry type="library" name="sqlite" level="project" />
@@ -113,5 +118,13 @@
     <orderEntry type="library" name="json-simple" level="project" />
     <orderEntry type="library" name="d8" level="project" />
     <orderEntry type="library" name="objenesis-1.2" level="project" />
+    <orderEntry type="library" name="junitparams" level="project" />
+    <orderEntry type="library" name="protobuf-java-3.5.1" level="project" />
+    <orderEntry type="library" name="grpc" level="project" />
+    <orderEntry type="library" name="opencensus-api-0.12.2" level="project" />
+    <orderEntry type="library" name="googleapis" level="project" />
+    <orderEntry type="library" name="netty-all-4.1.24.Final" level="project" />
+    <orderEntry type="library" name="guava-20.0" level="project" />
+    <orderEntry type="library" name="bundle" level="project" />
   </component>
 </module>

@@ -16,156 +16,72 @@
 
 package com.facebook.buck.parser;
 
-import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.parser.api.ProjectBuildFileParser;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.parser.TargetSpecResolver.TargetNodeProviderForSpecResolver;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TargetNodeFactory;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
-import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.util.Console;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class PerBuildState implements AutoCloseable {
 
-  private final TypeCoercerFactory typeCoercerFactory;
   private final AtomicLong parseProcessedBytes = new AtomicLong();
-  private final BuckEventBus eventBus;
-  private final ParserPythonInterpreterProvider parserPythonInterpreterProvider;
-  private final boolean enableProfiling;
 
-  private final Console console;
-
-  private final Map<Path, Cell> cells;
-
-  private final SymlinkCache symlinkCache;
-  private final ProjectBuildFileParserPool projectBuildFileParserPool;
+  private final KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
+  private final CellManager cellManager;
   private final RawNodeParsePipeline rawNodeParsePipeline;
   private final TargetNodeParsePipeline targetNodeParsePipeline;
-  private final KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
 
-  public enum SpeculativeParsing {
-    ENABLED,
-    DISABLED,
-  }
+  private final TargetNodeProviderForSpecResolver<TargetNode<?, ?>>
+      targetNodeProviderForSpecResolver =
+          new TargetNodeProviderForSpecResolver<TargetNode<?, ?>>() {
+            @Override
+            public ListenableFuture<TargetNode<?, ?>> getTargetNodeJob(BuildTarget target)
+                throws BuildTargetException {
+              return PerBuildState.this.getTargetNodeJob(target);
+            }
 
-  public PerBuildState(
-      TypeCoercerFactory typeCoercerFactory,
-      ConstructorArgMarshaller marshaller,
-      DaemonicParserState daemonicParserState,
-      BuckEventBus eventBus,
-      ExecutableFinder executableFinder,
-      ListeningExecutorService executorService,
-      Cell rootCell,
-      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
-      boolean enableProfiling,
-      SpeculativeParsing speculativeParsing) {
-    this(
-        typeCoercerFactory,
-        daemonicParserState,
-        marshaller,
-        eventBus,
-        new ParserPythonInterpreterProvider(rootCell.getBuckConfig(), executableFinder),
-        executorService,
-        rootCell,
-        knownBuildRuleTypesProvider,
-        enableProfiling,
-        speculativeParsing);
-  }
+            @Override
+            public ListenableFuture<ImmutableSet<TargetNode<?, ?>>> getAllTargetNodesJob(
+                Cell cell, Path buildFile) throws BuildTargetException {
+              return PerBuildState.this.getAllTargetNodesJob(cell, buildFile);
+            }
+          };
 
   PerBuildState(
-      TypeCoercerFactory typeCoercerFactory,
-      DaemonicParserState daemonicParserState,
-      ConstructorArgMarshaller marshaller,
-      BuckEventBus eventBus,
-      ParserPythonInterpreterProvider parserPythonInterpreterProvider,
-      ListeningExecutorService executorService,
-      Cell rootCell,
       KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
-      boolean enableProfiling,
-      SpeculativeParsing speculativeParsing) {
-
-    this.typeCoercerFactory = typeCoercerFactory;
-    this.eventBus = eventBus;
-    this.parserPythonInterpreterProvider = parserPythonInterpreterProvider;
-    this.enableProfiling = enableProfiling;
+      CellManager cellManager,
+      RawNodeParsePipeline rawNodeParsePipeline,
+      TargetNodeParsePipeline targetNodeParsePipeline) {
     this.knownBuildRuleTypesProvider = knownBuildRuleTypesProvider;
-
-    this.cells = new ConcurrentHashMap<>();
-
-    this.console = Console.createNullConsole();
-
-    TargetNodeListener<TargetNode<?, ?>> symlinkCheckers = this::registerInputsUnderSymlinks;
-    ParserConfig parserConfig = rootCell.getBuckConfig().getView(ParserConfig.class);
-    int numParsingThreads = parserConfig.getNumParsingThreads();
-    this.projectBuildFileParserPool =
-        new ProjectBuildFileParserPool(
-            numParsingThreads, // Max parsers to create per cell.
-            cell ->
-                createBuildFileParser(
-                    cell, knownBuildRuleTypesProvider.get(cell).getDescriptions()),
-            enableProfiling);
-
-    this.rawNodeParsePipeline =
-        new RawNodeParsePipeline(
-            daemonicParserState.getRawNodeCache(), projectBuildFileParserPool, executorService);
-    this.targetNodeParsePipeline =
-        new TargetNodeParsePipeline(
-            daemonicParserState.getOrCreateNodeCache(TargetNode.class),
-            DefaultParserTargetNodeFactory.createForParser(
-                marshaller,
-                daemonicParserState.getBuildFileTrees(),
-                symlinkCheckers,
-                new TargetNodeFactory(typeCoercerFactory),
-                rootCell.getRuleKeyConfiguration()),
-            parserConfig.getEnableParallelParsing()
-                ? executorService
-                : MoreExecutors.newDirectExecutorService(),
-            eventBus,
-            parserConfig.getEnableParallelParsing()
-                && speculativeParsing == SpeculativeParsing.ENABLED,
-            rawNodeParsePipeline,
-            knownBuildRuleTypesProvider);
-
-    symlinkCache = new SymlinkCache(eventBus, daemonicParserState);
-
-    register(rootCell);
+    this.cellManager = cellManager;
+    this.rawNodeParsePipeline = rawNodeParsePipeline;
+    this.targetNodeParsePipeline = targetNodeParsePipeline;
   }
 
-  public TargetNode<?, ?> getTargetNode(BuildTarget target)
-      throws BuildFileParseException, BuildTargetException {
-    Cell owningCell = getCell(target);
+  TargetNode<?, ?> getTargetNode(BuildTarget target) throws BuildFileParseException {
+    Cell owningCell = cellManager.getCell(target);
 
     return targetNodeParsePipeline.getNode(
         owningCell, knownBuildRuleTypesProvider.get(owningCell), target, parseProcessedBytes);
   }
 
-  public ListenableFuture<TargetNode<?, ?>> getTargetNodeJob(BuildTarget target)
+  ListenableFuture<TargetNode<?, ?>> getTargetNodeJob(BuildTarget target)
       throws BuildTargetException {
-    Cell owningCell = getCell(target);
+    Cell owningCell = cellManager.getCell(target);
 
     return targetNodeParsePipeline.getNodeJob(
         owningCell, knownBuildRuleTypesProvider.get(owningCell), target, parseProcessedBytes);
   }
 
-  public ImmutableSet<TargetNode<?, ?>> getAllTargetNodes(Cell cell, Path buildFile)
+  ImmutableSet<TargetNode<?, ?>> getAllTargetNodes(Cell cell, Path buildFile)
       throws BuildFileParseException {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
 
@@ -173,15 +89,15 @@ public class PerBuildState implements AutoCloseable {
         cell, knownBuildRuleTypesProvider.get(cell), buildFile, parseProcessedBytes);
   }
 
-  public ListenableFuture<ImmutableSet<TargetNode<?, ?>>> getAllTargetNodesJob(
-      Cell cell, Path buildFile) throws BuildTargetException {
+  ListenableFuture<ImmutableSet<TargetNode<?, ?>>> getAllTargetNodesJob(Cell cell, Path buildFile)
+      throws BuildTargetException {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
 
     return targetNodeParsePipeline.getAllNodesJob(
         cell, knownBuildRuleTypesProvider.get(cell), buildFile, parseProcessedBytes);
   }
 
-  public ImmutableSet<Map<String, Object>> getAllRawNodes(Cell cell, Path buildFile)
+  ImmutableSet<Map<String, Object>> getAllRawNodes(Cell cell, Path buildFile)
       throws BuildFileParseException {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
 
@@ -190,65 +106,18 @@ public class PerBuildState implements AutoCloseable {
         cell, knownBuildRuleTypesProvider.get(cell), buildFile, parseProcessedBytes);
   }
 
-  private ProjectBuildFileParser createBuildFileParser(
-      Cell cell, Iterable<Description<?>> descriptions) {
-    return ProjectBuildFileParserFactory.createBuildFileParser(
-        cell,
-        typeCoercerFactory,
-        console,
-        eventBus,
-        parserPythonInterpreterProvider,
-        descriptions,
-        enableProfiling);
-  }
-
-  private void register(Cell cell) {
-    Path root = cell.getFilesystem().getRootPath();
-    if (!cells.containsKey(root)) {
-      cells.put(root, cell);
-      symlinkCache.registerCell(root, cell);
-    }
-  }
-
-  private Cell getCell(BuildTarget target) {
-    Cell cell = cells.get(target.getCellPath());
-    if (cell != null) {
-      return cell;
-    }
-
-    for (Cell possibleOwner : cells.values()) {
-      Optional<Cell> maybe = possibleOwner.getCellIfKnown(target);
-      if (maybe.isPresent()) {
-        register(maybe.get());
-        return maybe.get();
-      }
-    }
-    throw new HumanReadableException(
-        "From %s, unable to find cell rooted at: %s", target, target.getCellPath());
-  }
-
-  private void registerInputsUnderSymlinks(Path buildFile, TargetNode<?, ?> node)
-      throws IOException {
-    Cell currentCell = cells.get(node.getBuildTarget().getCellPath());
-    symlinkCache.registerInputsUnderSymlinks(
-        currentCell, getCell(node.getBuildTarget()), buildFile, node);
-  }
-
-  public void ensureConcreteFilesExist(BuckEventBus eventBus) {
-    for (Cell eachCell : cells.values()) {
-      eachCell.ensureConcreteFilesExist(eventBus);
-    }
-  }
-
-  public long getParseProcessedBytes() {
+  long getParseProcessedBytes() {
     return parseProcessedBytes.get();
   }
 
+  TargetNodeProviderForSpecResolver<TargetNode<?, ?>> getTargetNodeProviderForSpecResolver() {
+    return targetNodeProviderForSpecResolver;
+  }
+
   @Override
-  public void close() throws BuildFileParseException {
+  public void close() {
     targetNodeParsePipeline.close();
     rawNodeParsePipeline.close();
-    projectBuildFileParserPool.close();
-    symlinkCache.close();
+    cellManager.close();
   }
 }

@@ -24,11 +24,11 @@ import com.facebook.buck.artifact_cache.config.CacheReadMode;
 import com.facebook.buck.artifact_cache.config.DirCacheEntry;
 import com.facebook.buck.artifact_cache.config.HttpCacheEntry;
 import com.facebook.buck.config.BuckConfigTestUtils;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Joiner;
@@ -78,15 +78,15 @@ public class ArtifactCacheBuckConfigTest {
   @Test
   public void testMode() throws IOException {
     ArtifactCacheBuckConfig config = createFromText("[cache]", "mode = http");
-    assertThat(config.hasAtLeastOneWriteableCache(), Matchers.is(true));
+    assertThat(config.hasAtLeastOneWriteableRemoteCache(), Matchers.is(true));
     assertThat(config.getArtifactCacheModes(), Matchers.contains(ArtifactCacheMode.http));
 
     config = createFromText("[cache]", "mode = dir");
-    assertThat(config.hasAtLeastOneWriteableCache(), Matchers.is(false));
+    assertThat(config.hasAtLeastOneWriteableRemoteCache(), Matchers.is(false));
     assertThat(config.getArtifactCacheModes(), Matchers.contains(ArtifactCacheMode.dir));
 
     config = createFromText("[cache]", "mode = dir, http");
-    assertThat(config.hasAtLeastOneWriteableCache(), Matchers.is(true));
+    assertThat(config.hasAtLeastOneWriteableRemoteCache(), Matchers.is(true));
     assertThat(
         config.getArtifactCacheModes(),
         Matchers.containsInAnyOrder(ArtifactCacheMode.dir, ArtifactCacheMode.http));
@@ -320,7 +320,7 @@ public class ArtifactCacheBuckConfigTest {
 
   @Test
   public void errorMessageFormatter() throws IOException {
-    final String testText = "this is a test";
+    String testText = "this is a test";
     ArtifactCacheBuckConfig config =
         createFromText("[cache]", "http_error_message_format = " + testText);
 

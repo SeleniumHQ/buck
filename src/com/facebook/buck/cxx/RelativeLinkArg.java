@@ -16,26 +16,36 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.modern.annotations.CustomClassBehavior;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.modern.CustomClassSerialization;
+import com.facebook.buck.rules.modern.ValueCreator;
+import com.facebook.buck.rules.modern.ValueVisitor;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.function.Consumer;
 
+/** Relative link arg. */
+@CustomClassBehavior(RelativeLinkArg.SerializationBehavior.class)
 class RelativeLinkArg implements Arg {
   @AddToRuleKey private final PathSourcePath library;
   private final ImmutableList<String> link;
 
   public RelativeLinkArg(PathSourcePath library) {
     this.library = library;
+    this.link = createLink(library);
+  }
+
+  private static ImmutableList<String> createLink(PathSourcePath library) {
     Path fullPath = library.getFilesystem().resolve(library.getRelativePath());
     String name = MorePaths.stripPathPrefixAndExtension(fullPath.getFileName(), "lib");
-    this.link = ImmutableList.of("-L" + fullPath.getParent(), "-l" + name);
+    return ImmutableList.of("-L" + fullPath.getParent(), "-l" + name);
   }
 
   @Override
@@ -63,5 +73,21 @@ class RelativeLinkArg implements Arg {
   @Override
   public int hashCode() {
     return Objects.hash(library);
+  }
+
+  /** Custom serialization. */
+  static class SerializationBehavior implements CustomClassSerialization<RelativeLinkArg> {
+    @Override
+    public <E extends Exception> void serialize(
+        RelativeLinkArg instance, ValueVisitor<E> serializer) throws E {
+      serializer.visitSourcePath(instance.library);
+    }
+
+    @Override
+    public <E extends Exception> RelativeLinkArg deserialize(ValueCreator<E> deserializer)
+        throws E {
+      PathSourcePath library = (PathSourcePath) deserializer.createSourcePath();
+      return new RelativeLinkArg(library);
+    }
   }
 }

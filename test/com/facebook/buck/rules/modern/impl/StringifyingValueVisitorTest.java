@@ -25,7 +25,11 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
   @Override
   @Test
   public void outputPath() {
-    assertEquals("output:OutputPath(some/path)", stringify(new WithOutputPath()));
+    assertEquals(
+        "output:OutputPath(some/path)\n"
+            + "publicOutput:OutputPath(public.path)\n"
+            + "publicAsOutputPath:OutputPath(other.public.path)",
+        stringify(new WithOutputPath()));
   }
 
   @Override
@@ -70,6 +74,13 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
         stringify(new WithOptional()));
   }
 
+  @Test
+  @Override
+  public void optionalInt() {
+    assertEquals(
+        "present:boolean(true)integer(7)\nempty:boolean(false)", stringify(new WithOptionalInt()));
+  }
+
   @Override
   @Test
   public void simple() {
@@ -99,8 +110,9 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
             + "  double(2.2)\n"
             + "  double(3.3)\n"
             + ">\n"
-            + "number:double(2.3)",
-        stringify(new Derived()));
+            + "number:double(2.3)\n"
+            + "number:integer(3)",
+        stringify(new TwiceDerived()));
   }
 
   @Override
@@ -120,6 +132,7 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
             + "    >\n"
             + "  >\n"
             + ">\n"
+            + "function:null\n"
             + "list:List<\n"
             + "  com.facebook.buck.rules.modern.impl.AbstractValueVisitorTest$Appendable<\n"
             + "    sp:SourcePath(/project/root/appendable.path)\n"
@@ -175,5 +188,123 @@ public class StringifyingValueVisitorTest extends AbstractValueVisitorTest {
     StringifyingValueVisitor visitor = new StringifyingValueVisitor();
     DefaultClassInfoFactory.forInstance(value).visit(value, visitor);
     return visitor.getValue();
+  }
+
+  @Override
+  @Test
+  public void pattern() throws Exception {
+    assertEquals("pattern:string(abcd)", stringify(new WithPattern()));
+  }
+
+  @Override
+  @Test
+  public void anEnum() throws Exception {
+    assertEquals(
+        "type:string(GOOD)\n" + "otherType:Optional<\n" + "  string(BAD)\n" + ">",
+        stringify(new WithEnum()));
+  }
+
+  @Override
+  @Test
+  public void nonHashableSourcePathContainer() throws Exception {
+    assertEquals(
+        "container:SourcePath(/project/root/some/path)",
+        stringify(new WithNonHashableSourcePathContainer()));
+  }
+
+  @Override
+  @Test
+  public void sortedMap() throws Exception {
+    assertEquals(
+        "emptyMap:Map<\n"
+            + ">\n"
+            + "pathMap:Map<\n"
+            + "  key<\n"
+            + "    string(path)\n"
+            + "  >\n"
+            + "  value<\n"
+            + "    SourcePath(/project/root/some/path)\n"
+            + "  >\n"
+            + "  key<\n"
+            + "    string(target)\n"
+            + "  >\n"
+            + "  value<\n"
+            + "    SourcePath(Pair(other//some:target#flavor1,flavor2, other.path))\n"
+            + "  >\n"
+            + ">",
+        stringify(new WithSortedMap()));
+  }
+
+  @Override
+  @Test
+  public void supplier() throws Exception {
+    assertEquals(
+        "stringSupplier:string(string)\n" + "weakPath:SourcePath(/project/root/some.path)",
+        stringify(new WithSupplier()));
+  }
+
+  @Override
+  @Test
+  public void nullable() throws Exception {
+    assertEquals(
+        "nullString:null\n" + "nullPath:null\n" + "nonNullPath:SourcePath(/project/root/some.path)",
+        stringify(new WithNullable()));
+  }
+
+  @Override
+  @Test
+  public void either() throws Exception {
+    assertEquals(
+        "leftString:boolean(true)string(left)\n"
+            + "rightPath:boolean(false)SourcePath(/project/root/some.path)",
+        stringify(new WithEither()));
+  }
+
+  @Override
+  @Test
+  public void excluded() throws Exception {
+    assertEquals("excluded:\n" + "nullNotAnnoted:", stringify(new WithExcluded()));
+  }
+
+  @Override
+  @Test
+  public void immutables() throws Exception {
+    assertEquals(
+        "tupleInterfaceData:com.facebook.buck.rules.modern.impl.TupleInterfaceData<\n"
+            + "  first:SourcePath(/project/root/first.path)\n"
+            + "  second:string(world)\n"
+            + ">\n"
+            + "immutableInterfaceData:com.facebook.buck.rules.modern.impl.ImmutableInterfaceData<\n"
+            + "  first:SourcePath(/project/root/second.path)\n"
+            + "  second:string(world)\n"
+            + ">\n"
+            + "tupleClassData:com.facebook.buck.rules.modern.impl.TupleClassData<\n"
+            + "  first:SourcePath(/project/root/third.path)\n"
+            + "  second:string(world)\n"
+            + ">\n"
+            + "immutableClassData:com.facebook.buck.rules.modern.impl.ImmutableClassData<\n"
+            + "  first:SourcePath(/project/root/fourth.path)\n"
+            + "  second:string(world)\n"
+            + ">",
+        stringify(new WithImmutables()));
+  }
+
+  @Override
+  @Test
+  public void stringified() throws Exception {
+    assertEquals("stringified:", stringify(new WithStringified()));
+  }
+
+  @Override
+  @Test
+  public void wildcards() throws Exception {
+    assertEquals(
+        "path:Optional.empty()\n"
+            + "appendables:List<\n"
+            + "  com.facebook.buck.rules.modern.impl.AbstractValueVisitorTest$Appendable<\n"
+            + "    sp:SourcePath(/project/root/appendable.path)\n"
+            + "  >\n"
+            + ">",
+        stringify(new WithWildcards()));
   }
 }

@@ -16,18 +16,23 @@
 
 package com.facebook.buck.distributed.build_client;
 
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.build.event.BuildEvent.DistBuildStarted;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.distributed.DistBuildService;
+import com.facebook.buck.distributed.DistLocalBuildMode;
 import com.facebook.buck.distributed.ExitCode;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildMode;
+import com.facebook.buck.distributed.thrift.BuildStatus;
+import com.facebook.buck.distributed.thrift.MinionRequirements;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.ParallelRuleKeyCalculator;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.types.Pair;
@@ -49,6 +54,7 @@ public class DistBuildController {
   private final BuildPhase buildPhase;
   private final PostBuildPhase postBuildPhase;
   private final Console console;
+  private final DistBuildStarted startedEvent;
 
   private final ListenableFuture<BuildJobState> asyncJobState;
   private final AtomicReference<StampedeId> stampedeIdReference;
@@ -67,6 +73,7 @@ public class DistBuildController {
   public DistBuildController(DistBuildControllerArgs args) {
     this.stampedeIdReference = args.getStampedeIdReference();
     this.eventBus = args.getBuckEventBus();
+    this.startedEvent = args.getDistBuildStartedEvent();
     this.consoleEventsDispatcher = new ConsoleEventsDispatcher(eventBus);
     this.asyncJobState = args.getAsyncJobState();
     this.preBuildPhase =
@@ -110,7 +117,8 @@ public class DistBuildController {
       FileHashCache fileHashCache,
       InvocationInfo invocationInfo,
       BuildMode buildMode,
-      int numberOfMinions,
+      DistLocalBuildMode distLocalBuildMode,
+      MinionRequirements minionRequirements,
       String repository,
       String tenantId,
       ListenableFuture<ParallelRuleKeyCalculator<RuleKey>> ruleKeyCalculatorFuture)
@@ -126,14 +134,15 @@ public class DistBuildController {
                   eventBus,
                   invocationInfo.getBuildId(),
                   buildMode,
-                  numberOfMinions,
+                  minionRequirements,
                   repository,
                   tenantId,
                   ruleKeyCalculatorFuture));
     } catch (DistBuildService.DistBuildRejectedException ex) {
       eventBus.post(
-          ConsoleEvent.createForMessageWithAnsiEscapeCodes(
-              Level.WARNING, console.getAnsi().asWarningText(ex.getMessage())));
+          new StampedeConsoleEvent(
+              ConsoleEvent.createForMessageWithAnsiEscapeCodes(
+                  Level.WARNING, console.getAnsi().asWarningText(ex.getMessage()))));
       return createFailedExecutionResult(
           Preconditions.checkNotNull(stampedeIdReference.get()), ExitCode.PREPARATION_STEP_FAILED);
     } catch (IOException | RuntimeException ex) {
@@ -167,6 +176,7 @@ public class DistBuildController {
               executorService,
               Preconditions.checkNotNull(stampedeIdReference.get()),
               buildMode,
+              distLocalBuildMode,
               invocationInfo,
               ruleKeyCalculatorFuture);
     } catch (IOException | RuntimeException ex) { // Important: Don't swallow InterruptedException
@@ -177,18 +187,35 @@ public class DistBuildController {
           ExitCode.DISTRIBUTED_BUILD_STEP_LOCAL_EXCEPTION);
     }
 
-    // Note: always returns distributed exit code 0
-    // TODO(alisdair,ruibm,shivanker): consider new exit code if failed to fetch finished stats
-    return postBuildPhase.runPostDistBuildLocalSteps(
-        executorService,
-        buildResult.getBuildSlaveStatusList(),
-        buildResult.getFinalBuildJob(),
-        consoleEventsDispatcher);
+    // In the case of Fire-and-Forget mode do not run post-build steps.
+    if (distLocalBuildMode.equals(DistLocalBuildMode.FIRE_AND_FORGET)) {
+      LOG.info("Fire-and-forget mode enabled, exiting with default code.");
+      eventBus.post(BuildEvent.distBuildFinished(startedEvent, ExitCode.SUCCESSFUL.getCode()));
+      return new ExecutionResult(
+          buildResult.getFinalBuildJob().stampedeId, ExitCode.SUCCESSFUL.getCode());
+    } else {
+      // Send DistBuildFinished event if we reach this point without throwing.
+      boolean buildSuccess =
+          buildResult.getFinalBuildJob().getStatus().equals(BuildStatus.FINISHED_SUCCESSFULLY);
+      eventBus.post(
+          BuildEvent.distBuildFinished(
+              startedEvent,
+              buildSuccess ? 0 : ExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE.getCode()));
+
+      // Note: always returns distributed exit code 0
+      // TODO(alisdair,ruibm,shivanker): consider new exit code if failed to fetch finished stats
+      return postBuildPhase.runPostDistBuildLocalSteps(
+          executorService,
+          buildResult.getBuildSlaveStatusList(),
+          buildResult.getFinalBuildJob(),
+          consoleEventsDispatcher);
+    }
   }
 
   private ExecutionResult createFailedExecutionResult(StampedeId stampedeId, ExitCode exitCode) {
     LOG.warn("Stampede failed. Cancel async job state computation if that's still going on.");
     asyncJobState.cancel(true);
+    eventBus.post(BuildEvent.distBuildFinished(startedEvent, exitCode.getCode()));
     return new ExecutionResult(stampedeId, exitCode.getCode());
   }
 }

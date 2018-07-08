@@ -16,30 +16,32 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.NoopBuildRule;
+import com.facebook.buck.core.rules.tool.BinaryBuildRule;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.BinaryBuildRule;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.CommandTool;
-import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.NoopBuildRule;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Ordering;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.SortedSet;
 import java.util.function.Function;
@@ -125,13 +127,17 @@ public class CommandAlias extends NoopBuildRule implements BinaryBuildRule, HasR
 
   @Override
   public Tool getExecutableCommand() {
-    ImmutableSortedMap.Builder<Platform, Tool> platformTools = ImmutableSortedMap.naturalOrder();
-    platformDelegates.forEach(
-        (platform, rule) -> platformTools.put(platform, buildRuleAsTool(rule)));
+    ImmutableSortedMap<Platform, Tool> platformTools =
+        platformDelegates
+            .entrySet()
+            .stream()
+            .collect(
+                ImmutableSortedMap.toImmutableSortedMap(
+                    Ordering.natural(), Entry::getKey, e -> buildRuleAsTool(e.getValue())));
 
     return CrossPlatformTool.of(
-        genericDelegate.map(this::buildRuleAsTool).orElseGet(this::unsupportedPlatformTool),
-        platformTools.build(),
+        genericDelegate.map(this::buildRuleAsTool).orElseGet(UnsupportedPlatformTool::new),
+        platformTools,
         platform);
   }
 
@@ -151,18 +157,16 @@ public class CommandAlias extends NoopBuildRule implements BinaryBuildRule, HasR
     return tool.build();
   }
 
-  private Tool unsupportedPlatformTool() {
-    return new Tool() {
-      @Override
-      public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
-        throw new UnsupportedPlatformException(getBuildTarget(), platform);
-      }
+  private class UnsupportedPlatformTool implements Tool {
+    @Override
+    public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
+      throw new UnsupportedPlatformException(getBuildTarget(), platform);
+    }
 
-      @Override
-      public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
-        throw new UnsupportedPlatformException(getBuildTarget(), platform);
-      }
-    };
+    @Override
+    public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
+      throw new UnsupportedPlatformException(getBuildTarget(), platform);
+    }
   }
 
   private Stream<BuildRule> extractDepsFromArgs(Stream<Arg> args, SourcePathRuleFinder ruleFinder) {

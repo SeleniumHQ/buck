@@ -26,30 +26,30 @@ import com.facebook.buck.android.redex.RedexOptions;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasDeclaredAndExtraDeps;
+import com.facebook.buck.core.rules.attr.HasInstallHelpers;
+import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
+import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryClasspathProvider;
 import com.facebook.buck.jvm.java.Keystore;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.HasDeclaredAndExtraDeps;
-import com.facebook.buck.rules.HasInstallHelpers;
-import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.coercer.ManifestEntries;
-import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -60,6 +60,7 @@ import com.google.common.collect.Ordering;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.stream.Stream;
@@ -86,37 +87,11 @@ public class AndroidBinary extends AbstractBuildRule
         HasInstallHelpers {
   static final String SECONDARY_DEX_SUBDIR = "assets/secondary-program-dex-jars";
 
-  /**
-   * This list of package types is taken from the set of targets that the default build.xml provides
-   * for Android projects.
-   *
-   * <p>Note: not all package types are supported. If unsupported, will be treated as "DEBUG".
-   */
-  enum PackageType {
-    DEBUG,
-    INSTRUMENTED,
-    RELEASE,
-    TEST,
-    ;
-  }
-
-  enum RelinkerMode {
-    ENABLED,
-    DISABLED,
-    ;
-  }
-
-  enum AaptMode {
-    AAPT1,
-    AAPT2,
-    ;
-  }
-
   private final Keystore keystore;
 
   private final ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex;
   private final ProGuardObfuscateStep.SdkProguardType sdkProguardConfig;
-  private final Optional<Integer> optimizationPasses;
+  private final OptionalInt optimizationPasses;
   private final Optional<SourcePath> proguardConfig;
   private final SourcePathRuleFinder ruleFinder;
 
@@ -154,7 +129,7 @@ public class AndroidBinary extends AbstractBuildRule
       DexSplitMode dexSplitMode,
       Set<BuildTarget> buildTargetsToExcludeFromDex,
       ProGuardObfuscateStep.SdkProguardType sdkProguardConfig,
-      Optional<Integer> proguardOptimizationPasses,
+      OptionalInt proguardOptimizationPasses,
       Optional<SourcePath> proguardConfig,
       boolean skipProguard,
       Optional<RedexOptions> redexOptions,
@@ -164,7 +139,7 @@ public class AndroidBinary extends AbstractBuildRule
       EnumSet<ExopackageMode> exopackageModes,
       ImmutableSortedSet<JavaLibrary> rulesToExcludeFromDex,
       AndroidGraphEnhancementResult enhancementResult,
-      Optional<Integer> xzCompressionLevel,
+      OptionalInt xzCompressionLevel,
       boolean packageAssetLibraries,
       boolean compressAssetLibraries,
       ManifestEntries manifestEntries,
@@ -246,6 +221,7 @@ public class AndroidBinary extends AbstractBuildRule
             nativeFilesInfo,
             resourceFilesInfo,
             apkModules,
+            enhancementResult.getModuleResourceApkPaths(),
             apkCompressionLevel);
     this.exopackageInfo = exopackageInfo;
 
@@ -309,7 +285,7 @@ public class AndroidBinary extends AbstractBuildRule
     return sdkProguardConfig;
   }
 
-  public Optional<Integer> getOptimizationPasses() {
+  public OptionalInt getOptimizationPasses() {
     return optimizationPasses;
   }
 

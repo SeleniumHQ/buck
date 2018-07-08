@@ -22,14 +22,16 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
@@ -47,11 +49,12 @@ import org.junit.Test;
 public class CxxDescriptionEnhancerTest {
 
   @Test
-  public void libraryTestIncludesPrivateHeadersOfLibraryUnderTest() throws Exception {
+  public void libraryTestIncludesPrivateHeadersOfLibraryUnderTest() {
     BuildTarget libTarget = BuildTargetFactory.newInstance("//:lib");
     BuildTarget testTarget = BuildTargetFactory.newInstance("//:test");
 
     BuildRuleParams libParams = TestBuildRuleParams.create();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     FakeCxxLibrary libRule =
         new FakeCxxLibrary(
             libTarget,
@@ -74,12 +77,13 @@ public class CxxDescriptionEnhancerTest {
         CxxDescriptionEnhancer.collectCxxPreprocessorInput(
             testTarget,
             CxxPlatformUtils.DEFAULT_PLATFORM,
+            graphBuilder,
             deps,
             ImmutableMultimap.of(),
             ImmutableList.of(),
             ImmutableSet.of(),
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-                CxxPlatformUtils.DEFAULT_PLATFORM, deps),
+                CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder, deps),
             ImmutableList.of(),
             Optional.empty(),
             ImmutableSortedSet.of());
@@ -97,12 +101,13 @@ public class CxxDescriptionEnhancerTest {
   }
 
   @Test
-  public void libraryTestIncludesPublicHeadersOfDependenciesOfLibraryUnderTest() throws Exception {
+  public void libraryTestIncludesPublicHeadersOfDependenciesOfLibraryUnderTest() {
     BuildTarget libTarget = BuildTargetFactory.newInstance("//:lib");
     BuildTarget otherlibTarget = BuildTargetFactory.newInstance("//:otherlib");
     BuildTarget testTarget = BuildTargetFactory.newInstance("//:test");
 
     BuildRuleParams otherlibParams = TestBuildRuleParams.create();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     FakeCxxLibrary otherlibRule =
         new FakeCxxLibrary(
             otherlibTarget,
@@ -143,12 +148,13 @@ public class CxxDescriptionEnhancerTest {
         CxxDescriptionEnhancer.collectCxxPreprocessorInput(
             testTarget,
             CxxPlatformUtils.DEFAULT_PLATFORM,
+            graphBuilder,
             deps,
             ImmutableMultimap.of(),
             ImmutableList.of(),
             ImmutableSet.of(),
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-                CxxPlatformUtils.DEFAULT_PLATFORM, deps),
+                CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder, deps),
             ImmutableList.of(),
             Optional.empty(),
             ImmutableSortedSet.of());
@@ -171,10 +177,11 @@ public class CxxDescriptionEnhancerTest {
   }
 
   @Test
-  public void nonTestLibraryDepDoesNotIncludePrivateHeadersOfLibrary() throws Exception {
+  public void nonTestLibraryDepDoesNotIncludePrivateHeadersOfLibrary() {
     BuildTarget libTarget = BuildTargetFactory.newInstance("//:lib");
 
     BuildRuleParams libParams = TestBuildRuleParams.create();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     FakeCxxLibrary libRule =
         new FakeCxxLibrary(
             libTarget,
@@ -198,12 +205,13 @@ public class CxxDescriptionEnhancerTest {
         CxxDescriptionEnhancer.collectCxxPreprocessorInput(
             otherLibDepTarget,
             CxxPlatformUtils.DEFAULT_PLATFORM,
+            graphBuilder,
             deps,
             ImmutableMultimap.of(),
             ImmutableList.of(),
             ImmutableSet.of(),
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-                CxxPlatformUtils.DEFAULT_PLATFORM, deps),
+                CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder, deps),
             ImmutableList.of(),
             Optional.empty(),
             ImmutableSortedSet.of());

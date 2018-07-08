@@ -19,9 +19,11 @@ package com.facebook.buck.cli;
 import static com.facebook.buck.util.environment.Platform.WINDOWS;
 import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeThat;
 import static org.junit.Assume.assumeTrue;
 
@@ -34,8 +36,10 @@ import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
+import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.ThriftRuleKeyDeserializer;
 import com.facebook.buck.util.environment.Platform;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,6 +48,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.thrift.TException;
 import org.hamcrest.Matchers;
+import org.hamcrest.junit.MatcherAssert;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -175,6 +180,22 @@ public class BuildCommandIntegrationTest {
   }
 
   @Test
+  public void buckBuildAndCopyOutputFileIntoDirectoryWithBuildTargetThatSupportsIt()
+      throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "build_into", tmp);
+    workspace.setUp();
+
+    Path outputDir = tmp.newFolder("into-output");
+    assertEquals(0, outputDir.toFile().listFiles().length);
+    workspace.runBuckBuild("//:example", "--out", outputDir.toString());
+    assertTrue(outputDir.toFile().isDirectory());
+    File[] files = outputDir.toFile().listFiles();
+    assertEquals(1, files.length);
+    assertTrue(Files.isRegularFile(outputDir.resolve("example.jar")));
+  }
+
+  @Test
   public void buckBuildAndCopyOutputFileWithBuildTargetThatDoesNotSupportIt() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "build_into", tmp);
@@ -240,5 +261,65 @@ public class BuildCommandIntegrationTest {
     // Three rules, they could have any number of sub-rule keys and contributors
     assertTrue(ruleKeys.size() >= 3);
     assertTrue(ruleKeys.stream().anyMatch(ruleKey -> ruleKey.name.equals("//:bar")));
+  }
+
+  @Test
+  public void configuredBuckoutSymlinkinSubdirWorksWithoutCells() throws IOException {
+    assumeFalse(Platform.detect() == WINDOWS);
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "just_build", tmp);
+    workspace.setUp();
+    ProcessResult runBuckResult =
+        workspace.runBuckBuild(
+            "-c",
+            "project.buck_out_compat_link=true",
+            "-c",
+            "project.buck_out=buck-out/mydir",
+            "//:foo",
+            "//:bar",
+            "//:ex ample");
+    runBuckResult.assertSuccess();
+
+    assertTrue(Files.exists(workspace.getPath("buck-out/mydir/bin")));
+    assertTrue(Files.exists(workspace.getPath("buck-out/mydir/gen")));
+
+    Path buckOut = workspace.resolve("buck-out");
+    assertEquals(
+        buckOut.resolve("mydir/bin"),
+        buckOut.resolve(Files.readSymbolicLink(buckOut.resolve("bin"))));
+    assertEquals(
+        buckOut.resolve("mydir/gen"),
+        buckOut.resolve(Files.readSymbolicLink(buckOut.resolve("gen"))));
+  }
+
+  @Test
+  public void enableEmbeddedCellHasOnlyOneBuckOut() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "multiple_cell_build", tmp);
+    workspace.setUp();
+    ProcessResult runBuckResult =
+        workspace.runBuckBuild("-c", "project.embedded_cell_buck_out_enabled=true", "//main/...");
+    runBuckResult.assertSuccess();
+
+    assertTrue(Files.exists(workspace.getPath("buck-out/cells/cxx")));
+    assertTrue(Files.exists(workspace.getPath("buck-out/cells/java")));
+
+    assertFalse(Files.exists(workspace.getPath("cxx/buck-out")));
+    assertFalse(Files.exists(workspace.getPath("java/buck-out")));
+  }
+
+  @Test
+  public void testFailsIfNoTargetsProvided() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "just_build", tmp);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("build");
+    result.assertExitCode(null, ExitCode.COMMANDLINE_ERROR);
+    MatcherAssert.assertThat(
+        result.getStderr(),
+        Matchers.containsString(
+            "Must specify at least one build target. See https://buckbuild.com/concept/build_target_pattern.html"));
   }
 }

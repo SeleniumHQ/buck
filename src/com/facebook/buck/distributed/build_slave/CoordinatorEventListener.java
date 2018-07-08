@@ -18,30 +18,42 @@ package com.facebook.buck.distributed.build_slave;
 
 import com.facebook.buck.distributed.BuildStatusUtil;
 import com.facebook.buck.distributed.DistBuildService;
+import com.facebook.buck.distributed.DistBuildUtil;
 import com.facebook.buck.distributed.build_slave.ThriftCoordinatorServer.ExitState;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildModeInfo;
 import com.facebook.buck.distributed.thrift.BuildStatus;
+import com.facebook.buck.distributed.thrift.MinionRequirement;
+import com.facebook.buck.distributed.thrift.MinionType;
+import com.facebook.buck.distributed.thrift.SchedulingEnvironmentType;
 import com.facebook.buck.distributed.thrift.StampedeId;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.google.common.base.Preconditions;
 import java.io.IOException;
+import java.util.OptionalInt;
 
 /** Listener to events from the Coordinator. */
-public class CoordinatorEventListener implements ThriftCoordinatorServer.EventListener {
+public class CoordinatorEventListener
+    implements ThriftCoordinatorServer.EventListener, MinionCountProvider {
+  private static final Logger LOG = Logger.get(CoordinatorEventListener.class);
   private final DistBuildService service;
   private final StampedeId stampedeId;
-  private final String minionQueue;
+  private final String buildLabel;
+  private final MinionQueueProvider minionQueueProvider;
   private boolean islocalMinionAlsoRunning;
+  private volatile OptionalInt totalMinionCount = OptionalInt.empty();
 
   public CoordinatorEventListener(
       DistBuildService service,
       StampedeId stampedeId,
-      String minionQueue,
+      String buildLabel,
+      MinionQueueProvider minionQueueProvider,
       boolean islocalMinionAlsoRunning) {
     this.service = service;
     this.stampedeId = stampedeId;
-    this.minionQueue = minionQueue;
+    this.buildLabel = buildLabel;
+    this.minionQueueProvider = minionQueueProvider;
     this.islocalMinionAlsoRunning = islocalMinionAlsoRunning;
   }
 
@@ -51,16 +63,35 @@ public class CoordinatorEventListener implements ThriftCoordinatorServer.EventLi
     BuildJob buildJob = service.getCurrentBuildJobState(stampedeId);
     Preconditions.checkArgument(buildJob.isSetBuildModeInfo());
     BuildModeInfo buildModeInfo = buildJob.getBuildModeInfo();
-    if (!buildModeInfo.isSetNumberOfMinions()) {
+
+    if (!buildModeInfo.isSetMinionRequirements() && !buildModeInfo.isSetTotalNumberOfMinions()) {
       return;
     }
 
-    int requiredNumberOfMinions =
-        islocalMinionAlsoRunning
-            ? buildModeInfo.getNumberOfMinions() - 1
-            : buildModeInfo.getNumberOfMinions();
-    if (requiredNumberOfMinions > 0) {
-      service.enqueueMinions(stampedeId, requiredNumberOfMinions, minionQueue);
+    // TODO(alisdair): remove in future once minion requirements fully supported.
+    if (buildModeInfo.isSetTotalNumberOfMinions() && !buildModeInfo.isSetMinionRequirements()) {
+      buildModeInfo.setMinionRequirements(
+          (DistBuildUtil.createMinionRequirements(
+              buildModeInfo.getMode(),
+              SchedulingEnvironmentType.IDENTICAL_HARDWARE,
+              buildModeInfo.getTotalNumberOfMinions(),
+              0)));
+    }
+
+    totalMinionCount =
+        OptionalInt.of(DistBuildUtil.countMinions(buildModeInfo.getMinionRequirements()));
+
+    Preconditions.checkArgument(buildModeInfo.getMinionRequirements().isSetRequirements());
+    for (MinionRequirement requirement : buildModeInfo.getMinionRequirements().getRequirements()) {
+      MinionType minionType = requirement.getMinionType();
+      int requiredCount = requirement.getRequiredCount();
+      if (minionType == MinionType.STANDARD_SPEC && islocalMinionAlsoRunning) {
+        requiredCount -= 1; // One minion is already running, so no need to schedule again remotely.
+      }
+
+      String minionQueue = minionQueueProvider.getMinionQueue(minionType);
+      LOG.info("Requesting [%d] minions of type [%s]", requiredCount, minionType.name());
+      service.enqueueMinions(stampedeId, buildLabel, requiredCount, minionQueue, minionType);
     }
   }
 
@@ -81,5 +112,10 @@ public class CoordinatorEventListener implements ThriftCoordinatorServer.EventLi
             exitState.getExitMessage(),
             BuildStatusUtil.exitCodeToBuildStatus(buildExitCode).toString());
     service.setFinalBuildStatus(stampedeId, status, message);
+  }
+
+  @Override
+  public OptionalInt getTotalMinionCount() {
+    return totalMinionCount;
   }
 }

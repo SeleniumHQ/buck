@@ -16,12 +16,10 @@
 
 package com.facebook.buck.rules.coercer;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.visibility.VisibilityPattern;
-import com.facebook.buck.rules.visibility.VisibilityPatternParser;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -32,14 +30,13 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import javax.annotation.CheckReturnValue;
-import javax.annotation.Nullable;
 
 /**
  * Used to derive information from the constructor args returned by {@link
- * com.facebook.buck.rules.Description} instances. There are two major uses this information is put
- * to: populating the DTO object from the deserialized JSON maps, which are outputted by the
- * functions added to Buck's core build file parsing script. The second function of this class is to
- * generate those functions.
+ * com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph} instances. There are two
+ * major uses this information is put to: populating the DTO object from the deserialized JSON maps,
+ * which are outputted by the functions added to Buck's core build file parsing script. The second
+ * function of this class is to generate those functions.
  */
 public class ConstructorArgMarshaller {
 
@@ -63,8 +60,7 @@ public class ConstructorArgMarshaller {
    *   <li>Boolean values are set to true or false.
    *   <li>{@link BuildTarget}s are resolved and will be fully qualified.
    *   <li>Numeric values are handled as if being cast from Long.
-   *   <li>{@link com.facebook.buck.rules.SourcePath} instances will be set to the appropriate
-   *       implementation.
+   *   <li>{@link SourcePath} instances will be set to the appropriate implementation.
    *   <li>{@link Path} declarations will be set to be relative to the project root.
    *   <li>Strings will be set "as is".
    *   <li>{@link List}s and {@link Set}s will be populated with the expected generic type, provided
@@ -109,35 +105,5 @@ public class ConstructorArgMarshaller {
           dto);
     }
     return dto;
-  }
-
-  @SuppressWarnings("unchecked")
-  public static ImmutableSet<VisibilityPattern> populateVisibilityPatterns(
-      CellPathResolver cellNames, String paramName, @Nullable Object value, BuildTarget target) {
-    if (value == null) {
-      return ImmutableSet.of();
-    }
-    if (!(value instanceof List)) {
-      throw new RuntimeException(
-          String.format("Expected an array for %s but was %s", paramName, value));
-    }
-    ImmutableSet.Builder<VisibilityPattern> patterns = new ImmutableSet.Builder<>();
-    VisibilityPatternParser parser = new VisibilityPatternParser();
-    for (String visibility : (List<String>) value) {
-      try {
-        patterns.add(parser.parse(cellNames, visibility));
-      } catch (IllegalArgumentException e) {
-        throw new HumanReadableException(
-            e,
-            "Bad visibility expression: %s listed %s in its %s argument, but only %s "
-                + "or fully qualified target patterns are allowed (i.e. those starting with "
-                + "// or a cell).",
-            target.getFullyQualifiedName(),
-            visibility,
-            paramName,
-            VisibilityPatternParser.VISIBILITY_PUBLIC);
-      }
-    }
-    return patterns.build();
   }
 }

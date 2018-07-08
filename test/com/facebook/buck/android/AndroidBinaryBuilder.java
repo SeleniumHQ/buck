@@ -26,16 +26,22 @@ import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.android.aapt.RDotTxtEntry;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.DxToolchain;
+import com.facebook.buck.android.toolchain.ndk.impl.TestNdkCxxPlatformsProviderFactory;
+import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.jvm.java.JavaCompilationConstants;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
+import com.facebook.buck.jvm.java.toolchain.JavaToolchain;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -45,27 +51,39 @@ import java.util.Set;
 
 public class AndroidBinaryBuilder
     extends AbstractNodeBuilder<
-        AndroidBinaryDescriptionArg.Builder, AndroidBinaryDescriptionArg, AndroidBinaryDescription,
+        AndroidBinaryDescriptionArg.Builder,
+        AndroidBinaryDescriptionArg,
+        AndroidBinaryDescription,
         AndroidBinary> {
 
   private AndroidBinaryBuilder(BuildTarget target) {
-    super(
-        new AndroidBinaryDescription(
-            createToolchainProvider(),
-            DEFAULT_JAVA_CONFIG,
-            new ProGuardConfig(FakeBuckConfig.builder().build()),
-            FakeBuckConfig.builder().build(),
-            CxxPlatformUtils.DEFAULT_CONFIG,
-            new DxConfig(FakeBuckConfig.builder().build()),
-            new ApkConfig(FakeBuckConfig.builder().build())),
-        target);
+    this(FakeBuckConfig.builder().build(), target);
   }
 
-  private static ToolchainProvider createToolchainProvider() {
+  private AndroidBinaryBuilder(BuckConfig buckConfig, BuildTarget target) {
+    super(
+        new AndroidBinaryDescription(
+            DEFAULT_JAVA_CONFIG,
+            new AndroidBuckConfig(buckConfig, Platform.detect()),
+            new ProGuardConfig(buckConfig),
+            buckConfig,
+            CxxPlatformUtils.DEFAULT_CONFIG,
+            new DxConfig(buckConfig),
+            new ApkConfig(buckConfig),
+            createToolchainProviderForAndroidBinary(),
+            new AndroidBinaryGraphEnhancerFactory(),
+            new AndroidBinaryFactory(new AndroidBuckConfig(buckConfig, Platform.detect()))),
+        target,
+        new FakeProjectFilesystem(),
+        createToolchainProviderForAndroidBinary(),
+        null);
+  }
+
+  public static ToolchainProvider createToolchainProviderForAndroidBinary() {
     return new ToolchainProviderBuilder()
         .withToolchain(
             AndroidPlatformTarget.DEFAULT_NAME, TestAndroidPlatformTargetFactory.create())
-        .withDefaultNdkCxxPlatforms()
+        .withToolchain(TestNdkCxxPlatformsProviderFactory.createDefaultNdkPlatformsProvider())
         .withToolchain(
             DxToolchain.DEFAULT_NAME, DxToolchain.of(MoreExecutors.newDirectExecutorService()))
         .withToolchain(
@@ -73,6 +91,7 @@ public class AndroidBinaryBuilder
             JavaOptionsProvider.of(DEFAULT_JAVA_OPTIONS, DEFAULT_JAVA_OPTIONS))
         .withToolchain(
             JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.of(DEFAULT_JAVAC_OPTIONS))
+        .withToolchain(JavaToolchain.DEFAULT_NAME, JavaCompilationConstants.DEFAULT_JAVA_TOOLCHAIN)
         .build();
   }
 

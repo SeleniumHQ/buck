@@ -16,17 +16,18 @@
 
 package com.facebook.buck.rules.keys;
 
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasDeclaredAndExtraDeps;
+import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
+import com.facebook.buck.core.rules.impl.DependencyAggregation;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.DependencyAggregation;
-import com.facebook.buck.rules.HasDeclaredAndExtraDeps;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
 import com.facebook.buck.util.hashing.FileHashLoader;
 import com.google.common.base.Preconditions;
@@ -115,8 +116,8 @@ public class InputBasedRuleKeyFactory implements RuleKeyFactory<RuleKey> {
         .ifPresent(Throwables::throwIfUnchecked);
   }
 
-  private Builder<HashCode> newVerifyingBuilder(final BuildRule rule) {
-    final Iterable<DependencyAggregation> aggregatedRules =
+  private Builder<HashCode> newVerifyingBuilder(BuildRule rule) {
+    Iterable<DependencyAggregation> aggregatedRules =
         Iterables.filter(rule.getBuildDeps(), DependencyAggregation.class);
     return new Builder<HashCode>(RuleKeyBuilder.createDefaultHasher(ruleKeyLogger)) {
       private boolean hasEffectiveDirectDep(BuildRule dep) {

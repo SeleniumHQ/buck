@@ -21,23 +21,25 @@ import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.artifact_cache.SingletonArtifactCacheFactory;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.rules.BuildStamp.STAMP_KIND;
+import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
-import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
-import com.facebook.buck.parser.Parser;
+import com.facebook.buck.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.ActionGraphCache;
-import com.facebook.buck.rules.BuildInfoStoreManager;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -46,6 +48,7 @@ import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.testutil.FakeExecutor;
 import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
@@ -63,7 +66,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import javax.annotation.Nullable;
+import org.pf4j.PluginManager;
 
 public class CommandRunnerParamsForTesting {
 
@@ -92,32 +98,30 @@ public class CommandRunnerParamsForTesting {
       Platform platform,
       ImmutableMap<String, String> environment,
       JavaPackageFinder javaPackageFinder,
-      Optional<WebServer> webServer)
-      throws IOException, InterruptedException {
+      Optional<WebServer> webServer) {
     ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
     KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
-                processExecutor,
-                BuckPluginManagerFactory.createPluginManager(),
-                new TestSandboxExecutionStrategyFactory()));
+                processExecutor, pluginManager, new TestSandboxExecutionStrategyFactory()));
 
     return CommandRunnerParams.of(
         console,
-        new ByteArrayInputStream("".getBytes("UTF-8")),
+        new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)),
         cell,
         new InstrumentedVersionedTargetGraphCache(
             new VersionedTargetGraphCache(), new NoOpCacheStatsTracker()),
         new SingletonArtifactCacheFactory(artifactCache),
         typeCoercerFactory,
-        new Parser(
-            new BroadcastEventListener(),
+        new DefaultParser(
             cell.getBuckConfig().getView(ParserConfig.class),
             typeCoercerFactory,
             new ConstructorArgMarshaller(typeCoercerFactory),
             knownBuildRuleTypesProvider,
-            new ExecutableFinder()),
+            new ExecutableFinder(),
+            new TargetSpecResolver()),
         eventBus,
         platform,
         environment,
@@ -132,8 +136,7 @@ public class CommandRunnerParamsForTesting {
         ImmutableMap.of(ExecutorPool.PROJECT, MoreExecutors.newDirectExecutorService()),
         new FakeExecutor(),
         BUILD_ENVIRONMENT_DESCRIPTION,
-        new ActionGraphCache(
-            config.getMaxActionGraphCacheEntries(), config.getMaxActionGraphNodeCacheEntries()),
+        new ActionGraphCache(config.getMaxActionGraphCacheEntries()),
         knownBuildRuleTypesProvider,
         new BuildInfoStoreManager(),
         Optional.empty(),
@@ -142,7 +145,10 @@ public class CommandRunnerParamsForTesting {
         TestRuleKeyConfigurationFactory.create(),
         processExecutor,
         new ExecutableFinder(),
-        BuckPluginManagerFactory.createPluginManager());
+        pluginManager,
+        STAMP_KIND.STABLE.getBuildStamp(),
+        TestBuckModuleManagerFactory.create(pluginManager),
+        Main.getForkJoinPoolSupplier(config));
   }
 
   public static Builder builder() {
@@ -159,11 +165,17 @@ public class CommandRunnerParamsForTesting {
     private ImmutableMap<String, String> environment = ImmutableMap.copyOf(System.getenv());
     private JavaPackageFinder javaPackageFinder = new FakeJavaPackageFinder();
     private Optional<WebServer> webServer = Optional.empty();
+    @Nullable private ToolchainProvider toolchainProvider = null;
 
     public CommandRunnerParams build() throws IOException, InterruptedException {
+      TestCellBuilder cellBuilder = new TestCellBuilder();
+      if (toolchainProvider != null) {
+        cellBuilder.setToolchainProvider(toolchainProvider);
+      }
+
       return createCommandRunnerParamsForTesting(
           console,
-          new TestCellBuilder().build(),
+          cellBuilder.build(),
           artifactCache,
           eventBus,
           config,
@@ -185,6 +197,11 @@ public class CommandRunnerParamsForTesting {
 
     public Builder setArtifactCache(ArtifactCache cache) {
       this.artifactCache = cache;
+      return this;
+    }
+
+    public Builder setToolchainProvider(ToolchainProvider toolchainProvider) {
+      this.toolchainProvider = toolchainProvider;
       return this;
     }
   }

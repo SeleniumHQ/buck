@@ -26,20 +26,18 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.android.TestAndroidPlatformTargetFactory;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
@@ -68,9 +66,7 @@ public class ExternallyBuiltApplePackageTest {
       BuildTargetFactory.newInstance(Paths.get("."), "//foo", "package");
   private ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
   private BuildRuleParams params = TestBuildRuleParams.create();
-  private BuildRuleResolver resolver =
-      new SingleThreadedBuildRuleResolver(
-          TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+  private ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
   private ApplePackageConfigAndPlatformInfo config =
       ApplePackageConfigAndPlatformInfo.of(
           ApplePackageConfig.of("echo $SDKROOT $OUT", "api"),
@@ -85,13 +81,13 @@ public class ExternallyBuiltApplePackageTest {
   @Test
   public void sdkrootEnvironmentVariableIsSet() {
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(this.resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(this.graphBuilder));
     ExternallyBuiltApplePackage rule =
         new ExternallyBuiltApplePackage(
             buildTarget,
             projectFilesystem,
             new NoSandboxExecutionStrategy(),
-            resolver,
+            graphBuilder,
             params,
             config,
             FakeSourcePath.of(bundleLocation),
@@ -100,7 +96,7 @@ public class ExternallyBuiltApplePackageTest {
             Optional.of(TestAndroidPlatformTargetFactory.create()),
             Optional.empty(),
             Optional.empty());
-    resolver.addToIndex(rule);
+    graphBuilder.addToIndex(rule);
     ShellStep step =
         Iterables.getOnlyElement(
             Iterables.filter(
@@ -117,13 +113,13 @@ public class ExternallyBuiltApplePackageTest {
   @Test
   public void outputContainsCorrectExtension() {
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(this.resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(this.graphBuilder));
     ExternallyBuiltApplePackage rule =
         new ExternallyBuiltApplePackage(
             buildTarget,
             projectFilesystem,
             new NoSandboxExecutionStrategy(),
-            resolver,
+            graphBuilder,
             params,
             config,
             FakeSourcePath.of("Fake/Bundle/Location"),
@@ -132,7 +128,7 @@ public class ExternallyBuiltApplePackageTest {
             Optional.of(TestAndroidPlatformTargetFactory.create()),
             Optional.empty(),
             Optional.empty());
-    resolver.addToIndex(rule);
+    graphBuilder.addToIndex(rule);
     assertThat(
         pathResolver
             .getRelativePath(Preconditions.checkNotNull(rule.getSourcePathToOutput()))
@@ -143,13 +139,13 @@ public class ExternallyBuiltApplePackageTest {
   @Test
   public void commandContainsCorrectCommand() {
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(this.resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(this.graphBuilder));
     ExternallyBuiltApplePackage rule =
         new ExternallyBuiltApplePackage(
             buildTarget,
             projectFilesystem,
             new NoSandboxExecutionStrategy(),
-            resolver,
+            graphBuilder,
             params,
             config,
             FakeSourcePath.of("Fake/Bundle/Location"),
@@ -158,7 +154,7 @@ public class ExternallyBuiltApplePackageTest {
             Optional.of(TestAndroidPlatformTargetFactory.create()),
             Optional.empty(),
             Optional.empty());
-    resolver.addToIndex(rule);
+    graphBuilder.addToIndex(rule);
     AbstractGenruleStep step =
         Iterables.getOnlyElement(
             Iterables.filter(
@@ -179,7 +175,7 @@ public class ExternallyBuiltApplePackageTest {
                 buildTarget,
                 projectFilesystem,
                 new NoSandboxExecutionStrategy(),
-                resolver,
+                graphBuilder,
                 params,
                 config.withPlatform(config.getPlatform().withBuildVersion(input)),
                 FakeSourcePath.of("Fake/Bundle/Location"),
@@ -201,7 +197,7 @@ public class ExternallyBuiltApplePackageTest {
                 buildTarget,
                 projectFilesystem,
                 new NoSandboxExecutionStrategy(),
-                resolver,
+                graphBuilder,
                 params,
                 config.withPlatform(
                     config
@@ -219,7 +215,7 @@ public class ExternallyBuiltApplePackageTest {
   }
 
   private DefaultRuleKeyFactory newRuleKeyFactory() {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     return new TestDefaultRuleKeyFactory(
         new FakeFileHashCache(
             ImmutableMap.of(Paths.get(bundleLocation).toAbsolutePath(), HashCode.fromInt(5))),

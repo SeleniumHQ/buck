@@ -18,9 +18,10 @@ package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
-import com.facebook.buck.rules.RuleKey;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -51,7 +52,8 @@ public class InMemoryArtifactCache implements ArtifactCache {
   }
 
   @Override
-  public ListenableFuture<CacheResult> fetchAsync(RuleKey ruleKey, LazyPath output) {
+  public ListenableFuture<CacheResult> fetchAsync(
+      BuildTarget target, RuleKey ruleKey, LazyPath output) {
     return service.submit(() -> fetch(ruleKey, output));
   }
 

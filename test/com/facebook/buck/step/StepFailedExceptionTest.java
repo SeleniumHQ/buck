@@ -19,7 +19,7 @@ package com.facebook.buck.step;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.Verbosity;
@@ -42,8 +42,8 @@ public class StepFailedExceptionTest {
 
   @Test
   public void testCreateForFailingStepForExitCodeWithBuildTarget() {
-    final int exitCode = 17;
-    final StepExecutionResult executionResult = StepExecutionResult.of(exitCode);
+    int exitCode = 17;
+    StepExecutionResult executionResult = StepExecutionResult.of(exitCode);
     Step step = new FakeStep("cp", "cp foo bar", exitCode);
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar");
     StepFailedException exception =
@@ -58,8 +58,8 @@ public class StepFailedExceptionTest {
 
   @Test
   public void testCreateForFailingStepForExitCodeWithoutBuildTarget() {
-    final int exitCode = 17;
-    final StepExecutionResult executionResult = StepExecutionResult.of(exitCode);
+    int exitCode = 17;
+    StepExecutionResult executionResult = StepExecutionResult.of(exitCode);
     Step step = new FakeStep("cp", "cp foo bar", exitCode);
     StepFailedException exception =
         StepFailedException.createForFailingStepWithExitCode(
@@ -73,8 +73,8 @@ public class StepFailedExceptionTest {
 
   @Test
   public void testCreateForFailingStepWithSilentConsole() {
-    final int exitCode = 17;
-    final StepExecutionResult executionResult = StepExecutionResult.of(exitCode);
+    int exitCode = 17;
+    StepExecutionResult executionResult = StepExecutionResult.of(exitCode);
     Step step = new FakeStep("cp", "cp foo bar", exitCode);
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar");
     StepFailedException exception =
@@ -88,7 +88,7 @@ public class StepFailedExceptionTest {
 
   @Test
   public void testCreateForFailingStepWithBuildTarget() {
-    final int exitCode = 17;
+    int exitCode = 17;
     Step step = new FakeStep("cp", "cp foo bar", exitCode);
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar");
     StepFailedException exception =
@@ -103,7 +103,7 @@ public class StepFailedExceptionTest {
 
   @Test
   public void testCreateForFailingStepWithoutBuildTarget() {
-    final int exitCode = 17;
+    int exitCode = 17;
     Step step = new FakeStep("cp", "cp foo bar", exitCode);
     StepFailedException exception =
         StepFailedException.createForFailingStepWithException(

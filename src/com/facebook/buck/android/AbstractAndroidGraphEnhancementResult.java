@@ -20,8 +20,8 @@ import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.exopackage.ExopackagePathAndHash;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -41,6 +41,8 @@ interface AbstractAndroidGraphEnhancementResult {
   Either<PreDexMerge, NonPreDexedDexBuildable> getDexMergeRule();
 
   SourcePath getPrimaryResourcesApkPath();
+
+  ImmutableMap<APKModule, SourcePath> getModuleResourceApkPaths();
 
   ImmutableList<SourcePath> getPrimaryApkAssetZips();
 

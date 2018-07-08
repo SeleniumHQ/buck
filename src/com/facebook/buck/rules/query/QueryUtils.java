@@ -16,20 +16,18 @@
 
 package com.facebook.buck.rules.query;
 
-import com.facebook.buck.event.PerfEventId;
-import com.facebook.buck.event.SimplePerfEvent;
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.arg.HasDepsQuery;
+import com.facebook.buck.core.description.arg.HasProvidedDepsQuery;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryTarget;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.HasDepsQuery;
-import com.facebook.buck.rules.HasProvidedDepsQuery;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.Threads;
@@ -58,7 +56,7 @@ public final class QueryUtils {
       T arg,
       BuildTarget target,
       QueryCache cache,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       TargetGraph graph) {
     if (arg instanceof HasDepsQuery) {
@@ -66,7 +64,8 @@ public final class QueryUtils {
       if (castedArg.getDepsQuery().isPresent()) {
         Query query = castedArg.getDepsQuery().get();
         ImmutableSortedSet<BuildTarget> resolvedQuery =
-            resolveDepQuery(target, query, cache, resolver, cellRoots, graph, castedArg.getDeps());
+            resolveDepQuery(
+                target, query, cache, graphBuilder, cellRoots, graph, castedArg.getDeps());
         return (T) castedArg.withDepsQuery(query.withResolvedQuery(resolvedQuery));
       }
     }
@@ -79,7 +78,7 @@ public final class QueryUtils {
       T arg,
       BuildTarget target,
       QueryCache cache,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       TargetGraph graph) {
     if (arg instanceof HasProvidedDepsQuery) {
@@ -88,7 +87,7 @@ public final class QueryUtils {
         Query query = castedArg.getProvidedDepsQuery().get();
         ImmutableSortedSet<BuildTarget> resolvedQuery =
             resolveDepQuery(
-                target, query, cache, resolver, cellRoots, graph, castedArg.getProvidedDeps());
+                target, query, cache, graphBuilder, cellRoots, graph, castedArg.getProvidedDeps());
         arg = (T) castedArg.withProvidedDepsQuery(query.withResolvedQuery(resolvedQuery));
       }
     }
@@ -100,24 +99,19 @@ public final class QueryUtils {
       BuildTarget target,
       Query query,
       QueryCache cache,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots,
       TargetGraph targetGraph,
       ImmutableSet<BuildTarget> declaredDeps) {
     GraphEnhancementQueryEnvironment env =
         new GraphEnhancementQueryEnvironment(
-            Optional.of(resolver),
+            Optional.of(graphBuilder),
             Optional.of(targetGraph),
             TYPE_COERCER_FACTORY,
             cellRoots,
             BuildTargetPatternParser.forBaseName(target.getBaseName()),
             declaredDeps);
-    try (SimplePerfEvent.Scope ignored =
-        SimplePerfEvent.scope(
-            Optional.ofNullable(resolver.getEventBus()),
-            PerfEventId.of("resolve_dep_query"),
-            "target",
-            target.toString())) {
+    try {
       QueryExpression parsedExp = QueryExpression.parse(query.getQuery(), env);
       Set<QueryTarget> queryTargets = cache.getQueryEvaluator(targetGraph).eval(parsedExp, env);
       return queryTargets

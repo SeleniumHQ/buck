@@ -17,20 +17,20 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildRules;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
@@ -59,6 +59,7 @@ public class AaptPackageResources extends AbstractBuildRule {
   @AddToRuleKey private final boolean skipCrunchPngs;
   @AddToRuleKey private final ManifestEntries manifestEntries;
   @AddToRuleKey private final boolean includesVectorDrawables;
+  @AddToRuleKey private final ImmutableList<SourcePath> dependencyResourceApks;
 
   private final AndroidPlatformTarget androidPlatformTarget;
   private final Supplier<SortedSet<BuildRule>> buildDepsSupplier;
@@ -69,6 +70,7 @@ public class AaptPackageResources extends AbstractBuildRule {
       BuildRuleResolver ruleResolver,
       SourcePath manifest,
       FilteredResourcesProvider filteredResourcesProvider,
+      ImmutableList<SourcePath> dependencyResourceApks,
       ImmutableList<HasAndroidResourceDeps> resourceDeps) {
     ImmutableSortedSet.Builder<BuildRule> depsBuilder = ImmutableSortedSet.naturalOrder();
     Stream<BuildTarget> resourceTargets =
@@ -81,6 +83,9 @@ public class AaptPackageResources extends AbstractBuildRule {
             .map(HasAndroidResourceDeps::getRes)
             .flatMap(ruleFinder.FILTER_BUILD_RULE_INPUTS)
             .iterator());
+    for (SourcePath apk : dependencyResourceApks) {
+      ruleFinder.getRule(apk).ifPresent(depsBuilder::add);
+    }
     ruleFinder.getRule(manifest).ifPresent(depsBuilder::add);
     filteredResourcesProvider.getResourceFilterRule().ifPresent(depsBuilder::add);
     return depsBuilder.build();
@@ -93,6 +98,7 @@ public class AaptPackageResources extends AbstractBuildRule {
       SourcePathRuleFinder ruleFinder,
       BuildRuleResolver ruleResolver,
       SourcePath manifest,
+      ImmutableList<SourcePath> dependencyResourceApks,
       FilteredResourcesProvider filteredResourcesProvider,
       ImmutableList<HasAndroidResourceDeps> resourceDeps,
       boolean skipCrunchPngs,
@@ -101,6 +107,7 @@ public class AaptPackageResources extends AbstractBuildRule {
     super(buildTarget, projectFilesystem);
     this.androidPlatformTarget = androidPlatformTarget;
     this.manifest = manifest;
+    this.dependencyResourceApks = dependencyResourceApks;
     this.filteredResourcesProvider = filteredResourcesProvider;
     this.skipCrunchPngs = skipCrunchPngs;
     this.includesVectorDrawables = includesVectorDrawables;
@@ -114,6 +121,7 @@ public class AaptPackageResources extends AbstractBuildRule {
                     ruleResolver,
                     manifest,
                     filteredResourcesProvider,
+                    dependencyResourceApks,
                     resourceDeps));
   }
 
@@ -138,7 +146,7 @@ public class AaptPackageResources extends AbstractBuildRule {
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context, final BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 
@@ -186,6 +194,10 @@ public class AaptPackageResources extends AbstractBuildRule {
             getResourceApkPath(),
             rDotTxtDir,
             pathToGeneratedProguardConfig,
+            dependencyResourceApks
+                .stream()
+                .map(context.getSourcePathResolver()::getAbsolutePath)
+                .collect(ImmutableList.toImmutableList()),
             /*
              * In practice, it appears that if --no-crunch is used, resources will occasionally
              * appear distorted in the APK produced by this command (and what's worse, a clean
@@ -251,9 +263,7 @@ public class AaptPackageResources extends AbstractBuildRule {
         getProjectFilesystem(), getBuildTarget(), "__manifest_%s__/AndroidManifest.xml");
   }
 
-  /**
-   * @return Path to the unsigned APK generated by this {@link com.facebook.buck.rules.BuildRule}.
-   */
+  /** @return Path to the unsigned APK generated by this {@link BuildRule}. */
   private Path getResourceApkPath() {
     return BuildTargets.getGenPath(
         getProjectFilesystem(), getBuildTarget(), RESOURCE_APK_PATH_FORMAT);

@@ -16,19 +16,19 @@
 
 package com.facebook.buck.cxx.toolchain.nativelink;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.SourcePath;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 /**
- * Interface for {@link com.facebook.buck.rules.BuildRule} objects (e.g. C++ libraries) which can
- * contribute to the top-level link of a native binary (e.g. C++ binary).
+ * Interface for {@link BuildRule} objects (e.g. C++ libraries) which can contribute to the
+ * top-level link of a native binary (e.g. C++ binary).
  */
 public interface NativeLinkable {
 
@@ -40,8 +40,8 @@ public interface NativeLinkable {
    */
   @SuppressWarnings("unused")
   default Iterable<? extends NativeLinkable> getNativeLinkableDepsForPlatform(
-      CxxPlatform cxxPlatform) {
-    return getNativeLinkableDeps();
+      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
+    return getNativeLinkableDeps(ruleResolver);
   }
 
   /**
@@ -50,21 +50,21 @@ public interface NativeLinkable {
    */
   @SuppressWarnings("unused")
   default Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
-      CxxPlatform cxxPlatform) {
-    return getNativeLinkableExportedDeps();
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
+    return getNativeLinkableExportedDeps(graphBuilder);
   }
 
   /**
    * @return All native linkable dependencies that might be required by this linkable on any
    *     platform.
    */
-  Iterable<? extends NativeLinkable> getNativeLinkableDeps();
+  Iterable<? extends NativeLinkable> getNativeLinkableDeps(BuildRuleResolver ruleResolver);
 
   /**
    * @return All native linkable exported dependencies that might be required by this linkable on
    *     any platform.
    */
-  Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps();
+  Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(BuildRuleResolver ruleResolver);
 
   enum LanguageExtensions {
     HS_PROFILE
@@ -78,38 +78,31 @@ public interface NativeLinkable {
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions);
+      ImmutableSet<LanguageExtensions> languageExtensions,
+      ActionGraphBuilder graphBuilder);
 
   /**
    * Return input that *dependents* should put on their link line when linking against this
    * linkable.
    */
   default NativeLinkableInput getNativeLinkableInput(
-      CxxPlatform cxxPlatform, Linker.LinkableDepType type) {
-    return getNativeLinkableInput(cxxPlatform, type, false, ImmutableSet.of());
+      CxxPlatform cxxPlatform, Linker.LinkableDepType type, ActionGraphBuilder graphBuilder) {
+    return getNativeLinkableInput(cxxPlatform, type, false, ImmutableSet.of(), graphBuilder);
   }
 
-  Linkage getPreferredLinkage(CxxPlatform cxxPlatform);
+  Linkage getPreferredLinkage(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder);
 
   /**
    * @return a map of shared library SONAME to shared library path for the given {@link
    *     CxxPlatform}.
    */
-  ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform);
+  ImmutableMap<String, SourcePath> getSharedLibraries(
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder);
 
   /** @return whether this {@link NativeLinkable} supports omnibus linking. */
-  default boolean supportsOmnibusLinking(@SuppressWarnings("unused") CxxPlatform cxxPlatform) {
+  @SuppressWarnings("unused")
+  default boolean supportsOmnibusLinking(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return true;
-  }
-
-  /**
-   * @param loader the method to load missing element to cache
-   * @return a LoadingCache for native linkable
-   */
-  public static LoadingCache<NativeLinkableCacheKey, NativeLinkableInput>
-      getNativeLinkableInputCache(
-          com.google.common.base.Function<NativeLinkableCacheKey, NativeLinkableInput> loader) {
-    return CacheBuilder.newBuilder().build(CacheLoader.from(loader));
   }
 
   enum Linkage {

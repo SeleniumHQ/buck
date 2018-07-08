@@ -31,10 +31,19 @@
       to prior to running the command.</dd>
 
       <dt><code>OUT</code></dt>
-      <dd>The output file for the <code>genrule()</code>. The file
-      specified by this variable must always be written by this
-      command. If not, the execution of this rule will be considered a
-      failure, halting the build process.</dd>
+      <dd>
+      <p>
+      The output file or directory for the <code>genrule()</code>.  
+      This variable will have whatever value is specified by the <code>out</code> argument.  
+      The value should be a valid filepath. The semantics of the shell command
+      determine whether this filepath is treated as a file or a directory. 
+      If the filepath is a directory, then the shell command needs to create it.
+      </p>
+      <p>
+      The file or directory specified by this variable must always be written by this command. 
+      If not, the execution of this rule will be considered a failure, halting the build process.
+      </p>
+      </dd>
 
       <dt><code>TMP</code></dt>
       <dd>A temporary directory which can be used for intermediate results and will not be
@@ -44,7 +53,9 @@
 
     It is also possible to expand references to other rules within the
     {sp}<code>cmd</code>, using builtin {call buck.string_parameter_macros /}.
-    This expansion takes two supported forms:
+    Note that all build rules expanded in the command will be automatically
+    considered to be dependencies of the <code>genrule()</code>.
+
     <dl>
       <dt><code>$(classpath /&#x2F;path/to:target)</code></dt>
       <dd>Expands a build rule for something that has a java classpath
@@ -76,8 +87,6 @@
       </dd>
     </dl>
 
-    Note that all build rules expanded in the command will be automatically
-    considered to be dependencies of the <code>genrule()</code>.
   {/param}
 {/call}
 {/template}
@@ -88,9 +97,10 @@
   {param name: 'bash' /}
   {param default: 'None' /}
   {param desc}
-  The platform-specific version of parameter <code>cmd</code>.
-  It runs on UNIX in which <code>bash</code> is installed and has a higher priority than
-  {sp}<code>cmd</code>. Command specified will be run with <code>/bin/bash -c</code>.
+  A platform-specific version of the shell command parameter <code>cmd</code>.
+  It runs on Linux and UNIX systems&mdash;including OSX&mdash;on which <code>bash</code> is installed. 
+  It has a higher priority than {sp}<code>cmd</code>. The <code>bash</code> argument is run with <code>/bin/bash -c</code>.
+  It has access to the same set of macros and variables as the <code>cmd</code> argument.
   {/param}
 {/call}
 {/template}
@@ -101,8 +111,9 @@
   {param name: 'cmd_exe' /}
   {param default: 'None' /}
   {param desc}
-  The platform-specific version of parameter <code>cmd</code>. It runs on Windows and has a higher
-  {sp}priority than <code>cmd</code>. Command specified will be run with <code>cmd.exe /c</code>.
+  A platform-specific version of the shell command parameter <code>cmd</code>. It runs on Windows and has a higher
+  {sp}priority than <code>cmd</code>. The <code>cmd_exe</code> argument is run with <code>cmd.exe /c</code>.
+  It has access to the same set of macros and variables as the <code>cmd</code> argument.
   {/param}
 {/call}
 {/template}
@@ -112,8 +123,9 @@
 {call buck.arg}
   {param name: 'out' /}
   {param desc}
-   The name of the output file or directory. Must be unique within the build file
-   in which the <code>genrule()</code> is declared.
+   The name of the output file or directory. The complete path to this
+   argument is provided to the shell command through 
+   the <code>OUT</code> environment variable.
   {/param}
 {/call}
 {/template}
@@ -124,8 +136,54 @@
   {param name: 'type' /}
   {param default: 'None' /}
   {param desc}
-   The type of this genrule. This is used for logging and is particularly useful for grouping
-   different genrules that share an underlying logical "type".
+  <p>
+  Specifies the <em>type</em> of this genrule. This is used for logging
+  and is particularly useful for grouping genrules that share an
+  underlying logical "type".
+  </p>
+
+  <p>
+  For example, if you have the following <code>cxx_genrule</code> defined 
+  in the root directory of your Buck project
+  </p>
+
+<p>
+<pre>
+{literal}
+cxx_genrule(
+  name = 'cxx_gen',
+  type = 'epilog',
+  cmd  = 'touch finish.txt; cp finish.txt $OUT',
+  out  = 'finish.txt'
+)
+{/literal}
+</pre>
+</p>
+
+  <p>
+  then the following <code>buck query</code> command 
+  </p>
+
+<p>
+<pre>
+{literal}
+buck query "attrfilter( type, 'epilog', '//...' )"
+{/literal}
+</pre>
+</p>
+
+  <p>
+  returns
+  </p>
+
+<p>
+<pre>
+{literal}
+//:cxx_gen
+{/literal}
+</pre>
+</p>
+
   {/param}
 {/call}
 {/template}
@@ -136,8 +194,21 @@
   {param name: 'environment_expansion_separator' /}
   {param default: '" "' /}
   {param desc}
-   The delimiter between paths in environment variables that are populated by buck in genrules,
-   like SRCS, that can contain multiple paths. This can be useful if paths contain spaces.
+   The delimiter between paths in environment variables, such as SRCS, that can contain multiple paths. 
+   It can be useful to specify this parameter if the paths could contain spaces.
+  {/param}
+{/call}
+{/template}
+
+/***/
+{template .no_remote_arg}
+{call buck.arg}
+  {param name: 'no_remote' /}
+  {param default: 'False' /}
+  {param desc}
+   Whether this rule (and all rules that depend on it) can be executed remotely.
+   This does not change whether this rule (or any rule that depends on it) can
+   be cached (locally or remotely). This feature may be removed in the future.
   {/param}
 {/call}
 {/template}

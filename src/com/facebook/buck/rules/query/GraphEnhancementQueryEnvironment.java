@@ -16,8 +16,13 @@
 
 package com.facebook.buck.rules.query;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.jvm.core.HasClasspathDeps;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
@@ -34,12 +39,6 @@ import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.query.QueryTargetAccessor;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Preconditions;
@@ -76,19 +75,19 @@ import java.util.stream.Stream;
  */
 public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
 
-  private final Optional<BuildRuleResolver> resolver;
+  private final Optional<ActionGraphBuilder> graphBuilder;
   private final Optional<TargetGraph> targetGraph;
   private final TypeCoercerFactory typeCoercerFactory;
   private final QueryEnvironment.TargetEvaluator targetEvaluator;
 
   public GraphEnhancementQueryEnvironment(
-      Optional<BuildRuleResolver> resolver,
+      Optional<ActionGraphBuilder> graphBuilder,
       Optional<TargetGraph> targetGraph,
       TypeCoercerFactory typeCoercerFactory,
       CellPathResolver cellNames,
       BuildTargetPatternParser<BuildTargetPattern> context,
       Set<BuildTarget> declaredDeps) {
-    this.resolver = resolver;
+    this.graphBuilder = graphBuilder;
     this.targetGraph = targetGraph;
     this.typeCoercerFactory = typeCoercerFactory;
     this.targetEvaluator = new TargetEvaluator(cellNames, context, declaredDeps);
@@ -142,7 +141,7 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
 
   @Override
   public String getTargetKind(QueryTarget target) {
-    return Description.getBuildRuleType(getNode(target).getDescription()).getName();
+    return getNode(target).getBuildRuleType().getName();
   }
 
   @Override
@@ -181,13 +180,15 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
   }
 
   public Stream<QueryTarget> getFirstOrderClasspath(Set<QueryTarget> targets) {
-    Preconditions.checkArgument(resolver.isPresent());
+    Preconditions.checkArgument(graphBuilder.isPresent());
     return targets
         .stream()
         .map(
             queryTarget -> {
               Preconditions.checkArgument(queryTarget instanceof QueryBuildTarget);
-              return resolver.get().requireRule(((QueryBuildTarget) queryTarget).getBuildTarget());
+              return graphBuilder
+                  .get()
+                  .requireRule(((QueryBuildTarget) queryTarget).getBuildTarget());
             })
         .filter(rule -> rule instanceof HasClasspathDeps)
         .flatMap(rule -> ((HasClasspathDeps) rule).getDepsForTransitiveClasspathEntries().stream())

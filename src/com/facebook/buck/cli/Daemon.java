@@ -20,22 +20,22 @@ import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.ArtifactCaches;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.FileHashCacheEvent;
-import com.facebook.buck.event.listener.BroadcastEventListener;
-import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.WatchmanCursor;
 import com.facebook.buck.io.WatchmanWatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
+import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.rules.ActionGraphCache;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -54,6 +54,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -74,7 +75,6 @@ final class Daemon implements Closeable {
   private final ConcurrentMap<String, WorkerProcessPool> persistentWorkerPools;
   private final VersionedTargetGraphCache versionedTargetGraphCache;
   private final ActionGraphCache actionGraphCache;
-  private final BroadcastEventListener broadcastEventListener;
   private final RuleKeyCacheRecycler<RuleKey> defaultRuleKeyFactoryCacheRecycler;
   private final ImmutableMap<Path, WatchmanCursor> cursor;
   private final KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
@@ -104,24 +104,21 @@ final class Daemon implements Closeable {
             rootCell.getFilesystem(), rootCell.getBuckConfig().getFileHashCacheMode()));
     this.hashCaches = hashCachesBuilder.build();
 
-    this.broadcastEventListener = new BroadcastEventListener();
     this.actionGraphCache =
-        new ActionGraphCache(
-            rootCell.getBuckConfig().getMaxActionGraphCacheEntries(),
-            rootCell.getBuckConfig().getMaxActionGraphNodeCacheEntries());
+        new ActionGraphCache(rootCell.getBuckConfig().getMaxActionGraphCacheEntries());
     this.versionedTargetGraphCache = new VersionedTargetGraphCache();
     this.knownBuildRuleTypesProvider = knownBuildRuleTypesProvider;
 
     typeCoercerFactory = new DefaultTypeCoercerFactory();
     this.parser =
-        new Parser(
-            this.broadcastEventListener,
+        new DefaultParser(
             rootCell.getBuckConfig().getView(ParserConfig.class),
             typeCoercerFactory,
             new ConstructorArgMarshaller(typeCoercerFactory),
             knownBuildRuleTypesProvider,
-            executableFinder);
-    fileEventBus.register(parser);
+            executableFinder,
+            new TargetSpecResolver());
+    parser.register(fileEventBus);
 
     // Build the the rule key cache recycler.
     this.defaultRuleKeyFactoryCacheRecycler =
@@ -148,7 +145,6 @@ final class Daemon implements Closeable {
     }
     LOG.debug("Using Watchman Cursor: %s", cursor);
     persistentWorkerPools = new ConcurrentHashMap<>();
-    JavaUtilsLoggingBuildListener.ensureLogFileIsWritten(rootCell.getFilesystem());
   }
 
   Cell getRootCell() {
@@ -157,20 +153,18 @@ final class Daemon implements Closeable {
 
   private static Optional<WebServer> createWebServer(
       BuckConfig config, ProjectFilesystem filesystem) {
-    Optional<Integer> port = getValidWebServerPort(config);
-    if (port.isPresent()) {
-      WebServer webServer = new WebServer(port.get(), filesystem);
-      return Optional.of(webServer);
-    } else {
+    OptionalInt port = getValidWebServerPort(config);
+    if (!port.isPresent()) {
       return Optional.empty();
     }
+    return Optional.of(new WebServer(port.getAsInt(), filesystem));
   }
 
   /**
    * If the return value is not absent, then the port is a nonnegative integer. This means that
    * specifying a port of -1 effectively disables the WebServer.
    */
-  static Optional<Integer> getValidWebServerPort(BuckConfig config) {
+  static OptionalInt getValidWebServerPort(BuckConfig config) {
     // Enable the web httpserver if it is given by command line parameter or specified in
     // .buckconfig. The presence of a nonnegative port number is sufficient.
     Optional<String> serverPort = Optional.ofNullable(System.getProperty("buck.httpserver.port"));
@@ -179,20 +173,19 @@ final class Daemon implements Closeable {
     }
 
     if (!serverPort.isPresent() || serverPort.get().isEmpty()) {
-      return Optional.empty();
+      return OptionalInt.empty();
     }
 
     String rawPort = serverPort.get();
     int port;
     try {
       port = Integer.parseInt(rawPort, 10);
-      LOG.debug("Starting up web server on port %d.", port);
     } catch (NumberFormatException e) {
       LOG.error("Could not parse port for httpserver: %s.", rawPort);
-      return Optional.empty();
+      return OptionalInt.empty();
     }
 
-    return port >= 0 ? Optional.of(port) : Optional.empty();
+    return port >= 0 ? OptionalInt.of(port) : OptionalInt.empty();
   }
 
   Optional<WebServer> getWebServer() {
@@ -213,10 +206,6 @@ final class Daemon implements Closeable {
 
   ActionGraphCache getActionGraphCache() {
     return actionGraphCache;
-  }
-
-  BroadcastEventListener getBroadcastEventListener() {
-    return broadcastEventListener;
   }
 
   ImmutableList<ProjectFileHashCache> getFileHashCaches() {
@@ -258,7 +247,6 @@ final class Daemon implements Closeable {
     // invalidations triggered by requests to parse build files or interrupted by client
     // disconnections.
     synchronized (parser) {
-      parser.recordParseStartTime(eventBus);
       // Track the file hash cache invalidation run time.
       FileHashCacheEvent.InvalidationStarted started = FileHashCacheEvent.invalidationStarted();
       eventBus.post(started);
@@ -302,7 +290,7 @@ final class Daemon implements Closeable {
   }
 
   @Override
-  public void close() throws IOException {
+  public void close() {
     shutdownPersistentWorkerPools();
     shutdownWebServer();
   }

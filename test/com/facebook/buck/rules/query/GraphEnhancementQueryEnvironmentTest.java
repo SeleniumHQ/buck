@@ -16,29 +16,27 @@
 
 package com.facebook.buck.rules.query;
 
-import static org.easymock.EasyMock.createMock;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryTarget;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultCellPathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -63,12 +61,12 @@ public class GraphEnhancementQueryEnvironmentTest {
   }
 
   @Test
-  public void getTargetsMatchingPatternThrowsInformativeException() throws Exception {
+  public void getTargetsMatchingPatternThrowsInformativeException() {
     BuildTarget target = BuildTargetFactory.newInstance(ROOT, "//foo/bar:bar");
     GraphEnhancementQueryEnvironment envWithoutDeps =
         new GraphEnhancementQueryEnvironment(
-            Optional.of(createMock(BuildRuleResolver.class)),
-            Optional.of(createMock(TargetGraph.class)),
+            Optional.of(new TestActionGraphBuilder()),
+            Optional.of(TargetGraph.EMPTY),
             TYPE_COERCER_FACTORY,
             cellRoots,
             BuildTargetPatternParser.forBaseName(target.getBaseName()),
@@ -86,8 +84,8 @@ public class GraphEnhancementQueryEnvironmentTest {
     BuildTarget target = BuildTargetFactory.newInstance(ROOT, "//foo/bar:bar");
     GraphEnhancementQueryEnvironment envWithoutDeps =
         new GraphEnhancementQueryEnvironment(
-            Optional.of(createMock(BuildRuleResolver.class)),
-            Optional.of(createMock(TargetGraph.class)),
+            Optional.of(new TestActionGraphBuilder()),
+            Optional.of(TargetGraph.EMPTY),
             TYPE_COERCER_FACTORY,
             cellRoots,
             BuildTargetPatternParser.forBaseName(target.getBaseName()),
@@ -115,8 +113,8 @@ public class GraphEnhancementQueryEnvironmentTest {
 
     GraphEnhancementQueryEnvironment env =
         new GraphEnhancementQueryEnvironment(
-            Optional.of(createMock(BuildRuleResolver.class)),
-            Optional.of(createMock(TargetGraph.class)),
+            Optional.of(new TestActionGraphBuilder()),
+            Optional.of(TargetGraph.EMPTY),
             TYPE_COERCER_FACTORY,
             cellRoots,
             BuildTargetPatternParser.forBaseName(target.getBaseName()),
@@ -141,24 +139,22 @@ public class GraphEnhancementQueryEnvironmentTest {
             .addDep(sublibNode.getBuildTarget())
             .build();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(bottomNode, libNode, sublibNode);
-    BuildRuleResolver realResolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder realGraphBuilder = new TestActionGraphBuilder(targetGraph);
 
     FakeJavaLibrary bottomRule =
-        realResolver.addToIndex(new FakeJavaLibrary(bottomNode.getBuildTarget()));
+        realGraphBuilder.addToIndex(new FakeJavaLibrary(bottomNode.getBuildTarget()));
     bottomRule.setOutputFile("bottom.jar");
     FakeJavaLibrary sublibRule =
-        realResolver.addToIndex(
+        realGraphBuilder.addToIndex(
             new FakeJavaLibrary(sublibNode.getBuildTarget(), ImmutableSortedSet.of(bottomRule)));
     sublibRule.setOutputFile("sublib.jar");
     FakeJavaLibrary libRule =
-        realResolver.addToIndex(
+        realGraphBuilder.addToIndex(
             new FakeJavaLibrary(libNode.getBuildTarget(), ImmutableSortedSet.of(sublibRule)));
     libRule.setOutputFile("lib.jar");
 
     return new GraphEnhancementQueryEnvironment(
-        Optional.of(realResolver),
+        Optional.of(realGraphBuilder),
         Optional.of(targetGraph),
         TYPE_COERCER_FACTORY,
         cellRoots,
@@ -171,7 +167,7 @@ public class GraphEnhancementQueryEnvironmentTest {
   }
 
   @Test
-  public void getFwdDeps() throws Exception {
+  public void getFwdDeps() {
     GraphEnhancementQueryEnvironment env = buildQueryEnvironmentWithGraph();
     // lib -> sublib
     assertThat(
@@ -197,7 +193,7 @@ public class GraphEnhancementQueryEnvironmentTest {
   }
 
   @Test
-  public void getClasspath() throws Exception {
+  public void getClasspath() {
     GraphEnhancementQueryEnvironment env = buildQueryEnvironmentWithGraph();
     ImmutableSet<QueryTarget> classpath =
         env.getFirstOrderClasspath(ImmutableSet.of(getQueryTarget("//:lib")))

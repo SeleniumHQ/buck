@@ -16,6 +16,13 @@
 
 package com.facebook.buck.jvm.groovy;
 
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.java.DefaultJavaLibraryRules;
@@ -25,19 +32,13 @@ import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacOptionsFactory;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Description;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import java.util.Optional;
 import org.immutables.value.Value;
 
-public class GroovyLibraryDescription implements Description<GroovyLibraryDescriptionArg> {
+public class GroovyLibraryDescription
+    implements DescriptionWithTargetGraph<GroovyLibraryDescriptionArg> {
 
   private final ToolchainProvider toolchainProvider;
   private final GroovyBuckConfig groovyBuckConfig;
@@ -59,11 +60,11 @@ public class GroovyLibraryDescription implements Description<GroovyLibraryDescri
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       GroovyLibraryDescriptionArg args) {
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     JavacOptions javacOptions =
         JavacOptionsFactory.create(
@@ -72,14 +73,15 @@ public class GroovyLibraryDescription implements Description<GroovyLibraryDescri
                 .getJavacOptions(),
             buildTarget,
             projectFilesystem,
-            resolver,
+            graphBuilder,
             args);
     DefaultJavaLibraryRules defaultJavaLibraryRules =
         new DefaultJavaLibraryRules.Builder(
                 buildTarget,
                 projectFilesystem,
+                context.getToolchainProvider(),
                 params,
-                resolver,
+                graphBuilder,
                 context.getCellPathResolver(),
                 new GroovyConfiguredCompilerFactory(groovyBuckConfig),
                 javaBuckConfig,
@@ -89,7 +91,7 @@ public class GroovyLibraryDescription implements Description<GroovyLibraryDescri
 
     return HasJavaAbi.isAbiTarget(buildTarget)
         ? defaultJavaLibraryRules.buildAbi()
-        : resolver.addToIndex(defaultJavaLibraryRules.buildLibrary());
+        : graphBuilder.addToIndex(defaultJavaLibraryRules.buildLibrary());
   }
 
   public interface CoreArg extends JavaLibraryDescription.CoreArg {

@@ -18,37 +18,34 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasContacts;
+import com.facebook.buck.core.description.arg.HasTestTimeout;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.common.BuildRules;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasContacts;
-import com.facebook.buck.rules.HasTestTimeout;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.PackagedResource;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import org.immutables.value.Value;
 
 public class AndroidInstrumentationTestDescription
-    implements Description<AndroidInstrumentationTestDescriptionArg> {
+    implements DescriptionWithTargetGraph<AndroidInstrumentationTestDescriptionArg> {
 
   private final BuckConfig buckConfig;
-  private final ToolchainProvider toolchainProvider;
   private final ConcurrentHashMap<ProjectFilesystem, ConcurrentHashMap<String, PackagedResource>>
       resourceSupplierCache;
 
-  public AndroidInstrumentationTestDescription(
-      BuckConfig buckConfig, ToolchainProvider toolchainProvider) {
+  public AndroidInstrumentationTestDescription(BuckConfig buckConfig) {
     this.buckConfig = buckConfig;
-    this.toolchainProvider = toolchainProvider;
     this.resourceSupplierCache = new ConcurrentHashMap<>();
   }
 
@@ -59,11 +56,11 @@ public class AndroidInstrumentationTestDescription
 
   @Override
   public AndroidInstrumentationTest createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       AndroidInstrumentationTestDescriptionArg args) {
-    BuildRule apk = context.getBuildRuleResolver().getRule(args.getApk());
+    BuildRule apk = context.getActionGraphBuilder().getRule(args.getApk());
     if (!(apk instanceof HasInstallableApk)) {
       throw new HumanReadableException(
           "In %s, instrumentation_apk='%s' must be an android_binary(), apk_genrule() or "
@@ -72,6 +69,7 @@ public class AndroidInstrumentationTestDescription
     }
 
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
+    ToolchainProvider toolchainProvider = context.getToolchainProvider();
     return new AndroidInstrumentationTest(
         buildTarget,
         projectFilesystem,

@@ -19,11 +19,11 @@ package com.facebook.buck.doctor;
 import static com.facebook.buck.log.MachineReadableLogConfig.PREFIX_EXIT_CODE;
 import static com.facebook.buck.log.MachineReadableLogConfig.PREFIX_INVOCATION_INFO;
 
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.doctor.config.BuildLogEntry;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.util.BuckConstant;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.collect.ImmutableList;
 import java.io.BufferedReader;
@@ -62,7 +62,8 @@ public class BuildLogHelper {
     for (Path logFile : getAllBuckLogFiles()) {
       BuildLogEntry entry = newBuildLogEntry(logFile);
       if (entry.getCommandArgs().isPresent()
-          && !entry.getCommandArgs().get().matches("^(rage|doctor|server|launch)\\b.*")) {
+          && entry.getCommandArgs().get().size() > 0
+          && !entry.getCommandArgs().get().get(0).matches("^(rage|doctor|server|launch)$")) {
         logEntries.add(newBuildLogEntry(logFile));
       }
     }
@@ -95,13 +96,11 @@ public class BuildLogHelper {
       // a proper ObjectMapper deserialization of InvocationInfo.
       Map<String, Object> invocationInfo =
           ObjectMappers.readValue(invocationInfoLine, new TypeReference<Map<String, Object>>() {});
-      Optional<String> commandArgs = Optional.empty();
+      Optional<List<String>> commandArgs = Optional.empty();
       if (invocationInfo.containsKey(INFO_FIELD_UNEXPANDED_CMD_ARGS)
           && invocationInfo.get(INFO_FIELD_UNEXPANDED_CMD_ARGS) instanceof List) {
         commandArgs =
-            Optional.of(
-                String.join(
-                    " ", (List<String>) invocationInfo.get(INFO_FIELD_UNEXPANDED_CMD_ARGS)));
+            Optional.of((List<String>) invocationInfo.get(INFO_FIELD_UNEXPANDED_CMD_ARGS));
       }
 
       String buildId = (String) invocationInfo.get("buildId");
@@ -168,21 +167,19 @@ public class BuildLogHelper {
   }
 
   private Collection<Path> getAllBuckLogFiles() throws IOException {
-    final List<Path> logfiles = new ArrayList<>();
+    List<Path> logfiles = new ArrayList<>();
     projectFilesystem.walkRelativeFileTree(
         projectFilesystem.getBuckPaths().getLogDir(),
         new FileVisitor<Path>() {
           @Override
-          public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
-              throws IOException {
+          public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
             return Files.isSymbolicLink(dir)
                 ? FileVisitResult.SKIP_SUBTREE
                 : FileVisitResult.CONTINUE;
           }
 
           @Override
-          public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
-              throws IOException {
+          public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
             if (file.getFileName().toString().equals(BuckConstant.BUCK_LOG_FILE_NAME)) {
               logfiles.add(file);
             }
@@ -191,12 +188,12 @@ public class BuildLogHelper {
           }
 
           @Override
-          public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+          public FileVisitResult visitFileFailed(Path file, IOException exc) {
             return FileVisitResult.CONTINUE;
           }
 
           @Override
-          public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+          public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
             return FileVisitResult.CONTINUE;
           }
         });

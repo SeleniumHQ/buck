@@ -15,24 +15,23 @@
  */
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.CacheableBuildRule;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
-import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.google.common.base.Preconditions;
@@ -46,8 +45,7 @@ import java.util.SortedSet;
  * Controls how strip tool is invoked. To have better understanding please refer to `man strip`. If
  * you don't want stripping, you should depend on CxxLink directly.
  */
-public class CxxStrip extends AbstractBuildRule
-    implements SupportsInputBasedRuleKey, CacheableBuildRule {
+public class CxxStrip extends AbstractBuildRule implements SupportsInputBasedRuleKey {
 
   /**
    * Used to identify this rule in the graph. This should be appended ONLY to build target that is
@@ -103,7 +101,7 @@ public class CxxStrip extends AbstractBuildRule
             + "build targets and caused the returned rule's build target to differ from the "
             + "requested one. This is now explicitly disallowed to catch existing and future "
             + "programming errors of this kind. (Applied to target "
-            + buildTarget.toString()
+            + buildTarget
             + ")");
     if (flavoredStripStyle.isPresent()) {
       return buildTarget.withoutFlavors(flavoredStripStyle.get().getFlavor());

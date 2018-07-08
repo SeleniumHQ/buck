@@ -16,6 +16,15 @@
 
 package com.facebook.buck.distributed;
 
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.distributed.thrift.BuildJobStateBuildTarget;
 import com.facebook.buck.distributed.thrift.BuildJobStateTargetGraph;
 import com.facebook.buck.distributed.thrift.BuildJobStateTargetNode;
@@ -23,18 +32,11 @@ import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.model.ImmutableBuildTarget;
+import com.facebook.buck.model.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGraphAndBuildTargets;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.util.MoreMaps;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -61,13 +63,13 @@ public class DistBuildTargetGraphCodec {
   private static final Logger LOG = Logger.get(DistBuildTargetGraphCodec.class);
 
   private ListeningExecutorService cpuExecutor;
-  private final ParserTargetNodeFactory<TargetNode<?, ?>> parserTargetNodeFactory;
+  private final ParserTargetNodeFactory<Map<String, Object>> parserTargetNodeFactory;
   private final Function<? super TargetNode<?, ?>, ? extends Map<String, Object>> nodeToRawNode;
   private Set<String> topLevelTargets;
 
   public DistBuildTargetGraphCodec(
       ListeningExecutorService cpuExecutor,
-      ParserTargetNodeFactory<TargetNode<?, ?>> parserTargetNodeFactory,
+      ParserTargetNodeFactory<Map<String, Object>> parserTargetNodeFactory,
       Function<? super TargetNode<?, ?>, ? extends Map<String, Object>> nodeToRawNode,
       Set<String> topLevelTargets) {
     this.cpuExecutor = cpuExecutor;
@@ -133,7 +135,7 @@ public class DistBuildTargetGraphCodec {
   public static BuildTarget decodeBuildTarget(BuildJobStateBuildTarget remoteTarget, Cell cell) {
 
     UnflavoredBuildTarget unflavoredBuildTarget =
-        UnflavoredBuildTarget.builder()
+        ImmutableUnflavoredBuildTarget.builder()
             .setShortName(remoteTarget.getShortName())
             .setBaseName(remoteTarget.getBaseName())
             .setCellPath(cell.getRoot())
@@ -147,7 +149,7 @@ public class DistBuildTargetGraphCodec {
             .map(InternalFlavor::of)
             .collect(ImmutableSet.toImmutableSet());
 
-    return BuildTarget.of(unflavoredBuildTarget, flavors);
+    return ImmutableBuildTarget.of(unflavoredBuildTarget, flavors);
   }
 
   public TargetGraphAndBuildTargets createTargetGraph(
@@ -156,9 +158,9 @@ public class DistBuildTargetGraphCodec {
       KnownBuildRuleTypesProvider knownBuildRuleTypesProvider)
       throws InterruptedException {
 
-    final ConcurrentMap<BuildTarget, TargetNode<?, ?>> index = new ConcurrentHashMap<>();
-    final ConcurrentMap<BuildTarget, TargetNode<?, ?>> graphNodes = new ConcurrentHashMap<>();
-    final ConcurrentMap<BuildTarget, Boolean> buildTargets = new ConcurrentHashMap<>();
+    ConcurrentMap<BuildTarget, TargetNode<?, ?>> index = new ConcurrentHashMap<>();
+    ConcurrentMap<BuildTarget, TargetNode<?, ?>> graphNodes = new ConcurrentHashMap<>();
+    ConcurrentMap<BuildTarget, Boolean> buildTargets = new ConcurrentHashMap<>();
 
     List<ListenableFuture<Void>> processRemoteBuildTargetFutures = new LinkedList<>();
 
@@ -244,7 +246,8 @@ public class DistBuildTargetGraphCodec {
           MoreMaps.putIfAbsentCheckEquals(graphNodes, target, targetNode);
 
           if (target.isFlavored()) {
-            BuildTarget unflavoredTarget = BuildTarget.of(target.getUnflavoredBuildTarget());
+            BuildTarget unflavoredTarget =
+                ImmutableBuildTarget.of(target.getUnflavoredBuildTarget());
             TargetNode<?, ?> unflavoredTargetNode =
                 parserTargetNodeFactory.createTargetNode(
                     cell,

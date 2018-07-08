@@ -20,6 +20,14 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.core.build.engine.BuildRuleStatus;
+import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.BuildRuleKeys;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.distributed.DistBuildCreatedEvent;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.ActionGraphEvent;
@@ -27,17 +35,9 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.ParseEvent;
-import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.BuildRuleDurationTracker;
-import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.rules.BuildRuleKeys;
-import com.facebook.buck.rules.BuildRuleStatus;
-import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.ExitCode;
@@ -97,7 +97,7 @@ public class SimpleConsoleEventBusListenerTest {
     Iterable<String> buildArgs = Iterables.transform(buildTargets, Object::toString);
     FakeBuildRule fakeRule = new FakeBuildRule(fakeTarget, ImmutableSortedSet.of());
 
-    final long threadId = 0;
+    long threadId = 0;
 
     BuildEvent.Started buildEventStarted = BuildEvent.started(buildArgs);
     eventBus.postWithoutConfiguring(
@@ -145,6 +145,10 @@ public class SimpleConsoleEventBusListenerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
                 Optional.empty()),
             1000L,
             TimeUnit.MILLISECONDS,
@@ -159,6 +163,7 @@ public class SimpleConsoleEventBusListenerTest {
     expectedOutput +=
         "BUILT  0.4s //banana:stand\n"
             + FINISHED_DOWNLOAD_STRING
+            + ", 100.0% CACHE MISS"
             + "\n"
             + "BUILDING: FINISHED IN 1.2s\n"
             + "WAITING FOR HTTP CACHE UPLOADS 0.00 BYTES (0 COMPLETE/0 FAILED/1 UPLOADING/1 PENDING)\n"
@@ -235,9 +240,9 @@ public class SimpleConsoleEventBusListenerTest {
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
 
-    expectedOutput += "BUILDING: FINISHED IN 1.0s 0/10 JOBS, 0 UPDATED, 0.0% CACHE MISS\n";
+    expectedOutput += "BUILDING: FINISHED IN 1.0s 0/10 JOBS, 0 UPDATED\n";
     expectedOutput += "BUILD SUCCEEDED\n";
-    assertOutput(FINISHED_DOWNLOAD_STRING + "\n" + expectedOutput, console);
+    assertOutput(FINISHED_DOWNLOAD_STRING + ", 0.0% CACHE MISS" + "\n" + expectedOutput, console);
   }
 
   @Test
@@ -287,7 +292,7 @@ public class SimpleConsoleEventBusListenerTest {
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
     expectedOutput += "CREATING ACTION GRAPH: FINISHED IN 0.2s\n";
-    expectedOutput += FINISHED_DOWNLOAD_STRING + "\n";
+    expectedOutput += FINISHED_DOWNLOAD_STRING + ", 0.0% CACHE MISS" + "\n";
     expectedOutput += "BUILDING: FINISHED IN 0.1s\n";
     expectedOutput += "BUILD SUCCEEDED\n";
     assertOutput(expectedOutput, console);
@@ -304,7 +309,7 @@ public class SimpleConsoleEventBusListenerTest {
     Iterable<String> buildArgs = Iterables.transform(buildTargets, Object::toString);
     FakeBuildRule fakeRule = new FakeBuildRule(fakeTarget, ImmutableSortedSet.of());
 
-    final long threadId = 0;
+    long threadId = 0;
 
     BuildEvent.Started buildEventStarted = BuildEvent.started(buildArgs);
     eventBus.postWithoutConfiguring(
@@ -343,6 +348,10 @@ public class SimpleConsoleEventBusListenerTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
                 Optional.empty()),
             1000L,
             TimeUnit.MILLISECONDS,
@@ -355,7 +364,11 @@ public class SimpleConsoleEventBusListenerTest {
             threadId));
 
     expectedOutput +=
-        FINISHED_DOWNLOAD_STRING + "\n" + "BUILDING: FINISHED IN 1.2s\n" + "BUILD SUCCEEDED\n";
+        FINISHED_DOWNLOAD_STRING
+            + ", 100.0% CACHE MISS"
+            + "\n"
+            + "BUILDING: FINISHED IN 1.2s\n"
+            + "BUILD SUCCEEDED\n";
     assertOutput(expectedOutput, console);
   }
 

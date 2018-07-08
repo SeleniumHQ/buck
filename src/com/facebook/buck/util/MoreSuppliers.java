@@ -17,9 +17,7 @@
 package com.facebook.buck.util;
 
 import com.google.common.base.Preconditions;
-import java.lang.ref.WeakReference;
 import java.util.function.Supplier;
-import javax.annotation.Nullable;
 
 public final class MoreSuppliers {
   private MoreSuppliers() {}
@@ -37,29 +35,16 @@ public final class MoreSuppliers {
     return (delegate instanceof MemoizingSupplier) ? delegate : new MemoizingSupplier<T>(delegate);
   }
 
-  private static class MemoizingSupplier<T> implements Supplier<T> {
-    // This field doubles as a marker of whether the value has been initialized. Once the value is
-    // initialized, this field becomes null.
-    @Nullable private volatile Supplier<T> delegate;
-    @Nullable private T value;
+  private static class MemoizingSupplier<T> extends Memoizer<T> implements Supplier<T> {
+    private final Supplier<T> delegate;
 
     public MemoizingSupplier(Supplier<T> delegate) {
-      this.delegate = delegate;
+      this.delegate = Preconditions.checkNotNull(delegate);
     }
 
     @Override
     public T get() {
-      if (delegate != null) {
-        synchronized (this) {
-          if (delegate != null) {
-            T t = Preconditions.checkNotNull(delegate.get());
-            value = t;
-            delegate = null;
-            return t;
-          }
-        }
-      }
-      return Preconditions.checkNotNull(value);
+      return get(delegate);
     }
   }
 
@@ -69,29 +54,16 @@ public final class MoreSuppliers {
         : new WeakMemoizingSupplier<>(delegate);
   }
 
-  private static class WeakMemoizingSupplier<T> implements Supplier<T> {
+  private static class WeakMemoizingSupplier<T> extends WeakMemoizer<T> implements Supplier<T> {
     private final Supplier<T> delegate;
-    private WeakReference<T> valueRef;
 
     public WeakMemoizingSupplier(Supplier<T> delegate) {
-      this.delegate = delegate;
-      this.valueRef = new WeakReference<>(null);
+      this.delegate = Preconditions.checkNotNull(delegate);
     }
 
     @Override
     public T get() {
-      @Nullable T value = valueRef.get();
-      if (value == null) {
-        synchronized (this) {
-          // Check again in case someone else has populated the cache.
-          value = valueRef.get();
-          if (value == null) {
-            value = delegate.get();
-            valueRef = new WeakReference<>(value);
-          }
-        }
-      }
-      return value;
+      return get(delegate);
     }
   }
 }

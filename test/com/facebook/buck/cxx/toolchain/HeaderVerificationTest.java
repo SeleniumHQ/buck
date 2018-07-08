@@ -20,13 +20,11 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyBuilder;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
@@ -44,10 +42,7 @@ import org.junit.Test;
 public class HeaderVerificationTest {
 
   private RuleKey getRuleKey(HeaderVerification headerVerification) {
-    SourcePathRuleFinder ruleFinder =
-        new SourcePathRuleFinder(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
     FileHashCache fileHashCache =
         new StackedFileHashCache(
@@ -67,18 +62,6 @@ public class HeaderVerificationTest {
     assertThat(
         getRuleKey(HeaderVerification.of(HeaderVerification.Mode.IGNORE)),
         not(equalTo(getRuleKey(HeaderVerification.of(HeaderVerification.Mode.ERROR)))));
-  }
-
-  @Test
-  public void whitelistDoesNotAffectRuleKeyInIgnoredMode() {
-    assertThat(
-        getRuleKey(HeaderVerification.of(HeaderVerification.Mode.IGNORE)),
-        equalTo(
-            getRuleKey(
-                HeaderVerification.of(
-                    HeaderVerification.Mode.IGNORE,
-                    ImmutableSortedSet.of(".*"),
-                    ImmutableSortedSet.of()))));
   }
 
   @Test

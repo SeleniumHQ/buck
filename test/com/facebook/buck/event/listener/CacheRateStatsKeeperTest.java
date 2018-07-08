@@ -20,16 +20,16 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
+import com.facebook.buck.core.build.engine.BuildRuleStatus;
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
+import com.facebook.buck.core.rulekey.BuildRuleKeys;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.distributed.thrift.CacheRateStats;
 import com.facebook.buck.event.TestEventConfigurator;
-import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleDurationTracker;
-import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.rules.BuildRuleKeys;
-import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.RuleKey;
 import com.google.common.collect.ImmutableSet;
 import java.util.Optional;
 import org.hamcrest.Matchers;
@@ -66,6 +66,10 @@ public class CacheRateStatsKeeperTest {
         Optional.empty(),
         Optional.empty(),
         Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
         Optional.empty());
   }
 
@@ -81,7 +85,7 @@ public class CacheRateStatsKeeperTest {
     assertThat(stats.getCacheErrorCount(), Matchers.is(0));
     assertThat(stats.getCacheErrorRate(), Matchers.is(0.0));
     assertThat(stats.getCacheMissCount(), Matchers.is(1));
-    assertThat(stats.getCacheMissRate(), Matchers.is(0.0));
+    assertThat(stats.getCacheMissRate(), Matchers.is(50.0));
     assertThat(stats.getCacheHitCount(), Matchers.is(1));
     assertThat(stats.getUpdatedRulesCount(), Matchers.is(2));
   }
@@ -108,17 +112,23 @@ public class CacheRateStatsKeeperTest {
   public void cacheMiss() {
     CacheRateStatsKeeper cacheRateStatsKeeper = new CacheRateStatsKeeper();
     cacheRateStatsKeeper.ruleCountCalculated(
-        BuildEvent.RuleCountCalculated.ruleCountCalculated(ImmutableSet.of(), 4));
+        BuildEvent.RuleCountCalculated.ruleCountCalculated(ImmutableSet.of(), 5));
+    cacheRateStatsKeeper.buildRuleFinished(finishedEvent(CacheResult.miss()));
+    cacheRateStatsKeeper.buildRuleFinished(
+        finishedEvent(CacheResult.hit("dir", ArtifactCacheMode.dir)));
+    cacheRateStatsKeeper.buildRuleFinished(finishedEvent(CacheResult.miss()));
+    cacheRateStatsKeeper.buildRuleFinished(
+        finishedEvent(CacheResult.hit("dir", ArtifactCacheMode.dir)));
     cacheRateStatsKeeper.buildRuleFinished(finishedEvent(CacheResult.miss()));
 
     CacheRateStatsKeeper.CacheRateStatsUpdateEvent stats = cacheRateStatsKeeper.getStats();
 
     assertThat(stats.getCacheErrorCount(), Matchers.is(0));
     assertThat(stats.getCacheErrorRate(), Matchers.is(0.0));
-    assertThat(stats.getCacheMissCount(), Matchers.is(1));
-    assertThat(stats.getCacheMissRate(), Matchers.is(25.0));
-    assertThat(stats.getCacheHitCount(), Matchers.is(0));
-    assertThat(stats.getUpdatedRulesCount(), Matchers.is(1));
+    assertThat(stats.getCacheMissCount(), Matchers.is(3));
+    assertThat(stats.getCacheMissRate(), Matchers.is(60.0));
+    assertThat(stats.getCacheHitCount(), Matchers.is(2));
+    assertThat(stats.getUpdatedRulesCount(), Matchers.is(5));
   }
 
   @Test

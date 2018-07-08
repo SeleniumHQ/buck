@@ -37,18 +37,16 @@ public abstract class MachOAbstractCommand extends AbstractCommand {
   private static final String NEW_COMPDIR_OPTION = "--new_compdir";
 
   @Option(
-    name = BINARY_OPTION,
-    required = true,
-    usage = "Mach O binary file which object paths must be updated."
-  )
+      name = BINARY_OPTION,
+      required = true,
+      usage = "Mach O binary file which object paths must be updated.")
   @SuppressFieldNotInitialized
   private Path binary;
 
   @Option(
-    name = OUTPUT_OPTION,
-    required = true,
-    usage = "The destination where the resulting binary should be stored."
-  )
+      name = OUTPUT_OPTION,
+      required = true,
+      usage = "The destination where the resulting binary should be stored.")
   @SuppressFieldNotInitialized
   private Path output;
 
@@ -73,8 +71,7 @@ public abstract class MachOAbstractCommand extends AbstractCommand {
   }
 
   @Override
-  public final ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public final ExitCode runWithoutHelp(CommandRunnerParams params) throws IOException {
     Preconditions.checkNotNull(binary, BINARY_OPTION + " must be set");
     Preconditions.checkNotNull(output, OUTPUT_OPTION + " must be set");
     Preconditions.checkNotNull(oldCompDir, OLD_COMPDIR_OPTION + " must be set");

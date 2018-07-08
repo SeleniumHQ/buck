@@ -16,13 +16,13 @@
 
 package com.facebook.buck.step.fs;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSetMultimap;
@@ -168,13 +168,10 @@ public class SymlinkTreeMergeStepTest {
   public void throwsIfDestinationAlreadyExists() throws IOException, InterruptedException {
     Path examplePyDest = linkPath.resolve("example_py.py");
     Path examplePySource = filesystem.resolve("example_py").resolve("example_py.py");
-    String expectedMessage =
-        String.format(
-            "Tried to link %s to %s, but %s already exists",
-            examplePyDest, examplePySource, examplePyDest);
 
-    thrown.expect(HumanReadableException.class);
-    thrown.expectMessage(expectedMessage);
+    thrown.expectMessage("Tried to link");
+    thrown.expectMessage(examplePySource.toString());
+    thrown.expectMessage(examplePyDest.toString());
 
     filesystem.writeContentsToPath("", examplePyDest);
 

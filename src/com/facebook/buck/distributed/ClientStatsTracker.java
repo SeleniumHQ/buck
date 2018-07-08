@@ -38,6 +38,7 @@ import com.google.common.base.Stopwatch;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.concurrent.GuardedBy;
 
@@ -62,15 +63,17 @@ public class ClientStatsTracker {
     MATERIALIZE_SLAVE_LOGS,
   }
 
+  public static final String PENDING_STAMPEDE_ID = "PENDING_STAMPEDE_ID";
+
   @GuardedBy("this")
   private final Map<DistBuildClientStat, Stopwatch> stopwatchesByType = new HashMap<>();
 
   @GuardedBy("this")
   private final Map<DistBuildClientStat, Long> durationsMsByType = new HashMap<>();
 
-  private volatile Optional<String> stampedeId = Optional.empty();
+  private volatile String stampedeId = PENDING_STAMPEDE_ID;
 
-  private volatile Optional<Integer> distributedBuildExitCode = Optional.empty();
+  private volatile OptionalInt distributedBuildExitCode = OptionalInt.empty();
 
   private volatile Optional<Boolean> isLocalFallbackBuildEnabled = Optional.empty();
 
@@ -82,7 +85,7 @@ public class ClientStatsTracker {
 
   private volatile boolean buckClientError = false;
 
-  private volatile Optional<Integer> localBuildExitCode = Optional.empty();
+  private volatile OptionalInt localBuildExitCode = OptionalInt.empty();
 
   private volatile Optional<Long> missingFilesUploadedCount = Optional.empty();
 
@@ -90,10 +93,17 @@ public class ClientStatsTracker {
 
   private volatile Optional<String> buckClientErrorMessage = Optional.empty();
 
-  private final String buildLabel;
+  private volatile String userOrInferredBuildLabel;
 
-  public ClientStatsTracker(String buildLabel) {
-    this.buildLabel = buildLabel;
+  private final String minionType;
+
+  public ClientStatsTracker(String userOrInferredBuildLabel, String minionType) {
+    this.userOrInferredBuildLabel = userOrInferredBuildLabel;
+    this.minionType = minionType;
+  }
+
+  public void setUserOrInferredBuildLabel(String userOrInferredBuildLabel) {
+    this.userOrInferredBuildLabel = userOrInferredBuildLabel;
   }
 
   @GuardedBy("this")
@@ -131,10 +141,11 @@ public class ClientStatsTracker {
 
     DistBuildClientStats.Builder builder =
         DistBuildClientStats.builder()
-            .setStampedeId(stampedeId.get())
+            .setStampedeId(stampedeId)
             .setPerformedLocalBuild(performedLocalBuild)
             .setBuckClientError(buckClientError)
-            .setBuildLabel(buildLabel);
+            .setUserOrInferredBuildLabel(userOrInferredBuildLabel)
+            .setMinionType(minionType);
 
     builder.setDistributedBuildExitCode(distributedBuildExitCode);
     builder.setLocalFallbackBuildEnabled(isLocalFallbackBuildEnabled);
@@ -196,23 +207,19 @@ public class ClientStatsTracker {
   }
 
   public void setLocalBuildExitCode(int localBuildExitCode) {
-    this.localBuildExitCode = Optional.of(localBuildExitCode);
+    this.localBuildExitCode = OptionalInt.of(localBuildExitCode);
   }
 
   public void setStampedeId(String stampedeId) {
-    this.stampedeId = Optional.of(stampedeId);
+    this.stampedeId = stampedeId;
   }
 
   public synchronized void setDistributedBuildExitCode(int distributedBuildExitCode) {
-    this.distributedBuildExitCode = Optional.of(distributedBuildExitCode);
+    this.distributedBuildExitCode = OptionalInt.of(distributedBuildExitCode);
   }
 
   public void setIsLocalFallbackBuildEnabled(boolean isLocalFallbackBuildEnabled) {
     this.isLocalFallbackBuildEnabled = Optional.of(isLocalFallbackBuildEnabled);
-  }
-
-  public boolean hasStampedeId() {
-    return stampedeId.isPresent();
   }
 
   public void setBuckClientError(boolean buckClientError) {

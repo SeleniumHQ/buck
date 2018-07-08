@@ -25,15 +25,16 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.apple.clang.HeaderMap;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -169,6 +170,8 @@ public class CxxCompilationDatabaseIntegrationTest {
                     .map(e -> String.format("-fdebug-prefix-map=%s=%s", e.getKey(), e.getValue()))
                     .collect(Collectors.toList()))
             .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
+            .add("-o")
+            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/foo.cpp.o").toString())
             .add("-c")
             .add("-MD")
             .add("-MF")
@@ -176,8 +179,6 @@ public class CxxCompilationDatabaseIntegrationTest {
                 BuildTargets.getGenPath(filesystem, compilationTarget, "%s/foo.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
-            .add("-o")
-            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/foo.cpp.o").toString())
             .build());
   }
 
@@ -250,6 +251,8 @@ public class CxxCompilationDatabaseIntegrationTest {
                     .map(e -> String.format("-fdebug-prefix-map=%s=%s", e.getKey(), e.getValue()))
                     .collect(Collectors.toList()))
             .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
+            .add("-o")
+            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/bar.cpp.o").toString())
             .add("-c")
             .add("-MD")
             .add("-MF")
@@ -257,8 +260,6 @@ public class CxxCompilationDatabaseIntegrationTest {
                 BuildTargets.getGenPath(filesystem, compilationTarget, "%s/bar.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
-            .add("-o")
-            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/bar.cpp.o").toString())
             .build());
   }
 
@@ -303,6 +304,8 @@ public class CxxCompilationDatabaseIntegrationTest {
                     : ImmutableList.of())
             .add("-fdebug-prefix-map=" + rootPath + "=.")
             .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
+            .add("-o")
+            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o").toString())
             .add("-c")
             .add("-MD")
             .add("-MF")
@@ -310,8 +313,6 @@ public class CxxCompilationDatabaseIntegrationTest {
                 BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
-            .add("-o")
-            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o").toString())
             .build());
   }
 
@@ -358,6 +359,8 @@ public class CxxCompilationDatabaseIntegrationTest {
                     : ImmutableList.of())
             .add("-fdebug-prefix-map=" + rootPath + "=.")
             .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
+            .add("-o")
+            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o").toString())
             .add("-c")
             .add("-MD")
             .add("-MF")
@@ -365,8 +368,6 @@ public class CxxCompilationDatabaseIntegrationTest {
                 BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
-            .add("-o")
-            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o").toString())
             .build());
   }
 
@@ -533,6 +534,19 @@ public class CxxCompilationDatabaseIntegrationTest {
     assertThat(Files.exists(source), is(true));
   }
 
+  @Test
+  public void testPlatformDepsAddedToCompilationDatabase() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_library_platform_deps", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "build", "--config", "cxx.default_platform=platform", "//:echo#compilation-database");
+
+    result.assertSuccess();
+  }
+
   private void addLibraryHeaderFiles(ProjectWorkspace workspace) throws IOException {
     // These header files are included in //:library_with_header via a glob
     workspace.writeContentsToPath("// Hello world\n", "baz.h");
@@ -548,7 +562,7 @@ public class CxxCompilationDatabaseIntegrationTest {
       throws IOException {
     Path resolvedPath = headerSymlinkTreePath(path);
     if (PREPROCESSOR_SUPPORTS_HEADER_MAPS) {
-      final List<String> presentHeaders = new ArrayList<>();
+      List<String> presentHeaders = new ArrayList<>();
       HeaderMap headerMap = HeaderMap.loadFromFile(projectWorkspace.getPath(resolvedPath).toFile());
       headerMap.visit((str, prefix, suffix) -> presentHeaders.add(str));
       assertThat(presentHeaders, containsInAnyOrder(headers));
@@ -559,7 +573,7 @@ public class CxxCompilationDatabaseIntegrationTest {
     }
   }
 
-  private Path headerSymlinkTreePath(Path path) throws IOException {
+  private Path headerSymlinkTreePath(Path path) {
     if (PREPROCESSOR_SUPPORTS_HEADER_MAPS) {
       return path.resolveSibling(String.format("%s.hmap", path.getFileName()));
     } else {
@@ -576,8 +590,7 @@ public class CxxCompilationDatabaseIntegrationTest {
     assertThat(command, equalTo(entry.getArguments()));
   }
 
-  private ImmutableList<String> getExtraFlagsForHeaderMaps(ProjectFilesystem filesystem)
-      throws IOException {
+  private ImmutableList<String> getExtraFlagsForHeaderMaps(ProjectFilesystem filesystem) {
     // This works around OS X being amusing about the location of temp directories.
     return PREPROCESSOR_SUPPORTS_HEADER_MAPS
         ? ImmutableList.of("-I", filesystem.getBuckPaths().getBuckOut().toString())

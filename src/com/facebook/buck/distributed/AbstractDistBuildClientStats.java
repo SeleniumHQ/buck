@@ -15,8 +15,9 @@
  */
 package com.facebook.buck.distributed;
 
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.immutables.value.Value;
 
 @Value.Immutable
@@ -26,7 +27,9 @@ abstract class AbstractDistBuildClientStats {
 
   abstract boolean buckClientError();
 
-  abstract String buildLabel();
+  abstract String userOrInferredBuildLabel();
+
+  abstract String minionType();
 
   abstract Optional<String> buckClientErrorMessage();
 
@@ -38,9 +41,9 @@ abstract class AbstractDistBuildClientStats {
 
   abstract Optional<Boolean> isLocalFallbackBuildEnabled();
 
-  abstract Optional<Integer> distributedBuildExitCode();
+  abstract OptionalInt distributedBuildExitCode();
 
-  abstract Optional<Integer> localBuildExitCode();
+  abstract OptionalInt localBuildExitCode();
 
   abstract Optional<Long> postDistBuildLocalStepsDurationMs();
 

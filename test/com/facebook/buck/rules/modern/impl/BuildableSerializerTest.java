@@ -17,6 +17,7 @@
 package com.facebook.buck.rules.modern.impl;
 
 import static org.easymock.EasyMock.anyObject;
+import static org.easymock.EasyMock.createMock;
 import static org.easymock.EasyMock.createStrictMock;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.expectLastCall;
@@ -24,23 +25,34 @@ import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.modern.annotations.CustomClassBehavior;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.modern.Buildable;
+import com.facebook.buck.rules.modern.CustomClassSerialization;
+import com.facebook.buck.rules.modern.CustomFieldSerialization;
 import com.facebook.buck.rules.modern.Deserializer;
 import com.facebook.buck.rules.modern.Deserializer.DataProvider;
 import com.facebook.buck.rules.modern.Serializer;
 import com.facebook.buck.rules.modern.Serializer.Delegate;
+import com.facebook.buck.rules.modern.SourcePathResolverSerialization;
+import com.facebook.buck.rules.modern.ValueCreator;
+import com.facebook.buck.rules.modern.ValueVisitor;
 import com.facebook.buck.util.types.Either;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -51,23 +63,34 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
+import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Test;
 
 public class BuildableSerializerTest extends AbstractValueVisitorTest {
   private SourcePathRuleFinder ruleFinder;
   private CellPathResolver cellResolver;
+  private SourcePathResolver resolver;
 
   @Before
   public void setUp() throws IOException, InterruptedException {
+    resolver = createStrictMock(SourcePathResolver.class);
     ruleFinder = createStrictMock(SourcePathRuleFinder.class);
-    cellResolver = createStrictMock(CellPathResolver.class);
+    cellResolver = createMock(CellPathResolver.class);
 
-    expect(cellResolver.getCellPaths())
-        .andReturn(ImmutableMap.of("other", otherFilesystem.getRootPath()))
+    expect(cellResolver.getKnownRoots())
+        .andReturn(ImmutableSet.of(rootFilesystem.getRootPath(), otherFilesystem.getRootPath()))
         .anyTimes();
-    expect(cellResolver.getCellPath(Optional.empty()))
-        .andReturn(Optional.of(rootFilesystem.getRootPath()))
+
+    expect(cellResolver.getCanonicalCellName(rootFilesystem.getRootPath()))
+        .andReturn(Optional.empty())
+        .anyTimes();
+    expect(cellResolver.getCanonicalCellName(otherFilesystem.getRootPath()))
+        .andReturn(Optional.of("other"))
+        .anyTimes();
+
+    expect(cellResolver.getCellPathOrThrow(Optional.empty()))
+        .andReturn(rootFilesystem.getRootPath())
         .anyTimes();
   }
 
@@ -86,7 +109,11 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
     };
   }
 
-  <T extends Buildable> void test(T instance, Function<String, String> expectedMapper)
+  <T extends Buildable> T test(T instance) throws IOException {
+    return test(instance, expected -> expected);
+  }
+
+  <T extends Buildable> T test(T instance, Function<String, String> expectedMapper)
       throws IOException {
     replay(cellResolver, ruleFinder);
 
@@ -107,7 +134,10 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
             .serialize(instance, DefaultClassInfoFactory.forInstance(instance));
 
     AddsToRuleKey reconstructed =
-        new Deserializer(s -> s.isPresent() ? otherFilesystem : rootFilesystem, Class::forName)
+        new Deserializer(
+                s -> s.isPresent() ? otherFilesystem : rootFilesystem,
+                Class::forName,
+                () -> resolver)
             .deserialize(
                 new DataProvider() {
                   @Override
@@ -122,8 +152,10 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
                   }
                 },
                 AddsToRuleKey.class);
+    Preconditions.checkState(instance.getClass().equals(reconstructed.getClass()));
     verify(cellResolver, ruleFinder);
     assertEquals(expectedMapper.apply(stringify(instance)), stringify(reconstructed));
+    return (T) reconstructed;
   }
 
   private String stringify(AddsToRuleKey instance) {
@@ -137,55 +169,61 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
   @Override
   @Test
   public void outputPath() throws IOException {
-    test(new WithOutputPath(), expected -> expected);
+    test(new WithOutputPath());
   }
 
   @Test
   @Override
   public void sourcePath() throws IOException {
-    test(new WithSourcePath(), expected -> expected);
+    test(new WithSourcePath());
   }
 
   @Override
   @Test
   public void set() throws IOException {
-    test(new WithSet(), expected -> expected);
+    test(new WithSet());
   }
 
   @Test
   @Override
   public void list() throws IOException {
-    test(new WithList(), expected -> expected);
+    test(new WithList());
   }
 
   @Test
   @Override
   public void optional() throws IOException {
-    test(new WithOptional(), expected -> expected);
+    test(new WithOptional());
+  }
+
+  @Test
+  @Override
+  public void optionalInt() throws Exception {
+    test(new WithOptionalInt());
   }
 
   @Test
   @Override
   public void simple() throws IOException {
-    test(new Simple(), expected -> expected);
+    test(new Simple());
   }
 
   @Test
   @Override
   public void superClass() throws IOException {
-    test(new Derived(), expected -> expected);
+    test(new TwiceDerived());
   }
 
   @Test
   @Override
   public void empty() throws IOException {
-    test(new Empty(), expected -> expected);
+    test(new Empty());
   }
 
   @Test
   @Override
   public void addsToRuleKey() throws IOException {
-    test(new WithAddsToRuleKey(), expected -> expected);
+    test(new WithAddsToRuleKey());
   }
 
   @Test
@@ -210,6 +248,148 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
   @Test
   @Override
   public void buildTarget() throws IOException {
-    test(new WithBuildTarget(), expected -> expected);
+    test(new WithBuildTarget());
+  }
+
+  @Override
+  @Test
+  public void pattern() throws Exception {
+    test(new WithPattern());
+  }
+
+  @Override
+  @Test
+  public void anEnum() throws Exception {
+    test(new WithEnum());
+  }
+
+  @Override
+  @Test
+  public void nonHashableSourcePathContainer() throws Exception {
+    test(new WithNonHashableSourcePathContainer());
+  }
+
+  @Override
+  @Test
+  public void sortedMap() throws Exception {
+    test(new WithSortedMap());
+  }
+
+  @Override
+  @Test
+  public void supplier() throws Exception {
+    test(new WithSupplier());
+  }
+
+  @Override
+  @Test
+  public void nullable() throws Exception {
+    test(new WithNullable());
+  }
+
+  @Override
+  @Test
+  public void either() throws Exception {
+    test(new WithEither());
+  }
+
+  @Override
+  @Test
+  public void excluded() throws Exception {
+    expectedException.expect(Exception.class);
+    expectedException.expectMessage(Matchers.containsString("Cannot create excluded fields."));
+    test(new WithExcluded());
+  }
+
+  @Override
+  @Test
+  public void immutables() throws Exception {
+    test(new WithImmutables());
+  }
+
+  @Test
+  public void customFieldBehavior() throws Exception {
+    test(new WithCustomFieldBehavior());
+  }
+
+  @Override
+  @Test
+  public void stringified() throws Exception {
+    expectedException.expect(Exception.class);
+    expectedException.expectMessage(Matchers.containsString("Cannot create excluded fields."));
+    test(new WithStringified());
+  }
+
+  @Override
+  @Test
+  public void wildcards() throws Exception {
+    test(new WithWildcards());
+  }
+
+  private static class WithCustomFieldBehavior implements FakeBuildable {
+    // By default, fields without @AddToRuleKey can't be serialized. DefaultFieldSerialization
+    // serializes them as though they were added to the key.
+    @CustomFieldBehavior(DefaultFieldSerialization.class)
+    private final String excluded = "excluded";
+
+    @AddToRuleKey
+    @CustomFieldBehavior(SpecialFieldSerialization.class)
+    private final ImmutableList<String> paths = ImmutableList.of("Hello", " ", "world", "!");
+  }
+
+  private static class SpecialFieldSerialization
+      implements CustomFieldSerialization<ImmutableList<String>> {
+    @Override
+    public <E extends Exception> void serialize(
+        ImmutableList<String> value, ValueVisitor<E> serializer) throws E {
+      serializer.visitString("key");
+    }
+
+    @Override
+    public <E extends Exception> ImmutableList<String> deserialize(ValueCreator<E> deserializer)
+        throws E {
+      assertEquals("key", deserializer.createString());
+      return ImmutableList.of("Hello", " ", "world", "!");
+    }
+  }
+
+  @Test
+  public void customClassBehavior() throws Exception {
+    test(new WithCustomClassBehavior());
+  }
+
+  @CustomClassBehavior(SpecialClassSerialization.class)
+  private static class WithCustomClassBehavior implements FakeBuildable {
+    private final String value = "value";
+    @AddToRuleKey private final int number = 3;
+  }
+
+  private static class SpecialClassSerialization
+      implements CustomClassSerialization<WithCustomClassBehavior> {
+    @Override
+    public <E extends Exception> void serialize(
+        WithCustomClassBehavior instance, ValueVisitor<E> serializer) throws E {
+      assertEquals("value", instance.value);
+      assertEquals(3, instance.number);
+      serializer.visitString("special");
+    }
+
+    @Override
+    public <E extends Exception> WithCustomClassBehavior deserialize(ValueCreator<E> deserializer)
+        throws E {
+      assertEquals("special", deserializer.createString());
+      return new WithCustomClassBehavior();
+    }
+  }
+
+  @Test
+  public void sourcePathResolver() throws Exception {
+    WithSourcePathResolver reconstructed = test(new WithSourcePathResolver());
+    assertEquals(resolver, reconstructed.resolver);
+  }
+
+  private static class WithSourcePathResolver implements FakeBuildable {
+    @CustomFieldBehavior(SourcePathResolverSerialization.class)
+    private final SourcePathResolver resolver = null;
   }
 }

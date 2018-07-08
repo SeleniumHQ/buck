@@ -16,11 +16,11 @@
 
 package com.facebook.buck.parser.options;
 
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.Watchman;
 import com.facebook.buck.io.WatchmanFactory;
 import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
@@ -47,7 +47,7 @@ abstract class AbstractProjectBuildFileParserOptions {
 
   abstract List<String> getDefaultIncludes();
 
-  abstract ImmutableSet<Description<?>> getDescriptions();
+  abstract ImmutableSet<DescriptionWithTargetGraph<?>> getDescriptions();
 
   abstract ImmutableMap<String, ImmutableMap<String, String>> getRawConfig();
 

@@ -17,6 +17,8 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
@@ -38,7 +40,8 @@ public class OmnibusRootsTest {
     NativeLinkTarget root = new OmnibusRootNode("//:root", ImmutableList.of(excludedDep));
 
     OmnibusRoots.Builder builder =
-        OmnibusRoots.builder(CxxPlatformUtils.DEFAULT_PLATFORM, ImmutableSet.of());
+        OmnibusRoots.builder(
+            CxxPlatformUtils.DEFAULT_PLATFORM, ImmutableSet.of(), new TestActionGraphBuilder());
     builder.addIncludedRoot(root);
     builder.addIncludedRoot(transitiveRoot);
     OmnibusRoots roots = builder.build();
@@ -53,13 +56,15 @@ public class OmnibusRootsTest {
     OmnibusRootNode root =
         new OmnibusRootNode("//:transitive_root") {
           @Override
-          public boolean supportsOmnibusLinking(CxxPlatform cxxPlatform) {
+          public boolean supportsOmnibusLinking(
+              CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
             return false;
           }
         };
 
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     OmnibusRoots.Builder builder =
-        OmnibusRoots.builder(CxxPlatformUtils.DEFAULT_PLATFORM, ImmutableSet.of());
+        OmnibusRoots.builder(CxxPlatformUtils.DEFAULT_PLATFORM, ImmutableSet.of(), graphBuilder);
     builder.addPotentialRoot(root);
     OmnibusRoots roots = builder.build();
 

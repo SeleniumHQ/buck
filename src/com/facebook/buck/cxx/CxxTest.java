@@ -16,24 +16,24 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
+import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.rules.tool.BinaryBuildRule;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.test.rule.TestRule;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BinaryBuildRule;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.CacheableBuildRule;
-import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestRule;
-import com.facebook.buck.rules.Tool;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -42,7 +42,7 @@ import com.facebook.buck.test.TestCaseSummary;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
-import com.facebook.buck.util.MoreSuppliers;
+import com.facebook.buck.util.Memoizer;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -55,15 +55,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.Callable;
-import java.util.function.Supplier;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 /** A no-op {@link BuildRule} which houses the logic to run and form the results for C/C++ tests. */
-abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
-    implements TestRule, HasRuntimeDeps, BinaryBuildRule, CacheableBuildRule {
+public abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements TestRule, HasRuntimeDeps, BinaryBuildRule {
 
-  @AddToRuleKey private final ImmutableMap<String, String> env;
-  @AddToRuleKey private final Supplier<ImmutableList<String>> args;
+  @AddToRuleKey private final ImmutableMap<String, Arg> env;
+  @AddToRuleKey private final ImmutableList<Arg> args;
   @AddToRuleKey private final Tool executable;
 
   @AddToRuleKey
@@ -71,7 +71,9 @@ abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private final ImmutableSortedSet<? extends SourcePath> resources;
 
   private final ImmutableSet<SourcePath> additionalCoverageTargets;
-  private final Supplier<ImmutableSortedSet<BuildRule>> additionalDeps;
+  private final Function<SourcePathRuleFinder, ImmutableSortedSet<BuildRule>>
+      additionalDepsSupplier;
+  private final Memoizer<ImmutableSortedSet<BuildRule>> additionalDeps = new Memoizer<>();
   private final ImmutableSet<String> labels;
   private final ImmutableSet<String> contacts;
   private final boolean runTestSeparately;
@@ -82,11 +84,11 @@ abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Tool executable,
-      ImmutableMap<String, String> env,
-      Supplier<ImmutableList<String>> args,
+      ImmutableMap<String, Arg> env,
+      ImmutableList<Arg> args,
       ImmutableSortedSet<? extends SourcePath> resources,
       ImmutableSet<SourcePath> additionalCoverageTargets,
-      Supplier<ImmutableSortedSet<BuildRule>> additionalDeps,
+      Function<SourcePathRuleFinder, ImmutableSortedSet<BuildRule>> additionalDepsSupplier,
       ImmutableSet<String> labels,
       ImmutableSet<String> contacts,
       boolean runTestSeparately,
@@ -94,10 +96,10 @@ abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     super(buildTarget, projectFilesystem, params);
     this.executable = executable;
     this.env = env;
-    this.args = MoreSuppliers.memoize(args::get);
+    this.args = args;
     this.resources = resources;
     this.additionalCoverageTargets = additionalCoverageTargets;
-    this.additionalDeps = MoreSuppliers.memoize(additionalDeps::get);
+    this.additionalDepsSupplier = additionalDepsSupplier;
     this.labels = labels;
     this.contacts = contacts;
     this.runTestSeparately = runTestSeparately;
@@ -158,7 +160,7 @@ abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
                     .addAll(
                         getShellCommand(
                             buildContext.getSourcePathResolver(), getPathToTestResults()))
-                    .addAll(args.get())
+                    .addAll(Arg.stringify(getArgs(), buildContext.getSourcePathResolver()))
                     .build(),
                 getEnv(buildContext.getSourcePathResolver()),
                 getPathToTestExitCode(),
@@ -212,7 +214,7 @@ abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Callable<TestResults> interpretTestResults(
-      final ExecutionContext executionContext,
+      ExecutionContext executionContext,
       SourcePathResolver pathResolver,
       boolean isUsingTestSelectors) {
     return () -> {
@@ -259,17 +261,20 @@ abstract class CxxTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
-    return additionalDeps.get().stream().map(BuildRule::getBuildTarget);
+    return additionalDeps
+        .get(() -> additionalDepsSupplier.apply(ruleFinder))
+        .stream()
+        .map(BuildRule::getBuildTarget);
   }
 
   protected ImmutableMap<String, String> getEnv(SourcePathResolver pathResolver) {
     return new ImmutableMap.Builder<String, String>()
         .putAll(executable.getEnvironment(pathResolver))
-        .putAll(env)
+        .putAll(Arg.stringify(env, pathResolver))
         .build();
   }
 
-  protected Supplier<ImmutableList<String>> getArgs() {
+  protected ImmutableList<Arg> getArgs() {
     return args;
   }
 }

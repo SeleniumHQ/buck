@@ -18,19 +18,20 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.resources.ResourcesConfig;
+import com.facebook.buck.core.cell.CellConfig;
+import com.facebook.buck.core.cell.name.RelativeCellName;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.LogConfigSetup;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.BuildTargetPatternTargetNodeParser;
 import com.facebook.buck.parser.TargetNodeSpec;
-import com.facebook.buck.rules.CellConfig;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.RelativeCellName;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.TargetGraphAndBuildTargets;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.EventPostingRuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
@@ -38,31 +39,42 @@ import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.TrackedRuleKeyCache;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.ExecutorPool;
-import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.cache.InstrumentingCacheStatsTracker;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
-import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.versions.VersionException;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.devtools.build.lib.clock.Clock;
+import com.google.devtools.build.lib.clock.JavaClock;
+import com.google.devtools.build.lib.profiler.Profiler;
+import com.google.devtools.build.lib.profiler.Profiler.Format;
+import com.google.devtools.build.lib.profiler.Profiler.ProfiledTaskKinds;
+import java.io.BufferedOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.io.PrintStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.annotation.Nullable;
+import org.kohsuke.args4j.CmdLineException;
+import org.kohsuke.args4j.CmdLineParser;
+import org.kohsuke.args4j.NamedOptionDef;
 import org.kohsuke.args4j.Option;
+import org.kohsuke.args4j.OptionDef;
+import org.kohsuke.args4j.spi.OptionHandler;
 
 public abstract class AbstractCommand implements Command {
 
@@ -71,6 +83,25 @@ public abstract class AbstractCommand implements Command {
   private static final String OUTPUT_TEST_EVENTS_TO_FILE_LONG_ARG = "--output-test-events-to-file";
   private static final String PROFILE_PARSER_LONG_ARG = "--profile-buck-parser";
   private static final String NUM_THREADS_LONG_ARG = "--num-threads";
+  private static final String CONFIG_LONG_ARG = "--config";
+  private static final String SKYLARK_PROFILE_LONG_ARG = "--skylark-profile-output";
+
+  /**
+   * Contains all options defined in this class. These options are considered global since they are
+   * known to all commands that inherit from this class.
+   *
+   * <p>The main purpose of having this list is to provide more structured help.
+   */
+  private static final ImmutableSet<String> GLOBAL_OPTIONS =
+      ImmutableSet.of(
+          HELP_LONG_ARG,
+          NO_CACHE_LONG_ARG,
+          OUTPUT_TEST_EVENTS_TO_FILE_LONG_ARG,
+          PROFILE_PARSER_LONG_ARG,
+          NUM_THREADS_LONG_ARG,
+          CONFIG_LONG_ARG,
+          VerbosityParser.VERBOSE_LONG_ARG,
+          SKYLARK_PROFILE_LONG_ARG);
 
   /**
    * This value should never be read. {@link VerbosityParser} should be used instead. args4j
@@ -78,10 +109,9 @@ public abstract class AbstractCommand implements Command {
    * field so that {@code --verbose} is universally available to all commands.
    */
   @Option(
-    name = VerbosityParser.VERBOSE_LONG_ARG,
-    aliases = {VerbosityParser.VERBOSE_SHORT_ARG},
-    usage = "Specify a number between 0 and 8. '-v 1' is default, '-v 8' is most verbose."
-  )
+      name = VerbosityParser.VERBOSE_LONG_ARG,
+      aliases = {VerbosityParser.VERBOSE_SHORT_ARG},
+      usage = "Specify a number between 0 and 8. '-v 1' is default, '-v 8' is most verbose.")
   @SuppressWarnings("PMD.UnusedPrivateField")
   private int verbosityLevel = -1;
 
@@ -92,11 +122,20 @@ public abstract class AbstractCommand implements Command {
   private Integer numThreads = null;
 
   @Option(
-    name = "--config",
-    aliases = {"-c"},
-    usage = ""
-  )
+      name = CONFIG_LONG_ARG,
+      aliases = {"-c"},
+      usage = "Override .buckconfig option",
+      metaVar = "section.option=value")
   private Map<String, String> configOverrides = new LinkedHashMap<>();
+
+  @Option(
+      name = SKYLARK_PROFILE_LONG_ARG,
+      usage =
+          "Experimental. Path to a file where Skylark profile information should be written into."
+              + " The output is in Chrome Tracing format and can be viewed in chrome://tracing tab",
+      metaVar = "PATH")
+  @Nullable
+  private String skylarkProfile;
 
   @Override
   public CellConfig getConfigOverrides() {
@@ -162,27 +201,24 @@ public abstract class AbstractCommand implements Command {
   }
 
   @Option(
-    name = NO_CACHE_LONG_ARG,
-    usage = "Whether to ignore the [cache] declared in .buckconfig."
-  )
+      name = NO_CACHE_LONG_ARG,
+      usage = "Whether to ignore the remote & local cache declared in .buckconfig.")
   private boolean noCache = false;
 
   @Nullable
   @Option(
-    name = OUTPUT_TEST_EVENTS_TO_FILE_LONG_ARG,
-    aliases = {"--output-events-to-file"},
-    usage =
-        "Serialize test-related event-bus events to the given file "
-            + "as line-oriented JSON objects."
-  )
+      name = OUTPUT_TEST_EVENTS_TO_FILE_LONG_ARG,
+      aliases = {"--output-events-to-file"},
+      usage =
+          "Serialize test-related event-bus events to the given file "
+              + "as line-oriented JSON objects.")
   private String eventsOutputPath = null;
 
   @Option(
-    name = PROFILE_PARSER_LONG_ARG,
-    usage =
-        "Enable profiling of buck.py internals (not the target being compiled) in the debug"
-            + "log and trace."
-  )
+      name = PROFILE_PARSER_LONG_ARG,
+      usage =
+          "Enable profiling of buck.py internals (not the target being compiled) in the debug"
+              + "log and trace.")
   private boolean enableParserProfiling = false;
 
   @Option(name = HELP_LONG_ARG, usage = "Prints the available options and exits.")
@@ -201,12 +237,47 @@ public abstract class AbstractCommand implements Command {
     }
   }
 
+  /** Handle CmdLineException when calling parseArguments() */
+  public void handleException(CmdLineException e) throws CmdLineException {
+    throw e;
+  }
+
+  /** Print error message when there are unknown options */
+  protected void handleException(CmdLineException e, String printedErrorMessage)
+      throws CmdLineException {
+    String message = e.getMessage();
+    if (message != null && message.endsWith("is not a valid option")) {
+      throw new CmdLineException(
+          e.getParser(), String.format("%s\n%s", message, printedErrorMessage), e.getCause());
+    } else {
+      throw e;
+    }
+  }
+
   @Override
   public void printUsage(PrintStream stream) {
     CommandHelper.printShortDescription(this, stream);
-    stream.println("Options:");
-    new AdditionalOptionsCmdLineParser(this).printUsage(stream);
+    CmdLineParser parser = new AdditionalOptionsCmdLineParser(this);
+
+    stream.println("Global options:");
+    parser.printUsage(new OutputStreamWriter(stream), null, AbstractCommand::isGlobalOption);
     stream.println();
+
+    stream.println("Options:");
+    parser.printUsage(
+        new OutputStreamWriter(stream),
+        null,
+        optionHandler -> !AbstractCommand.isGlobalOption(optionHandler));
+    stream.println();
+  }
+
+  private static boolean isGlobalOption(OptionHandler<?> optionHandler) {
+    OptionDef option = optionHandler.option;
+    if (option instanceof NamedOptionDef) {
+      NamedOptionDef namedOption = (NamedOptionDef) option;
+      return GLOBAL_OPTIONS.contains(namedOption.name());
+    }
+    return false;
   }
 
   @Override
@@ -221,7 +292,7 @@ public abstract class AbstractCommand implements Command {
   @Override
   public final ExitCode run(CommandRunnerParams params) throws IOException, InterruptedException {
     if (help) {
-      printUsage(params.getConsole().getStdErr());
+      printUsage(params.getConsole().getStdOut());
       return ExitCode.SUCCESS;
     }
     if (params.getConsole().getAnsi().isAnsiTerminal()) {
@@ -297,23 +368,45 @@ public abstract class AbstractCommand implements Command {
   }
 
   protected ExecutionContext.Builder getExecutionContextBuilder(CommandRunnerParams params) {
-    return ExecutionContext.builder()
-        .setConsole(params.getConsole())
-        .setBuckEventBus(params.getBuckEventBus())
-        .setPlatform(params.getPlatform())
-        .setEnvironment(params.getEnvironment())
-        .setJavaPackageFinder(params.getJavaPackageFinder())
-        .setExecutors(params.getExecutors())
-        .setCellPathResolver(params.getCell().getCellPathResolver())
-        .setBuildCellRootPath(params.getCell().getRoot())
-        .setProcessExecutor(new DefaultProcessExecutor(params.getConsole()))
-        .setDefaultTestTimeoutMillis(params.getBuckConfig().getDefaultTestTimeoutMillis())
-        .setInclNoLocationClassesEnabled(
-            params.getBuckConfig().getBooleanValue("test", "incl_no_location_classes", false))
-        .setRuleKeyDiagnosticsMode(params.getBuckConfig().getRuleKeyDiagnosticsMode())
-        .setConcurrencyLimit(getConcurrencyLimit(params.getBuckConfig()))
-        .setPersistentWorkerPools(params.getPersistentWorkerPools())
-        .setProjectFilesystemFactory(params.getProjectFilesystemFactory());
+    ExecutionContext.Builder builder =
+        ExecutionContext.builder()
+            .setConsole(params.getConsole())
+            .setBuckEventBus(params.getBuckEventBus())
+            .setPlatform(params.getPlatform())
+            .setEnvironment(params.getEnvironment())
+            .setJavaPackageFinder(params.getJavaPackageFinder())
+            .setExecutors(params.getExecutors())
+            .setCellPathResolver(params.getCell().getCellPathResolver())
+            .setBuildCellRootPath(params.getCell().getRoot())
+            .setProcessExecutor(new DefaultProcessExecutor(params.getConsole()))
+            .setDefaultTestTimeoutMillis(params.getBuckConfig().getDefaultTestTimeoutMillis())
+            .setInclNoLocationClassesEnabled(
+                params.getBuckConfig().getBooleanValue("test", "incl_no_location_classes", false))
+            .setRuleKeyDiagnosticsMode(params.getBuckConfig().getRuleKeyDiagnosticsMode())
+            .setConcurrencyLimit(getConcurrencyLimit(params.getBuckConfig()))
+            .setPersistentWorkerPools(params.getPersistentWorkerPools())
+            .setProjectFilesystemFactory(params.getProjectFilesystemFactory());
+    if (skylarkProfile != null) {
+      Clock clock = new JavaClock();
+      try {
+        OutputStream outputStream =
+            new BufferedOutputStream(Files.newOutputStream(Paths.get(skylarkProfile)));
+        Profiler.instance()
+            .start(
+                ProfiledTaskKinds.ALL,
+                outputStream,
+                Format.JSON_TRACE_FILE_FORMAT,
+                "Buck profile for " + skylarkProfile + " at " + LocalDate.now(),
+                false,
+                clock,
+                clock.nanoTime());
+      } catch (IOException e) {
+        throw new HumanReadableException(
+            "Cannot initialize Skylark profiler for " + skylarkProfile, e);
+      }
+      builder.setProfiler(Optional.of(Profiler.instance()));
+    }
+    return builder;
   }
 
   public ConcurrencyLimit getConcurrencyLimit(BuckConfig buckConfig) {
@@ -359,17 +452,26 @@ public abstract class AbstractCommand implements Command {
                         new DefaultRuleKeyCache<>(), new InstrumentingCacheStatsTracker())));
   }
 
+  @Override
+  public boolean performsBuild() {
+    return false;
+  }
+
   /**
-   * @param buckConfig the configuration for resources
-   * @return a memoized supplier for a ForkJoinPool that will be closed properly if initialized
+   * Converts target arguments to fully qualified form (including resolving aliases, resolving the
+   * implicit package target, etc).
    */
-  protected CloseableMemoizedSupplier<ForkJoinPool, RuntimeException> getForkJoinPoolSupplier(
-      BuckConfig buckConfig) {
-    ResourcesConfig resource = buckConfig.getView(ResourcesConfig.class);
-    return CloseableMemoizedSupplier.of(
-        () ->
-            MostExecutors.forkJoinPoolWithThreadLimit(
-                resource.getMaximumResourceAmounts().getCpu(), 16),
-        ForkJoinPool::shutdownNow);
+  protected ImmutableSet<BuildTarget> convertArgumentsToBuildTargets(
+      CommandRunnerParams params, List<String> arguments) {
+    return getCommandLineBuildTargetNormalizer(params.getBuckConfig())
+        .normalizeAll(arguments)
+        .stream()
+        .map(
+            input ->
+                BuildTargetParser.INSTANCE.parse(
+                    input,
+                    BuildTargetPatternParser.fullyQualified(),
+                    params.getCell().getCellPathResolver()))
+        .collect(ImmutableSet.toImmutableSet());
   }
 }

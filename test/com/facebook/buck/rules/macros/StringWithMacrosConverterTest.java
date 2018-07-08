@@ -18,14 +18,12 @@ package com.facebook.buck.rules.macros;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.CompositeArg;
 import com.facebook.buck.rules.args.SanitizedArg;
@@ -50,30 +48,27 @@ public class StringWithMacrosConverterTest {
 
   @Test
   public void noMacros() {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     StringWithMacrosConverter converter =
-        StringWithMacrosConverter.of(TARGET, CELL_ROOTS, resolver, MACRO_EXPANDERS);
+        StringWithMacrosConverter.of(TARGET, CELL_ROOTS, MACRO_EXPANDERS);
     assertThat(
-        converter.convert(StringWithMacrosUtils.format("something")),
+        converter.convert(StringWithMacrosUtils.format("something"), graphBuilder),
         Matchers.equalTo(CompositeArg.of(ImmutableList.of(StringArg.of("something")))));
   }
 
   @Test
   public void macro() {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     Genrule genrule =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
-            .build(resolver);
+            .build(graphBuilder);
     StringWithMacrosConverter converter =
-        StringWithMacrosConverter.of(TARGET, CELL_ROOTS, resolver, MACRO_EXPANDERS);
+        StringWithMacrosConverter.of(TARGET, CELL_ROOTS, MACRO_EXPANDERS);
     assertThat(
         converter.convert(
-            StringWithMacrosUtils.format("%s", LocationMacro.of(genrule.getBuildTarget()))),
+            StringWithMacrosUtils.format("%s", LocationMacro.of(genrule.getBuildTarget())),
+            graphBuilder),
         Matchers.equalTo(
             CompositeArg.of(
                 ImmutableList.of(
@@ -83,19 +78,16 @@ public class StringWithMacrosConverterTest {
 
   @Test
   public void sanitization() {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     StringWithMacrosConverter converter =
         StringWithMacrosConverter.builder()
             .setBuildTarget(TARGET)
             .setCellPathResolver(CELL_ROOTS)
-            .setResolver(resolver)
             .setExpanders(MACRO_EXPANDERS)
             .setSanitizer(s -> "something else")
             .build();
     assertThat(
-        converter.convert(StringWithMacrosUtils.format("something")),
+        converter.convert(StringWithMacrosUtils.format("something"), graphBuilder),
         Matchers.equalTo(
             CompositeArg.of(
                 ImmutableList.of(SanitizedArg.create(s -> "something else", "something")))));
@@ -103,19 +95,18 @@ public class StringWithMacrosConverterTest {
 
   @Test
   public void outputToFileMacro() {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     Genrule genrule =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
-            .build(resolver);
+            .build(graphBuilder);
     StringWithMacrosConverter converter =
-        StringWithMacrosConverter.of(TARGET, CELL_ROOTS, resolver, MACRO_EXPANDERS);
+        StringWithMacrosConverter.of(TARGET, CELL_ROOTS, MACRO_EXPANDERS);
     Arg result =
         converter.convert(
             StringWithMacrosUtils.format(
-                "%s", MacroContainer.of(LocationMacro.of(genrule.getBuildTarget()), true)));
+                "%s", MacroContainer.of(LocationMacro.of(genrule.getBuildTarget()), true)),
+            graphBuilder);
     assertThat(
         ((CompositeArg) result).getArgs(),
         Matchers.contains(Matchers.instanceOf(WriteToFileArg.class)));

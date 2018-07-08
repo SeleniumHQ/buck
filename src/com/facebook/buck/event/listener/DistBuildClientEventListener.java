@@ -22,21 +22,18 @@ import com.facebook.buck.distributed.DistBuildClientCacheResult;
 import com.facebook.buck.distributed.DistBuildClientCacheResultEvent;
 import com.facebook.buck.distributed.thrift.RuleKeyLogEntry;
 import com.facebook.buck.event.BuckEventListener;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.rules.keys.RuleKeyType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.eventbus.Subscribe;
-import java.io.Closeable;
-import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class DistBuildClientEventListener implements BuckEventListener, Closeable {
+public class DistBuildClientEventListener implements BuckEventListener {
   private final Set<String> firstLevelRuleKeys = Sets.newHashSet(); // i.e. the real rule key.
   private final Set<String> secondLevelContentKeys = Sets.newHashSet();
 
@@ -56,7 +53,7 @@ public class DistBuildClientEventListener implements BuckEventListener, Closeabl
       return;
     }
 
-    String ruleKey = ruleKeyCacheResult.ruleKey().toString();
+    String ruleKey = ruleKeyCacheResult.ruleKey();
     DistBuildClientCacheResult.Builder cacheResultBuilder =
         DistBuildClientCacheResult.builder().setClientSideCacheResult(ruleKeyCacheResult);
 
@@ -109,10 +106,4 @@ public class DistBuildClientEventListener implements BuckEventListener, Closeabl
     result.addAll(secondLevelContentKeys);
     return result;
   }
-
-  @Override
-  public void outputTrace(BuildId buildId) throws InterruptedException {}
-
-  @Override
-  public void close() throws IOException {}
 }

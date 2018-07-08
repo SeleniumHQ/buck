@@ -32,18 +32,16 @@ import static org.junit.Assume.assumeThat;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.BuckConfigTestUtils;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Joiner;
@@ -62,16 +60,13 @@ import org.junit.Test;
 public class JavaBuckConfigTest {
 
   private static final SourcePathResolver PATH_RESOLVER =
-      DefaultSourcePathResolver.from(
-          new SourcePathRuleFinder(
-              new SingleThreadedBuildRuleResolver(
-                  TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
+      DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
 
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
   private ProjectFilesystem defaultFilesystem;
 
   @Before
-  public void setUpDefaultFilesystem() throws InterruptedException {
+  public void setUpDefaultFilesystem() {
     defaultFilesystem = TestProjectFilesystems.createProjectFilesystem(temporaryFolder.getRoot());
   }
 
@@ -168,7 +163,7 @@ public class JavaBuckConfigTest {
                 .join("[tools]", "    javac = " + javac.toString().replace("\\", "\\\\")));
     JavaBuckConfig config = createWithDefaultFilesystem(reader);
 
-    assertEquals(Optional.of(javac), config.getJavacPath());
+    assertEquals(config.getDelegate().getPathSourcePath(javac), config.getJavacPath().get());
   }
 
   @Test
@@ -196,8 +191,7 @@ public class JavaBuckConfigTest {
         is(not(Platform.WINDOWS)));
     Path javac = temporaryFolder.newFile();
 
-    Reader reader =
-        new StringReader(Joiner.on('\n').join("[tools]", "    javac = " + javac.toString()));
+    Reader reader = new StringReader(Joiner.on('\n').join("[tools]", "    javac = " + javac));
     JavaBuckConfig config = createWithDefaultFilesystem(reader);
     try {
       config.getJavacPath();
@@ -226,8 +220,7 @@ public class JavaBuckConfigTest {
   }
 
   @Test
-  public void shouldSetJavaTargetAndSourceVersionFromConfig()
-      throws IOException, InterruptedException {
+  public void shouldSetJavaTargetAndSourceVersionFromConfig() throws IOException {
     String sourceLevel = "source-level";
     String targetLevel = "target-level";
 
@@ -243,8 +236,7 @@ public class JavaBuckConfigTest {
   }
 
   @Test
-  public void shouldSetJavaTargetAndSourceVersionDefaultToSaneValues()
-      throws IOException, InterruptedException {
+  public void shouldSetJavaTargetAndSourceVersionDefaultToSaneValues() throws IOException {
     JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(""));
 
     JavacOptions options = config.getDefaultJavacOptions();
@@ -254,8 +246,7 @@ public class JavaBuckConfigTest {
   }
 
   @Test
-  public void shouldPopulateTheMapOfSourceLevelToBootclasspath()
-      throws IOException, InterruptedException {
+  public void shouldPopulateTheMapOfSourceLevelToBootclasspath() throws IOException {
     String localConfig = "[java]\nbootclasspath-6 = one.jar\nbootclasspath-7 = two.jar";
     JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(localConfig));
 
@@ -272,17 +263,17 @@ public class JavaBuckConfigTest {
 
   @Test
   public void whenJavacIsNotSetInBuckConfigConfiguredRulesCreateJavaLibraryRuleWithJsr199Javac()
-      throws IOException, NoSuchBuildTargetException, InterruptedException {
+      throws NoSuchBuildTargetException {
     BuckConfig buckConfig = FakeBuckConfig.builder().build();
     JavaBuckConfig javaConfig = buckConfig.getView(JavaBuckConfig.class);
 
-    Javac javac = JavacFactory.create(null, javaConfig, null);
+    Javac javac = JavacFactoryHelper.createJavacFactory(javaConfig).create(null, null);
     assertTrue(javac.getClass().toString(), javac instanceof Jsr199Javac);
   }
 
   @Test
   public void whenJavacIsSetInBuckConfigConfiguredRulesCreateJavaLibraryRuleWithJavacSet()
-      throws IOException, NoSuchBuildTargetException, InterruptedException {
+      throws IOException, NoSuchBuildTargetException {
     final String javac = temporaryFolder.newExecutableFile().toString();
 
     ImmutableMap<String, ImmutableMap<String, String>> sections =
@@ -292,7 +283,7 @@ public class JavaBuckConfigTest {
     JavaBuckConfig javaConfig = buckConfig.getView(JavaBuckConfig.class);
 
     assertEquals(
-        javac, ((ExternalJavac) JavacFactory.create(null, javaConfig, null)).getShortName());
+        javac, JavacFactoryHelper.createJavacFactory(javaConfig).create(null, null).getShortName());
   }
 
   @Test
@@ -366,23 +357,6 @@ public class JavaBuckConfigTest {
     assumeThat(config.getJavacSpec().getJavacSource(), is(Javac.Source.JDK));
 
     assertTrue(config.trackClassUsage());
-  }
-
-  @Test
-  public void testJavaLocationInProcessByDefault()
-      throws IOException, NoSuchBuildTargetException, InterruptedException {
-    JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(""));
-    assertThat(
-        config.getJavacSpec().getJavacLocation(), Matchers.equalTo(Javac.Location.IN_PROCESS));
-  }
-
-  @Test
-  public void testJavaLocationInProcess()
-      throws IOException, NoSuchBuildTargetException, InterruptedException {
-    String content = Joiner.on('\n').join("[java]", "    location = IN_PROCESS");
-    JavaBuckConfig config = createWithDefaultFilesystem(new StringReader(content));
-    assertThat(
-        config.getJavacSpec().getJavacLocation(), Matchers.equalTo(Javac.Location.IN_PROCESS));
   }
 
   @Test

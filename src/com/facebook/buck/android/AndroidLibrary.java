@@ -16,8 +16,19 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.android.AndroidLibraryDescription.CoreArg;
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildDeps;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.java.ConfiguredCompilerFactory;
@@ -30,16 +41,7 @@ import com.facebook.buck.jvm.java.JavaLibraryDeps;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.UnusedDependenciesFinderFactory;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildDeps;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.DependencyMode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -60,20 +62,24 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
   public static Builder builder(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
+      ToolchainProvider toolchainProvider,
       BuildRuleParams params,
-      BuildRuleResolver buildRuleResolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellPathResolver,
       JavaBuckConfig javaBuckConfig,
+      JavacFactory javacFactory,
       JavacOptions javacOptions,
-      AndroidLibraryDescription.CoreArg args,
+      CoreArg args,
       ConfiguredCompilerFactory compilerFactory) {
     return new Builder(
         buildTarget,
         projectFilesystem,
+        toolchainProvider,
         params,
-        buildRuleResolver,
+        graphBuilder,
         cellPathResolver,
         javaBuckConfig,
+        javacFactory,
         javacOptions,
         args,
         compilerFactory);
@@ -90,6 +96,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       SortedSet<BuildRule> fullJarDeclaredDeps,
       ImmutableSortedSet<BuildRule> fullJarExportedDeps,
       ImmutableSortedSet<BuildRule> fullJarProvidedDeps,
+      ImmutableSortedSet<BuildRule> fullJarExportedProvidedDeps,
       @Nullable BuildTarget abiJar,
       @Nullable BuildTarget sourceOnlyAbiJar,
       Optional<String> mavenCoords,
@@ -108,6 +115,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
         fullJarDeclaredDeps,
         fullJarExportedDeps,
         fullJarProvidedDeps,
+        fullJarExportedProvidedDeps,
         abiJar,
         sourceOnlyAbiJar,
         mavenCoords,
@@ -129,27 +137,30 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
   }
 
   public static class Builder {
-    private final BuildRuleResolver buildRuleResolver;
+    private final ActionGraphBuilder graphBuilder;
     private final DefaultJavaLibraryRules delegate;
     private final AndroidLibraryGraphEnhancer graphEnhancer;
 
     protected Builder(
         BuildTarget buildTarget,
         ProjectFilesystem projectFilesystem,
+        ToolchainProvider toolchainProvider,
         BuildRuleParams params,
-        BuildRuleResolver buildRuleResolver,
+        ActionGraphBuilder graphBuilder,
         CellPathResolver cellPathResolver,
         JavaBuckConfig javaBuckConfig,
+        JavacFactory javacFactory,
         JavacOptions javacOptions,
-        AndroidLibraryDescription.CoreArg args,
+        CoreArg args,
         ConfiguredCompilerFactory compilerFactory) {
-      this.buildRuleResolver = buildRuleResolver;
+      this.graphBuilder = graphBuilder;
       DefaultJavaLibraryRules.Builder delegateBuilder =
           new DefaultJavaLibraryRules.Builder(
               buildTarget,
               projectFilesystem,
+              toolchainProvider,
               params,
-              buildRuleResolver,
+              graphBuilder,
               cellPathResolver,
               compilerFactory,
               javaBuckConfig,
@@ -167,6 +178,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
                 SortedSet<BuildRule> firstOrderPackageableDeps,
                 ImmutableSortedSet<BuildRule> fullJarExportedDeps,
                 ImmutableSortedSet<BuildRule> fullJarProvidedDeps,
+                ImmutableSortedSet<BuildRule> fullJarExportedProvidedDeps,
                 @Nullable BuildTarget abiJar,
                 @Nullable BuildTarget sourceOnlyAbiJar,
                 Optional<String> mavenCoords,
@@ -184,6 +196,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
                   firstOrderPackageableDeps,
                   fullJarExportedDeps,
                   fullJarProvidedDeps,
+                  fullJarExportedProvidedDeps,
                   abiJar,
                   sourceOnlyAbiJar,
                   mavenCoords,
@@ -207,8 +220,7 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
               libraryTarget,
               projectFilesystem,
               ImmutableSortedSet.copyOf(Iterables.concat(deps.getDeps(), deps.getProvidedDeps())),
-              JavacFactory.create(
-                  new SourcePathRuleFinder(buildRuleResolver), javaBuckConfig, args),
+              javacFactory.create(new SourcePathRuleFinder(graphBuilder), args),
               javacOptions,
               DependencyMode.FIRST_ORDER,
               /* forceFinalResourceIds */ false,
@@ -221,8 +233,8 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
           .ifPresent(
               dummyRDotJava -> {
                 delegateBuilder.setDeps(
-                    new JavaLibraryDeps.Builder(buildRuleResolver)
-                        .from(JavaLibraryDeps.newInstance(args, buildRuleResolver))
+                    new JavaLibraryDeps.Builder(graphBuilder)
+                        .from(JavaLibraryDeps.newInstance(args, graphBuilder))
                         .addDepTargets(dummyRDotJava.getBuildTarget())
                         .build());
               });
@@ -239,11 +251,11 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
     }
 
     public DummyRDotJava buildDummyRDotJava() {
-      return graphEnhancer.getBuildableForAndroidResources(buildRuleResolver, true).get();
+      return graphEnhancer.getBuildableForAndroidResources(graphBuilder, true).get();
     }
 
     public Optional<DummyRDotJava> getDummyRDotJava() {
-      return graphEnhancer.getBuildableForAndroidResources(buildRuleResolver, false);
+      return graphEnhancer.getBuildableForAndroidResources(graphBuilder, false);
     }
   }
 }

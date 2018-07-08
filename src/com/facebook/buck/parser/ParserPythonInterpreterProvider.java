@@ -17,8 +17,8 @@
 package com.facebook.buck.parser;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -27,7 +27,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
 
-class ParserPythonInterpreterProvider {
+public class ParserPythonInterpreterProvider {
 
   private static final ImmutableList<String> PYTHON_INTERPRETER_NAMES =
       ImmutableList.of("python2", "python");
@@ -35,11 +35,12 @@ class ParserPythonInterpreterProvider {
   private final ParserConfig parserConfig;
   private final ExecutableFinder executableFinder;
 
-  ParserPythonInterpreterProvider(BuckConfig buckConfig, ExecutableFinder executableFinder) {
+  public ParserPythonInterpreterProvider(BuckConfig buckConfig, ExecutableFinder executableFinder) {
     this(buckConfig.getView(ParserConfig.class), executableFinder);
   }
 
-  ParserPythonInterpreterProvider(ParserConfig parserConfig, ExecutableFinder executableFinder) {
+  public ParserPythonInterpreterProvider(
+      ParserConfig parserConfig, ExecutableFinder executableFinder) {
     this.parserConfig = parserConfig;
     this.executableFinder = executableFinder;
   }

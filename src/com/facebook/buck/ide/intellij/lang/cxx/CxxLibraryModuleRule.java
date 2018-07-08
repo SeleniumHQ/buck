@@ -15,6 +15,8 @@
  */
 package com.facebook.buck.ide.intellij.lang.cxx;
 
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
 import com.facebook.buck.ide.intellij.BaseIjModuleRule;
@@ -24,8 +26,6 @@ import com.facebook.buck.ide.intellij.model.IjModuleType;
 import com.facebook.buck.ide.intellij.model.IjProjectConfig;
 import com.facebook.buck.ide.intellij.model.folders.SourceFolder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.TargetNode;
 
 public class CxxLibraryModuleRule extends BaseIjModuleRule<CxxLibraryDescriptionArg> {
 
@@ -37,7 +37,7 @@ public class CxxLibraryModuleRule extends BaseIjModuleRule<CxxLibraryDescription
   }
 
   @Override
-  public Class<? extends Description<?>> getDescriptionClass() {
+  public Class<? extends DescriptionWithTargetGraph<?>> getDescriptionClass() {
     return CxxLibraryDescription.class;
   }
 

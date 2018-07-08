@@ -16,14 +16,14 @@
 
 package com.facebook.buck.cxx.toolchain;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
+import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
+import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.ConstantToolProvider;
-import com.facebook.buck.rules.HashedFileTool;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.Tool;
-import com.facebook.buck.rules.ToolProvider;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.MoreSuppliers;
@@ -69,7 +69,7 @@ public abstract class CxxToolProvider<T> {
           .build(
               new CacheLoader<BuildRuleResolver, T>() {
                 @Override
-                public T load(@Nonnull BuildRuleResolver resolver) throws Exception {
+                public T load(@Nonnull BuildRuleResolver resolver) {
                   return build(type.get(), toolProvider.resolve(resolver));
                 }
               });
@@ -88,7 +88,7 @@ public abstract class CxxToolProvider<T> {
    * Build using a {@link Path} and an optional type. If the type is absent, the tool will be
    * executed to infer it.
    */
-  public CxxToolProvider(final Supplier<PathSourcePath> path, Optional<Type> type) {
+  public CxxToolProvider(Supplier<PathSourcePath> path, Optional<Type> type) {
     this(
         new ConstantToolProvider(new HashedFileTool(path)),
         type.map(Suppliers::ofInstance)
@@ -152,6 +152,7 @@ public abstract class CxxToolProvider<T> {
   public enum Type {
     CLANG,
     GCC,
-    WINDOWS
+    WINDOWS,
+    WINDOWS_ML64
   }
 }

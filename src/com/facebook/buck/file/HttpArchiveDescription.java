@@ -16,18 +16,18 @@
 
 package com.facebook.buck.file;
 
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.file.downloader.Downloader;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Description;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.unarchive.ArchiveFormat;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -43,7 +43,8 @@ import org.immutables.value.Value;
  * A description for downloading an archive over http and extracting it (versus the combo logic
  * contained in {@link RemoteFileDescription}.
  */
-public class HttpArchiveDescription implements Description<HttpArchiveDescriptionArg> {
+public class HttpArchiveDescription
+    implements DescriptionWithTargetGraph<HttpArchiveDescriptionArg> {
 
   private static final Flavor ARCHIVE_DOWNLOAD = InternalFlavor.of("archive-download");
 
@@ -65,7 +66,7 @@ public class HttpArchiveDescription implements Description<HttpArchiveDescriptio
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       HttpArchiveDescriptionArg args) {
@@ -101,7 +102,7 @@ public class HttpArchiveDescription implements Description<HttpArchiveDescriptio
         new BuildRuleParams(
             () -> ImmutableSortedSet.of(httpFile), ImmutableSortedSet::of, ImmutableSortedSet.of());
 
-    context.getBuildRuleResolver().computeIfAbsent(httpFileTarget, ignored -> httpFile);
+    context.getActionGraphBuilder().computeIfAbsent(httpFileTarget, ignored -> httpFile);
 
     return new HttpArchive(
         buildTarget,

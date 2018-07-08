@@ -16,12 +16,12 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.sourcepath.ArchiveMemberSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.ArchiveMemberSourcePath;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -55,9 +55,9 @@ class DefaultClassUsageFileReader {
       CellPathResolver cellPathResolver,
       Path classUsageFilePath,
       ImmutableMap<Path, SourcePath> jarPathToSourcePath) {
-    final ImmutableList.Builder<SourcePath> builder = ImmutableList.builder();
+    ImmutableList.Builder<SourcePath> builder = ImmutableList.builder();
     try {
-      final ImmutableSet<Map.Entry<String, ImmutableList<String>>> classUsageEntries =
+      ImmutableSet<Map.Entry<String, ImmutableList<String>>> classUsageEntries =
           loadClassUsageMap(classUsageFilePath).entrySet();
       for (Map.Entry<String, ImmutableList<String>> jarUsedClassesEntry : classUsageEntries) {
         Path jarAbsolutePath =
@@ -88,8 +88,8 @@ class DefaultClassUsageFileReader {
       CellPathResolver cellPathResolver,
       Path classUsageFilePath)
       throws IOException {
-    final ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
-    final ImmutableSet<Map.Entry<String, ImmutableList<String>>> classUsageEntries =
+    ImmutableSet.Builder<Path> builder = ImmutableSet.builder();
+    ImmutableSet<Map.Entry<String, ImmutableList<String>>> classUsageEntries =
         loadClassUsageMap(classUsageFilePath).entrySet();
     for (Map.Entry<String, ImmutableList<String>> jarUsedClassesEntry : classUsageEntries) {
       Path jarAbsolutePath =
@@ -102,7 +102,7 @@ class DefaultClassUsageFileReader {
 
   private static Path convertRecordedJarPathToAbsolute(
       ProjectFilesystem projectFilesystem, CellPathResolver cellPathResolver, String jarPath) {
-    final Path recordedPath = Paths.get(jarPath);
+    Path recordedPath = Paths.get(jarPath);
     Path jarAbsolutePath =
         recordedPath.isAbsolute()
             ? getAbsolutePathForCellRootedPath(recordedPath, cellPathResolver)
@@ -115,21 +115,20 @@ class DefaultClassUsageFileReader {
    *
    * @param cellRootedPath a path beginning with '/cell_name/' followed by a relative path in that
    *     cell
-   * @param cellPathResolver the resolver capable of mapping cell_name to absolute root path
+   * @param cellPathResolver the CellPathResolver capable of mapping cell_name to absolute root path
    * @return an absolute path: 'path/to/cell/root/' + 'relative/path/in/cell'
    */
   private static Path getAbsolutePathForCellRootedPath(
       Path cellRootedPath, CellPathResolver cellPathResolver) {
     Preconditions.checkArgument(cellRootedPath.isAbsolute(), "Path must begin with /<cell_name>");
-    final Iterator<Path> pathIterator = cellRootedPath.iterator();
-    final Path cellName = pathIterator.next();
+    Iterator<Path> pathIterator = cellRootedPath.iterator();
+    Path cellName = pathIterator.next();
     Path relativeToCellRoot = pathIterator.next();
     while (pathIterator.hasNext()) {
       relativeToCellRoot = relativeToCellRoot.resolve(pathIterator.next());
     }
     return cellPathResolver
-        .getCellPath(Optional.of(cellName.toString()))
-        .orElseThrow(() -> new AssertionError("Cell name does not exist: " + cellName.toString()))
+        .getCellPathOrThrow(Optional.of(cellName.toString()))
         .resolve(relativeToCellRoot);
   }
 }

@@ -16,14 +16,16 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.sourcepath.SourcePath;
 
 public class CxxPrecompiledHeaderBuilder
     extends AbstractNodeBuilder<
-        CxxPrecompiledHeaderDescriptionArg.Builder, CxxPrecompiledHeaderDescriptionArg,
-        CxxPrecompiledHeaderDescription, CxxPrecompiledHeaderTemplate> {
+        CxxPrecompiledHeaderDescriptionArg.Builder,
+        CxxPrecompiledHeaderDescriptionArg,
+        CxxPrecompiledHeaderDescription,
+        CxxPrecompiledHeaderTemplate> {
 
   protected CxxPrecompiledHeaderBuilder(BuildTarget target) {
     super(new CxxPrecompiledHeaderDescription(), target);

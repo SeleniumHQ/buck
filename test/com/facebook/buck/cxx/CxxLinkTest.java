@@ -19,24 +19,22 @@ package com.facebook.buck.cxx;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
+import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.MungingDebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.linker.GnuLinker;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.HashedFileTool;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -49,7 +47,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedSet;
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -77,10 +74,7 @@ public class CxxLinkTest {
 
   @Test
   public void testThatInputChangesCauseRuleKeyChanges() {
-    SourcePathRuleFinder ruleFinder =
-        new SourcePathRuleFinder(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
@@ -101,7 +95,7 @@ public class CxxLinkTest {
                 new CxxLink(
                     target,
                     projectFilesystem,
-                    ImmutableSortedSet::of,
+                    ruleFinder,
                     TestCellPathResolver.get(projectFilesystem),
                     DEFAULT_LINKER,
                     DEFAULT_OUTPUT,
@@ -120,7 +114,7 @@ public class CxxLinkTest {
                 new CxxLink(
                     target,
                     projectFilesystem,
-                    ImmutableSortedSet::of,
+                    ruleFinder,
                     TestCellPathResolver.get(projectFilesystem),
                     new GnuLinker(
                         new HashedFileTool(
@@ -142,7 +136,7 @@ public class CxxLinkTest {
                 new CxxLink(
                     target,
                     projectFilesystem,
-                    ImmutableSortedSet::of,
+                    ruleFinder,
                     TestCellPathResolver.get(projectFilesystem),
                     DEFAULT_LINKER,
                     Paths.get("different"),
@@ -162,7 +156,7 @@ public class CxxLinkTest {
                 new CxxLink(
                     target,
                     projectFilesystem,
-                    ImmutableSortedSet::of,
+                    ruleFinder,
                     TestCellPathResolver.get(projectFilesystem),
                     DEFAULT_LINKER,
                     DEFAULT_OUTPUT,
@@ -177,10 +171,7 @@ public class CxxLinkTest {
 
   @Test
   public void sanitizedPathsInFlagsDoNotAffectRuleKey() {
-    SourcePathRuleFinder ruleFinder =
-        new SourcePathRuleFinder(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
@@ -221,7 +212,7 @@ public class CxxLinkTest {
             new CxxLink(
                 target,
                 projectFilesystem,
-                ImmutableSortedSet::of,
+                ruleFinder,
                 TestCellPathResolver.get(projectFilesystem),
                 DEFAULT_LINKER,
                 DEFAULT_OUTPUT,
@@ -243,7 +234,7 @@ public class CxxLinkTest {
             new CxxLink(
                 target,
                 projectFilesystem,
-                ImmutableSortedSet::of,
+                ruleFinder,
                 TestCellPathResolver.get(projectFilesystem),
                 DEFAULT_LINKER,
                 DEFAULT_OUTPUT,

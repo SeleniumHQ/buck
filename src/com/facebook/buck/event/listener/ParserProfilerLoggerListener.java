@@ -18,9 +18,8 @@ package com.facebook.buck.event.listener;
 
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.json.ParseBuckProfilerReportEvent;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.model.BuildId;
+import com.facebook.buck.parser.events.ParseBuckProfilerReportEvent;
 import com.google.common.eventbus.Subscribe;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -42,7 +41,4 @@ public class ParserProfilerLoggerListener implements BuckEventListener {
     filesystem.createParentDirs(tracePath);
     filesystem.writeContentsToPath(event.getReport(), tracePath);
   }
-
-  @Override
-  public void outputTrace(BuildId buildId) {}
 }

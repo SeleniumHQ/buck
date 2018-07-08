@@ -19,21 +19,20 @@ package com.facebook.buck.jvm.java;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -41,6 +40,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.logging.Level;
 import org.junit.Test;
 
 public class JavaBinaryTest {
@@ -49,7 +49,7 @@ public class JavaBinaryTest {
   private static final Path PATH_TO_GENERATOR_JAR = Paths.get("third_party/guava/generator.jar");
 
   @Test
-  public void testGetExecutableCommand() throws Exception {
+  public void testGetExecutableCommand() {
     // prebuilt_jar //third_party/generator:generator
     PrebuiltJarBuilder.createBuilder(
             BuildTargetFactory.newInstance("//third_party/generator:generator"))
@@ -72,20 +72,18 @@ public class JavaBinaryTest {
             .build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(guavaNode, libraryNode);
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
 
-    BuildRule libraryRule = ruleResolver.requireRule(libraryNode.getBuildTarget());
+    BuildRule libraryRule = graphBuilder.requireRule(libraryNode.getBuildTarget());
 
     BuildTarget target = BuildTargetFactory.newInstance("//java/com/facebook/base:Main");
     BuildRuleParams params =
         TestBuildRuleParams.create().withDeclaredDeps(ImmutableSortedSet.of(libraryRule));
     // java_binary //java/com/facebook/base:Main
     JavaBinary javaBinary =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             new JavaBinary(
                 target,
                 new FakeProjectFilesystem(),
@@ -99,7 +97,8 @@ public class JavaBinaryTest {
                 /* blacklist */ ImmutableSet.of(),
                 ImmutableSet.of(),
                 ImmutableSet.of(),
-                /* cache */ true));
+                /* cache */ true,
+                Level.INFO));
 
     // Strip the trailing "." from the absolute path to the current directory.
     final String basePath = new File(".").getAbsolutePath().replaceFirst("\\.$", "");

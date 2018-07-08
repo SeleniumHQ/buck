@@ -18,12 +18,14 @@ package com.facebook.buck.jvm.kotlin;
 
 import static com.google.common.collect.Iterables.transform;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.jvm.java.javax.SynchronizedToolProvider;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.ClassLoaderCache;
 import com.google.common.base.Joiner;
@@ -64,9 +66,16 @@ public class JarBackedReflectedKotlinc implements Kotlinc {
   private static final Map<Set<String>, Object> kotlinShims = new ConcurrentHashMap<>();
 
   @AddToRuleKey private final ImmutableSet<SourcePath> compilerClassPath;
+  private final Path annotationProcessingClassPath;
+  private final Path standardLibraryClasspath;
 
-  JarBackedReflectedKotlinc(ImmutableSet<SourcePath> compilerClassPath) {
+  JarBackedReflectedKotlinc(
+      ImmutableSet<SourcePath> compilerClassPath,
+      Path annotationProcessingClassPath,
+      Path standardLibraryClasspath) {
     this.compilerClassPath = compilerClassPath;
+    this.annotationProcessingClassPath = annotationProcessingClassPath;
+    this.standardLibraryClasspath = standardLibraryClasspath;
   }
 
   @Override
@@ -93,6 +102,16 @@ public class JarBackedReflectedKotlinc implements Kotlinc {
   }
 
   @Override
+  public Path getAnnotationProcessorPath() {
+    return annotationProcessingClassPath;
+  }
+
+  @Override
+  public Path getStdlibPath() {
+    return standardLibraryClasspath;
+  }
+
+  @Override
   public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
     throw new UnsupportedOperationException("In memory kotlinc may not be used externally");
   }
@@ -105,15 +124,28 @@ public class JarBackedReflectedKotlinc implements Kotlinc {
       ImmutableSortedSet<Path> kotlinSourceFilePaths,
       Path pathToSrcsList,
       Optional<Path> workingDirectory,
-      ProjectFilesystem projectFilesystem)
-      throws InterruptedException {
+      ProjectFilesystem projectFilesystem) {
+
+    ImmutableList<Path> expandedSources;
+    try {
+      expandedSources =
+          getExpandedSourcePaths(
+              projectFilesystem,
+              context.getProjectFilesystemFactory(),
+              kotlinSourceFilePaths,
+              workingDirectory);
+    } catch (Throwable throwable) {
+      throwable.printStackTrace();
+      throw new HumanReadableException(
+          "Unable to expand sources for %s into %s", invokingRule, workingDirectory);
+    }
 
     ImmutableList<String> args =
         ImmutableList.<String>builder()
             .addAll(options)
             .addAll(
                 transform(
-                    kotlinSourceFilePaths,
+                    expandedSources,
                     path -> projectFilesystem.resolve(path).toAbsolutePath().toString()))
             .build();
 
@@ -157,7 +189,7 @@ public class JarBackedReflectedKotlinc implements Kotlinc {
 
       ClassLoader classLoader =
           classLoaderCache.getClassLoaderForClassPath(
-              null /* parent classloader */,
+              SynchronizedToolProvider.getSystemToolClassLoader(),
               ImmutableList.copyOf(
                   compilerClassPath
                       .stream()

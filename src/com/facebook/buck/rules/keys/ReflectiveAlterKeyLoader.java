@@ -16,12 +16,12 @@
 
 package com.facebook.buck.rules.keys;
 
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.util.immutables.BuckStylePackageVisibleImmutable;
-import com.facebook.buck.util.immutables.BuckStylePackageVisibleTuple;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.immutables.BuckStylePackageVisibleImmutable;
+import com.facebook.buck.core.util.immutables.BuckStylePackageVisibleTuple;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheLoader;
 import com.google.common.collect.ImmutableCollection;
@@ -69,18 +69,18 @@ class ReflectiveAlterKeyLoader extends CacheLoader<Class<?>, ImmutableCollection
     for (Class<?> current : superClassesAndInterfaces) {
       ImmutableSortedMap.Builder<ValueExtractor, AlterRuleKey> sortedExtractors =
           ImmutableSortedMap.orderedBy(COMPARATOR);
-      for (final Field field : current.getDeclaredFields()) {
+      for (Field field : current.getDeclaredFields()) {
         field.setAccessible(true);
-        final AddToRuleKey annotation = field.getAnnotation(AddToRuleKey.class);
+        AddToRuleKey annotation = field.getAnnotation(AddToRuleKey.class);
         if (annotation != null) {
           ValueExtractor valueExtractor = new FieldValueExtractor(field);
           sortedExtractors.put(
               valueExtractor, createAlterRuleKey(valueExtractor, annotation.stringify()));
         }
       }
-      for (final Method method : current.getDeclaredMethods()) {
+      for (Method method : current.getDeclaredMethods()) {
         method.setAccessible(true);
-        final AddToRuleKey annotation = method.getAnnotation(AddToRuleKey.class);
+        AddToRuleKey annotation = method.getAnnotation(AddToRuleKey.class);
         if (annotation != null) {
           Preconditions.checkState(
               hasImmutableAnnotation(current) && AddsToRuleKey.class.isAssignableFrom(current),

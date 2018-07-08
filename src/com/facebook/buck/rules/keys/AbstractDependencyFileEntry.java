@@ -15,11 +15,11 @@
  */
 package com.facebook.buck.rules.keys;
 
+import com.facebook.buck.core.sourcepath.ArchiveMemberSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.ArchiveMemberPath;
-import com.facebook.buck.rules.ArchiveMemberSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.google.common.base.Preconditions;
 import java.nio.file.Path;
@@ -45,7 +45,7 @@ abstract class AbstractDependencyFileEntry {
 
   public static DependencyFileEntry fromSourcePath(
       SourcePath sourcePath, SourcePathResolver resolver) {
-    final DependencyFileEntry.Builder builder = DependencyFileEntry.builder();
+    DependencyFileEntry.Builder builder = DependencyFileEntry.builder();
     if (sourcePath instanceof ArchiveMemberSourcePath) {
       ArchiveMemberSourcePath archiveMemberSourcePath = (ArchiveMemberSourcePath) sourcePath;
       ArchiveMemberPath relativeArchiveMemberPath =

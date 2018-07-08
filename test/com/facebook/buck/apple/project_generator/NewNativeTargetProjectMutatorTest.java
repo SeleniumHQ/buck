@@ -48,22 +48,20 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXResourcesBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.PBXShellScriptBuildPhase;
 import com.facebook.buck.apple.xcode.xcodeproj.ProductTypes;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.SourceWithFlags;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.js.JsBundleGenruleBuilder;
 import com.facebook.buck.js.JsTestScenario;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourceWithFlags;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.FluentIterable;
@@ -88,14 +86,9 @@ public class NewNativeTargetProjectMutatorTest {
   public void setUp() {
     assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
     generatedProject = new PBXProject("TestProject");
-    buildRuleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    buildRuleResolver = new TestActionGraphBuilder();
     sourcePathResolver =
-        DefaultSourcePathResolver.from(
-            new SourcePathRuleFinder(
-                new SingleThreadedBuildRuleResolver(
-                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer())));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
     pathRelativizer =
         new PathRelativizer(Paths.get("_output"), sourcePathResolver::getRelativePath);
   }
@@ -374,12 +367,12 @@ public class NewNativeTargetProjectMutatorTest {
         JsTestScenario.builder().bundle(depBuildTarget, ImmutableSortedSet.of()).build();
 
     NewNativeTargetProjectMutator mutator =
-        mutator(DefaultSourcePathResolver.from(new SourcePathRuleFinder(scenario.resolver)));
+        mutator(DefaultSourcePathResolver.from(new SourcePathRuleFinder(scenario.graphBuilder)));
 
     TargetNode<?, ?> jsBundleNode = scenario.targetGraph.get(depBuildTarget);
 
     mutator.setPostBuildRunScriptPhasesFromTargetNodes(
-        ImmutableList.of(jsBundleNode), x -> scenario.resolver);
+        ImmutableList.of(jsBundleNode), x -> scenario.graphBuilder);
     NewNativeTargetProjectMutator.Result result =
         mutator.buildTargetAndAddToProject(generatedProject, true);
 
@@ -408,12 +401,12 @@ public class NewNativeTargetProjectMutatorTest {
             .build();
 
     NewNativeTargetProjectMutator mutator =
-        mutator(DefaultSourcePathResolver.from(new SourcePathRuleFinder(scenario.resolver)));
+        mutator(DefaultSourcePathResolver.from(new SourcePathRuleFinder(scenario.graphBuilder)));
 
     TargetNode<?, ?> jsBundleGenruleNode = scenario.targetGraph.get(depBuildTarget);
 
     mutator.setPostBuildRunScriptPhasesFromTargetNodes(
-        ImmutableList.of(jsBundleGenruleNode), x -> scenario.resolver);
+        ImmutableList.of(jsBundleGenruleNode), x -> scenario.graphBuilder);
     NewNativeTargetProjectMutator.Result result =
         mutator.buildTargetAndAddToProject(generatedProject, true);
 
@@ -451,7 +444,7 @@ public class NewNativeTargetProjectMutatorTest {
     return mutator;
   }
 
-  private static void assertHasTargetGroupWithName(PBXProject project, final String name) {
+  private static void assertHasTargetGroupWithName(PBXProject project, String name) {
     assertThat(
         "Should contain a target group named: " + name,
         Iterables.filter(
@@ -459,7 +452,7 @@ public class NewNativeTargetProjectMutatorTest {
         not(emptyIterable()));
   }
 
-  private static PBXGroup assertHasSubgroupAndReturnIt(PBXGroup group, final String subgroupName) {
+  private static PBXGroup assertHasSubgroupAndReturnIt(PBXGroup group, String subgroupName) {
     ImmutableList<PBXGroup> candidates =
         FluentIterable.from(group.getChildren())
             .filter(input -> input.getName().equals(subgroupName))

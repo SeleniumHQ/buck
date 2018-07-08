@@ -21,11 +21,11 @@ import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.replay;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -98,14 +98,14 @@ public class DepsFunctionTest {
   private QueryEnvironment makeFakeQueryEnvironment(TargetGraph targetGraph) throws Exception {
     QueryEnvironment env = createNiceMock(QueryEnvironment.class);
 
-    final Capture<String> stringCapture = Capture.newInstance();
+    Capture<String> stringCapture = Capture.newInstance();
     expect(env.getTargetsMatchingPattern(EasyMock.capture(stringCapture)))
         .andStubAnswer(
             () ->
                 ImmutableSet.of(
                     QueryBuildTarget.of(BuildTargetFactory.newInstance(stringCapture.getValue()))));
 
-    final Capture<Iterable<QueryTarget>> targetsCapture = Capture.newInstance();
+    Capture<Iterable<QueryTarget>> targetsCapture = Capture.newInstance();
     expect(env.getFwdDeps(EasyMock.capture(targetsCapture)))
         .andStubAnswer(
             () ->

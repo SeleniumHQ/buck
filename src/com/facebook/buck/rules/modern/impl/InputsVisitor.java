@@ -16,9 +16,18 @@
 
 package com.facebook.buck.rules.modern.impl;
 
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.modern.HasCustomInputsLogic;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.rules.modern.ClassInfo;
+import com.facebook.buck.rules.modern.CustomBehaviorUtils;
+import com.facebook.buck.rules.modern.CustomFieldInputs;
 import com.facebook.buck.rules.modern.OutputPath;
+import com.facebook.buck.rules.modern.ValueTypeInfo;
+import java.lang.reflect.Field;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 /** Enumerates all the referenced SourcePaths. */
@@ -27,6 +36,33 @@ public class InputsVisitor extends AbstractValueVisitor<RuntimeException> {
 
   public InputsVisitor(Consumer<SourcePath> inputsBuilder) {
     this.inputsBuilder = inputsBuilder;
+  }
+
+  @Override
+  public <T extends AddsToRuleKey> void visitDynamic(T value, ClassInfo<T> classInfo)
+      throws RuntimeException {
+    if (value instanceof HasCustomInputsLogic) {
+      ((HasCustomInputsLogic) value).computeInputs(inputsBuilder::accept);
+    } else {
+      super.visitDynamic(value, classInfo);
+    }
+  }
+
+  @Override
+  public <T> void visitField(
+      Field field,
+      T value,
+      ValueTypeInfo<T> valueTypeInfo,
+      Optional<CustomFieldBehavior> customBehavior)
+      throws RuntimeException {
+    Optional<?> inputsTag = CustomBehaviorUtils.get(customBehavior, CustomFieldInputs.class);
+    if (inputsTag.isPresent()) {
+      @SuppressWarnings("unchecked")
+      CustomFieldInputs<T> customInputs = (CustomFieldInputs<T>) inputsTag.get();
+      customInputs.getInputs(value, inputsBuilder);
+    } else {
+      super.visitField(field, value, valueTypeInfo, customBehavior);
+    }
   }
 
   @Override

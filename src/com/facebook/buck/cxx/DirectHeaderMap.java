@@ -16,19 +16,21 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
+import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.google.common.collect.ImmutableList;
@@ -70,6 +72,10 @@ class DirectHeaderMap extends HeaderSymlinkTree {
     }
     return ImmutableList.<Step>builder()
         .add(getVerifyStep())
+        .addAll(
+            MakeCleanDirectoryStep.of(
+                BuildCellRelativePath.fromCellRelativePath(
+                    context.getBuildCellRootPath(), getProjectFilesystem(), getRoot())))
         .add(
             MkdirStep.of(
                 BuildCellRelativePath.fromCellRelativePath(
@@ -85,8 +91,9 @@ class DirectHeaderMap extends HeaderSymlinkTree {
   }
 
   @Override
-  public Path getIncludePath() {
-    return getProjectFilesystem().resolve(getProjectFilesystem().getBuckPaths().getBuckOut());
+  public PathSourcePath getIncludeSourcePath() {
+    return PathSourcePath.of(
+        getProjectFilesystem(), getProjectFilesystem().getBuckPaths().getBuckOut());
   }
 
   @Override

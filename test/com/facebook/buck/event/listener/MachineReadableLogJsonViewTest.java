@@ -22,21 +22,21 @@ import com.facebook.buck.artifact_cache.CacheCountersSummary;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
+import com.facebook.buck.core.build.engine.BuildRuleStatus;
+import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
+import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.rulekey.BuildRuleKeys;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.log.PerfTimesStats;
 import com.facebook.buck.log.views.JsonViews;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleDurationTracker;
-import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.rules.BuildRuleKeys;
-import com.facebook.buck.rules.BuildRuleStatus;
-import com.facebook.buck.rules.BuildRuleSuccessType;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.testutil.JsonMatcher;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.fasterxml.jackson.databind.MapperFeature;
@@ -105,7 +105,7 @@ public class MachineReadableLogJsonViewTest {
   }
 
   @Test
-  public void testBuildRuleEvent() throws IOException, InterruptedException {
+  public void testBuildRuleEvent() throws IOException {
     BuildRule rule = new FakeBuildRule("//fake:rule");
     long durationMillis = 5;
     long durationNanos = 5 * 1000 * 1000;
@@ -137,6 +137,10 @@ public class MachineReadableLogJsonViewTest {
             Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
             false,
             Optional.of(HashCode.fromString("abcd42")),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
@@ -221,7 +225,7 @@ public class MachineReadableLogJsonViewTest {
             + "\"successUploadCount\":2,\"failureUploadCount\":0}");
   }
 
-  private void assertJsonEquals(String expected, String actual) throws IOException {
+  private void assertJsonEquals(String expected, String actual) {
     String commonHeader = String.format("\"timestamp\":%d", timestamp);
     assertThat(actual, new JsonMatcher(String.format(expected, commonHeader)));
   }

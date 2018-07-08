@@ -38,8 +38,7 @@ public class TestNGIntegrationTest {
   @Before
   public void setupSimpleTestNGWorkspace() throws IOException {
     workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(
-            this, "simple_testng", temporaryFolder, true);
+        TestDataHelper.createProjectWorkspaceForScenario(this, "simple_testng", temporaryFolder);
     workspace.setUp();
   }
 
@@ -83,5 +82,16 @@ public class TestNGIntegrationTest {
     injectionTestNGTestResult.assertSuccess();
     // Make sure that we didn't just skip over the class.
     assertThat(injectionTestNGTestResult.getStderr(), containsString("1 Passed"));
+  }
+
+  @Test
+  public void emptyMethodSelectorsRunsTests() throws IOException {
+    ProcessResult filteredTestNGTestResult =
+        workspace.runBuckCommand("test", "//test:", "-f", "SimpleTest#$");
+    filteredTestNGTestResult.assertSuccess(); // should run SimpleTest
+    assertThat(filteredTestNGTestResult.getStderr(), containsString("SimpleTest"));
+    assertThat(filteredTestNGTestResult.getStderr(), containsString("2 Passed"));
+
+    assertThat(filteredTestNGTestResult.getStderr(), not(containsString("SimpleFailingTest")));
   }
 }

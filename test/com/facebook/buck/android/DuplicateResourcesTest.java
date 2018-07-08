@@ -21,29 +21,30 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeFalse;
 
 import com.facebook.buck.config.ActionGraphParallelizationMode;
-import com.facebook.buck.config.IncrementalActionGraphMode;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.KeystoreDescription;
 import com.facebook.buck.jvm.java.KeystoreDescriptionArg;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.ActionGraphAndResolver;
-import com.facebook.buck.rules.ActionGraphCache;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.environment.Platform;
@@ -59,9 +60,12 @@ import java.util.concurrent.TimeUnit;
 import org.hamcrest.Matcher;
 import org.hamcrest.Matchers;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 
 public class DuplicateResourcesTest {
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
+
   private BuildTarget mainResTarget;
   private BuildTarget directDepResTarget;
   private BuildTarget transitiveDepResTarget;
@@ -95,17 +99,17 @@ public class DuplicateResourcesTest {
    *                                                        //bottom_dep:res
    */
   @Before
-  public void makeRules() throws Exception {
-    mainResTarget = BuildTargetFactory.newInstance("//main_app:res");
-    directDepResTarget = BuildTargetFactory.newInstance("//direct_dep:res");
-    transitiveDepResTarget = BuildTargetFactory.newInstance("//transitive_dep:res");
-    transitiveDepLibTarget = BuildTargetFactory.newInstance("//transitive_dep:library");
-    bottomDepResTarget = BuildTargetFactory.newInstance("//bottom_dep:res");
-    androidLibraryTarget = BuildTargetFactory.newInstance("//direct_dep:library");
-    androidBinaryTarget = BuildTargetFactory.newInstance("//main_app:binary");
-    keystoreTarget = BuildTargetFactory.newInstance("//main_app:keystore");
+  public void makeRules() {
+    filesystem = new FakeProjectFilesystem(tmp.getRoot());
 
-    filesystem = new FakeProjectFilesystem();
+    mainResTarget = BuildTargetFactory.newInstance(filesystem, "//main_app:res");
+    directDepResTarget = BuildTargetFactory.newInstance(filesystem, "//direct_dep:res");
+    transitiveDepResTarget = BuildTargetFactory.newInstance(filesystem, "//transitive_dep:res");
+    transitiveDepLibTarget = BuildTargetFactory.newInstance(filesystem, "//transitive_dep:library");
+    bottomDepResTarget = BuildTargetFactory.newInstance(filesystem, "//bottom_dep:res");
+    androidLibraryTarget = BuildTargetFactory.newInstance(filesystem, "//direct_dep:library");
+    androidBinaryTarget = BuildTargetFactory.newInstance(filesystem, "//main_app:binary");
+    keystoreTarget = BuildTargetFactory.newInstance(filesystem, "//main_app:keystore");
 
     mainRes =
         AndroidResourceBuilder.createBuilder(mainResTarget)
@@ -152,7 +156,7 @@ public class DuplicateResourcesTest {
   }
 
   @Test
-  public void testDuplicateResoucesFavorCloserDependencyWithLibraryDep() throws Exception {
+  public void testDuplicateResoucesFavorCloserDependencyWithLibraryDep() {
     assumeFalse("Android SDK paths don't work on Windows", Platform.detect() == Platform.WINDOWS);
 
     TargetNode<AndroidBinaryDescriptionArg, AndroidBinaryDescription> binary =
@@ -164,7 +168,7 @@ public class DuplicateResourcesTest {
   }
 
   @Test
-  public void testDuplicateResoucesFavorCloserDependencyWithTwoLibraryDeps() throws Exception {
+  public void testDuplicateResoucesFavorCloserDependencyWithTwoLibraryDeps() {
     assumeFalse("Android SDK paths don't work on Windows", Platform.detect() == Platform.WINDOWS);
 
     TargetNode<AndroidBinaryDescriptionArg, AndroidBinaryDescription> binary =
@@ -177,7 +181,7 @@ public class DuplicateResourcesTest {
   }
 
   @Test
-  public void testDuplicateResoucesFavorCloserDependencyWithResourceDep() throws Exception {
+  public void testDuplicateResoucesFavorCloserDependencyWithResourceDep() {
     assumeFalse("Android SDK paths don't work on Windows", Platform.detect() == Platform.WINDOWS);
 
     TargetNode<AndroidBinaryDescriptionArg, AndroidBinaryDescription> binary =
@@ -189,7 +193,7 @@ public class DuplicateResourcesTest {
   }
 
   @Test
-  public void testDuplicateResoucesFavorCloserDependencyWithOnlyResourceDep() throws Exception {
+  public void testDuplicateResoucesFavorCloserDependencyWithOnlyResourceDep() {
     assumeFalse("Android SDK paths don't work on Windows", Platform.detect() == Platform.WINDOWS);
 
     TargetNode<AndroidBinaryDescriptionArg, AndroidBinaryDescription> binary =
@@ -244,16 +248,21 @@ public class DuplicateResourcesTest {
             library,
             keystore);
 
-    ActionGraphAndResolver actionGraphAndResolver =
-        new ActionGraphCache(1, 1)
+    ActionGraphAndBuilder actionGraphAndBuilder =
+        new ActionGraphCache(1)
             .getFreshActionGraph(
                 BuckEventBusForTests.newInstance(
                     new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1))),
                 new DefaultTargetNodeToBuildRuleTransformer(),
                 targetGraph,
+                new TestCellBuilder()
+                    .setToolchainProvider(
+                        AndroidBinaryBuilder.createToolchainProviderForAndroidBinary())
+                    .setFilesystem(filesystem)
+                    .build()
+                    .getCellProvider(),
                 ActionGraphParallelizationMode.DISABLED,
                 false,
-                IncrementalActionGraphMode.DISABLED,
                 CloseableMemoizedSupplier.of(
                     () -> {
                       throw new IllegalStateException(
@@ -263,10 +272,10 @@ public class DuplicateResourcesTest {
 
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(
-            new SourcePathRuleFinder(actionGraphAndResolver.getResolver()));
+            new SourcePathRuleFinder(actionGraphAndBuilder.getActionGraphBuilder()));
 
     ImmutableSet<ImmutableList<Step>> ruleSteps =
-        RichStream.from(actionGraphAndResolver.getActionGraph().getNodes())
+        RichStream.from(actionGraphAndBuilder.getActionGraph().getNodes())
             .filter(AaptPackageResources.class)
             .filter(
                 r ->

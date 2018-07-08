@@ -18,16 +18,17 @@ package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
+import com.facebook.buck.core.build.engine.buildinfo.BuildInfo;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
-import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildInfo;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.sqlite.RetryBusyHandler;
 import com.facebook.buck.util.sqlite.SQLiteUtils;
 import com.facebook.buck.util.types.Pair;
@@ -63,6 +64,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
+import javax.annotation.Nullable;
 import org.sqlite.BusyHandler;
 import org.sqlite.SQLiteConfig;
 
@@ -136,7 +138,8 @@ public class SQLiteArtifactCache implements ArtifactCache {
   }
 
   @Override
-  public ListenableFuture<CacheResult> fetchAsync(RuleKey ruleKey, LazyPath output) {
+  public ListenableFuture<CacheResult> fetchAsync(
+      @Nullable BuildTarget target, RuleKey ruleKey, LazyPath output) {
     return Futures.immediateFuture(fetch(ruleKey, output));
   }
 
@@ -429,7 +432,7 @@ public class SQLiteArtifactCache implements ArtifactCache {
           db.getContentToEvict(totalSizeBytes - maxBytesAfterDeletion.get());
 
       for (String filepath : contentToEvict.getFirst()) {
-        MoreFiles.deleteRecursivelyIfExists(filesystem.resolve(filepath));
+        MostFiles.deleteRecursivelyIfExists(filesystem.resolve(filepath));
       }
 
       Timestamp evictionCutoff = contentToEvict.getSecond();

@@ -22,6 +22,7 @@ import static org.junit.Assert.assertEquals;
 import com.facebook.buck.android.StringResources.Gender;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemDelegate;
+import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -49,13 +50,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.regex.Matcher;
-import org.easymock.EasyMockSupport;
 import org.junit.Before;
 import org.junit.Test;
 import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
 
-public class CompileStringsStepTest extends EasyMockSupport {
+public class CompileStringsStepTest {
 
   private static final String XML_HEADER = "<?xml version='1.0' encoding='utf-8'?>";
 
@@ -389,7 +389,7 @@ public class CompileStringsStepTest extends EasyMockSupport {
     return new CompileStringsStep(
         new FakeProjectFilesystem(),
         ImmutableList.of(),
-        createMock(Path.class),
+        Paths.get(""),
         locale -> {
           throw new UnsupportedOperationException();
         });
@@ -401,7 +401,7 @@ public class CompileStringsStepTest extends EasyMockSupport {
 
   @Test
   public void testSuccessfulStepExecution() throws InterruptedException, IOException {
-    final Path destinationDir = Paths.get("");
+    Path destinationDir = Paths.get("");
     Path rDotJavaSrcDir = Paths.get("");
 
     ExecutionContext context = TestExecutionContext.newInstance();
@@ -410,7 +410,6 @@ public class CompileStringsStepTest extends EasyMockSupport {
     ImmutableList<Path> stringFiles =
         ImmutableList.of(firstFile, secondFile, thirdFile, fourthFile, fifthFile);
 
-    replayAll();
     CompileStringsStep step =
         new CompileStringsStep(
             fileSystem,
@@ -425,8 +424,6 @@ public class CompileStringsStepTest extends EasyMockSupport {
       File expectedFile = testdataDir.resolve(entry.getKey()).toFile();
       assertArrayEquals(createBinaryStream(expectedFile), fileContentsMap.get(entry.getKey()));
     }
-
-    verifyAll();
   }
 
   private byte[] createBinaryStream(File expectedFile) throws IOException {
@@ -467,8 +464,11 @@ public class CompileStringsStepTest extends EasyMockSupport {
       this(Paths.get(".").toAbsolutePath());
     }
 
-    private FakeProjectFileSystem(Path root) throws InterruptedException {
-      super(root, new DefaultProjectFilesystemDelegate(root));
+    private FakeProjectFileSystem(Path root) {
+      super(
+          root,
+          new DefaultProjectFilesystemDelegate(root),
+          DefaultProjectFilesystemFactory.getWindowsFSInstance());
     }
 
     @Override

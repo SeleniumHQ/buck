@@ -19,11 +19,11 @@ package com.facebook.buck.file.downloader.impl;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.DownloadConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.file.downloader.Downloader;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -38,6 +38,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 /**
  * A {@link Downloader} which is composed of many other downloaders. When asked to download a
@@ -134,17 +135,17 @@ public class StackedDownloader implements Downloader {
           "Please configure maven repos by adding them to a 'maven_repositories' "
               + "section in your buckconfig");
     }
-    downloaders.add(
-        downloadConfig
-            .getMaxNumberOfRetries()
-            .map(retries -> (Downloader) RetryingDownloader.from(httpDownloader, retries))
-            .orElse(httpDownloader));
-
+    OptionalInt maxNumberOfRetries = downloadConfig.getMaxNumberOfRetries();
+    if (maxNumberOfRetries.isPresent()) {
+      downloaders.add(RetryingDownloader.from(httpDownloader, maxNumberOfRetries.getAsInt()));
+    } else {
+      downloaders.add(httpDownloader);
+    }
     return new StackedDownloader(downloaders.build());
   }
 
   @Override
-  public boolean fetch(BuckEventBus eventBus, URI uri, Path output) throws IOException {
+  public boolean fetch(BuckEventBus eventBus, URI uri, Path output) {
     for (Downloader downloader : delegates) {
       try {
         if (downloader.fetch(eventBus, uri, output)) {

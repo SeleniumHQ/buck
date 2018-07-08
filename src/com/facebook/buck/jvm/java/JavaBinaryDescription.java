@@ -16,6 +16,22 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.description.arg.HasTests;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
@@ -24,23 +40,7 @@ import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.toolchain.JavaCxxPlatformProvider;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasDeclaredDeps;
-import com.facebook.buck.rules.HasTests;
-import com.facebook.buck.rules.ImplicitDepsInferringDescription;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableCollection;
@@ -53,7 +53,7 @@ import java.util.regex.Pattern;
 import org.immutables.value.Value;
 
 public class JavaBinaryDescription
-    implements Description<JavaBinaryDescriptionArg>,
+    implements DescriptionWithTargetGraph<JavaBinaryDescriptionArg>,
         ImplicitDepsInferringDescription<JavaBinaryDescription.AbstractJavaBinaryDescriptionArg>,
         VersionRoot<JavaBinaryDescriptionArg> {
 
@@ -87,15 +87,16 @@ public class JavaBinaryDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       JavaBinaryDescriptionArg args) {
 
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     ImmutableMap<String, SourcePath> nativeLibraries =
-        JavaLibraryRules.getNativeLibraries(params.getBuildDeps(), getCxxPlatform(args));
+        JavaLibraryRules.getNativeLibraries(
+            params.getBuildDeps(), getCxxPlatform(args), context.getActionGraphBuilder());
     BuildTarget binaryBuildTarget = buildTarget;
     BuildRuleParams binaryParams = params;
 
@@ -130,13 +131,14 @@ public class JavaBinaryDescription
             args.getBlacklist(),
             transitiveClasspathDeps,
             transitiveClasspaths,
-            javaBuckConfig.shouldCacheBinaries());
+            javaBuckConfig.shouldCacheBinaries(),
+            javaBuckConfig.getDuplicatesLogLevel());
 
     // If we're packaging native libraries, construct the rule to build the fat JAR, which packages
     // up the original binary JAR and any required native libraries.
     if (!nativeLibraries.isEmpty()) {
       BuildRule innerJarRule = rule;
-      resolver.addToIndex(innerJarRule);
+      graphBuilder.addToIndex(innerJarRule);
       SourcePath innerJar = innerJarRule.getSourcePathToOutput();
       rule =
           new JarFattener(
@@ -150,7 +152,7 @@ public class JavaBinaryDescription
                               .add(innerJar)
                               .addAll(nativeLibraries.values())
                               .build()))),
-              JavacFactory.create(ruleFinder, javaBuckConfig, null),
+              JavacFactory.getDefault(toolchainProvider).create(ruleFinder, null),
               toolchainProvider
                   .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
                   .getJavacOptions(),

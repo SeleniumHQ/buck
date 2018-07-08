@@ -16,22 +16,22 @@
 
 package com.facebook.buck.rules.coercer;
 
-import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
+import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.description.arg.Hint;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.Hint;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -43,6 +43,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.SortedSet;
 import org.immutables.value.Value;
@@ -218,8 +219,8 @@ public class ConstructorArgMarshallerImmutableTest {
 
   @Test
   public void onlyFieldNamedDepsAreConsideredDeclaredDeps() throws Exception {
-    final String dep = "//is/a/declared:dep";
-    final String notDep = "//is/not/a/declared:dep";
+    String dep = "//is/a/declared:dep";
+    String notDep = "//is/not/a/declared:dep";
 
     BuildTarget declaredDep = BuildTargetFactory.newInstance(dep);
 
@@ -425,7 +426,7 @@ public class ConstructorArgMarshallerImmutableTest {
             DtoWithOptionalInteger.class,
             ImmutableSet.builder(),
             ImmutableMap.<String, Object>of("number", 0));
-    assertEquals(Optional.of(0), built.getNumber());
+    assertEquals(OptionalInt.of(0), built.getNumber());
   }
 
   @Test
@@ -556,12 +557,6 @@ public class ConstructorArgMarshallerImmutableTest {
         observedValues);
   }
 
-  @Test(expected = HumanReadableException.class)
-  public void bogusVisibilityGivesFriendlyError() throws Exception {
-    ConstructorArgMarshaller.populateVisibilityPatterns(
-        createCellRoots(filesystem), "visibility", ImmutableList.of(":marmosets"), TARGET);
-  }
-
   @Test
   public void derivedMethodsAreIgnored() throws Exception {
     DtoWithDerivedAndOrdinaryMethods built =
@@ -689,7 +684,7 @@ public class ConstructorArgMarshallerImmutableTest {
   @BuckStyleImmutable
   @Value.Immutable
   abstract static class AbstractDtoWithOptionalInteger {
-    abstract Optional<Integer> getNumber();
+    abstract OptionalInt getNumber();
   }
 
   @BuckStyleImmutable

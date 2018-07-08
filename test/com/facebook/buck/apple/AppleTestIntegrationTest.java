@@ -26,20 +26,20 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Splitter;
@@ -597,6 +597,28 @@ public class AppleTestIntegrationTest {
             "apple.xctest_platforms=macosx",
             "--test-runner-env",
             "FOO=bar",
+            "//:foo#macosx-x86_64");
+    result.assertSuccess("should pass when I pass correct environment");
+  }
+
+  @Test
+  public void targetspecificEnvironmentOverrideAffectsXctestTest() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "apple_test_env", tmp);
+    workspace.setUp();
+    ProcessResult result;
+    result =
+        workspace.runBuckCommand(
+            "test", "--config", "apple.xctest_platforms=macosx", "//:foo#macosx-x86_64");
+    result.assertTestFailure("normally the test should fail");
+    workspace.resetBuildLogFile();
+    result =
+        workspace.runBuckCommand(
+            "test",
+            "--config",
+            "apple.xctest_platforms=macosx",
+            "--config",
+            "testcase.set_targetspecific_env=True",
             "//:foo#macosx-x86_64");
     result.assertSuccess("should pass when I pass correct environment");
   }

@@ -18,12 +18,12 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -31,6 +31,7 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.google.common.collect.Lists;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -89,7 +90,7 @@ public class AndroidExopackageBinaryIntegrationTest extends AbiCompilationModeTe
     zipInspector.assertFileDoesNotExist("classes2.dex");
 
     zipInspector.assertFileExists("classes.dex");
-    zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
+    zipInspector.assertFileExists("lib/armeabi-v7a/libnative_cxx_lib.so");
 
     // It would be better if we could call getExopackageInfo on the app rule.
     Path secondaryDir =
@@ -114,7 +115,7 @@ public class AndroidExopackageBinaryIntegrationTest extends AbiCompilationModeTe
       Path dexMeta = files.get(1);
       assertEquals(
           String.format("jar:%s dex:%s", jarSize, classesDexSize),
-          new String(Files.readAllBytes(dexMeta), "US-ASCII"));
+          new String(Files.readAllBytes(dexMeta), StandardCharsets.US_ASCII));
     }
   }
 
@@ -129,7 +130,7 @@ public class AndroidExopackageBinaryIntegrationTest extends AbiCompilationModeTe
 
     zipInspector.assertFileExists("classes.dex");
 
-    zipInspector.assertFileDoesNotExist("lib/armeabi/libnative_cxx_lib.so");
+    zipInspector.assertFileDoesNotExist("lib/armeabi-v7a/libnative_cxx_lib.so");
   }
 
   @Test
@@ -144,7 +145,7 @@ public class AndroidExopackageBinaryIntegrationTest extends AbiCompilationModeTe
 
     zipInspector.assertFileDoesNotExist("assets/secondary-program-dex-jars/metadata.txt");
     zipInspector.assertFileDoesNotExist("classes2.dex");
-    zipInspector.assertFileDoesNotExist("lib/armeabi/libnative_cxx_lib.so");
+    zipInspector.assertFileDoesNotExist("lib/armeabi-v7a/libnative_cxx_lib.so");
 
     zipInspector.assertFileExists("classes.dex");
   }
@@ -225,8 +226,8 @@ public class AndroidExopackageBinaryIntegrationTest extends AbiCompilationModeTe
     workspace.getBuildLog().assertTargetBuiltLocally(DEX_EXOPACKAGE_TARGET);
     zipInspector =
         new ZipInspector(workspace.getPath("buck-out/gen/apps/multidex/app-dex-exo.apk"));
-    zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
-    zipInspector.assertFileDoesNotExist("assets/lib/armeabi/libnative_cxx_lib.so");
+    zipInspector.assertFileExists("lib/armeabi-v7a/libnative_cxx_lib.so");
+    zipInspector.assertFileDoesNotExist("assets/lib/armeabi-v7a/libnative_cxx_lib.so");
 
     // Now convert it into an asset native library and ensure that we re-run apkbuilder.
     workspace.replaceFileContents(
@@ -238,8 +239,8 @@ public class AndroidExopackageBinaryIntegrationTest extends AbiCompilationModeTe
     workspace.getBuildLog().assertTargetBuiltLocally(DEX_EXOPACKAGE_TARGET);
     zipInspector =
         new ZipInspector(workspace.getPath("buck-out/gen/apps/multidex/app-dex-exo.apk"));
-    zipInspector.assertFileDoesNotExist("lib/armeabi/libnative_cxx_lib.so");
-    zipInspector.assertFileExists("assets/lib/armeabi/libnative_cxx_lib.so");
+    zipInspector.assertFileDoesNotExist("lib/armeabi-v7a/libnative_cxx_lib.so");
+    zipInspector.assertFileExists("assets/lib/armeabi-v7a/libnative_cxx_lib.so");
 
     // Now edit it again and make sure we re-run apkbuilder.
     workspace.replaceFileContents("native/cxx/lib.cpp", "return 4", "return 5");
@@ -253,8 +254,8 @@ public class AndroidExopackageBinaryIntegrationTest extends AbiCompilationModeTe
             workspace.getPath(
                 BuildTargets.getGenPath(
                     filesystem, BuildTargetFactory.newInstance(DEX_EXOPACKAGE_TARGET), "%s.apk")));
-    zipInspector.assertFileDoesNotExist("lib/armeabi/libnative_cxx_lib.so");
-    zipInspector.assertFileExists("assets/lib/armeabi/libnative_cxx_lib.so");
+    zipInspector.assertFileDoesNotExist("lib/armeabi-v7a/libnative_cxx_lib.so");
+    zipInspector.assertFileExists("assets/lib/armeabi-v7a/libnative_cxx_lib.so");
   }
 
   @Test

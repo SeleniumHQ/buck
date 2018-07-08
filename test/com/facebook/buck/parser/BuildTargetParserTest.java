@@ -16,20 +16,19 @@
 
 package com.facebook.buck.parser;
 
-import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
+import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
 import static org.hamcrest.Matchers.hasItems;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -71,8 +70,7 @@ public class BuildTargetParserTest {
     // Note the sort order.
     assertEquals("//:lib#bar,foo", buildTarget.getFullyQualifiedName());
     assertThat(
-        buildTarget.getFlavors(),
-        hasItems((Flavor) InternalFlavor.of("foo"), InternalFlavor.of("bar")));
+        buildTarget.getFlavors(), hasItems(InternalFlavor.of("foo"), InternalFlavor.of("bar")));
   }
 
   @Test
@@ -184,7 +182,7 @@ public class BuildTargetParserTest {
 
   @Test
   public void testParseWithRepoName() {
-    final Path localRepoRoot = Paths.get("/opt/local/repo");
+    Path localRepoRoot = Paths.get("/opt/local/repo");
     CellPathResolver cellRoots =
         DefaultCellPathResolver.of(
             Paths.get("/opt/local/rootcell"), ImmutableMap.of("localreponame", localRepoRoot));

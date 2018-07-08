@@ -18,7 +18,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.exopackage.AndroidDevice;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -67,7 +67,7 @@ public class ApkInstallStep implements Step {
         builder.append("adb -s ");
         builder.append(device.getSerialNumber());
         builder.append(" install ");
-        builder.append(hasInstallableApk.getApkInfo().getApkPath().toString());
+        builder.append(hasInstallableApk.getApkInfo().getApkPath());
       }
     } catch (InterruptedException e) {
     }

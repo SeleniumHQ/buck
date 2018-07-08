@@ -16,8 +16,8 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.util.string.AsciiBoxStringBuilder;
 import com.google.common.base.Throwables;
 import java.util.ArrayList;
@@ -113,7 +113,7 @@ class TracingProcessorWrapper implements Processor {
 
     filteredStackTraceLines.forEach(messageBuilder::writeLine);
 
-    return new HumanReadableException(e, "\n" + messageBuilder.toString());
+    return new HumanReadableException(e, "\n" + messageBuilder);
   }
 
   private List<String> getStackTraceEndingAtAnnotationProcessor(Throwable e) {

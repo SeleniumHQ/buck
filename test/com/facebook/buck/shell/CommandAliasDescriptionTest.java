@@ -24,32 +24,32 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.NoopBuildRule;
+import com.facebook.buck.core.rules.tool.BinaryBuildRule;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.BinaryBuildRule;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.CommandTool;
-import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.NoopBuildRule;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.UncachedRuleKeyBuilder;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -95,8 +95,7 @@ public class CommandAliasDescriptionTest {
     CommandAliasBuilder.BuildResult result = builder().setExe(delegate).buildResult();
 
     assertThat(result.getCommandPrefix(), equalTo(ImmutableList.of(result.pathOf(delegate))));
-    BuildTarget v = CommandAliasDescriptionTest.delegate;
-    assertThat(result.getRuntimeDeps(), hasItem(v));
+    assertThat(result.getRuntimeDeps(), hasItem(CommandAliasDescriptionTest.delegate));
   }
 
   @Test
@@ -110,7 +109,7 @@ public class CommandAliasDescriptionTest {
         result.getCommandPrefix(),
         equalTo(
             result
-                .resolver()
+                .graphBuilder()
                 .getRuleWithType(delegate, BinaryBuildRule.class)
                 .getExecutableCommand()
                 .getCommandPrefix(result.sourcePathResolver())));
@@ -559,7 +558,8 @@ public class CommandAliasDescriptionTest {
   }
 
   // reuses CommandAliasDescriptionArg to avoid generating another Arg class with builder
-  private static class TestBinaryDescription implements Description<CommandAliasDescriptionArg> {
+  private static class TestBinaryDescription
+      implements DescriptionWithTargetGraph<CommandAliasDescriptionArg> {
     private final String arg;
     private final String env;
 
@@ -575,7 +575,7 @@ public class CommandAliasDescriptionTest {
 
     @Override
     public BuildRule createBuildRule(
-        BuildRuleCreationContext context,
+        BuildRuleCreationContextWithTargetGraph context,
         BuildTarget target,
         BuildRuleParams params,
         CommandAliasDescriptionArg args) {
@@ -586,7 +586,9 @@ public class CommandAliasDescriptionTest {
 
   private static class TestBinaryBuilder
       extends AbstractNodeBuilder<
-          CommandAliasDescriptionArg.Builder, CommandAliasDescriptionArg, TestBinaryDescription,
+          CommandAliasDescriptionArg.Builder,
+          CommandAliasDescriptionArg,
+          TestBinaryDescription,
           TestBinary> {
     public TestBinaryBuilder(BuildTarget target, String arg, String env) {
       super(new TestBinaryDescription(arg, env), target);

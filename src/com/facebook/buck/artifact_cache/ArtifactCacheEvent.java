@@ -16,10 +16,10 @@
 
 package com.facebook.buck.artifact_cache;
 
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.EventKey;
 import com.facebook.buck.event.LeafEvent;
-import com.facebook.buck.rules.RuleKey;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Objects;
@@ -95,7 +95,7 @@ public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements Le
 
   @Override
   public String getValueString() {
-    return getEventName() + getEventKey().toString();
+    return getEventName() + getEventKey();
   }
 
   @Override
@@ -126,7 +126,7 @@ public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements Le
   @Override
   public abstract String getEventName();
 
-  public static final Optional<String> getTarget(final ImmutableMap<String, String> metadata) {
+  public static final Optional<String> getTarget(ImmutableMap<String, String> metadata) {
     return metadata.containsKey(TARGET_KEY)
         ? Optional.of(metadata.get(TARGET_KEY))
         : Optional.empty();

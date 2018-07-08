@@ -19,8 +19,8 @@ package com.facebook.buck.artifact_cache.config;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ConfigView;
 import com.facebook.buck.config.resources.ResourcesConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.slb.SlbBuckConfig;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -241,7 +241,7 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
         .orElse(DEFAULT_HTTP_STORE_RETRY_INTERVAL);
   }
 
-  public boolean hasAtLeastOneWriteableCache() {
+  public boolean hasAtLeastOneWriteableRemoteCache() {
     return getHttpCacheEntries()
         .stream()
         .anyMatch(entry -> entry.getCacheReadMode().equals(CacheReadMode.READWRITE));
@@ -393,7 +393,7 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
 
   private CacheReadMode getCacheReadMode(String section, String fieldName, String defaultValue) {
     String cacheMode = buckConfig.getValue(section, fieldName).orElse(defaultValue);
-    final CacheReadMode result;
+    CacheReadMode result;
     try {
       result = CacheReadMode.valueOf(cacheMode.toUpperCase());
     } catch (IllegalArgumentException e) {
@@ -426,8 +426,7 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
   }
 
   private DirCacheEntry obtainDirEntryForName(Optional<String> cacheName) {
-    final String section =
-        Joiner.on('#').skipNulls().join(CACHE_SECTION_NAME, cacheName.orElse(null));
+    String section = Joiner.on('#').skipNulls().join(CACHE_SECTION_NAME, cacheName.orElse(null));
 
     CacheReadMode readMode = getCacheReadMode(section, DIR_MODE_FIELD, DEFAULT_DIR_CACHE_MODE);
 
@@ -485,7 +484,7 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
   }
 
   private SQLiteCacheEntry obtainSQLiteEntryForName(String cacheName) {
-    final String section = String.join("#", CACHE_SECTION_NAME, cacheName);
+    String section = String.join("#", CACHE_SECTION_NAME, cacheName);
 
     CacheReadMode readMode =
         getCacheReadMode(section, SQLITE_MODE_FIELD, DEFAULT_SQLITE_CACHE_MODE);

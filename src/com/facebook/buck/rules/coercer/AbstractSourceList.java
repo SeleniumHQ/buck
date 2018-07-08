@@ -16,13 +16,13 @@
 
 package com.facebook.buck.rules.coercer;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.model.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetPatternParser;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.TargetNodeTranslator;
 import com.facebook.buck.versions.TargetTranslatable;
 import com.google.common.base.Preconditions;
@@ -32,6 +32,8 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import org.immutables.value.Value;
@@ -150,5 +152,51 @@ abstract class AbstractSourceList implements TargetTranslatable<SourceList> {
     builder.setNamedSources(namedSources.orElse(getNamedSources()));
     builder.setUnnamedSources(unNamedSources.orElse(getUnnamedSources()));
     return Optional.of(builder.build());
+  }
+
+  /** Concatenates elements of the given lists into a single list. */
+  public static SourceList concat(Iterable<SourceList> elements) {
+    Type type = findType(elements);
+
+    if (type == Type.UNNAMED) {
+      return concatUnnamed(elements);
+    } else {
+      return concatNamed(elements);
+    }
+  }
+
+  private static Type findType(Iterable<SourceList> elements) {
+    if (!elements.iterator().hasNext()) {
+      return Type.UNNAMED;
+    }
+    return elements.iterator().next().getType();
+  }
+
+  private static SourceList concatUnnamed(Iterable<SourceList> elements) {
+    SortedSet<SourcePath> unnamedSources = new TreeSet<>();
+
+    for (SourceList element : elements) {
+      Preconditions.checkState(
+          element.getType().equals(Type.UNNAMED),
+          "Expected unnamed source list, got: %s",
+          element.getType());
+      element.getUnnamedSources().ifPresent(unnamedSources::addAll);
+    }
+
+    return ofUnnamedSources(ImmutableSortedSet.copyOf(unnamedSources));
+  }
+
+  private static SourceList concatNamed(Iterable<SourceList> elements) {
+    ImmutableSortedMap.Builder<String, SourcePath> namedSources = ImmutableSortedMap.naturalOrder();
+
+    for (SourceList element : elements) {
+      Preconditions.checkState(
+          element.getType().equals(Type.NAMED),
+          "Expected named source list, got: %s",
+          element.getType());
+      element.getNamedSources().ifPresent(namedSources::putAll);
+    }
+
+    return ofNamedSources(namedSources.build());
   }
 }

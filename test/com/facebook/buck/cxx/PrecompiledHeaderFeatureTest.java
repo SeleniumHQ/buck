@@ -20,6 +20,15 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
@@ -27,18 +36,9 @@ import com.facebook.buck.cxx.toolchain.CxxToolProvider;
 import com.facebook.buck.cxx.toolchain.MungingDebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.PreprocessorProvider;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Preconditions;
@@ -95,12 +95,10 @@ public class PrecompiledHeaderFeatureTest {
 
     @Test
     public void test() {
-      final String headerFilename = "foo.h";
-      BuildRuleResolver resolver =
-          new SingleThreadedBuildRuleResolver(
-              TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+      String headerFilename = "foo.h";
+      ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
       CxxPreprocessAndCompile rule =
-          preconfiguredSourceRuleFactoryBuilder(resolver)
+          preconfiguredSourceRuleFactoryBuilder(graphBuilder)
               .setCxxPlatform(getPlatform())
               .setCxxBuckConfig(buildConfig(pchEnabled))
               .setPrefixHeader(FakeSourcePath.of(headerFilename))
@@ -110,13 +108,15 @@ public class PrecompiledHeaderFeatureTest {
                   "foo.c", preconfiguredCxxSourceBuilder().build());
       boolean hasPchFlag =
           commandLineContainsPchFlag(
-              DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver)),
+              FakeBuildContext.withSourcePathResolver(
+                  DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder))),
               rule,
               toolType,
               headerFilename);
       boolean hasPrefixFlag =
           commandLineContainsPrefixFlag(
-              DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver)),
+              FakeBuildContext.withSourcePathResolver(
+                  DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder))),
               rule,
               toolType,
               headerFilename);
@@ -150,16 +150,14 @@ public class PrecompiledHeaderFeatureTest {
   public static class TestSupportConditions {
     @Test
     public void rejectPchParameterIfSourceTypeDoesntSupportPch() {
-      BuildRuleResolver resolver =
-          new SingleThreadedBuildRuleResolver(
-              TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+      ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
       CxxPlatform platform =
           PLATFORM_SUPPORTING_PCH.withCompilerDebugPathSanitizer(
               new MungingDebugPathSanitizer(
                   250, File.separatorChar, Paths.get("."), ImmutableBiMap.of()));
       CxxBuckConfig config = buildConfig(/* pchEnabled */ true);
       CxxSourceRuleFactory factory =
-          preconfiguredSourceRuleFactoryBuilder(resolver)
+          preconfiguredSourceRuleFactoryBuilder(graphBuilder)
               .setCxxPlatform(platform)
               .setPrefixHeader(FakeSourcePath.of(("foo.pch")))
               .setCxxBuckConfig(config)
@@ -193,11 +191,9 @@ public class PrecompiledHeaderFeatureTest {
     public void buildTargetShouldDeriveFromSanitizedFlags() {
       class TestData {
         public CxxPrecompiledHeader generate(Path from) {
-          BuildRuleResolver resolver =
-              new SingleThreadedBuildRuleResolver(
-                  TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+          ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
           CxxSourceRuleFactory factory =
-              preconfiguredSourceRuleFactoryBuilder(resolver)
+              preconfiguredSourceRuleFactoryBuilder(graphBuilder)
                   .setCxxPlatform(
                       PLATFORM_SUPPORTING_PCH.withCompilerDebugPathSanitizer(
                           new MungingDebugPathSanitizer(
@@ -235,11 +231,9 @@ public class PrecompiledHeaderFeatureTest {
     public void buildTargetShouldVaryWithCompilerFlags() {
       class TestData {
         public CxxPrecompiledHeader generate(Iterable<String> flags) {
-          BuildRuleResolver resolver =
-              new SingleThreadedBuildRuleResolver(
-                  TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+          ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
           CxxSourceRuleFactory factory =
-              preconfiguredSourceRuleFactoryBuilder(resolver)
+              preconfiguredSourceRuleFactoryBuilder(graphBuilder)
                   .setCxxPlatform(PLATFORM_SUPPORTING_PCH)
                   .setCxxBuckConfig(buildConfig(/* pchEnabled */ true))
                   .putAllCompilerFlags(CxxSource.Type.C_CPP_OUTPUT, StringArg.from(flags))
@@ -270,11 +264,9 @@ public class PrecompiledHeaderFeatureTest {
     public void buildTargetShouldVaryWithPreprocessorFlags() {
       class TestData {
         public CxxPrecompiledHeader generate(String flags) {
-          BuildRuleResolver resolver =
-              new SingleThreadedBuildRuleResolver(
-                  TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+          ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
           CxxSourceRuleFactory factory =
-              preconfiguredSourceRuleFactoryBuilder(resolver)
+              preconfiguredSourceRuleFactoryBuilder(graphBuilder)
                   .setCxxPlatform(PLATFORM_SUPPORTING_PCH)
                   .setCxxBuckConfig(buildConfig(/* pchEnabled */ true))
                   .setCxxPreprocessorInput(
@@ -313,13 +305,12 @@ public class PrecompiledHeaderFeatureTest {
    * <p>This serves as an indicator that the file is being compiled with PCH enabled.
    */
   private static boolean commandLineContainsPchFlag(
-      SourcePathResolver resolver,
+      BuildContext context,
       CxxPreprocessAndCompile rule,
       CxxToolProvider.Type toolType,
       String headerFilename) {
 
-    ImmutableList<String> flags =
-        rule.makeMainStep(resolver, Paths.get("/tmp/unused_scratch_dir"), false).getCommand();
+    ImmutableList<String> flags = rule.makeMainStep(context, false).getCommand();
 
     switch (toolType) {
       case CLANG:
@@ -351,13 +342,12 @@ public class PrecompiledHeaderFeatureTest {
   }
 
   private static boolean commandLineContainsPrefixFlag(
-      SourcePathResolver resolver,
+      BuildContext context,
       CxxPreprocessAndCompile rule,
       CxxToolProvider.Type toolType,
       String headerFilename) {
 
-    ImmutableList<String> flags =
-        rule.makeMainStep(resolver, Paths.get("/tmp/unused_scratch_dir"), false).getCommand();
+    ImmutableList<String> flags = rule.makeMainStep(context, false).getCommand();
 
     switch (toolType) {
       case CLANG:
@@ -388,22 +378,22 @@ public class PrecompiledHeaderFeatureTest {
    * their various tests.
    */
   private static CxxSourceRuleFactory.Builder preconfiguredSourceRuleFactoryBuilder(
-      String targetPath, BuildRuleResolver ruleResolver) {
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+      String targetPath, ActionGraphBuilder graphBuilder) {
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     BuildTarget target = BuildTargetFactory.newInstance(targetPath);
     return CxxSourceRuleFactory.builder()
         .setProjectFilesystem(new FakeProjectFilesystem())
         .setBaseBuildTarget(target)
-        .setResolver(ruleResolver)
+        .setActionGraphBuilder(graphBuilder)
         .setPathResolver(pathResolver)
         .setRuleFinder(ruleFinder)
         .setPicType(PicType.PDC);
   }
 
   private static CxxSourceRuleFactory.Builder preconfiguredSourceRuleFactoryBuilder(
-      BuildRuleResolver resolver) {
-    return preconfiguredSourceRuleFactoryBuilder("//foo:bar", resolver);
+      ActionGraphBuilder graphBuilder) {
+    return preconfiguredSourceRuleFactoryBuilder("//foo:bar", graphBuilder);
   }
 
   /** Configures a CxxSource.Builder representing a C source file. */

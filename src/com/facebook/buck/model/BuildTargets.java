@@ -16,9 +16,12 @@
 
 package com.facebook.buck.model;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableSet;
@@ -100,7 +103,7 @@ public class BuildTargets {
         .resolve(String.format(format, target.getShortNameAndFlavorPostfix()));
   }
 
-  public static Predicate<BuildTarget> containsFlavors(final FlavorDomain<?> domain) {
+  public static Predicate<BuildTarget> containsFlavors(FlavorDomain<?> domain) {
     return input -> {
       ImmutableSet<Flavor> flavorSet =
           Sets.intersection(domain.getFlavors(), input.getFlavors()).immutableCopy();
@@ -108,7 +111,7 @@ public class BuildTargets {
     };
   }
 
-  public static Predicate<BuildTarget> containsFlavor(final Flavor flavor) {
+  public static Predicate<BuildTarget> containsFlavor(Flavor flavor) {
     return input -> input.getFlavors().contains(flavor);
   }
 

@@ -19,15 +19,17 @@ package com.facebook.buck.jvm.java;
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVAC_OPTIONS;
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_CONFIG;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.java.toolchain.JavaToolchain;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableSet;
@@ -37,7 +39,9 @@ import java.util.Optional;
 
 public class JavaLibraryBuilder
     extends AbstractNodeBuilder<
-        JavaLibraryDescriptionArg.Builder, JavaLibraryDescriptionArg, JavaLibraryDescription,
+        JavaLibraryDescriptionArg.Builder,
+        JavaLibraryDescriptionArg,
+        JavaLibraryDescription,
         DefaultJavaLibrary> {
 
   private final ProjectFilesystem projectFilesystem;
@@ -45,15 +49,10 @@ public class JavaLibraryBuilder
   protected JavaLibraryBuilder(
       BuildTarget target, ProjectFilesystem projectFilesystem, HashCode hashCode) {
     super(
-        new JavaLibraryDescription(
-            new ToolchainProviderBuilder()
-                .withToolchain(
-                    JavacOptionsProvider.DEFAULT_NAME,
-                    JavacOptionsProvider.of(DEFAULT_JAVAC_OPTIONS))
-                .build(),
-            DEFAULT_JAVA_CONFIG),
+        new JavaLibraryDescription(createToolchainProviderForJavaLibrary(), DEFAULT_JAVA_CONFIG),
         target,
         projectFilesystem,
+        createToolchainProviderForJavaLibrary(),
         hashCode);
     this.projectFilesystem = projectFilesystem;
   }
@@ -64,15 +63,10 @@ public class JavaLibraryBuilder
       ProjectFilesystem projectFilesystem,
       HashCode hashCode) {
     super(
-        new JavaLibraryDescription(
-            new ToolchainProviderBuilder()
-                .withToolchain(
-                    JavacOptionsProvider.DEFAULT_NAME,
-                    JavacOptionsProvider.of(DEFAULT_JAVAC_OPTIONS))
-                .build(),
-            javaBuckConfig),
+        new JavaLibraryDescription(createToolchainProviderForJavaLibrary(), javaBuckConfig),
         target,
         projectFilesystem,
+        createToolchainProviderForJavaLibrary(),
         hashCode);
     this.projectFilesystem = projectFilesystem;
   }
@@ -181,5 +175,13 @@ public class JavaLibraryBuilder
   public JavaLibraryBuilder addTest(BuildTarget test) {
     getArgForPopulating().addTests(test);
     return this;
+  }
+
+  public static ToolchainProvider createToolchainProviderForJavaLibrary() {
+    return new ToolchainProviderBuilder()
+        .withToolchain(
+            JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.of(DEFAULT_JAVAC_OPTIONS))
+        .withToolchain(JavaToolchain.DEFAULT_NAME, JavaCompilationConstants.DEFAULT_JAVA_TOOLCHAIN)
+        .build();
   }
 }

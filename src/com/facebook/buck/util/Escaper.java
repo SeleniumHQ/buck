@@ -76,7 +76,7 @@ public final class Escaper {
    * @return a escaper function using the given quote style and escaping characters determined by
    *     the given matcher.
    */
-  public static Function<String, String> escaper(final Quoter quoter, final CharMatcher matcher) {
+  public static Function<String, String> escaper(Quoter quoter, CharMatcher matcher) {
     return input -> escape(quoter, matcher, input);
   }
 
@@ -271,6 +271,15 @@ public final class Escaper {
     return escapeAsMakefileString("#", str);
   }
 
+  /** @return quoted string if it contains at least one character that needs to be escaped */
+  public static String escapeWithQuotesAsMakefileValueString(String str) {
+    String result = escapeAsMakefileValueString(str);
+    if (str.indexOf('#') != -1) {
+      result = Quoter.DOUBLE.quote(result);
+    }
+    return result;
+  }
+
   /**
    * Escapes forward slashes in a Path as a String that is safe to consume with other tools (such as
    * gcc). On Unix systems, this is equivalent to {@link java.nio.file.Path Path.toString()}.
@@ -386,12 +395,12 @@ public final class Escaper {
    */
   public static int decodeNumericEscape(
       StringBuilder out, String escaped, int pos, int maxCodeLength, int base, int maxCodes) {
-    final String table = "0123456789abcdef";
+    String table = "0123456789abcdef";
     for (int code = 0; code < maxCodes; code++) {
       char c = 0;
       boolean valid = false;
       for (int i = 0; i < maxCodeLength && pos < escaped.length(); i++) {
-        final int digit = table.indexOf(Character.toLowerCase(escaped.charAt(pos)));
+        int digit = table.indexOf(Character.toLowerCase(escaped.charAt(pos)));
         if (digit == -1 || digit >= base) {
           break;
         }

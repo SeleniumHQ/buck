@@ -16,6 +16,15 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
@@ -23,6 +32,7 @@ import com.facebook.buck.cxx.toolchain.linker.HasImportLibrary;
 import com.facebook.buck.cxx.toolchain.linker.HasLinkerMap;
 import com.facebook.buck.cxx.toolchain.linker.HasThinLTO;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
+import com.facebook.buck.cxx.toolchain.linker.Linker.ExtraOutputsDeriver;
 import com.facebook.buck.cxx.toolchain.linker.Linker.LinkableDepType;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
@@ -30,23 +40,14 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -58,8 +59,6 @@ import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -87,7 +86,7 @@ public class CxxLinkableEnhancer {
       CxxLinkOptions linkOptions,
       Optional<LinkOutputPostprocessor> postprocessor) {
 
-    final Linker linker = cxxPlatform.getLd().resolve(ruleResolver);
+    Linker linker = cxxPlatform.getLd().resolve(ruleResolver);
 
     // Build up the arguments to pass to the linker.
     ImmutableList.Builder<Arg> argsBuilder = ImmutableList.builder();
@@ -117,27 +116,34 @@ public class CxxLinkableEnhancer {
     // Add all arguments needed to link in the C/C++ platform runtime.
     argsBuilder.addAll(StringArg.from(cxxPlatform.getRuntimeLdflags().get(runtimeDepType)));
 
-    final ImmutableList<Arg> allArgs = argsBuilder.build();
+    ImmutableList<Arg> ldArgs = argsBuilder.build();
+    ImmutableMap<String, Path> allExtraOutputs = extraOutputs;
 
-    // Build the C/C++ link step.
-    Supplier<ImmutableSortedSet<BuildRule>> declaredDeps =
-        () ->
-            FluentIterable.from(allArgs)
-                .transformAndConcat(arg -> BuildableSupport.getDepsCollection(arg, ruleFinder))
-                .append(BuildableSupport.getDepsCollection(linker, ruleFinder))
-                .toSortedSet(Ordering.natural());
+    Optional<ExtraOutputsDeriver> extraOutputsDeriver = linker.getExtraOutputsDeriver();
+    if (extraOutputsDeriver.isPresent()) {
+      ImmutableMap<String, Path> derivedExtraOutputs =
+          extraOutputsDeriver
+              .get()
+              .deriveExtraOutputsFromArgs(
+                  Arg.stringify(ldArgs, DefaultSourcePathResolver.from(ruleFinder)), output);
+      if (!derivedExtraOutputs.isEmpty()) {
+        allExtraOutputs =
+            ImmutableMap.<String, Path>builder()
+                .putAll(extraOutputs)
+                .putAll(derivedExtraOutputs)
+                .build();
+      }
+    }
+
     return new CxxLink(
         target,
         projectFilesystem,
-        // Construct our link build rule params.  The important part here is combining the build
-        // rules that construct our object file inputs and also the deps that build our
-        // dependencies.
-        declaredDeps,
+        ruleFinder,
         cellPathResolver,
         linker,
         output,
-        extraOutputs,
-        allArgs,
+        allExtraOutputs,
+        ldArgs,
         postprocessor,
         cxxBuckConfig.getLinkScheduleInfo(),
         cxxBuckConfig.shouldCacheLinks(),
@@ -156,8 +162,8 @@ public class CxxLinkableEnhancer {
       CxxBuckConfig cxxBuckConfig,
       CxxPlatform cxxPlatform,
       ProjectFilesystem projectFilesystem,
-      BuildRuleResolver ruleResolver,
-      final SourcePathResolver resolver,
+      ActionGraphBuilder graphBuilder,
+      SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       BuildTarget target,
       Linker.LinkType linkType,
@@ -184,23 +190,24 @@ public class CxxLinkableEnhancer {
 
     // Collect and topologically sort our deps that contribute to the link.
     Stream<NativeLinkableInput> nativeLinkableInputs =
-        ruleResolver
+        graphBuilder
             .getParallelizer()
             .maybeParallelize(
-                NativeLinkables.getNativeLinkables(cxxPlatform, nativeLinkableDeps, depType)
-                    .entrySet()
+                NativeLinkables.getNativeLinkables(
+                        cxxPlatform, graphBuilder, nativeLinkableDeps, depType)
                     .stream())
-            .filter(entry -> !blacklist.contains(entry.getKey()))
-            .map(entry -> entry.getValue())
+            .filter(linkable -> !blacklist.contains(linkable.getBuildTarget()))
             .map(
                 nativeLinkable -> {
-                  NativeLinkable.Linkage link = nativeLinkable.getPreferredLinkage(cxxPlatform);
+                  NativeLinkable.Linkage link =
+                      nativeLinkable.getPreferredLinkage(cxxPlatform, graphBuilder);
                   NativeLinkableInput input =
                       nativeLinkable.getNativeLinkableInput(
                           cxxPlatform,
                           NativeLinkables.getLinkStyle(link, depType),
                           linkWholeDeps.contains(nativeLinkable.getBuildTarget()),
-                          ImmutableSet.of());
+                          ImmutableSet.of(),
+                          graphBuilder);
                   LOG.verbose("Native linkable %s returned input %s", nativeLinkable, input);
                   return input;
                 });
@@ -216,7 +223,7 @@ public class CxxLinkableEnhancer {
     // If we're doing a shared build, pass the necessary flags to the linker, including setting
     // the soname.
     if (linkType == Linker.LinkType.SHARED) {
-      argsBuilder.addAll(cxxPlatform.getLd().resolve(ruleResolver).getSharedLibFlag());
+      argsBuilder.addAll(cxxPlatform.getLd().resolve(graphBuilder).getSharedLibFlag());
     } else if (linkType == Linker.LinkType.MACH_O_BUNDLE) {
       argsBuilder.add(StringArg.of("-bundle"));
       // It's possible to build a Mach-O bundle without a bundle loader (logic tests, for example).
@@ -226,7 +233,7 @@ public class CxxLinkableEnhancer {
     }
     if (soname.isPresent()) {
       argsBuilder.addAll(
-          StringArg.from(cxxPlatform.getLd().resolve(ruleResolver).soname(soname.get())));
+          StringArg.from(cxxPlatform.getLd().resolve(graphBuilder).soname(soname.get())));
     }
 
     // Add all arguments from our dependencies.
@@ -255,14 +262,14 @@ public class CxxLinkableEnhancer {
       runtimeDepType = Linker.LinkableDepType.STATIC;
     }
 
-    final ImmutableList<Arg> allArgs = argsBuilder.build();
+    ImmutableList<Arg> allArgs = argsBuilder.build();
 
     return createCxxLinkableBuildRule(
         cellPathResolver,
         cxxBuckConfig,
         cxxPlatform,
         projectFilesystem,
-        ruleResolver,
+        graphBuilder,
         ruleFinder,
         target,
         output,
@@ -279,48 +286,10 @@ public class CxxLinkableEnhancer {
       ImmutableSortedSet<FrameworkPath> allLibraries,
       ImmutableList.Builder<Arg> argsBuilder) {
 
-    argsBuilder.add(
-        new FrameworkPathArg(allLibraries) {
-          @AddToRuleKey
-          final Function<FrameworkPath, Path> frameworkPathToSearchPath =
-              CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, resolver);
-
-          @Override
-          public void appendToCommandLine(
-              Consumer<String> consumer, SourcePathResolver pathResolver) {
-            ImmutableSortedSet<Path> searchPaths =
-                frameworkPaths
-                    .stream()
-                    .map(frameworkPathToSearchPath)
-                    .filter(Objects::nonNull)
-                    .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
-            for (Path searchPath : searchPaths) {
-              consumer.accept("-L");
-              consumer.accept(searchPath.toString());
-            }
-          }
-        });
+    argsBuilder.add(new SharedLibraryLinkArgs(allLibraries, cxxPlatform, resolver));
 
     // Add all libraries link args
-    argsBuilder.add(
-        new FrameworkPathArg(allLibraries) {
-          @Override
-          public void appendToCommandLine(
-              Consumer<String> consumer, SourcePathResolver pathResolver) {
-            for (FrameworkPath frameworkPath : frameworkPaths) {
-              String libName =
-                  MorePaths.stripPathPrefixAndExtension(
-                      frameworkPath.getFileName(resolver::getAbsolutePath), "lib");
-              // libraries set can contain path-qualified libraries, or just library
-              // search paths.
-              // Assume these end in '../lib' and filter out here.
-              if (libName.isEmpty()) {
-                continue;
-              }
-              consumer.accept("-l" + libName);
-            }
-          }
-        });
+    argsBuilder.add(new FrameworkLibraryLinkArgs(allLibraries));
   }
 
   private static void addFrameworkLinkerArgs(
@@ -329,26 +298,7 @@ public class CxxLinkableEnhancer {
       ImmutableSortedSet<FrameworkPath> allFrameworks,
       ImmutableList.Builder<Arg> argsBuilder) {
 
-    argsBuilder.add(
-        new FrameworkPathArg(allFrameworks) {
-          @AddToRuleKey
-          final Function<FrameworkPath, Path> frameworkPathToSearchPath =
-              CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, resolver);
-
-          @Override
-          public void appendToCommandLine(
-              Consumer<String> consumer, SourcePathResolver pathResolver) {
-            ImmutableSortedSet<Path> searchPaths =
-                frameworkPaths
-                    .stream()
-                    .map(frameworkPathToSearchPath)
-                    .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
-            for (Path searchPath : searchPaths) {
-              consumer.accept("-F");
-              consumer.accept(searchPath.toString());
-            }
-          }
-        });
+    argsBuilder.add(new FrameworkLinkerArgs(allFrameworks, cxxPlatform, resolver));
 
     // Add all framework link args
     argsBuilder.add(frameworksToLinkerArg(allFrameworks));
@@ -356,15 +306,7 @@ public class CxxLinkableEnhancer {
 
   @VisibleForTesting
   static Arg frameworksToLinkerArg(ImmutableSortedSet<FrameworkPath> frameworkPaths) {
-    return new FrameworkPathArg(frameworkPaths) {
-      @Override
-      public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver pathResolver) {
-        for (FrameworkPath frameworkPath : frameworkPaths) {
-          consumer.accept("-framework");
-          consumer.accept(frameworkPath.getName(pathResolver::getAbsolutePath));
-        }
-      }
-    };
+    return new FrameworkToLinkerArg(frameworkPaths);
   }
 
   public static CxxLink createCxxLinkableSharedBuildRule(
@@ -416,6 +358,95 @@ public class CxxLinkableEnhancer {
         .collect(
             ImmutableMap.toImmutableMap(
                 name -> name,
-                name -> output.getParent().resolve(output.getFileName().toString() + "-" + name)));
+                name -> output.getParent().resolve(output.getFileName() + "-" + name)));
+  }
+
+  private static class FrameworkLinkerArgs extends FrameworkPathArg {
+    @AddToRuleKey final RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathToSearchPath;
+
+    public FrameworkLinkerArgs(
+        ImmutableSortedSet<FrameworkPath> allFrameworks,
+        CxxPlatform cxxPlatform,
+        SourcePathResolver resolver) {
+      super(allFrameworks);
+      frameworkPathToSearchPath =
+          CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, resolver);
+    }
+
+    @Override
+    public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver resolver) {
+      ImmutableSortedSet<Path> searchPaths =
+          frameworkPaths
+              .stream()
+              .map(frameworkPathToSearchPath)
+              .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
+      for (Path searchPath : searchPaths) {
+        consumer.accept("-F");
+        consumer.accept(searchPath.toString());
+      }
+    }
+  }
+
+  private static class FrameworkToLinkerArg extends FrameworkPathArg {
+    public FrameworkToLinkerArg(ImmutableSortedSet<FrameworkPath> frameworkPaths) {
+      super(frameworkPaths);
+    }
+
+    @Override
+    public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver resolver) {
+      for (FrameworkPath frameworkPath : frameworkPaths) {
+        consumer.accept("-framework");
+        consumer.accept(frameworkPath.getName(resolver::getAbsolutePath));
+      }
+    }
+  }
+
+  private static class FrameworkLibraryLinkArgs extends FrameworkPathArg {
+    public FrameworkLibraryLinkArgs(ImmutableSortedSet<FrameworkPath> allLibraries) {
+      super(allLibraries);
+    }
+
+    @Override
+    public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver resolver) {
+      for (FrameworkPath frameworkPath : frameworkPaths) {
+        String libName =
+            MorePaths.stripPathPrefixAndExtension(
+                frameworkPath.getFileName(resolver::getAbsolutePath), "lib");
+        // libraries set can contain path-qualified libraries, or just library
+        // search paths.
+        // Assume these end in '../lib' and filter out here.
+        if (libName.isEmpty()) {
+          continue;
+        }
+        consumer.accept("-l" + libName);
+      }
+    }
+  }
+
+  private static class SharedLibraryLinkArgs extends FrameworkPathArg {
+    @AddToRuleKey final RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathToSearchPath;
+
+    public SharedLibraryLinkArgs(
+        ImmutableSortedSet<FrameworkPath> allLibraries,
+        CxxPlatform cxxPlatform,
+        SourcePathResolver resolver) {
+      super(allLibraries);
+      frameworkPathToSearchPath =
+          CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, resolver);
+    }
+
+    @Override
+    public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver resolver) {
+      ImmutableSortedSet<Path> searchPaths =
+          frameworkPaths
+              .stream()
+              .map(frameworkPathToSearchPath)
+              .filter(Objects::nonNull)
+              .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
+      for (Path searchPath : searchPaths) {
+        consumer.accept("-L");
+        consumer.accept(searchPath.toString());
+      }
+    }
   }
 }

@@ -20,12 +20,20 @@ import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientSt
 import static com.facebook.buck.distributed.thrift.BuildMode.DISTRIBUTED_BUILD_WITH_LOCAL_COORDINATOR;
 
 import com.facebook.buck.command.BuildExecutorArgs;
+import com.facebook.buck.core.build.distributed.synchronization.RemoteBuildRuleCompletionNotifier;
+import com.facebook.buck.core.build.engine.delegate.CachingBuildEngineDelegate;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.graph.ActionAndTargetGraphs;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.distributed.BuildSlaveEventWrapper;
 import com.facebook.buck.distributed.BuildStatusUtil;
 import com.facebook.buck.distributed.ClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildUtil;
+import com.facebook.buck.distributed.DistLocalBuildMode;
 import com.facebook.buck.distributed.build_slave.CoordinatorBuildRuleEventsPublisher;
 import com.facebook.buck.distributed.build_slave.CoordinatorModeRunner;
 import com.facebook.buck.distributed.build_slave.DelegateAndGraphs;
@@ -38,6 +46,7 @@ import com.facebook.buck.distributed.thrift.BuildSlaveEventsQuery;
 import com.facebook.buck.distributed.thrift.BuildSlaveInfo;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
+import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.CoordinatorBuildProgress;
 import com.facebook.buck.distributed.thrift.LogLineBatchRequest;
 import com.facebook.buck.distributed.thrift.MultiGetBuildSlaveRealTimeLogsResponse;
@@ -45,13 +54,6 @@ import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.ActionAndTargetGraphs;
-import com.facebook.buck.rules.CachingBuildEngineDelegate;
-import com.facebook.buck.rules.ParallelRuleKeyCalculator;
-import com.facebook.buck.rules.RemoteBuildRuleCompletionNotifier;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.google.common.annotations.VisibleForTesting;
@@ -102,9 +104,8 @@ public class BuildPhase {
 
   private static final Logger LOG = Logger.get(BuildPhase.class);
 
-  private static final int WAIT_FOR_ALL_WORKER_FINAL_STATUS_TIMEOUT_MILLIS = 6000;
-  private static final int WAIT_FOR_ALL_BUILD_EVENTS_TIMEOUT_MILLIS = 5000;
-  private static final int CACHE_SYNCHRONIZATION_SAFETY_MARGIN_MILLIS = 5000;
+  private static final int DEFAULT_WAIT_FOR_ALL_WORKER_FINAL_STATUS_TIMEOUT_MILLIS = 6000;
+  private static final int DEFAULT_WAIT_FOR_ALL_BUILD_EVENTS_TIMEOUT_MILLIS = 5000;
 
   private final BuildExecutorArgs buildExecutorArgs;
   private final ImmutableSet<BuildTarget> topLevelTargets;
@@ -121,8 +122,10 @@ public class BuildPhase {
   private final Clock clock;
   private final BuildRuleEventManager buildRuleEventManager;
   private final ConsoleEventsDispatcher consoleEventsDispatcher;
+  private final int waitForAllWorkerFinalStatusTimeoutMillis;
+  private final int waitForAllBuildEventsTimeoutMillis;
 
-  private volatile long firstFinishedBuildStatusReceviedTs = -1;
+  private volatile long firstFinishedBuildStatusReceivedTs = -1;
 
   @VisibleForTesting
   protected BuildPhase(
@@ -137,7 +140,9 @@ public class BuildPhase {
       int statusPollIntervalMillis,
       RemoteBuildRuleCompletionNotifier remoteBuildRuleCompletionNotifier,
       ConsoleEventsDispatcher consoleEventsDispatcher,
-      Clock clock) {
+      Clock clock,
+      int waitForAllWorkerFinalStatusTimeoutMillis,
+      int waitForAllBuildEventsTimeoutMillis) {
     this.buildExecutorArgs = buildExecutorArgs;
     this.topLevelTargets = topLevelTargets;
     this.buildGraphs = buildGraphs;
@@ -154,7 +159,13 @@ public class BuildPhase {
     this.consoleEventsDispatcher = consoleEventsDispatcher;
     this.buildRuleEventManager =
         new BuildRuleEventManager(
-            remoteBuildRuleCompletionNotifier, clock, CACHE_SYNCHRONIZATION_SAFETY_MARGIN_MILLIS);
+            remoteBuildRuleCompletionNotifier,
+            clock,
+            new DistBuildConfig(buildExecutorArgs.getBuckConfig())
+                .getCacheSynchronizationSafetyMarginMillis());
+
+    this.waitForAllWorkerFinalStatusTimeoutMillis = waitForAllWorkerFinalStatusTimeoutMillis;
+    this.waitForAllBuildEventsTimeoutMillis = waitForAllBuildEventsTimeoutMillis;
   }
 
   public BuildPhase(
@@ -181,7 +192,9 @@ public class BuildPhase {
         statusPollIntervalMillis,
         remoteBuildRuleCompletionNotifier,
         consoleEventsDispatcher,
-        new DefaultClock());
+        new DefaultClock(),
+        DEFAULT_WAIT_FOR_ALL_WORKER_FINAL_STATUS_TIMEOUT_MILLIS,
+        DEFAULT_WAIT_FOR_ALL_BUILD_EVENTS_TIMEOUT_MILLIS);
   }
 
   private void runLocalCoordinatorAsync(
@@ -195,7 +208,7 @@ public class BuildPhase {
     ListenableFuture<DelegateAndGraphs> delegateAndGraphs =
         Futures.immediateFuture(
             DelegateAndGraphs.builder()
-                .setActionGraphAndResolver(buildGraphs.getActionGraphAndResolver())
+                .setActionGraphAndBuilder(buildGraphs.getActionGraphAndBuilder())
                 .setCachingBuildEngineDelegate(cachingBuildEngineDelegate.get())
                 .setTargetGraph(buildGraphs.getTargetGraphForDistributedBuild().getTargetGraph())
                 .build());
@@ -226,6 +239,13 @@ public class BuildPhase {
           public void createMostBuildRulesCompletedEvent() {
             buildRuleEventManager.mostBuildRulesFinishedEventReceived();
           }
+
+          @Override
+          public void createBuildRuleUnlockedEvents(ImmutableList<String> unlockedTargets) {
+            for (String target : unlockedTargets) {
+              buildRuleEventManager.recordBuildRuleUnlockedEvent(target);
+            }
+          }
         };
 
     CoordinatorModeRunner coordinator =
@@ -246,6 +266,7 @@ public class BuildPhase {
             // TODO(shivanker): Make health-check stats work.
             new HealthCheckStatsTracker(),
             // TODO(shivanker): Make timing stats work.
+            Optional.empty(),
             Optional.empty());
 
     executorService.submit(
@@ -264,14 +285,21 @@ public class BuildPhase {
       ListeningExecutorService executorService,
       StampedeId stampedeId,
       BuildMode buildMode,
+      DistLocalBuildMode distLocalBuildMode,
       InvocationInfo invocationInfo,
       ListenableFuture<ParallelRuleKeyCalculator<RuleKey>> localRuleKeyCalculator)
       throws IOException, InterruptedException {
     distBuildClientStats.startTimer(PERFORM_DISTRIBUTED_BUILD);
-    final BuildJob job =
+
+    BuildJob job =
         distBuildService.startBuild(
             stampedeId, !buildMode.equals(DISTRIBUTED_BUILD_WITH_LOCAL_COORDINATOR));
-    LOG.info("Started job. Build status: " + job.getStatus().toString());
+    LOG.info("Started job. Build status: " + job.getStatus());
+
+    if (distLocalBuildMode.equals(DistLocalBuildMode.FIRE_AND_FORGET)) {
+      LOG.info("Fire-and-forget mode: returning after build status is:started. " + job.getStatus());
+      return new BuildResult(job, ImmutableList.of());
+    }
 
     nextEventIdBySlaveRunId.clear();
     ScheduledFuture<?> distBuildStatusUpdatingFuture =
@@ -294,7 +322,7 @@ public class BuildPhase {
       runLocalCoordinatorAsync(executorService, stampedeId, invocationInfo, localRuleKeyCalculator);
     }
 
-    BuildJob finalJob;
+    BuildJob finalJob = null;
     List<BuildSlaveStatus> buildSlaveStatusList = null;
     try {
       distBuildStatusUpdatingFuture.get();
@@ -319,7 +347,8 @@ public class BuildPhase {
       distBuildClientStats.stopTimer(PERFORM_DISTRIBUTED_BUILD);
 
       // Remote build is now done, so ensure local build is unlocked for all build rules.
-      remoteBuildRuleCompletionNotifier.signalCompletionOfRemoteBuild();
+      remoteBuildRuleCompletionNotifier.signalCompletionOfRemoteBuild(
+          finalJob != null && finalJob.getStatus().equals(BuildStatus.FINISHED_SUCCESSFULLY));
     }
 
     return new BuildResult(finalJob, buildSlaveStatusList);
@@ -327,14 +356,14 @@ public class BuildPhase {
 
   private BuildJob fetchBuildInformationFromServerAndPublishPendingEvents(
       BuildJob job, ListeningExecutorService networkExecutorService) throws InterruptedException {
-    final StampedeId stampedeId = job.getStampedeId();
+    StampedeId stampedeId = job.getStampedeId();
 
     try {
       job = distBuildService.getCurrentBuildJobState(stampedeId);
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
-    LOG.info("Got build status: " + job.getStatus().toString());
+    LOG.info("Got build status: " + job.getStatus());
 
     if (!job.isSetBuildSlaves()) {
       consoleEventsDispatcher.postDistBuildStatusEvent(job, ImmutableList.of());
@@ -404,9 +433,7 @@ public class BuildPhase {
         networkExecutorService.submit(
             () -> {
               try {
-                List<BuildSlaveEventWrapper> events =
-                    distBuildService.multiGetBuildSlaveEvents(fetchEventQueries);
-                return events;
+                return distBuildService.multiGetBuildSlaveEvents(fetchEventQueries);
               } catch (IOException e) {
                 LOG.error(e, "Fetching build slave events failed. Returning empty list.");
                 return Lists.newArrayList();
@@ -470,6 +497,10 @@ public class BuildPhase {
                     consoleEventsDispatcher.postDistBuildProgressEvent(
                         slaveEvent.getCoordinatorBuildProgressEvent().getBuildProgress());
                     break;
+                  case BUILD_RULE_UNLOCKED_EVENT:
+                    buildRuleEventManager.recordBuildRuleUnlockedEvent(
+                        slaveEvent.getBuildRuleUnlockedEvent().getBuildTarget());
+                    break;
                   case UNKNOWN:
                     LOG.error(
                         String.format(
@@ -493,7 +524,7 @@ public class BuildPhase {
     }
 
     List<LogLineBatchRequest> newLogLineRequests =
-        distBuildLogStateTracker.createRealtimeLogRequests(job.getBuildSlaves());
+        distBuildLogStateTracker.createStreamLogRequests(job.getBuildSlaves());
     if (newLogLineRequests.size() == 0) {
       return Futures.immediateFuture(null);
     }
@@ -519,19 +550,18 @@ public class BuildPhase {
     if (BuildStatusUtil.isTerminalBuildStatus(job.getStatus())) {
       // Make a record of the first time we received terminal build job status, so that
       // if we still need to fetch more events, we have a reference point for timeouts.
-      if (firstFinishedBuildStatusReceviedTs == -1) {
-        firstFinishedBuildStatusReceviedTs = currentTimeMillis;
+      if (firstFinishedBuildStatusReceivedTs == -1) {
+        firstFinishedBuildStatusReceivedTs = currentTimeMillis;
       }
 
       long elapseMillisSinceFirstFinishedStatus =
-          currentTimeMillis - firstFinishedBuildStatusReceviedTs;
+          currentTimeMillis - firstFinishedBuildStatusReceivedTs;
 
       // Top level build was set to finished status, however individual slaves might not yet
       // have marked themselves finished, so wait for this to happen before returning.
       // (Without this we have no guarantees about BuildSlaveFinishedStats being uploaded yet).
       if (!allSlavesFinished(job)) {
-        if (elapseMillisSinceFirstFinishedStatus
-            < WAIT_FOR_ALL_WORKER_FINAL_STATUS_TIMEOUT_MILLIS) {
+        if (elapseMillisSinceFirstFinishedStatus < waitForAllWorkerFinalStatusTimeoutMillis) {
           LOG.warn(
               String.format(
                   "Build has been finished for %s ms, but still missing finished status from some workers.",
@@ -546,7 +576,7 @@ public class BuildPhase {
       }
 
       if (!buildRuleEventManager.allBuildRulesFinishedEventReceived()) {
-        if (elapseMillisSinceFirstFinishedStatus < WAIT_FOR_ALL_BUILD_EVENTS_TIMEOUT_MILLIS) {
+        if (elapseMillisSinceFirstFinishedStatus < waitForAllBuildEventsTimeoutMillis) {
           LOG.warn(
               String.format(
                   "Build has been finished for %s ms, but still waiting for final build rule finished events.",
@@ -627,7 +657,7 @@ public class BuildPhase {
             slaveStatusList
                 .stream()
                 .filter(Optional::isPresent)
-                .map(x -> x.get())
+                .map(Optional::get)
                 .collect(Collectors.toList()),
         MoreExecutors.directExecutor());
   }

@@ -16,13 +16,13 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.attr.HasSupplementaryOutputs;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.model.macros.MacroException;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.HasSupplementaryOutputs;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.google.common.collect.ImmutableList;
@@ -40,7 +40,7 @@ public class LocationMacroExpander extends BuildTargetMacroExpander<LocationMacr
   protected LocationMacro parse(
       BuildTarget target, CellPathResolver cellNames, ImmutableList<String> input)
       throws MacroException {
-    if (input.size() != 1) {
+    if (input.size() != 1 || input.get(0).isEmpty()) {
       throw new MacroException(String.format("expected a single argument: %s", input));
     }
     LocationMacro.SplitResult parts = LocationMacro.splitSupplementaryOutputPart(input.get(0));

@@ -18,6 +18,15 @@ package com.facebook.buck.cli;
 
 import static com.facebook.buck.util.concurrent.MoreFutures.propagateCauseIfInstanceOf;
 
+import com.facebook.buck.cli.OwnersReport.Builder;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.graph.AcyclicDepthFirstPostOrderTraversal;
 import com.facebook.buck.graph.DirectedAcyclicGraph;
@@ -26,8 +35,8 @@ import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildFileTree;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
+import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserMessages;
 import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
@@ -40,15 +49,9 @@ import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.query.QueryTargetAccessor;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TargetNodes;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.util.Console;
 import com.facebook.buck.util.MoreExceptions;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -83,12 +86,13 @@ import java.util.function.Predicate;
  */
 public class BuckQueryEnvironment implements QueryEnvironment {
 
+  private final Parser parser;
   private final PerBuildState parserState;
   private final Cell rootCell;
   private final OwnersReport.Builder ownersReportBuilder;
   private final ListeningExecutorService executor;
   private final TargetPatternEvaluator targetPatternEvaluator;
-  private final Console console;
+  private final BuckEventBus eventBus;
   private final QueryEnvironment.TargetEvaluator queryTargetEvaluator;
   private final TypeCoercerFactory typeCoercerFactory;
 
@@ -100,14 +104,18 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   private MutableDirectedGraph<TargetNode<?, ?>> graph = MutableDirectedGraph.createConcurrent();
   private Map<BuildTarget, TargetNode<?, ?>> targetsToNodes = new ConcurrentHashMap<>();
 
-  private BuckQueryEnvironment(
+  @VisibleForTesting
+  protected BuckQueryEnvironment(
       Cell rootCell,
-      OwnersReport.Builder ownersReportBuilder,
+      Builder ownersReportBuilder,
+      Parser parser,
       PerBuildState parserState,
       ListeningExecutorService executor,
       TargetPatternEvaluator targetPatternEvaluator,
-      Console console,
+      BuckEventBus eventBus,
       TypeCoercerFactory typeCoercerFactory) {
+    this.parser = parser;
+    this.eventBus = eventBus;
     this.parserState = parserState;
     this.rootCell = rootCell;
     this.ownersReportBuilder = ownersReportBuilder;
@@ -123,7 +131,6 @@ public class BuckQueryEnvironment implements QueryEnvironment {
                             cell.getFilesystem(), cell.getBuildFileName())));
     this.executor = executor;
     this.targetPatternEvaluator = targetPatternEvaluator;
-    this.console = console;
     this.queryTargetEvaluator = new TargetEvaluator(targetPatternEvaluator, executor);
     this.typeCoercerFactory = typeCoercerFactory;
   }
@@ -131,18 +138,20 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   public static BuckQueryEnvironment from(
       Cell rootCell,
       OwnersReport.Builder ownersReportBuilder,
+      Parser parser,
       PerBuildState parserState,
       ListeningExecutorService executor,
       TargetPatternEvaluator targetPatternEvaluator,
-      Console console,
+      BuckEventBus eventBus,
       TypeCoercerFactory typeCoercerFactory) {
     return new BuckQueryEnvironment(
         rootCell,
         ownersReportBuilder,
+        parser,
         parserState,
         executor,
         targetPatternEvaluator,
-        console,
+        eventBus,
         typeCoercerFactory);
   }
 
@@ -154,6 +163,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
     return from(
         params.getCell(),
         OwnersReport.builder(params.getCell(), params.getParser(), params.getBuckEventBus()),
+        params.getParser(),
         parserState,
         executor,
         new TargetPatternEvaluator(
@@ -162,7 +172,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
             params.getParser(),
             params.getBuckEventBus(),
             enableProfiling),
-        params.getConsole(),
+        params.getBuckEventBus(),
         params.getTypeCoercerFactory());
   }
 
@@ -213,7 +223,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
               target, target.getClass().getName()));
     }
     try {
-      return parserState.getTargetNode(((QueryBuildTarget) target).getBuildTarget());
+      return parser.getTargetNode(parserState, ((QueryBuildTarget) target).getBuildTarget());
     } catch (BuildFileParseException e) {
       throw new QueryException(e, "Error getting target node for %s\n%s", target, e.getMessage());
     }
@@ -390,7 +400,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
 
   private Optional<ListenableFuture<Void>> discoverNewTargetsConcurrently(
       BuildTarget buildTarget, ConcurrentHashMap<BuildTarget, ListenableFuture<Void>> jobsCache)
-      throws BuildFileParseException, BuildTargetException {
+      throws BuildFileParseException {
     ListenableFuture<Void> job = jobsCache.get(buildTarget);
     if (job != null) {
       return Optional.empty();
@@ -402,11 +412,11 @@ public class BuckQueryEnvironment implements QueryEnvironment {
 
     ListenableFuture<Void> future =
         Futures.transformAsync(
-            parserState.getTargetNodeJob(buildTarget),
+            parser.getTargetNodeJob(parserState, buildTarget),
             targetNode -> {
               targetsToNodes.put(buildTarget, targetNode);
               List<ListenableFuture<Void>> depsFuture = new ArrayList<>();
-              final Set<BuildTarget> parseDeps = targetNode.getParseDeps();
+              Set<BuildTarget> parseDeps = targetNode.getParseDeps();
               for (BuildTarget parseDep : parseDeps) {
                 discoverNewTargetsConcurrently(parseDep, jobsCache)
                     .ifPresent(
@@ -448,9 +458,9 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
-  public ImmutableSet<QueryTarget> getBuildFiles(Set<QueryTarget> targets) throws QueryException {
-    final ProjectFilesystem cellFilesystem = rootCell.getFilesystem();
-    final Path rootPath = cellFilesystem.getRootPath();
+  public ImmutableSet<QueryTarget> getBuildFiles(Set<QueryTarget> targets) {
+    ProjectFilesystem cellFilesystem = rootCell.getFilesystem();
+    Path rootPath = cellFilesystem.getRootPath();
     Preconditions.checkState(rootPath.isAbsolute());
 
     ImmutableSet.Builder<QueryTarget> builder = ImmutableSet.builder();
@@ -473,24 +483,23 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   }
 
   @Override
-  public ImmutableSet<QueryTarget> getFileOwners(ImmutableList<String> files)
-      throws QueryException {
+  public ImmutableSet<QueryTarget> getFileOwners(ImmutableList<String> files) {
     OwnersReport report = ownersReportBuilder.build(buildFileTrees, executor, files);
     report
         .getInputsWithNoOwners()
-        .forEach(path -> console.printErrorText(String.format("No owner was found for %s", path)));
+        .forEach(path -> eventBus.post(ConsoleEvent.warning("No owner was found for %s", path)));
     report
         .getNonExistentInputs()
-        .forEach(path -> console.printErrorText(String.format("File %s does not exist", path)));
+        .forEach(path -> eventBus.post(ConsoleEvent.warning("File %s does not exist", path)));
     report
         .getNonFileInputs()
-        .forEach(path -> console.printErrorText(String.format("%s is not a regular file", path)));
+        .forEach(path -> eventBus.post(ConsoleEvent.warning("%s is not a regular file", path)));
     return getTargetsFromTargetNodes(report.owners.keySet());
   }
 
   @Override
   public String getTargetKind(QueryTarget target) throws QueryException {
-    return Description.getBuildRuleType(getNode(target).getDescription()).getName();
+    return getNode(target).getBuildRuleType().getName();
   }
 
   @Override
@@ -502,8 +511,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
 
   @Override
   public ImmutableSet<Object> filterAttributeContents(
-      QueryTarget target, String attribute, final Predicate<Object> predicate)
-      throws QueryException {
+      QueryTarget target, String attribute, Predicate<Object> predicate) throws QueryException {
     return QueryTargetAccessor.filterAttributeContents(
         typeCoercerFactory, getNode(target), attribute, predicate);
   }

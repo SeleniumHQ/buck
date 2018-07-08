@@ -18,6 +18,8 @@ package com.facebook.buck.model;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.InternalFlavor;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
@@ -60,8 +62,8 @@ public class BuildTargetFactoryTest {
   public void testTargetWithCell() {
     BuildTarget buildTarget = BuildTargetFactory.newInstance(ROOT, "xplat//example/base:one");
     assertEquals(
-        BuildTarget.of(
-            UnflavoredBuildTarget.of(ROOT, Optional.of("xplat"), "//example/base", "one")),
+        ImmutableBuildTarget.of(
+            ImmutableUnflavoredBuildTarget.of(ROOT, Optional.of("xplat"), "//example/base", "one")),
         buildTarget);
   }
 }

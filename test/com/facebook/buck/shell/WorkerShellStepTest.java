@@ -20,6 +20,7 @@ import static java.lang.Thread.sleep;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.event.BuckEvent;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.ConsoleEvent;
@@ -29,7 +30,6 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.Platform;
@@ -125,28 +125,24 @@ public class WorkerShellStepTest {
                 : Optional.of(WorkerProcessIdentity.of(persistentWorkerKey, workerHash))));
   }
 
-  private ExecutionContext createExecutionContextWith(int exitCode, String stdout, String stderr)
-      throws IOException {
+  private ExecutionContext createExecutionContextWith(int exitCode, String stdout, String stderr) {
     WorkerJobResult jobResult =
         WorkerJobResult.of(exitCode, Optional.of(stdout), Optional.of(stderr));
     return createExecutionContextWith(ImmutableMap.of("myJobArgs", jobResult));
   }
 
   private ExecutionContext createExecutionContextWith(
-      final ImmutableMap<String, WorkerJobResult> jobArgs) {
+      ImmutableMap<String, WorkerJobResult> jobArgs) {
     return createExecutionContextWith(jobArgs, 1);
   }
 
   private ExecutionContext createExecutionContextWith(
-      final ImmutableMap<String, WorkerJobResult> jobArgs, final int poolCapacity) {
+      ImmutableMap<String, WorkerJobResult> jobArgs, int poolCapacity) {
     WorkerProcessPool workerProcessPool =
         new WorkerProcessPool(
-            poolCapacity, Hashing.sha1().hashString(fakeWorkerStartupCommand, Charsets.UTF_8)) {
-          @Override
-          protected WorkerProcess startWorkerProcess() throws IOException {
-            return new FakeWorkerProcess(jobArgs);
-          }
-        };
+            poolCapacity,
+            Hashing.sha1().hashString(fakeWorkerStartupCommand, Charsets.UTF_8),
+            () -> new FakeWorkerProcess(jobArgs));
 
     ConcurrentHashMap<String, WorkerProcessPool> workerProcessMap = new ConcurrentHashMap<>();
     workerProcessMap.put(fakeWorkerStartupCommand, workerProcessPool);
@@ -154,26 +150,19 @@ public class WorkerShellStepTest {
     WorkerProcessPool persistentWorkerProcessPool =
         new WorkerProcessPool(
             poolCapacity,
-            Hashing.sha1().hashString(fakePersistentWorkerStartupCommand, Charsets.UTF_8)) {
-          @Override
-          protected WorkerProcess startWorkerProcess() throws IOException {
-            return new FakeWorkerProcess(jobArgs);
-          }
-        };
+            Hashing.sha1().hashString(fakePersistentWorkerStartupCommand, Charsets.UTF_8),
+            () -> new FakeWorkerProcess(jobArgs));
     ConcurrentHashMap<String, WorkerProcessPool> persistentWorkerProcessMap =
         new ConcurrentHashMap<>();
     persistentWorkerProcessMap.put(persistentWorkerKey, persistentWorkerProcessPool);
 
-    ExecutionContext context =
-        TestExecutionContext.newBuilder()
-            .setPlatform(Platform.LINUX)
-            .setWorkerProcessPools(workerProcessMap)
-            .setPersistentWorkerPools(persistentWorkerProcessMap)
-            .setConsole(new TestConsole(Verbosity.ALL))
-            .setBuckEventBus(BuckEventBusForTests.newInstance())
-            .build();
-
-    return context;
+    return TestExecutionContext.newBuilder()
+        .setPlatform(Platform.LINUX)
+        .setWorkerProcessPools(workerProcessMap)
+        .setPersistentWorkerPools(persistentWorkerProcessMap)
+        .setConsole(new TestConsole(Verbosity.ALL))
+        .setBuckEventBus(BuckEventBusForTests.newInstance())
+        .build();
   }
 
   @Test
@@ -307,7 +296,7 @@ public class WorkerShellStepTest {
       throws IOException, InterruptedException, TimeoutException, ExecutionException {
     String jobArgs1 = "jobArgs1";
     String jobArgs2 = "jobArgs2";
-    final ExecutionContext context =
+    ExecutionContext context =
         createExecutionContextWith(
             ImmutableMap.of(
                 jobArgs1, WorkerJobResult.of(0, Optional.of("stdout 1"), Optional.of("stderr 1")),
@@ -318,7 +307,7 @@ public class WorkerShellStepTest {
             ImmutableList.of(startupCommand, startupArg), ImmutableMap.of(), jobArgs1, 1);
 
     WorkerShellStep step1 = createWorkerShellStep(params, null, null);
-    final WorkerShellStep step2 = createWorkerShellStep(params.withJobArgs(jobArgs2), null, null);
+    WorkerShellStep step2 = createWorkerShellStep(params.withJobArgs(jobArgs2), null, null);
 
     step1.execute(context);
 
@@ -413,10 +402,10 @@ public class WorkerShellStepTest {
   }
 
   @Test
-  public void testMultipleWorkerProcesses() throws IOException, InterruptedException {
+  public void testMultipleWorkerProcesses() throws InterruptedException {
     String jobArgsA = "jobArgsA";
     String jobArgsB = "jobArgsB";
-    final ImmutableMap<String, WorkerJobResult> jobResults =
+    ImmutableMap<String, WorkerJobResult> jobResults =
         ImmutableMap.of(
             jobArgsA, WorkerJobResult.of(0, Optional.of("stdout A"), Optional.of("stderr A")),
             jobArgsB, WorkerJobResult.of(0, Optional.of("stdout B"), Optional.of("stderr B")));

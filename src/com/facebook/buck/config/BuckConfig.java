@@ -18,20 +18,20 @@ package com.facebook.buck.config;
 
 import static java.lang.Integer.parseInt;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKeyDiagnosticsMode;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKeyDiagnosticsMode;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.AnsiEnvironmentChecking;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.PatternAndMessage;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.config.Config;
@@ -43,9 +43,10 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.common.base.Predicates;
 import com.google.common.base.Splitter;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.LinkedHashMultimap;
@@ -58,8 +59,11 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -85,7 +89,7 @@ public class BuckConfig implements ConfigPathGetter {
 
   private final Config config;
 
-  private final ImmutableSetMultimap<String, BuildTarget> aliasToBuildTargetMap;
+  private final Supplier<ImmutableSetMultimap<String, BuildTarget>> aliasToBuildTargetMap;
 
   private final ProjectFilesystem projectFilesystem;
 
@@ -114,6 +118,8 @@ public class BuckConfig implements ConfigPathGetter {
             "max_traces",
             "public_announcements"));
     ignoreFieldsForDaemonRestartBuilder.put("project", ImmutableSet.of("ide_prompt"));
+    ignoreFieldsForDaemonRestartBuilder.put("ui", ImmutableSet.of("superconsole"));
+    ignoreFieldsForDaemonRestartBuilder.put("color", ImmutableSet.of("ui"));
     IGNORE_FIELDS_FOR_DAEMON_RESTART = ignoreFieldsForDaemonRestartBuilder.build();
   }
 
@@ -129,13 +135,12 @@ public class BuckConfig implements ConfigPathGetter {
     this.projectFilesystem = projectFilesystem;
     this.architecture = architecture;
 
-    // We could create this Map on demand; however, in practice, it is almost always needed when
-    // BuckConfig is needed because CommandLineBuildTargetNormalizer needs it.
-    this.aliasToBuildTargetMap =
-        createAliasToBuildTargetMap(this.getEntriesForSection(ALIAS_SECTION_HEADER));
-
     this.platform = platform;
     this.environment = environment;
+
+    this.aliasToBuildTargetMap =
+        Suppliers.memoize(
+            () -> createAliasToBuildTargetMap(getEntriesForSection(ALIAS_SECTION_HEADER)));
   }
 
   /** Returns a clone of the current config with a the argument CellPathResolver. */
@@ -149,7 +154,7 @@ public class BuckConfig implements ConfigPathGetter {
    * @param cls Class of the config view.
    * @param <T> Type of the config view.
    */
-  public <T extends ConfigView<BuckConfig>> T getView(final Class<T> cls) {
+  public <T extends ConfigView<BuckConfig>> T getView(Class<T> cls) {
     return viewCache.getView(cls);
   }
 
@@ -237,7 +242,7 @@ public class BuckConfig implements ConfigPathGetter {
                           input,
                           resolve,
                           String.format(
-                              "Error in %s.%s: Cell-relative path not found: ", section, field)))
+                              "Error in %s.%s: Cell-relative path not found", section, field)))
               .collect(ImmutableList.toImmutableList());
       return Optional.of(paths);
     }
@@ -260,7 +265,7 @@ public class BuckConfig implements ConfigPathGetter {
   }
 
   public ImmutableSet<BuildTarget> getBuildTargetsForAlias(String unflavoredAlias) {
-    return aliasToBuildTargetMap.get(unflavoredAlias);
+    return getAliases().get(unflavoredAlias);
   }
 
   public BuildTarget getBuildTargetForFullyQualifiedTarget(String target) {
@@ -339,25 +344,27 @@ public class BuckConfig implements ConfigPathGetter {
           PathSourcePath.of(
               projectFilesystem,
               checkPathExists(
-                  value.get(),
-                  String.format("Overridden %s:%s path not found: ", section, field))));
+                  value.get(), String.format("Overridden %s:%s path not found", section, field))));
     }
   }
 
   /** @return a {@link SourcePath} identified by a {@link Path}. */
   public PathSourcePath getPathSourcePath(@PropagatesNullable Path path) {
+    return getPathSourcePath(path, "File not found");
+  }
+
+  /**
+   * @return a {@link SourcePath} identified by a {@link Path}.
+   * @param errorMessage the error message to throw if path is not found
+   */
+  public PathSourcePath getPathSourcePath(@PropagatesNullable Path path, String errorMessage) {
     if (path == null) {
       return null;
     }
     if (path.isAbsolute()) {
       return PathSourcePath.of(projectFilesystem, path);
     }
-    return PathSourcePath.of(
-        projectFilesystem,
-        checkPathExists(
-            path.toString(),
-            String.format(
-                "Failed to transform Path %s to Source Path because path was not found.", path)));
+    return PathSourcePath.of(projectFilesystem, checkPathExists(path.toString(), errorMessage));
   }
 
   /**
@@ -412,7 +419,7 @@ public class BuckConfig implements ConfigPathGetter {
     // Build up the Map with an ordinary HashMap because we need to be able to check whether the Map
     // already contains the key before inserting.
     Map<Path, String> basePathToAlias = new HashMap<>();
-    for (Map.Entry<String, BuildTarget> entry : aliasToBuildTargetMap.entries()) {
+    for (Map.Entry<String, BuildTarget> entry : getAliases().entries()) {
       String alias = entry.getKey();
       BuildTarget buildTarget = entry.getValue();
 
@@ -424,8 +431,8 @@ public class BuckConfig implements ConfigPathGetter {
     return ImmutableMap.copyOf(basePathToAlias);
   }
 
-  public ImmutableMultimap<String, BuildTarget> getAliases() {
-    return this.aliasToBuildTargetMap;
+  public ImmutableSetMultimap<String, BuildTarget> getAliases() {
+    return aliasToBuildTargetMap.get();
   }
 
   public long getDefaultTestTimeoutMillis() {
@@ -462,6 +469,10 @@ public class BuckConfig implements ConfigPathGetter {
 
   public boolean isMachineReadableLoggerEnabled() {
     return getBooleanValue(LOG_SECTION, "machine_readable_logger_enabled", true);
+  }
+
+  public boolean isCriticalPathAnalysisEnabled() {
+    return getBooleanValue(LOG_SECTION, "critical_path_analysis_enabled", false);
   }
 
   public boolean isBuckConfigLocalWarningEnabled() {
@@ -564,8 +575,9 @@ public class BuckConfig implements ConfigPathGetter {
         .orElse(IncrementalActionGraphMode.DEFAULT);
   }
 
-  public int getMaxActionGraphNodeCacheEntries() {
-    return getInteger("cache", "max_action_graph_node_cache_entries").orElse(10000);
+  public Map<IncrementalActionGraphMode, Double> getIncrementalActionGraphExperimentGroups() {
+    return getExperimentGroups(
+        "cache", "incremental_action_graph_experiment", IncrementalActionGraphMode.class);
   }
 
   public Optional<String> getRepository() {
@@ -624,7 +636,7 @@ public class BuckConfig implements ConfigPathGetter {
     return config.get(sectionName, propertyName);
   }
 
-  public Optional<Integer> getInteger(String sectionName, String propertyName) {
+  public OptionalInt getInteger(String sectionName, String propertyName) {
     return config.getInteger(sectionName, propertyName);
   }
 
@@ -650,6 +662,18 @@ public class BuckConfig implements ConfigPathGetter {
 
   public ImmutableMap<String, String> getMap(String section, String field) {
     return config.getMap(section, field);
+  }
+
+  /** Returns the probabilities for each group in an experiment. */
+  public <T extends Enum<T>> Map<T, Double> getExperimentGroups(
+      String section, String field, Class<T> enumClass) {
+    return getMap(section, field)
+        .entrySet()
+        .stream()
+        .collect(
+            ImmutableMap.toImmutableMap(
+                x -> Enum.valueOf(enumClass, x.getKey().toUpperCase(Locale.ROOT)),
+                x -> Double.parseDouble(x.getValue())));
   }
 
   public <T> T getOrThrow(String section, String field, Optional<T> value) {
@@ -868,7 +892,7 @@ public class BuckConfig implements ConfigPathGetter {
             convertPathWithError(
                 pathString.get(),
                 isCellRootRelative,
-                String.format("Overridden %s:%s path not found: ", sectionName, name)))
+                String.format("Overridden %s:%s path not found", sectionName, name)))
         : Optional.empty();
   }
 
@@ -907,7 +931,7 @@ public class BuckConfig implements ConfigPathGetter {
     if (projectFilesystem.exists(path)) {
       return path;
     }
-    throw new HumanReadableException(errorMsg + path);
+    throw new HumanReadableException(String.format("%s: %s", errorMsg, path));
   }
 
   public ImmutableSet<String> getSections() {
@@ -1035,5 +1059,25 @@ public class BuckConfig implements ConfigPathGetter {
   /** The timeout to apply to entire test rules. */
   public Optional<Long> getDefaultTestRuleTimeoutMs() {
     return config.getLong(TEST_SECTION_HEADER, "rule_timeout");
+  }
+
+  /** List of error message replacements to make things more friendly for humans */
+  public Map<Pattern, String> getErrorMessageAugmentations() throws HumanReadableException {
+    return config
+        .getMap("ui", "error_message_augmentations")
+        .entrySet()
+        .stream()
+        .collect(
+            ImmutableMap.toImmutableMap(
+                e -> {
+                  try {
+                    return Pattern.compile(e.getKey(), Pattern.MULTILINE | Pattern.DOTALL);
+                  } catch (Exception ex) {
+                    throw new HumanReadableException(
+                        "Could not parse regular expression %s from buckconfig: %s",
+                        e.getKey(), ex.getMessage());
+                  }
+                },
+                Entry::getValue));
   }
 }

@@ -18,22 +18,21 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import java.nio.file.Paths;
 import org.junit.Test;
 
 public class AndroidLibraryTest {
 
   @Test
-  public void testAndroidAnnotation() throws Exception {
+  public void testAndroidAnnotation() {
     BuildTarget processorTarget = BuildTargetFactory.newInstance("//java/processor:processor");
     TargetNode<?, ?> processorNode =
         JavaLibraryBuilder.createBuilder(processorTarget)
@@ -48,11 +47,11 @@ public class AndroidLibraryTest {
             .build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(processorNode, libraryNode);
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder =
+        new TestActionGraphBuilder(
+            targetGraph, AndroidLibraryBuilder.createToolchainProviderForAndroidLibrary());
 
-    AndroidLibrary library = (AndroidLibrary) ruleResolver.requireRule(libTarget);
+    AndroidLibrary library = (AndroidLibrary) graphBuilder.requireRule(libTarget);
 
     assertTrue(library.getGeneratedSourcePath().isPresent());
   }

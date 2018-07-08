@@ -16,9 +16,9 @@
 
 package com.facebook.buck.rules.coercer;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
@@ -54,7 +54,7 @@ class LocationMacroTypeCoercer implements MacroTypeCoercer<LocationMacro> {
       Path pathRelativeToProjectRoot,
       ImmutableList<String> args)
       throws CoerceFailedException {
-    if (args.size() != 1) {
+    if (args.size() != 1 || args.get(0).isEmpty()) {
       throw new CoerceFailedException(
           String.format("expected exactly one argument (found %d)", args.size()));
     }

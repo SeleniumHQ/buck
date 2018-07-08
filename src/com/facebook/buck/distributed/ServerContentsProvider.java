@@ -30,6 +30,7 @@ import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -64,7 +65,7 @@ public class ServerContentsProvider implements FileContentsProvider {
       ListeningExecutorService networkThreadPool,
       FileMaterializationStatsTracker statsTracker,
       Optional<Long> multiFetchBufferPeriodMs,
-      Optional<Integer> multiFetchBufferMaxSize) {
+      OptionalInt multiFetchBufferMaxSize) {
     this(
         service,
         networkScheduler,
@@ -158,7 +159,9 @@ public class ServerContentsProvider implements FileContentsProvider {
           hashCodes.size(), onlyIfBufferIsFull ? "buffer was full" : "scheduled");
       resultFuture.set(service.multiFetchSourceFiles(hashCodes));
     } catch (IOException e) {
-      throw new RuntimeException(e);
+      LOG.error(e);
+      resultFuture.setException(e);
+      return 0;
     }
 
     return hashCodes.size();

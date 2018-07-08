@@ -16,6 +16,8 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.exceptions.ExceptionWithHumanReadableMessage;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.cxx.toolchain.DependencyTrackingMode;
 import com.facebook.buck.cxx.toolchain.HeaderVerification;
 import com.facebook.buck.event.BuckEventBus;
@@ -24,8 +26,6 @@ import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.util.ExceptionWithHumanReadableMessage;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -35,6 +35,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.CharBuffer;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -186,10 +187,10 @@ class Depfiles {
           // appear first in the dep file, followed by the input source file.  So, just skip over
           // everything until just after the input source which should position us at the headers.
           //
-          // TODO(#11303454): This means we're not including the content of these special files into the
-          // rule key.  The correct way to handle this is likely to support macros in preprocessor/
-          // compiler flags at which point we can use the entries for these files in the depfile to
-          // verify that the user properly references these files via the macros.
+          // TODO(#11303454): This means we're not including the content of these special files into
+          // the rule key. The correct way to handle this is likely to support macros in
+          // preprocessor/compiler flags at which point we can use the entries for these files in
+          // the depfile to verify that the user properly references these files via the macros.
           int inputIndex = prereqs.indexOf(inputPath.toString());
           Preconditions.checkState(
               inputIndex != -1,
@@ -206,6 +207,8 @@ class Depfiles {
         List<String> srcAndIncludes = filesystem.readLines(sourceDepFile);
         List<String> includes = srcAndIncludes.subList(1, srcAndIncludes.size());
         return includes;
+      case NONE:
+        return Collections.emptyList();
       default:
         // never happens
         throw new IllegalStateException();

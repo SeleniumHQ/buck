@@ -16,13 +16,15 @@
 
 package com.facebook.buck.io.filesystem.impl;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.EmbeddedCellBuckOutInfo;
 import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
-import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.io.windowsfs.WindowsFS;
 import com.facebook.buck.util.config.Config;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -41,6 +43,25 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
   // A non-exhaustive list of characters that might indicate that we're about to deal with a glob.
   private static final Pattern GLOB_CHARS = Pattern.compile("[\\*\\?\\{\\[]");
 
+  // WindowsFS singleton instance
+  private static WindowsFS winFSInstance = null;
+
+  /** Intialize the winFSInstane singleton when on Windows. */
+  static {
+    if (Platform.detect().getType().isWindows()) {
+      winFSInstance = new WindowsFS();
+    }
+  }
+
+  /**
+   * Factory to get a WindowsFS instance.
+   *
+   * @return the WindowsFS instance.
+   */
+  public static WindowsFS getWindowsFSInstance() {
+    return winFSInstance;
+  }
+
   @Override
   public ProjectFilesystem createProjectFilesystem(
       Path root, Config config, Optional<EmbeddedCellBuckOutInfo> embeddedCellBuckOutInfo)
@@ -52,7 +73,7 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
         extractIgnorePaths(root, config, buckPaths),
         buckPaths,
         ProjectFilesystemDelegateFactory.newInstance(root, config),
-        config.getBooleanValue("project", "windows_symlinks", false));
+        getWindowsFSInstance());
   }
 
   @Override
@@ -67,13 +88,13 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
   }
 
   private static ImmutableSet<PathOrGlobMatcher> extractIgnorePaths(
-      final Path root, Config config, final BuckPaths buckPaths) {
+      Path root, Config config, BuckPaths buckPaths) {
     ImmutableSet.Builder<PathOrGlobMatcher> builder = ImmutableSet.builder();
 
     builder.add(new PathOrGlobMatcher(root, ".idea"));
 
-    final String projectKey = "project";
-    final String ignoreKey = "ignore";
+    String projectKey = "project";
+    String ignoreKey = "ignore";
 
     String buckdDirProperty = System.getProperty(BUCK_BUCKD_DIR_KEY, ".buckd");
     if (!Strings.isNullOrEmpty(buckdDirProperty)) {
@@ -123,7 +144,10 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
               .get()
               .getEmbeddedCellsBuckOutBaseDir()
               .resolve(embeddedCellBuckOutInfo.get().getCellName());
-      buckPaths = buckPaths.withConfiguredBuckOut(rootPath.relativize(cellBuckOut));
+      buckPaths =
+          buckPaths
+              .withConfiguredBuckOut(rootPath.relativize(cellBuckOut))
+              .withBuckOut(rootPath.relativize(cellBuckOut));
     } else if (configuredBuckOut.isPresent()) {
       buckPaths =
           buckPaths.withConfiguredBuckOut(

@@ -16,7 +16,8 @@
 
 package com.facebook.buck.util;
 
-import com.facebook.buck.rules.RelativeCellName;
+import com.facebook.buck.core.cell.name.RelativeCellName;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -31,8 +32,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** Utility class for methods related to args handling. */
@@ -46,7 +49,10 @@ public class BuckArgsMethods {
   }
 
   private static Iterable<String> getArgsFromTextFile(Path argsPath) throws IOException {
-    return Files.readAllLines(argsPath, Charsets.UTF_8);
+    return Files.readAllLines(argsPath, Charsets.UTF_8)
+        .stream()
+        .filter(line -> !line.isEmpty())
+        .collect(ImmutableList.toImmutableList());
   }
 
   private static Iterable<String> getArgsFromPythonFile(Path argsPath, String suffix)
@@ -57,9 +63,8 @@ public class BuckArgsMethods {
                 new String[] {"python", argsPath.toAbsolutePath().toString(), "--flavors", suffix});
     try (InputStream input = proc.getInputStream();
         OutputStream output = proc.getOutputStream();
-        BufferedReader reader =
-            new BufferedReader(new InputStreamReader(input, Charsets.UTF_8)); ) {
-      return reader.lines().collect(Collectors.toList());
+        BufferedReader reader = new BufferedReader(new InputStreamReader(input, Charsets.UTF_8))) {
+      return reader.lines().filter(line -> !line.isEmpty()).collect(Collectors.toList());
     }
   }
 
@@ -86,11 +91,25 @@ public class BuckArgsMethods {
    * option.
    *
    * @param args original args array
-   * @param projectRoot path against which any {@code @args} path arguments will be resolved.
+   * @param cellMapping a map from cell names to their roots
    * @return args array with AT-files expanded.
    */
   public static ImmutableList<String> expandAtFiles(
       Iterable<String> args, ImmutableMap<RelativeCellName, Path> cellMapping) {
+    // LinkedHashSet is used to preserve insertion order, so that a path can be printed
+    Set<String> expansionPath = new LinkedHashSet<>();
+    return expandFlagFilesRecursively(args, cellMapping, expansionPath);
+  }
+
+  /**
+   * Recursively expands flag files into a flat list of command line arguments.
+   *
+   * <p>Loops are not allowed and result in runtime exception.
+   */
+  private static ImmutableList<String> expandFlagFilesRecursively(
+      Iterable<String> args,
+      ImmutableMap<RelativeCellName, Path> cellMapping,
+      Set<String> expansionPath) {
     Iterator<String> argsIterator = args.iterator();
     ImmutableList.Builder<String> argumentsBuilder = ImmutableList.builder();
     while (argsIterator.hasNext()) {
@@ -105,9 +124,10 @@ public class BuckArgsMethods {
         if (!argsIterator.hasNext()) {
           throw new HumanReadableException(arg + " should be followed by a path.");
         }
-        argumentsBuilder.addAll(expandFile(argsIterator.next(), cellMapping));
+        String nextFlagFile = argsIterator.next();
+        argumentsBuilder.addAll(expandFlagFile(nextFlagFile, cellMapping, expansionPath));
       } else if (arg.startsWith("@")) {
-        argumentsBuilder.addAll(expandFile(arg.substring(1), cellMapping));
+        argumentsBuilder.addAll(expandFlagFile(arg.substring(1), cellMapping, expansionPath));
       } else {
         argumentsBuilder.add(arg);
       }
@@ -115,8 +135,30 @@ public class BuckArgsMethods {
     return argumentsBuilder.build();
   }
 
+  /** Recursively expands flag files into a list of command line flags. */
+  private static ImmutableList<String> expandFlagFile(
+      String nextFlagFile,
+      ImmutableMap<RelativeCellName, Path> cellMapping,
+      Set<String> expansionPath) {
+    if (expansionPath.contains(nextFlagFile)) {
+      // expansion path is a linked hash set, so it preserves order
+      throw new HumanReadableException(
+          "Expansion loop detected: "
+              + String.join(" -> ", expansionPath)
+              + "."
+              + System.lineSeparator()
+              + "Please make sure your flag files form a directed acyclic graph.");
+    }
+    expansionPath.add(nextFlagFile);
+    ImmutableList<String> expandedArgs =
+        expandFlagFilesRecursively(
+            expandFile(nextFlagFile, cellMapping), cellMapping, expansionPath);
+    expansionPath.remove(nextFlagFile);
+    return expandedArgs;
+  }
+
   /** Extracts command line options from a file identified by {@code arg} with AT-file syntax. */
-  private static Iterable<? extends String> expandFile(
+  private static Iterable<String> expandFile(
       String arg, ImmutableMap<RelativeCellName, Path> cellMapping) {
     BuckCellArg argfile = BuckCellArg.of(arg);
     String[] parts = argfile.getArg().split("#", 2);

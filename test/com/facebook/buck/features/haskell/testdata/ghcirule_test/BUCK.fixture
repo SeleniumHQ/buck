@@ -1,0 +1,9 @@
+haskell_ghci(
+    name = "foo",
+    srcs = [
+        "Foo.hs",
+    ],
+    extra_script_templates = [
+        "extra_scripts/foo_ghc",
+    ],
+)

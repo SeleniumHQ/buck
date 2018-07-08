@@ -4,11 +4,11 @@ import static com.facebook.buck.util.zip.ZipCompressionLevel.DEFAULT;
 import static com.facebook.buck.util.zip.ZipCompressionLevel.NONE;
 import static com.facebook.buck.util.zip.ZipOutputStreams.HandleDuplicates.APPEND_TO_ZIP;
 
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildStamp;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.core.rules.BuildStamp;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -59,7 +59,7 @@ class ManifestBuildStamping {
     steps.add(new Step() {
       @Override
       public StepExecutionResult execute(ExecutionContext context)
-          throws IOException, InterruptedException {
+          throws IOException {
 
         Manifest manifest = filesystem.getJarManifest(outputJar);
         if (manifest == null) {

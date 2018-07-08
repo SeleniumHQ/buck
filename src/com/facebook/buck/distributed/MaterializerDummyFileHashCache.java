@@ -16,13 +16,13 @@
 
 package com.facebook.buck.distributed;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.distributed.thrift.PathWithUnixSeparators;
 import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.cache.FileHashCacheVerificationResult;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.google.common.base.Preconditions;
@@ -131,14 +131,38 @@ class MaterializerDummyFileHashCache implements ProjectFileHashCache {
       getMaterializationFuturesAsList()
           .get(DEFAULT_PRELOAD_FILE_MATERIALIZATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     } catch (ExecutionException e) {
-      LOG.error(e, "Preload file materialization failed with exception: [%s].", e.getMessage());
+      String msg =
+          String.format(
+              "Preload file materialization failed with exception: [%s].", e.getMessage());
+      LOG.error(e, msg);
+      throw new RuntimeException(msg);
     } catch (InterruptedException e) {
-      LOG.error(e, "Preload file materialization was interrupted.");
+      Thread.currentThread().interrupt();
+      String msg = "Preload file materialization was interrupted.";
+      LOG.error(e, msg);
+      throw new RuntimeException(msg);
     } catch (TimeoutException e) {
-      LOG.error(
-          e,
-          "Preload materialization timed out after [%d] seconds.",
-          DEFAULT_PRELOAD_FILE_MATERIALIZATION_TIMEOUT_SECONDS);
+      printMissingFiles();
+      String msg =
+          String.format(
+              "Preload materialization timed out after [%d] seconds.",
+              DEFAULT_PRELOAD_FILE_MATERIALIZATION_TIMEOUT_SECONDS);
+      LOG.error(e, msg);
+      throw new RuntimeException(msg);
+    }
+  }
+
+  private void printMissingFiles() {
+    for (BuildJobStateFileHashEntry fileEntry :
+        fileMaterializationFuturesByFileHashEntry.keySet()) {
+      ListenableFuture<?> materializationFuture =
+          Preconditions.checkNotNull(fileMaterializationFuturesByFileHashEntry.get(fileEntry));
+      if (!materializationFuture.isDone()) {
+        LOG.warn(
+            String.format(
+                "Materialization missing for: [%s] [sha1: %s]",
+                fileEntry.getPath().getPath(), fileEntry.getSha1()));
+      }
     }
   }
 

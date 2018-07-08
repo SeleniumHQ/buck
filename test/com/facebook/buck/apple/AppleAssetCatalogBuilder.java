@@ -16,15 +16,17 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import java.util.SortedSet;
 
 public class AppleAssetCatalogBuilder
     extends AbstractNodeBuilder<
-        AppleAssetCatalogDescriptionArg.Builder, AppleAssetCatalogDescriptionArg,
-        AppleAssetCatalogDescription, AppleAssetCatalog> {
+        AppleAssetCatalogDescriptionArg.Builder,
+        AppleAssetCatalogDescriptionArg,
+        AppleAssetCatalogDescription,
+        AppleAssetCatalog> {
 
   protected AppleAssetCatalogBuilder(BuildTarget target) {
     super(new AppleAssetCatalogDescription(), target);

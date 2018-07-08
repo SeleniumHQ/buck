@@ -18,21 +18,18 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.ImmutableBuildRuleCreationContext;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Paths;
@@ -42,9 +39,7 @@ public class AndroidManifestDescriptionTest {
 
   @Test
   public void testGeneratedSkeletonAppearsInDeps() {
-    BuildRuleResolver buildRuleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
     BuildRule ruleWithOutput =
         new FakeBuildRule(BuildTargetFactory.newInstance("//foo:bar")) {
@@ -55,7 +50,7 @@ public class AndroidManifestDescriptionTest {
           }
         };
     SourcePath skeleton = ruleWithOutput.getSourcePathToOutput();
-    buildRuleResolver.addToIndex(ruleWithOutput);
+    graphBuilder.addToIndex(ruleWithOutput);
 
     AndroidManifestDescriptionArg arg =
         AndroidManifestDescriptionArg.builder().setName("baz").setSkeleton(skeleton).build();
@@ -63,15 +58,11 @@ public class AndroidManifestDescriptionTest {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:baz");
     BuildRuleParams params =
-        TestBuildRuleParams.create().withDeclaredDeps(buildRuleResolver.getAllRules(arg.getDeps()));
+        TestBuildRuleParams.create().withDeclaredDeps(graphBuilder.getAllRules(arg.getDeps()));
     BuildRule androidManifest =
         new AndroidManifestDescription(new AndroidManifestFactory())
             .createBuildRule(
-                ImmutableBuildRuleCreationContext.of(
-                    TargetGraph.EMPTY,
-                    buildRuleResolver,
-                    projectFilesystem,
-                    TestCellBuilder.createCellRoots(projectFilesystem)),
+                TestBuildRuleCreationContextFactory.create(graphBuilder, projectFilesystem),
                 buildTarget,
                 params,
                 arg);

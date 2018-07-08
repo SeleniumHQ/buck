@@ -18,6 +18,7 @@ package com.facebook.buck.io.file;
 
 import static org.hamcrest.CoreMatchers.equalTo;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
@@ -26,11 +27,14 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.types.Pair;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -76,7 +80,7 @@ public class MorePathsTest {
   }
 
   @Test
-  public void testCreateRelativeSymlinkToFilesInRoot() throws InterruptedException, IOException {
+  public void testCreateRelativeSymlinkToFilesInRoot() throws IOException {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     tmp.newFile("biz.txt");
@@ -105,7 +109,7 @@ public class MorePathsTest {
   }
 
   @Test
-  public void testCreateRelativeSymlinkToFileInRoot() throws InterruptedException, IOException {
+  public void testCreateRelativeSymlinkToFileInRoot() throws IOException {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     tmp.newFile("biz.txt");
@@ -135,8 +139,7 @@ public class MorePathsTest {
   }
 
   @Test
-  public void testCreateRelativeSymlinkToFilesOfVaryingDepth()
-      throws InterruptedException, IOException {
+  public void testCreateRelativeSymlinkToFilesOfVaryingDepth() throws IOException {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     tmp.newFolder("foo", "bar", "baz");
@@ -225,36 +228,36 @@ public class MorePathsTest {
 
   @Test
   public void fixPathCommonTest() {
-    final Path inputPath = Paths.get("subdir/subdir2/foo/bar/x.file");
-    final Path expecting = Paths.get("subdir/subdir2/foo/bar/x.file");
+    Path inputPath = Paths.get("subdir/subdir2/foo/bar/x.file");
+    Path expecting = Paths.get("subdir/subdir2/foo/bar/x.file");
     assertEquals(expecting, MorePaths.fixPath(inputPath));
   }
 
   @Test
   public void fixPathAbsoluteTest() {
-    final Path inputPath = Paths.get("/subdir/subdir2/foo/bar/x.file");
-    final Path expecting = Paths.get("/subdir/subdir2/foo/bar/x.file");
+    Path inputPath = Paths.get("/subdir/subdir2/foo/bar/x.file");
+    Path expecting = Paths.get("/subdir/subdir2/foo/bar/x.file");
     assertEquals(expecting, MorePaths.fixPath(inputPath));
   }
 
   @Test
   public void fixPathEmptyPartTest() {
-    final Path inputPath = Paths.get("subdir/subdir2//foo///bar/////x.file");
-    final Path expecting = Paths.get("subdir/subdir2/foo/bar/x.file");
+    Path inputPath = Paths.get("subdir/subdir2//foo///bar/////x.file");
+    Path expecting = Paths.get("subdir/subdir2/foo/bar/x.file");
     assertEquals(expecting, MorePaths.fixPath(inputPath));
   }
 
   @Test
   public void fixPathDotPartTest() {
-    final Path inputPath = Paths.get("subdir/subdir2/./foo/././bar/./x.file");
-    final Path expecting = Paths.get("subdir/subdir2/foo/bar/x.file");
+    Path inputPath = Paths.get("subdir/subdir2/./foo/././bar/./x.file");
+    Path expecting = Paths.get("subdir/subdir2/foo/bar/x.file");
     assertEquals(expecting, MorePaths.fixPath(inputPath));
   }
 
   @Test
   public void fixPathDotDotPartTest() {
-    final Path inputPath = Paths.get("subdir/subdir2/foo/../bar/x.file");
-    final Path expecting = Paths.get("subdir/subdir2/foo/../bar/x.file");
+    Path inputPath = Paths.get("subdir/subdir2/foo/../bar/x.file");
+    Path expecting = Paths.get("subdir/subdir2/foo/../bar/x.file");
     // should be the same!  Does not fully "normalize" path.
     assertEquals(expecting, MorePaths.fixPath(inputPath));
   }
@@ -263,5 +266,81 @@ public class MorePathsTest {
   public void getNameWithoutExtension() {
     Path inputPath = Paths.get("subdir/subdir2/bar/x.file");
     assertEquals("x", MorePaths.getNameWithoutExtension(inputPath));
+  }
+
+  @Test
+  public void splitOnCommonPrefixAbsolute() {
+    Path first = Paths.get("/test/a/b/c");
+    Path second = Paths.get("/test/b/c");
+    Path third = Paths.get("/test/a/d");
+
+    Optional<Pair<Path, ImmutableList<Path>>> result =
+        MorePaths.splitOnCommonPrefix(ImmutableList.of(first, second, third));
+
+    assertTrue(result.isPresent());
+    assertEquals(Paths.get("/test"), result.get().getFirst());
+    assertEquals(
+        ImmutableList.of(Paths.get("a/b/c"), Paths.get("b/c"), Paths.get("a/d")),
+        result.get().getSecond());
+  }
+
+  @Test
+  public void splitOnCommonPrefixAbsoluteNoCommon() {
+    Path first = Paths.get("/a/b/c");
+    Path second = Paths.get("/b/c");
+    Path third = Paths.get("/a/d");
+
+    Optional<Pair<Path, ImmutableList<Path>>> result =
+        MorePaths.splitOnCommonPrefix(ImmutableList.of(first, second, third));
+
+    assertTrue(result.isPresent());
+    assertEquals(Paths.get("/"), result.get().getFirst());
+    assertEquals(
+        ImmutableList.of(Paths.get("a/b/c"), Paths.get("b/c"), Paths.get("a/d")),
+        result.get().getSecond());
+  }
+
+  @Test
+  public void splitOnCommonPrefixRelative() {
+    Path first = Paths.get("test/a/b/c");
+    Path second = Paths.get("test/b/c");
+    Path third = Paths.get("test/a/d");
+
+    Optional<Pair<Path, ImmutableList<Path>>> result =
+        MorePaths.splitOnCommonPrefix(ImmutableList.of(first, second, third));
+
+    assertTrue(result.isPresent());
+    assertEquals(Paths.get("test"), result.get().getFirst());
+    assertEquals(
+        ImmutableList.of(Paths.get("a/b/c"), Paths.get("b/c"), Paths.get("a/d")),
+        result.get().getSecond());
+  }
+
+  @Test
+  public void splitOnCommonPrefixRelativeNoCommon() {
+    Path first = Paths.get("a/b/c");
+    Path second = Paths.get("b/c");
+    Path third = Paths.get("a/d");
+
+    Optional<Pair<Path, ImmutableList<Path>>> result =
+        MorePaths.splitOnCommonPrefix(ImmutableList.of(first, second, third));
+
+    assertTrue(result.isPresent());
+    assertEquals(Paths.get(""), result.get().getFirst());
+    assertEquals(
+        ImmutableList.of(Paths.get("a/b/c"), Paths.get("b/c"), Paths.get("a/d")),
+        result.get().getSecond());
+  }
+
+  @Test
+  public void splitOnCommonPrefixMixedFails() {
+    Path first = Paths.get("/test/a/b/c");
+    Path second = Paths.get("b/c");
+    Path third = Paths.get("a/d");
+
+    Optional<Pair<Path, ImmutableList<Path>>> result =
+        MorePaths.splitOnCommonPrefix(ImmutableList.of(first, second, third));
+
+    assertFalse(result.isPresent());
   }
 }

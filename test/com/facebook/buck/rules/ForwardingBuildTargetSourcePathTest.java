@@ -17,7 +17,16 @@ package com.facebook.buck.rules;
 
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import java.nio.file.Path;
@@ -27,15 +36,13 @@ import org.junit.Test;
 
 public class ForwardingBuildTargetSourcePathTest {
 
-  private BuildRuleResolver resolver;
+  private ActionGraphBuilder graphBuilder;
   private SourcePathResolver pathResolver;
 
   @Before
   public void setUp() {
-    resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    pathResolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+    graphBuilder = new TestActionGraphBuilder();
+    pathResolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
   }
 
   @Test
@@ -54,7 +61,7 @@ public class ForwardingBuildTargetSourcePathTest {
     BuildTarget target = BuildTargetFactory.newInstance("//package:name");
     FakeBuildRule rule = new FakeBuildRule(target);
     rule.setOutputFile("foo/bar");
-    resolver.addToIndex(rule);
+    graphBuilder.addToIndex(rule);
     ForwardingBuildTargetSourcePath sourcePath =
         ForwardingBuildTargetSourcePath.of(target, DefaultBuildTargetSourcePath.of(target));
     assertEquals(target, sourcePath.getTarget());
@@ -65,7 +72,7 @@ public class ForwardingBuildTargetSourcePathTest {
   public void forwardsToExplicitBuildTargetSourcePath() {
     BuildTarget target = BuildTargetFactory.newInstance("//package:name");
     FakeBuildRule rule = new FakeBuildRule(target);
-    resolver.addToIndex(rule);
+    graphBuilder.addToIndex(rule);
     Path relativePath = Paths.get("foo/bar");
     ForwardingBuildTargetSourcePath sourcePath =
         ForwardingBuildTargetSourcePath.of(
@@ -78,11 +85,11 @@ public class ForwardingBuildTargetSourcePathTest {
   public void chains() {
     BuildTarget target1 = BuildTargetFactory.newInstance("//package:name");
     FakeBuildRule rule1 = new FakeBuildRule(target1);
-    resolver.addToIndex(rule1);
+    graphBuilder.addToIndex(rule1);
 
     BuildTarget target2 = BuildTargetFactory.newInstance("//package2:name2");
     FakeBuildRule rule2 = new FakeBuildRule(target2);
-    resolver.addToIndex(rule2);
+    graphBuilder.addToIndex(rule2);
 
     Path relativePath = Paths.get("foo/bar");
 

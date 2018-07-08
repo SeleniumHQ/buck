@@ -24,6 +24,8 @@ import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.apple.toolchain.CodeSignIdentity;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileMetadata;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.filesystem.CopySourceMode;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
@@ -32,7 +34,6 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.step.fs.WriteFileStep;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -120,8 +121,8 @@ class ProvisioningProfileCopyStep implements Step {
   @Override
   public StepExecutionResult execute(ExecutionContext context)
       throws IOException, InterruptedException {
-    final Optional<ImmutableMap<String, NSObject>> entitlements;
-    final String prefix;
+    Optional<ImmutableMap<String, NSObject>> entitlements;
+    String prefix;
     if (entitlementsPlist.isPresent()) {
       try {
         NSDictionary entitlementsPlistDict =
@@ -141,22 +142,35 @@ class ProvisioningProfileCopyStep implements Step {
       prefix = "*";
     }
 
-    final Optional<ImmutableList<CodeSignIdentity>> identities;
+    Optional<ImmutableList<CodeSignIdentity>> identities;
     if (!codeSignIdentitiesSupplier.get().isEmpty()) {
       identities = Optional.of(codeSignIdentitiesSupplier.get());
     } else {
       identities = ProvisioningProfileStore.MATCH_ANY_IDENTITY;
     }
 
-    final String bundleID =
+    String bundleID =
         AppleInfoPlistParsing.getBundleIdFromPlistStream(
                 infoPlist, filesystem.getInputStreamForRelativePath(infoPlist))
             .get();
-    Optional<ProvisioningProfileMetadata> bestProfile =
-        provisioningProfileUUID.isPresent()
-            ? provisioningProfileStore.getProvisioningProfileByUUID(provisioningProfileUUID.get())
-            : provisioningProfileStore.getBestProvisioningProfile(
-                bundleID, platform, entitlements, identities);
+    Optional<ProvisioningProfileMetadata> bestProfile;
+    String diagnostics = "";
+    if (provisioningProfileUUID.isPresent()) {
+      bestProfile =
+          provisioningProfileStore.getProvisioningProfileByUUID(provisioningProfileUUID.get());
+      if (!bestProfile.isPresent()) {
+        diagnostics =
+            String.format(
+                "A provisioning profile matching UUID %s was not found",
+                provisioningProfileUUID.get());
+      }
+    } else {
+      StringBuffer diagnosticsBuffer = new StringBuffer();
+      bestProfile =
+          provisioningProfileStore.getBestProvisioningProfile(
+              bundleID, platform, entitlements, identities, diagnosticsBuffer);
+      diagnostics = diagnosticsBuffer.toString();
+    }
 
     if (dryRunResultsPath.isPresent()) {
       NSDictionary dryRunResult = new NSDictionary();
@@ -177,13 +191,15 @@ class ProvisioningProfileCopyStep implements Step {
     selectedProvisioningProfileFuture.set(bestProfile);
 
     if (!bestProfile.isPresent()) {
+      context.getBuckEventBus().post(ConsoleEvent.warning(diagnostics));
+
       String message =
           "No valid non-expired provisioning profiles match for " + prefix + "." + bundleID;
       if (dryRunResultsPath.isPresent()) {
-        LOG.warn(message);
+        LOG.warn(message + "\n" + diagnostics);
         return StepExecutionResults.SUCCESS;
       } else {
-        throw new HumanReadableException(message);
+        throw new HumanReadableException(message + "\n" + diagnostics);
       }
     }
 

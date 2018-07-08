@@ -17,13 +17,13 @@
 package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
+import com.facebook.buck.core.build.engine.buildinfo.BuildInfo;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.rules.BuildInfo;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.caliper.AfterExperiment;
 import com.google.caliper.BeforeExperiment;
@@ -171,7 +171,7 @@ public class SQLiteArtifactCacheBenchmark {
   @Benchmark
   private void benchMetadataFetch() {
     for (RuleKey key : ruleKeys) {
-      Futures.getUnchecked(artifactCache.fetchAsync(key, output));
+      Futures.getUnchecked(artifactCache.fetchAsync(null, key, output));
     }
   }
 
@@ -189,7 +189,7 @@ public class SQLiteArtifactCacheBenchmark {
   @Benchmark
   private void benchArtifactFetch() {
     for (RuleKey key : ruleKeys) {
-      Futures.getUnchecked(artifactCache.fetchAsync(key, output));
+      Futures.getUnchecked(artifactCache.fetchAsync(null, key, output));
     }
   }
 }

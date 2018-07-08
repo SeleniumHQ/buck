@@ -20,18 +20,17 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
+import com.facebook.buck.android.toolchain.ndk.impl.TestNdkCxxPlatformsProviderFactory;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.io.FakeExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
@@ -62,9 +61,7 @@ public class NdkLibraryTest {
 
   @Test
   public void testSimpleNdkLibraryRule() throws Exception {
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildContext context = FakeBuildContext.NOOP_CONTEXT;
 
     Path androidNdk = Paths.get("/android/ndk");
@@ -73,8 +70,11 @@ public class NdkLibraryTest {
             .withToolchain(
                 AndroidNdk.DEFAULT_NAME,
                 AndroidNdk.of(
-                    "1", androidNdk, new FakeExecutableFinder(androidNdk.resolve("ndk-build"))))
-            .withDefaultNdkCxxPlatforms()
+                    "1",
+                    androidNdk,
+                    false,
+                    new FakeExecutableFinder(androidNdk.resolve("ndk-build"))))
+            .withToolchain(TestNdkCxxPlatformsProviderFactory.createDefaultNdkPlatformsProvider())
             .build();
 
     String basePath = "java/src/com/facebook/base";
@@ -83,7 +83,7 @@ public class NdkLibraryTest {
         new NdkLibraryBuilder(target, toolchainProvider)
             .setFlags(ImmutableList.of("flag1", "flag2"))
             .setIsAsset(true)
-            .build(ruleResolver, projectFilesystem);
+            .build(graphBuilder, projectFilesystem);
 
     assertEquals("ndk_library", ndkLibrary.getType());
 

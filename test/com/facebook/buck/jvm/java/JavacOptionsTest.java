@@ -24,8 +24,8 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.Lists;
 import java.util.Collections;
@@ -70,7 +70,7 @@ public class JavacOptionsTest {
   }
 
   @Test
-  public void shouldSetTheAnnotationSource() throws InterruptedException {
+  public void shouldSetTheAnnotationSource() {
     AnnotationProcessingParams params =
         AnnotationProcessingParams.builder()
             .setLegacySafeAnnotationProcessors(Collections.emptySet())
@@ -85,7 +85,7 @@ public class JavacOptionsTest {
   }
 
   @Test
-  public void shouldAddAllAddedAnnotationProcessors() throws InterruptedException {
+  public void shouldAddAllAddedAnnotationProcessors() {
     AnnotationProcessingParams params =
         AnnotationProcessingParams.builder()
             .setLegacyAnnotationProcessorDeps(Collections.emptySet())

@@ -19,7 +19,7 @@ package com.facebook.buck.cli;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.base.Splitter;
 import java.io.IOException;
@@ -75,7 +75,7 @@ public class AuditBuildInfoCommandTest {
   }
 
   @Test
-  public void testBuildInfoPrintedInPlainFormat() throws IOException {
+  public void testBuildInfoPrintedInPlainFormat() {
     AuditBuildInfoCommand.collectAndDumpBuildInformation(console, Collections.emptyList(), false);
     String output = console.getTextWrittenToStdOut().trim();
 
@@ -89,7 +89,7 @@ public class AuditBuildInfoCommandTest {
   }
 
   @Test
-  public void testOneBuildInfoFieldPrintedInPlainFormat() throws IOException {
+  public void testOneBuildInfoFieldPrintedInPlainFormat() {
     AuditBuildInfoCommand.collectAndDumpBuildInformation(
         console, Collections.singleton("buck_build_commit_timestamp"), false);
     String output = console.getTextWrittenToStdOut().trim();
@@ -102,7 +102,7 @@ public class AuditBuildInfoCommandTest {
   }
 
   @Test
-  public void testInvalidBuildInfoFieldNameShowsError() throws IOException {
+  public void testInvalidBuildInfoFieldNameShowsError() {
     try {
       AuditBuildInfoCommand.collectAndDumpBuildInformation(
           console, Collections.singleton("some_field"), false);

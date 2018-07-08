@@ -16,13 +16,14 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
 import com.facebook.buck.shell.BashStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -30,7 +31,6 @@ import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.DefaultFilteredDirectoryCopier;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.FilteredDirectoryCopier;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableBiMap;
@@ -213,7 +213,7 @@ public class FilterResourcesSteps {
               drawables, targetDensities, /* canDownscale */ canDownscale(context)));
     }
 
-    final boolean localeFilterEnabled = !locales.isEmpty();
+    boolean localeFilterEnabled = !locales.isEmpty();
     if (localeFilterEnabled || enableStringWhitelisting) {
       pathPredicates.add(
           path -> {
@@ -287,8 +287,7 @@ public class FilterResourcesSteps {
 
         // Replace density qualifier with target density using regular expression to match
         // the qualifier in the context of a path to a drawable.
-        String fromDensity =
-            (density == ResourceFilters.Density.NO_QUALIFIER ? "" : "-") + density.toString();
+        String fromDensity = (density == ResourceFilters.Density.NO_QUALIFIER ? "" : "-") + density;
         Path destination =
             Paths.get(
                 MorePaths.pathWithUnixSeparators(drawable)
@@ -335,7 +334,7 @@ public class FilterResourcesSteps {
     @Override
     public ImmutableSet<Path> findDrawables(Collection<Path> dirs, ProjectFilesystem filesystem)
         throws IOException {
-      final ImmutableSet.Builder<Path> drawableBuilder = ImmutableSet.builder();
+      ImmutableSet.Builder<Path> drawableBuilder = ImmutableSet.builder();
       for (Path dir : dirs) {
         filesystem.walkRelativeFileTree(
             dir,

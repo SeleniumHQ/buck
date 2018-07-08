@@ -15,6 +15,8 @@
  */
 package com.facebook.buck.ide.intellij.lang.java;
 
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.ide.intellij.BaseIjModuleRule;
 import com.facebook.buck.ide.intellij.ModuleBuildContext;
 import com.facebook.buck.ide.intellij.model.DependencyType;
@@ -24,8 +26,6 @@ import com.facebook.buck.ide.intellij.model.IjProjectConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBinaryDescription;
 import com.facebook.buck.jvm.java.JavaBinaryDescriptionArg;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.TargetNode;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -40,7 +40,7 @@ public class JavaBinaryModuleRule extends BaseIjModuleRule<JavaBinaryDescription
   }
 
   @Override
-  public Class<? extends Description<?>> getDescriptionClass() {
+  public Class<? extends DescriptionWithTargetGraph<?>> getDescriptionClass() {
     return JavaBinaryDescription.class;
   }
 

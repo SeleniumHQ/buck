@@ -21,11 +21,11 @@ import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.artifact_cache.DirArtifactCache;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashEntry;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
-import com.facebook.buck.rules.RuleKey;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
@@ -63,7 +63,7 @@ public class LocalFsContentsProvider implements FileContentsProvider {
       BuildJobStateFileHashEntry entry, Path targetAbsPath) {
     RuleKey key = new RuleKey(entry.getSha1());
     return Futures.transform(
-        dirCache.fetchAsync(key, LazyPath.ofInstance(targetAbsPath)),
+        dirCache.fetchAsync(null, key, LazyPath.ofInstance(targetAbsPath)),
         (CacheResult result) -> result.getType() == CacheResultType.HIT);
   }
 

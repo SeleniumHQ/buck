@@ -16,7 +16,6 @@
 
 package com.facebook.buck.android;
 
-import com.facebook.buck.android.AndroidBinary.RelinkerMode;
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
@@ -24,27 +23,28 @@ import com.facebook.buck.android.relinker.NativeRelinker;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntimeType;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
@@ -73,7 +73,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
   private final ProjectFilesystem projectFilesystem;
   private final BuildTarget originalBuildTarget;
   private final BuildRuleParams buildRuleParams;
-  private final BuildRuleResolver ruleResolver;
+  private final ActionGraphBuilder graphBuilder;
   private final SourcePathResolver pathResolver;
   private final SourcePathRuleFinder ruleFinder;
   private final ImmutableSet<TargetCpuType> cpuFilters;
@@ -90,7 +90,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
   public AndroidNativeLibsPackageableGraphEnhancer(
       ToolchainProvider toolchainProvider,
       CellPathResolver cellPathResolver,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       BuildTarget originalBuildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams originalParams,
@@ -106,11 +106,11 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
     this.cellPathResolver = cellPathResolver;
     this.projectFilesystem = projectFilesystem;
     this.originalBuildTarget = originalBuildTarget;
-    this.ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    this.ruleFinder = new SourcePathRuleFinder(graphBuilder);
     this.nativeLibraryMergeLocalizedSymbols = nativeLibraryMergeLocalizedSymbols;
     this.pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     this.buildRuleParams = originalParams;
-    this.ruleResolver = ruleResolver;
+    this.graphBuilder = graphBuilder;
     this.cpuFilters = cpuFilters;
     this.cxxBuckConfig = cxxBuckConfig;
     this.nativeLibraryMergeMap = nativeLibraryMergeMap;
@@ -146,10 +146,10 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
 
     for (Map.Entry<APKModule, NativeLinkable> linkableEntry : linkables.entries()) {
       NativeLinkable nativeLinkable = linkableEntry.getValue();
-      if (nativeLinkable.getPreferredLinkage(platform.getCxxPlatform())
+      if (nativeLinkable.getPreferredLinkage(platform.getCxxPlatform(), graphBuilder)
           != NativeLinkable.Linkage.STATIC) {
         ImmutableMap<String, SourcePath> solibs =
-            nativeLinkable.getSharedLibraries(platform.getCxxPlatform());
+            nativeLinkable.getSharedLibraries(platform.getCxxPlatform(), graphBuilder);
         for (Map.Entry<String, SourcePath> entry : solibs.entrySet()) {
           AndroidLinkableMetadata metadata =
               AndroidLinkableMetadata.builder()
@@ -203,7 +203,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
           NativeLibraryMergeEnhancer.enhance(
               cellPathResolver,
               cxxBuckConfig,
-              ruleResolver,
+              graphBuilder,
               pathResolver,
               ruleFinder,
               originalBuildTarget,
@@ -294,7 +294,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       nativeLinkableLibs = relinker.getRelinkedLibs();
       nativeLinkableLibsAssets = relinker.getRelinkedLibsAssets();
       for (BuildRule rule : relinker.getRules()) {
-        ruleResolver.addToIndex(rule);
+        graphBuilder.addToIndex(rule);
       }
     }
 
@@ -363,8 +363,9 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
               NdkCxxPlatform platform =
                   Preconditions.checkNotNull(nativePlatforms.get(targetCpuType));
               NdkCxxRuntime cxxRuntime = platform.getCxxRuntime();
-              if (cxxRuntime.equals(NdkCxxRuntime.SYSTEM)) {
-                // The system runtime doesn't need to be packaged with apks.
+              if (cxxRuntime.equals(NdkCxxRuntime.SYSTEM)
+                  || (platform.getCxxRuntimeType() == NdkCxxRuntimeType.STATIC)) {
+                // The system / statically compiled runtime doesn't need to be packaged with apks.
                 return;
               }
               AndroidLinkableMetadata runtimeLinkableMetadata =
@@ -440,7 +441,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
           requireStripLinkable(
               projectFilesystem,
               ruleFinder,
-              ruleResolver,
+              graphBuilder,
               sourcePath,
               targetCpuType,
               platform,
@@ -463,7 +464,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
   private static StripLinkable requireStripLinkable(
       ProjectFilesystem projectFilesystem,
       SourcePathRuleFinder ruleFinder,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       SourcePath sourcePath,
       TargetCpuType targetCpuType,
       NdkCxxPlatform platform,
@@ -476,7 +477,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
             InternalFlavor.of(Flavor.replaceInvalidCharacters(targetCpuType.name())));
 
     return (StripLinkable)
-        ruleResolver.computeIfAbsent(
+        graphBuilder.computeIfAbsent(
             targetForStripRule,
             (buildTarget) ->
                 new StripLinkable(

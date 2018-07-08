@@ -16,10 +16,10 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -51,6 +51,7 @@ public class FakeJavac implements Javac {
       Path pathToSrcsList,
       Path workingDirectory,
       boolean trackClassUsage,
+      boolean trackJavacPhaseEvents,
       @Nullable JarParameters abiJarParameters,
       @Nullable JarParameters libraryJarParameters,
       AbiGenerationMode abiGenerationMode,
@@ -58,12 +59,12 @@ public class FakeJavac implements Javac {
       @Nullable SourceOnlyAbiRuleInfo ruleInfo) {
     return new Invocation() {
       @Override
-      public int buildSourceOnlyAbiJar() throws InterruptedException {
+      public int buildSourceOnlyAbiJar() {
         throw new UnsupportedOperationException();
       }
 
       @Override
-      public int buildSourceAbiJar() throws InterruptedException {
+      public int buildSourceAbiJar() {
         throw new UnsupportedOperationException();
       }
 

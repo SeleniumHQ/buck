@@ -16,12 +16,16 @@
 
 package com.facebook.buck.rules;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.build.engine.BuildEngine;
+import com.facebook.buck.core.build.engine.BuildEngineBuildContext;
+import com.facebook.buck.core.build.engine.BuildEngineResult;
+import com.facebook.buck.core.build.engine.BuildResult;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.step.ExecutionContext;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.SettableFuture;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
 
 /** Fake implementation of {@link BuildEngine} for use in tests. */
 public class FakeBuildEngine implements BuildEngine {
@@ -41,13 +45,12 @@ public class FakeBuildEngine implements BuildEngine {
   }
 
   @Override
-  public BuildResult getBuildRuleResult(BuildTarget buildTarget)
-      throws ExecutionException, InterruptedException {
+  public BuildResult getBuildRuleResult(BuildTarget buildTarget) {
     return buildResults.get(buildTarget);
   }
 
   @Override
-  public boolean isRuleBuilt(BuildTarget buildTarget) throws InterruptedException {
+  public boolean isRuleBuilt(BuildTarget buildTarget) {
     return buildResults.containsKey(buildTarget);
   }
 

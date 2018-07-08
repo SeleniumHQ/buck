@@ -15,6 +15,9 @@
  */
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
@@ -37,18 +40,23 @@ class OmnibusRootNode extends OmnibusNode implements NativeLinkTarget, NativeLin
 
   @Override
   public NativeLinkTargetMode getNativeLinkTargetMode(CxxPlatform cxxPlatform) {
-    return NativeLinkTargetMode.library(getBuildTarget().toString());
+    return NativeLinkTargetMode.library(getBuildTarget().getShortName());
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkTargetDeps(CxxPlatform cxxPlatform) {
+  public Iterable<? extends NativeLinkable> getNativeLinkTargetDeps(
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return Iterables.concat(
-        getNativeLinkableDepsForPlatform(cxxPlatform),
-        getNativeLinkableExportedDepsForPlatform(cxxPlatform));
+        getNativeLinkableDepsForPlatform(cxxPlatform, graphBuilder),
+        getNativeLinkableExportedDepsForPlatform(cxxPlatform, graphBuilder));
   }
 
   @Override
-  public NativeLinkableInput getNativeLinkTargetInput(CxxPlatform cxxPlatform) {
+  public NativeLinkableInput getNativeLinkTargetInput(
+      CxxPlatform cxxPlatform,
+      ActionGraphBuilder graphBuilder,
+      SourcePathResolver pathResolver,
+      SourcePathRuleFinder ruleFinder) {
     return NativeLinkableInput.builder().addArgs(StringArg.of(getBuildTarget().toString())).build();
   }
 

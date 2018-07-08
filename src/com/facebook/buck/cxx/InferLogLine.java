@@ -16,8 +16,8 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
@@ -42,10 +42,6 @@ class InferLogLine {
 
   @Override
   public String toString() {
-    return buildTarget.toString()
-        + SPLIT_TOKEN
-        + flavors.toString()
-        + SPLIT_TOKEN
-        + output.toString();
+    return buildTarget + SPLIT_TOKEN + flavors + SPLIT_TOKEN + output;
   }
 }

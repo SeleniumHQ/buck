@@ -16,10 +16,22 @@
 
 package com.facebook.buck.rules.modern;
 
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import java.util.Optional;
 
 public interface InputRuleResolver {
   Optional<BuildRule> resolve(SourcePath path);
+
+  /**
+   * Provides access to internal implementation details of the resolver. This should almost never be
+   * used.
+   */
+  UnsafeInternals unsafe();
+
+  /** Encapsulates some exposed internal implementation details. */
+  interface UnsafeInternals {
+    SourcePathRuleFinder getRuleFinder();
+  }
 }

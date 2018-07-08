@@ -16,10 +16,10 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -72,6 +72,7 @@ public abstract class Jsr199Javac implements Javac {
       Path pathToSrcsList,
       Path workingDirectory,
       boolean trackClassUsage,
+      boolean trackJavacPhaseEvents,
       @Nullable JarParameters abiJarParameters,
       @Nullable JarParameters libraryJarParameters,
       AbiGenerationMode abiGenerationMode,
@@ -86,6 +87,7 @@ public abstract class Jsr199Javac implements Javac {
         javaSourceFilePaths,
         pathToSrcsList,
         trackClassUsage,
+        trackJavacPhaseEvents,
         abiJarParameters,
         libraryJarParameters,
         abiGenerationMode,

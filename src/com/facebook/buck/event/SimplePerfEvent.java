@@ -16,7 +16,7 @@
 
 package com.facebook.buck.event;
 
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonValue;
 import com.google.common.base.Joiner;
@@ -222,7 +222,7 @@ public abstract class SimplePerfEvent extends AbstractBuckEvent {
    * Convenience wrapper for {@link SimplePerfEvent#scope(BuckEventBus, PerfEventId, ImmutableMap)}.
    */
   public static Scope scope(BuckEventBus bus, String perfEventName) {
-    return scope(bus, PerfEventId.of(perfEventName), ImmutableMap.<String, Object>of());
+    return scope(bus, PerfEventId.of(perfEventName), ImmutableMap.of());
   }
 
   /**

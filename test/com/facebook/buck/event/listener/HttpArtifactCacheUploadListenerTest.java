@@ -17,11 +17,11 @@
 package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.counters.CountersSnapshotEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.DefaultBuckEventBus;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.rules.BuildEvent;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.eventbus.Subscribe;
@@ -56,7 +56,7 @@ public class HttpArtifactCacheUploadListenerTest {
   }
 
   @Test
-  public void testEventGetsSentWhenBuildIsFinishedWithoutOutstandingUploads() throws IOException {
+  public void testEventGetsSentWhenBuildIsFinishedWithoutOutstandingUploads() {
     HttpArtifactCacheUploadListener listener =
         new HttpArtifactCacheUploadListener(eventBus, NUMBER_OF_THREADS);
     HttpArtifactCacheEvent.Started started =
@@ -70,7 +70,7 @@ public class HttpArtifactCacheUploadListenerTest {
   }
 
   @Test
-  public void testEventGetsSentOnLastUploadAfterBuildFinished() throws IOException {
+  public void testEventGetsSentOnLastUploadAfterBuildFinished() {
     HttpArtifactCacheUploadListener listener =
         new HttpArtifactCacheUploadListener(eventBus, NUMBER_OF_THREADS);
     listener.onBuildFinished(createBuildFinishedEvent(0));
@@ -84,7 +84,7 @@ public class HttpArtifactCacheUploadListenerTest {
   }
 
   @Test
-  public void testNothingGetsSentWhenThereAreNoUploads() throws IOException {
+  public void testNothingGetsSentWhenThereAreNoUploads() {
     HttpArtifactCacheUploadListener listener =
         new HttpArtifactCacheUploadListener(eventBus, NUMBER_OF_THREADS);
     listener.onBuildFinished(createBuildFinishedEvent(2));

@@ -21,32 +21,34 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.BuckEventBusForTests;
+import com.facebook.buck.event.BuckEventBusForTests.CapturingConsoleEventListener;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
@@ -58,6 +60,7 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.hamcrest.Matchers;
+import org.hamcrest.text.MatchesPattern;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -71,19 +74,17 @@ public class ExportFileTest {
   @Rule public ExpectedException expectedException = ExpectedException.none();
 
   @Before
-  public void createFixtures() throws InterruptedException {
+  public void createFixtures() {
     projectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     target = BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:example.html");
   }
 
   @Test
   public void shouldSetSrcAndOutToNameParameterIfNeitherAreSet() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
-    ExportFile exportFile = new ExportFileBuilder(target).build(resolver, projectFilesystem);
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    ExportFile exportFile = new ExportFileBuilder(target).build(graphBuilder, projectFilesystem);
 
     List<Step> steps =
         exportFile.getBuildSteps(
@@ -109,13 +110,11 @@ public class ExportFileTest {
 
   @Test
   public void shouldSetOutToNameParamValueIfSrcIsSet() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     ExportFile exportFile =
-        new ExportFileBuilder(target).setOut("fish").build(resolver, projectFilesystem);
+        new ExportFileBuilder(target).setOut("fish").build(graphBuilder, projectFilesystem);
 
     List<Step> steps =
         exportFile.getBuildSteps(
@@ -141,16 +140,14 @@ public class ExportFileTest {
 
   @Test
   public void shouldSetOutAndSrcAndNameParametersSeparately() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     ExportFile exportFile =
         new ExportFileBuilder(target)
             .setSrc(PathSourcePath.of(projectFilesystem, Paths.get("chips")))
             .setOut("fish")
-            .build(resolver, projectFilesystem);
+            .build(graphBuilder, projectFilesystem);
 
     List<Step> steps =
         exportFile.getBuildSteps(
@@ -175,56 +172,47 @@ public class ExportFileTest {
   }
 
   @Test
-  public void shouldSetInputsFromSourcePaths() throws Exception {
+  public void shouldSetInputsFromSourcePaths() {
     ExportFileBuilder builder =
         new ExportFileBuilder(target).setSrc(FakeSourcePath.of("chips")).setOut("cake");
 
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
 
-    ExportFile exportFile = builder.build(resolver, projectFilesystem);
+    ExportFile exportFile = builder.build(graphBuilder, projectFilesystem);
 
     assertIterablesEquals(
         singleton(Paths.get("chips")),
         pathResolver.filterInputsToCompareToOutput(exportFile.getSource()));
 
-    resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    pathResolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+    graphBuilder = new TestActionGraphBuilder();
+    pathResolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
 
     FakeBuildRule rule =
-        resolver.addToIndex(new FakeBuildRule(BuildTargetFactory.newInstance("//example:one")));
+        graphBuilder.addToIndex(new FakeBuildRule(BuildTargetFactory.newInstance("//example:one")));
 
     builder.setSrc(DefaultBuildTargetSourcePath.of(rule.getBuildTarget()));
-    exportFile = builder.build(resolver, projectFilesystem);
+    exportFile = builder.build(graphBuilder, projectFilesystem);
     assertThat(
         pathResolver.filterInputsToCompareToOutput(exportFile.getSource()), Matchers.empty());
 
-    resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    pathResolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+    graphBuilder = new TestActionGraphBuilder();
+    pathResolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
 
     builder.setSrc(null);
-    exportFile = builder.build(resolver, projectFilesystem);
+    exportFile = builder.build(graphBuilder, projectFilesystem);
     assertIterablesEquals(
         singleton(projectFilesystem.getPath("example.html")),
         pathResolver.filterInputsToCompareToOutput(exportFile.getSource()));
   }
 
   @Test
-  public void getOutputName() throws Exception {
+  public void getOutputName() {
     ExportFile exportFile =
         new ExportFileBuilder(target)
             .setOut("cake")
-            .build(
-                new SingleThreadedBuildRuleResolver(
-                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()),
-                projectFilesystem);
+            .build(new TestActionGraphBuilder(), projectFilesystem);
 
     assertEquals("cake", exportFile.getOutputName());
   }
@@ -240,10 +228,7 @@ public class ExportFileTest {
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
                     filesystem, FileHashCacheMode.DEFAULT)));
-    SourcePathRuleFinder ruleFinder =
-        new SourcePathRuleFinder(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
     DefaultRuleKeyFactory ruleKeyFactory =
         new TestDefaultRuleKeyFactory(hashCache, resolver, ruleFinder);
@@ -254,11 +239,7 @@ public class ExportFileTest {
         new ExportFileBuilder(BuildTargetFactory.newInstance("//some:file"))
             .setSrc(PathSourcePath.of(filesystem, temp));
 
-    ExportFile rule =
-        builder.build(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()),
-            filesystem);
+    ExportFile rule = builder.build(new TestActionGraphBuilder(), filesystem);
 
     RuleKey original = ruleKeyFactory.build(rule);
 
@@ -266,21 +247,14 @@ public class ExportFileTest {
 
     // Create a new rule. The FileHashCache held by the existing rule will retain a reference to the
     // previous content of the file, so we need to create an identical rule.
-    rule =
-        builder.build(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()),
-            filesystem);
+    rule = builder.build(new TestActionGraphBuilder(), filesystem);
 
     hashCache =
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
                     filesystem, FileHashCacheMode.DEFAULT)));
-    ruleFinder =
-        new SourcePathRuleFinder(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     resolver = DefaultSourcePathResolver.from(ruleFinder);
     ruleKeyFactory = new TestDefaultRuleKeyFactory(hashCache, resolver, ruleFinder);
     RuleKey refreshed = ruleKeyFactory.build(rule);
@@ -290,17 +264,15 @@ public class ExportFileTest {
 
   @Test
   public void referenceModeUsesUnderlyingSourcePath() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     SourcePath src = FakeSourcePath.of(projectFilesystem, "source");
     ExportFile exportFile =
         new ExportFileBuilder(target)
             .setMode(ExportFileDescription.Mode.REFERENCE)
             .setSrc(src)
-            .build(resolver, projectFilesystem);
+            .build(graphBuilder, projectFilesystem);
     assertThat(
         pathResolver.getRelativePath(exportFile.getSourcePathToOutput()),
         Matchers.equalTo(pathResolver.getRelativePath(src)));
@@ -308,9 +280,7 @@ public class ExportFileTest {
 
   @Test
   public void referenceModeRequiresSameFilesystem() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     ProjectFilesystem differentFilesystem = new FakeProjectFilesystem();
     SourcePath src = FakeSourcePath.of(differentFilesystem, "source");
     expectedException.expect(HumanReadableException.class);
@@ -318,28 +288,24 @@ public class ExportFileTest {
     new ExportFileBuilder(target)
         .setMode(ExportFileDescription.Mode.REFERENCE)
         .setSrc(src)
-        .build(resolver, projectFilesystem);
+        .build(graphBuilder, projectFilesystem);
   }
 
   @Test
   public void referenceModeDoesNotAcceptOutParameter() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     expectedException.expect(HumanReadableException.class);
     expectedException.expectMessage(Matchers.containsString("must not set `out`"));
     new ExportFileBuilder(target)
         .setOut("out")
         .setMode(ExportFileDescription.Mode.REFERENCE)
-        .build(resolver, projectFilesystem);
+        .build(graphBuilder, projectFilesystem);
   }
 
   @Test
   public void referenceModeExposesUnderlyingBuildTargetAsRuntimeDep() {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
     Genrule genrule =
         GenruleBuilder.newGenruleBuilder(
@@ -347,15 +313,98 @@ public class ExportFileTest {
                 projectFilesystem)
             .setOut("out")
             .setCmd("")
-            .build(resolver, projectFilesystem);
+            .build(graphBuilder, projectFilesystem);
     ExportFile exportFile =
         new ExportFileBuilder(target)
             .setMode(ExportFileDescription.Mode.REFERENCE)
             .setSrc(genrule.getSourcePathToOutput())
-            .build(resolver, projectFilesystem);
+            .build(graphBuilder, projectFilesystem);
 
     assertEquals(
         ImmutableList.of(genrule.getBuildTarget()),
         exportFile.getRuntimeDeps(ruleFinder).collect(Collectors.toList()));
+  }
+
+  @Test
+  public void testDirectoryActionFailOnDirectory() throws Exception {
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    expectedException.expect(HumanReadableException.class);
+    expectedException.expectMessage(
+        MatchesPattern.matchesPattern("Trying to export a directory .* but it is not allowed."));
+
+    Path sourceDir = Paths.get("dir");
+    projectFilesystem.mkdirs(sourceDir);
+    ExportFile exportFile =
+        new ExportFileBuilder(
+                FakeBuckConfig.builder()
+                    .setSections("[export_file]", "input_directory_action = fail")
+                    .build(),
+                target)
+            .setOut("out")
+            .setSrc(FakeSourcePath.of(projectFilesystem, sourceDir))
+            .build(graphBuilder, projectFilesystem);
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+
+    exportFile.getBuildSteps(
+        FakeBuildContext.withSourcePathResolver(pathResolver)
+            .withBuildCellRootPath(projectFilesystem.getRootPath()),
+        new FakeBuildableContext());
+  }
+
+  @Test
+  public void testDirectoryActionWarnOnDirectory() throws Exception {
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+
+    Path sourceDir = Paths.get("dir");
+    projectFilesystem.mkdirs(sourceDir);
+    ExportFile exportFile =
+        new ExportFileBuilder(
+                FakeBuckConfig.builder()
+                    .setSections("[export_file]", "input_directory_action = warn")
+                    .build(),
+                target)
+            .setOut("out")
+            .setSrc(FakeSourcePath.of(projectFilesystem, sourceDir))
+            .build(graphBuilder, projectFilesystem);
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+
+    BuckEventBus buckEventBus = BuckEventBusForTests.newInstance();
+    CapturingConsoleEventListener listener = new CapturingConsoleEventListener();
+    buckEventBus.register(listener);
+
+    exportFile.getBuildSteps(
+        FakeBuildContext.create(pathResolver, buckEventBus)
+            .withBuildCellRootPath(projectFilesystem.getRootPath()),
+        new FakeBuildableContext());
+
+    assertThat(
+        listener.getLogMessages().get(0),
+        MatchesPattern.matchesPattern("Trying to export a directory .* but it is not allowed."));
+  }
+
+  @Test
+  public void testDirectoryActionSkipOnDirectory() throws Exception {
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+
+    Path sourceDir = Paths.get("dir");
+    projectFilesystem.mkdirs(sourceDir);
+    ExportFile exportFile =
+        new ExportFileBuilder(FakeBuckConfig.builder().build(), target)
+            .setOut("out")
+            .setSrc(FakeSourcePath.of(projectFilesystem, sourceDir))
+            .build(graphBuilder, projectFilesystem);
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+
+    BuckEventBus buckEventBus = BuckEventBusForTests.newInstance();
+    CapturingConsoleEventListener listener = new CapturingConsoleEventListener();
+    buckEventBus.register(listener);
+
+    exportFile.getBuildSteps(
+        FakeBuildContext.create(pathResolver, buckEventBus)
+            .withBuildCellRootPath(projectFilesystem.getRootPath()),
+        new FakeBuildableContext());
   }
 }

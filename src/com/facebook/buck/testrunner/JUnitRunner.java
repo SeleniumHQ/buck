@@ -84,7 +84,7 @@ public final class JUnitRunner extends BaseRunner {
     }
 
     for (String className : testClassNames) {
-      final Class<?> testClass = Class.forName(className);
+      Class<?> testClass = Class.forName(className);
 
       List<TestResult> results = new ArrayList<>();
       RecordingFilter filter = new RecordingFilter();
@@ -195,7 +195,7 @@ public final class JUnitRunner extends BaseRunner {
    * thinks is best.
    */
   private RunnerBuilder createRunnerBuilder() {
-    final JUnit4Builder jUnit4RunnerBuilder =
+    JUnit4Builder jUnit4RunnerBuilder =
         new JUnit4Builder() {
           @Override
           public Runner runnerForClass(Class<?> testClass) throws Throwable {
@@ -334,7 +334,7 @@ public final class JUnitRunner extends BaseRunner {
             && "initializationError".equals(methodName)) {
           return; // don't record errors from failed class initialization during dry run
         }
-        failure = null;
+        failure = numFailures == 0 ? null : result.getFailures().get(0);
         type = ResultType.DRY_RUN;
       } else if (numFailures == 0) {
         failure = null;
@@ -460,7 +460,8 @@ public final class JUnitRunner extends BaseRunner {
     public boolean shouldRun(Description description) {
       String methodName = description.getMethodName();
       if (methodName == null) {
-        // JUnit will give us an org.junit.runner.Description like this for the test class
+        // JUnit will give us an org.junit.runner.Description like this for the
+        // test class
         // itself.  It's easier for our filtering to make decisions just at the method level,
         // however, so just always return true here.
         return true;

@@ -16,7 +16,7 @@
 
 package com.facebook.buck.event.listener;
 
-import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.test.TestCaseSummary;
 import com.facebook.buck.test.TestResultSummary;
@@ -29,6 +29,7 @@ import com.facebook.buck.util.Verbosity;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
+import com.google.common.base.Strings;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -218,12 +219,19 @@ public class TestResultFormatter {
       }
     }
 
-    if (summaryVerbosity.getIncludeStdOut() && testResult.getStdOut() != null) {
+    if (summaryVerbosity.getIncludeStdOut() && !Strings.isNullOrEmpty(testResult.getStdOut())) {
       addTo.add("====STANDARD OUT====", testResult.getStdOut());
     }
 
-    if (summaryVerbosity.getIncludeStdErr() && testResult.getStdErr() != null) {
+    if (summaryVerbosity.getIncludeStdErr() && !Strings.isNullOrEmpty(testResult.getStdErr())) {
       addTo.add("====STANDARD ERR====", testResult.getStdErr());
+    }
+
+    if (Strings.isNullOrEmpty(testResult.getMessage())
+        && Strings.isNullOrEmpty(testResult.getStacktrace())
+        && Strings.isNullOrEmpty(testResult.getStdOut())
+        && Strings.isNullOrEmpty(testResult.getStdErr())) {
+      addTo.add("Test did not produce any output.");
     }
   }
 
@@ -280,8 +288,8 @@ public class TestResultFormatter {
       ImmutableList<Path> testLogPaths = testLogPathsBuilder.build();
       if (testLogsPath.isPresent() && verbosity != Verbosity.SILENT) {
         try {
-          if (MoreFiles.concatenateFiles(testLogsPath.get(), testLogPaths)) {
-            addTo.add("Updated test logs: " + testLogsPath.get().toString());
+          if (MostFiles.concatenateFiles(testLogsPath.get(), testLogPaths)) {
+            addTo.add("Updated test logs: " + testLogsPath.get());
           }
         } catch (IOException e) {
           LOG.warn(e, "Could not concatenate test logs %s to %s", testLogPaths, testLogsPath.get());

@@ -16,8 +16,8 @@
 
 package org.openqa.selenium.buck.javascript;
 
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.Tool;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.google.common.collect.ImmutableList;

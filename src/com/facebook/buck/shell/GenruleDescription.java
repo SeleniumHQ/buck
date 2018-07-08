@@ -20,16 +20,16 @@ import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.sandbox.SandboxConfig;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionRoot;
 import java.util.Optional;
 import org.immutables.value.Value;
@@ -57,7 +57,7 @@ public class GenruleDescription extends AbstractGenruleDescription<GenruleDescri
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       GenruleDescriptionArg args,
       Optional<Arg> cmd,
       Optional<Arg> bash,
@@ -76,7 +76,7 @@ public class GenruleDescription extends AbstractGenruleDescription<GenruleDescri
       return new Genrule(
           buildTarget,
           projectFilesystem,
-          resolver,
+          graphBuilder,
           params,
           sandboxExecutionStrategy,
           args.getSrcs(),
@@ -91,13 +91,14 @@ public class GenruleDescription extends AbstractGenruleDescription<GenruleDescri
           args.getEnvironmentExpansionSeparator(),
           androidPlatformTarget,
           androidNdk,
-          androidSdkLocation);
+          androidSdkLocation,
+          args.getNoRemote().orElse(false));
     } else {
       return new GenruleBinary(
           buildTarget,
           projectFilesystem,
           sandboxExecutionStrategy,
-          resolver,
+          graphBuilder,
           params,
           args.getSrcs(),
           cmd,
@@ -109,8 +110,14 @@ public class GenruleDescription extends AbstractGenruleDescription<GenruleDescri
           args.getEnvironmentExpansionSeparator(),
           androidPlatformTarget,
           androidNdk,
-          androidSdkLocation);
+          androidSdkLocation,
+          args.getNoRemote().orElse(false));
     }
+  }
+
+  @Override
+  public boolean producesCacheableSubgraph() {
+    return true;
   }
 
   @BuckStyleImmutable
@@ -127,5 +134,11 @@ public class GenruleDescription extends AbstractGenruleDescription<GenruleDescri
      * attribute
      */
     Optional<Boolean> getCacheable();
+
+    /**
+     * This functionality only exists to facilitate migration of projects to distributed building.
+     * It will likely go away in the future.
+     */
+    Optional<Boolean> getNoRemote();
   }
 }

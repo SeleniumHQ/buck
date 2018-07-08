@@ -18,19 +18,18 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.LocationMacro;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -42,12 +41,10 @@ public class CxxLocationMacroExpanderTest {
         new CxxGenruleBuilder(BuildTargetFactory.newInstance("//:rule")).setOut("out.txt");
     TargetNode<?, ?> node = builder.build();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(node);
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
-    CxxGenrule cxxGenrule = (CxxGenrule) resolver.requireRule(node.getBuildTarget());
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    CxxGenrule cxxGenrule = (CxxGenrule) graphBuilder.requireRule(node.getBuildTarget());
     CxxLocationMacroExpander expander =
         new CxxLocationMacroExpander(CxxPlatformUtils.DEFAULT_PLATFORM);
     String expanded =
@@ -55,14 +52,15 @@ public class CxxLocationMacroExpanderTest {
             expander.expandFrom(
                 node.getBuildTarget(),
                 node.getCellNames(),
-                resolver,
+                graphBuilder,
                 LocationMacro.of(node.getBuildTarget())),
             pathResolver);
     assertThat(
         expanded,
         Matchers.equalTo(
             pathResolver
-                .getAbsolutePath(cxxGenrule.getGenrule(CxxPlatformUtils.DEFAULT_PLATFORM))
+                .getAbsolutePath(
+                    cxxGenrule.getGenrule(CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder))
                 .toString()));
   }
 }

@@ -18,25 +18,24 @@ package com.facebook.buck.rules.keys;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.RuleKeyAppendable;
+import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.ArchiveMemberSourcePath;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.ArchiveMemberSourcePath;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeDepFileBuildRule;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -57,7 +56,7 @@ public class DependencyFileRuleKeyFactoryTest {
   @Test
   public void testKeysWhenInputPathContentsChanges() throws Exception {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildRuleResolver ruleResolver = newRuleResolver();
+    BuildRuleResolver ruleResolver = newActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
@@ -82,8 +81,8 @@ public class DependencyFileRuleKeyFactoryTest {
 
   @Test
   public void testKeysWhenInputTargetOutputChanges() throws Exception {
-    BuildRuleResolver ruleResolver = newRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    ActionGraphBuilder graphBuilder = newActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
     BuildTarget usedTarget = BuildTargetFactory.newInstance("//:used");
@@ -94,10 +93,10 @@ public class DependencyFileRuleKeyFactoryTest {
     SourcePath unusedSourcePath = DefaultBuildTargetSourcePath.of(unusedTarget);
     SourcePath noncoveredSourcePath = DefaultBuildTargetSourcePath.of(noncoveredTarget);
     SourcePath interestingSourcePath = DefaultBuildTargetSourcePath.of(interestingTarget);
-    ruleResolver.addToIndex(new FakeBuildRule(usedTarget).setOutputFile("used"));
-    ruleResolver.addToIndex(new FakeBuildRule(unusedTarget).setOutputFile("unused"));
-    ruleResolver.addToIndex(new FakeBuildRule(noncoveredTarget).setOutputFile("nc"));
-    ruleResolver.addToIndex(new FakeBuildRule(interestingTarget).setOutputFile("in"));
+    graphBuilder.addToIndex(new FakeBuildRule(usedTarget).setOutputFile("used"));
+    graphBuilder.addToIndex(new FakeBuildRule(unusedTarget).setOutputFile("unused"));
+    graphBuilder.addToIndex(new FakeBuildRule(noncoveredTarget).setOutputFile("nc"));
+    graphBuilder.addToIndex(new FakeBuildRule(interestingTarget).setOutputFile("in"));
 
     testKeysWhenInputContentsChanges(
         ruleFinder,
@@ -116,7 +115,7 @@ public class DependencyFileRuleKeyFactoryTest {
   @Test
   public void testKeysWhenInputArchiveMemberChanges() throws Exception {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildRuleResolver ruleResolver = newRuleResolver();
+    BuildRuleResolver ruleResolver = newActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
@@ -881,7 +880,7 @@ public class DependencyFileRuleKeyFactoryTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     RuleKeyFieldLoader fieldLoader =
         new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
-    BuildRuleResolver ruleResolver = newRuleResolver();
+    BuildRuleResolver ruleResolver = newActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
@@ -936,9 +935,8 @@ public class DependencyFileRuleKeyFactoryTest {
     }
   }
 
-  private BuildRuleResolver newRuleResolver() {
-    return new SingleThreadedBuildRuleResolver(
-        TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+  private ActionGraphBuilder newActionGraphBuilder() {
+    return new TestActionGraphBuilder();
   }
 
   private static class FakeDepFileBuildRuleWithField extends FakeDepFileBuildRule {

@@ -28,27 +28,31 @@ import com.dd.plist.NSDictionary;
 import com.dd.plist.NSObject;
 import com.facebook.buck.cli.Main;
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.CellConfig;
+import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
+import com.facebook.buck.core.cell.impl.LocalCellProviderFactory;
+import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.WatchmanFactory;
 import com.facebook.buck.io.WatchmanWatcher;
 import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.jvm.java.JavaCompilationConstants;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.CellConfig;
-import com.facebook.buck.rules.CellProviderFactory;
-import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.testutil.AbstractWorkspace;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TestConsole;
+import com.facebook.buck.toolchain.ToolchainProviderFactory;
+import com.facebook.buck.toolchain.impl.DefaultToolchainProviderFactory;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.DefaultProcessExecutor;
@@ -67,6 +71,7 @@ import com.facebook.buck.util.trace.ChromeTraceParser.ChromeTraceEventMatcher;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Charsets;
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
@@ -91,6 +96,7 @@ import java.util.Set;
 import javax.annotation.Nullable;
 import javax.tools.ToolProvider;
 import org.hamcrest.Matchers;
+import org.pf4j.PluginManager;
 
 /**
  * {@link ProjectWorkspace} is a directory that contains a Buck project, complete with build files.
@@ -117,6 +123,10 @@ public class ProjectWorkspace extends AbstractWorkspace {
 
   public static final String TEST_CELL_LOCATION =
       "test/com/facebook/buck/testutil/integration/testlibs";
+
+  private static final String[] TEST_CELL_DIRECTORIES_TO_LINK = {
+    "third-party",
+  };
 
   private boolean isSetUp = false;
   private final Path templatePath;
@@ -145,8 +155,8 @@ public class ProjectWorkspace extends AbstractWorkspace {
   }
 
   @VisibleForTesting
-  ProjectWorkspace(Path templateDir, final Path targetFolder) {
-    this(templateDir, targetFolder, false);
+  ProjectWorkspace(Path templateDir, Path targetFolder) {
+    this(templateDir, targetFolder, true);
   }
 
   private ProjectFilesystemAndConfig getProjectFilesystemAndConfig()
@@ -164,8 +174,8 @@ public class ProjectWorkspace extends AbstractWorkspace {
     addTemplateToWorkspace(templatePath);
 
     if (addBuckRepoCell) {
-      addBuckConfigLocalOption(
-          "repositories", "buck", Paths.get(TEST_CELL_LOCATION).toAbsolutePath().toString());
+      Path bucklibRoot = setupBuckLib();
+      addBuckConfigLocalOption("repositories", "buck", bucklibRoot.toString());
     }
 
     // Enable the JUL build log.  This log is very verbose but rarely useful,
@@ -174,6 +184,54 @@ public class ProjectWorkspace extends AbstractWorkspace {
 
     isSetUp = true;
     return this;
+  }
+
+  private Path setupBuckLib() throws IOException {
+    Path bucklibRoot = createBucklibRoot();
+    createSymlinkToBuckTestRepository(bucklibRoot);
+    saveBucklibConfig(bucklibRoot);
+    return bucklibRoot;
+  }
+
+  private Path createBucklibRoot() throws IOException {
+    Path root = Files.createTempDirectory("buck-testlib").toRealPath().normalize();
+    Runtime.getRuntime()
+        .addShutdownHook(
+            new Thread(
+                () -> {
+                  try {
+                    MostFiles.deleteRecursivelyIfExists(root);
+                  } catch (IOException e) {
+                    throw new RuntimeException(e);
+                  }
+                }));
+    return root;
+  }
+
+  private void createSymlinkToBuckTestRepository(Path bucklib) throws IOException {
+    for (String directory : TEST_CELL_DIRECTORIES_TO_LINK) {
+      Path directoryPath = bucklib.resolve(directory);
+      Files.createSymbolicLink(
+          directoryPath, Paths.get(TEST_CELL_LOCATION).resolve(directory).toAbsolutePath());
+    }
+  }
+
+  private static void saveBucklibConfig(Path bucklibRoot) throws IOException {
+    Map<String, Map<String, String>> configs = prepareBucklibConfig();
+    String contents = convertToBuckConfig(configs);
+    Files.write(bucklibRoot.resolve(".buckconfig"), contents.getBytes(UTF_8));
+  }
+
+  private static Map<String, Map<String, String>> prepareBucklibConfig() {
+    Map<String, Map<String, String>> configs = new HashMap<>();
+    configs.put(
+        "project",
+        ImmutableMap.of(
+            "allow_symlinks",
+            "ALLOW",
+            "read_only_paths",
+            Joiner.on(", ").join(TEST_CELL_DIRECTORIES_TO_LINK)));
+    return configs;
   }
 
   public BuckPaths getBuckPaths() throws InterruptedException, IOException {
@@ -525,6 +583,9 @@ public class ProjectWorkspace extends AbstractWorkspace {
     ProjectFilesystem filesystem = filesystemAndConfig.projectFilesystem;
     Config config = filesystemAndConfig.config;
 
+    DefaultCellPathResolver rootCellCellPathResolver =
+        DefaultCellPathResolver.of(filesystem.getRootPath(), config);
+
     ImmutableMap<String, String> env = ImmutableMap.copyOf(System.getenv());
     BuckConfig buckConfig =
         new BuckConfig(
@@ -533,17 +594,23 @@ public class ProjectWorkspace extends AbstractWorkspace {
             Architecture.detect(),
             Platform.detect(),
             env,
-            DefaultCellPathResolver.of(filesystem.getRootPath(), config));
+            rootCellCellPathResolver);
 
-    return CellProviderFactory.createForLocalBuild(
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
+    ExecutableFinder executableFinder = new ExecutableFinder();
+
+    ToolchainProviderFactory toolchainProviderFactory =
+        new DefaultToolchainProviderFactory(pluginManager, env, processExecutor, executableFinder);
+
+    return LocalCellProviderFactory.create(
             filesystem,
             WatchmanFactory.NULL_WATCHMAN,
             buckConfig,
             CellConfig.of(),
-            BuckPluginManagerFactory.createPluginManager(),
-            env,
-            processExecutor,
-            new ExecutableFinder(),
+            rootCellCellPathResolver.getPathMapping(),
+            rootCellCellPathResolver,
+            TestBuckModuleManagerFactory.create(pluginManager),
+            toolchainProviderFactory,
             new DefaultProjectFilesystemFactory())
         .getCellByPath(filesystem.getRootPath());
   }
@@ -661,7 +728,7 @@ public class ProjectWorkspace extends AbstractWorkspace {
    * @param templateSubdirectory An optional subdirectory to check. Only files in this directory
    *     will be compared.
    */
-  private void assertPathsEqual(final Path templateSubdirectory, final Path destinationSubdirectory)
+  private void assertPathsEqual(Path templateSubdirectory, Path destinationSubdirectory)
       throws IOException {
     SimpleFileVisitor<Path> copyDirVisitor =
         new SimpleFileVisitor<Path>() {

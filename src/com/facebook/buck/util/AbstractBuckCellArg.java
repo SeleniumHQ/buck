@@ -16,7 +16,7 @@
 
 package com.facebook.buck.util;
 
-import com.facebook.buck.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import java.util.Optional;
 import org.immutables.value.Value;
 
@@ -28,6 +28,11 @@ abstract class AbstractBuckCellArg {
   public abstract Optional<String> getCellName();
 
   public abstract String getArg();
+
+  @Value.Derived
+  public String getBasePath() {
+    return "//" + getArg();
+  }
 
   /** Convenience constructor for an {@link AbstractBuckCellArg} */
   public static BuckCellArg of(String input) {

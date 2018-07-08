@@ -24,6 +24,10 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
@@ -135,7 +139,7 @@ public class BuildTargetTest {
   @Test
   public void testGetUnflavoredTarget() {
     UnflavoredBuildTarget unflavoredTarget =
-        UnflavoredBuildTarget.builder()
+        ImmutableUnflavoredBuildTarget.builder()
             .setBaseName("//foo/bar")
             .setShortName("baz")
             .setCellPath(ROOT)
@@ -168,13 +172,13 @@ public class BuildTargetTest {
   @Test
   public void unflavoredBuildTargetsAreInterned() {
     UnflavoredBuildTarget target1 =
-        UnflavoredBuildTarget.builder()
+        ImmutableUnflavoredBuildTarget.builder()
             .setCellPath(ROOT)
             .setBaseName("//foo")
             .setShortName("bar")
             .build();
     UnflavoredBuildTarget target2 =
-        UnflavoredBuildTarget.builder()
+        ImmutableUnflavoredBuildTarget.builder()
             .setCellPath(ROOT)
             .setBaseName("//foo")
             .setShortName("bar")

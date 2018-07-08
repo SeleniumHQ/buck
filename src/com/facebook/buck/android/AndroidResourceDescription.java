@@ -18,29 +18,28 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.aapt.MiniAapt;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.SymlinkTree;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasDeclaredDeps;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SymlinkTree;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
@@ -64,13 +63,12 @@ import java.util.Optional;
 import org.immutables.value.Value;
 
 public class AndroidResourceDescription
-    implements Description<AndroidResourceDescriptionArg>, Flavored {
+    implements DescriptionWithTargetGraph<AndroidResourceDescriptionArg>, Flavored {
 
   private static final ImmutableSet<String> NON_ASSET_FILENAMES =
       ImmutableSet.of(
           ".gitkeep", ".svn", ".git", ".ds_store", ".scc", "cvs", "thumbs.db", "picasa.ini");
 
-  private final ToolchainProvider toolchainProvider;
   private final AndroidBuckConfig androidBuckConfig;
 
   @VisibleForTesting
@@ -84,9 +82,7 @@ public class AndroidResourceDescription
 
   public static final Flavor AAPT2_COMPILE_FLAVOR = InternalFlavor.of("aapt2_compile");
 
-  public AndroidResourceDescription(
-      ToolchainProvider toolchainProvider, AndroidBuckConfig androidBuckConfig) {
-    this.toolchainProvider = toolchainProvider;
+  public AndroidResourceDescription(AndroidBuckConfig androidBuckConfig) {
     this.androidBuckConfig = androidBuckConfig;
   }
 
@@ -98,12 +94,12 @@ public class AndroidResourceDescription
   @SuppressWarnings("PMD.PrematureDeclaration")
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       AndroidResourceDescriptionArg args) {
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     ImmutableSortedSet<Flavor> flavors = buildTarget.getFlavors();
     if (flavors.contains(RESOURCES_SYMLINK_TREE_FLAVOR)) {
@@ -137,10 +133,10 @@ public class AndroidResourceDescription
     // we have to resort to some hackery to make sure things work correctly.
     Pair<Optional<SymlinkTree>, Optional<SourcePath>> resInputs =
         collectInputSourcePaths(
-            resolver, buildTarget, RESOURCES_SYMLINK_TREE_FLAVOR, args.getRes());
+            graphBuilder, buildTarget, RESOURCES_SYMLINK_TREE_FLAVOR, args.getRes());
     Pair<Optional<SymlinkTree>, Optional<SourcePath>> assetsInputs =
         collectInputSourcePaths(
-            resolver, buildTarget, ASSETS_SYMLINK_TREE_FLAVOR, args.getAssets());
+            graphBuilder, buildTarget, ASSETS_SYMLINK_TREE_FLAVOR, args.getAssets());
 
     if (flavors.contains(AAPT2_COMPILE_FLAVOR)) {
       Optional<SourcePath> resDir = resInputs.getSecond();
@@ -149,8 +145,9 @@ public class AndroidResourceDescription
           "Tried to require rule %s, but no resource dir is preset.",
           buildTarget);
       AndroidPlatformTarget androidPlatformTarget =
-          toolchainProvider.getByName(
-              AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class);
+          context
+              .getToolchainProvider()
+              .getByName(AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class);
       return new Aapt2Compile(
           buildTarget,
           projectFilesystem,
@@ -189,7 +186,7 @@ public class AndroidResourceDescription
         params.withDeclaredDeps(
             AndroidResourceHelper.androidResOnly(params.getDeclaredDeps().get())),
         ruleFinder,
-        resolver.getAllRules(args.getDeps()),
+        graphBuilder.getAllRules(args.getDeps()),
         resInputs.getSecond().orElse(null),
         resInputs.getFirst().map(SymlinkTree::getLinks).orElse(ImmutableSortedMap.of()),
         args.getPackage().orElse(null),
@@ -242,7 +239,7 @@ public class AndroidResourceDescription
   }
 
   public static Optional<SourcePath> getResDirectoryForProject(
-      BuildRuleResolver ruleResolver, TargetNode<AndroidResourceDescriptionArg, ?> node) {
+      ActionGraphBuilder graphBuilder, TargetNode<AndroidResourceDescriptionArg, ?> node) {
     AndroidResourceDescriptionArg arg = node.getConstructorArg();
     if (arg.getProjectRes().isPresent()) {
       return Optional.of(PathSourcePath.of(node.getFilesystem(), arg.getProjectRes().get()));
@@ -253,12 +250,12 @@ public class AndroidResourceDescription
     if (arg.getRes().get().isLeft()) {
       return Optional.of(arg.getRes().get().getLeft());
     } else {
-      return getResDirectory(ruleResolver, node);
+      return getResDirectory(graphBuilder, node);
     }
   }
 
   public static Optional<SourcePath> getAssetsDirectoryForProject(
-      BuildRuleResolver ruleResolver, TargetNode<AndroidResourceDescriptionArg, ?> node) {
+      ActionGraphBuilder graphBuilder, TargetNode<AndroidResourceDescriptionArg, ?> node) {
     AndroidResourceDescriptionArg arg = node.getConstructorArg();
     if (arg.getProjectAssets().isPresent()) {
       return Optional.of(PathSourcePath.of(node.getFilesystem(), arg.getProjectAssets().get()));
@@ -269,14 +266,14 @@ public class AndroidResourceDescription
     if (arg.getAssets().get().isLeft()) {
       return Optional.of(arg.getAssets().get().getLeft());
     } else {
-      return getAssetsDirectory(ruleResolver, node);
+      return getAssetsDirectory(graphBuilder, node);
     }
   }
 
   private static Optional<SourcePath> getResDirectory(
-      BuildRuleResolver ruleResolver, TargetNode<AndroidResourceDescriptionArg, ?> node) {
+      ActionGraphBuilder graphBuilder, TargetNode<AndroidResourceDescriptionArg, ?> node) {
     return collectInputSourcePaths(
-            ruleResolver,
+            graphBuilder,
             node.getBuildTarget(),
             RESOURCES_SYMLINK_TREE_FLAVOR,
             node.getConstructorArg().getRes())
@@ -284,9 +281,9 @@ public class AndroidResourceDescription
   }
 
   private static Optional<SourcePath> getAssetsDirectory(
-      BuildRuleResolver ruleResolver, TargetNode<AndroidResourceDescriptionArg, ?> node) {
+      ActionGraphBuilder graphBuilder, TargetNode<AndroidResourceDescriptionArg, ?> node) {
     return collectInputSourcePaths(
-            ruleResolver,
+            graphBuilder,
             node.getBuildTarget(),
             ASSETS_SYMLINK_TREE_FLAVOR,
             node.getConstructorArg().getAssets())
@@ -294,7 +291,7 @@ public class AndroidResourceDescription
   }
 
   private static Pair<Optional<SymlinkTree>, Optional<SourcePath>> collectInputSourcePaths(
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       BuildTarget resourceRuleTarget,
       Flavor symlinkTreeFlavor,
       Optional<Either<SourcePath, ImmutableSortedMap<String, SourcePath>>> attribute) {
@@ -311,21 +308,20 @@ public class AndroidResourceDescription
     }
     BuildTarget symlinkTreeTarget = resourceRuleTarget.withFlavors(symlinkTreeFlavor);
     SymlinkTree symlinkTree;
-    symlinkTree = (SymlinkTree) ruleResolver.requireRule(symlinkTreeTarget);
+    symlinkTree = (SymlinkTree) graphBuilder.requireRule(symlinkTreeTarget);
     return new Pair<>(Optional.of(symlinkTree), Optional.of(symlinkTree.getSourcePathToOutput()));
   }
 
   @VisibleForTesting
   ImmutableSortedMap<Path, SourcePath> collectInputFiles(
-      final ProjectFilesystem filesystem, Path inputDir) {
-    final ImmutableSortedMap.Builder<Path, SourcePath> paths = ImmutableSortedMap.naturalOrder();
+      ProjectFilesystem filesystem, Path inputDir) {
+    ImmutableSortedMap.Builder<Path, SourcePath> paths = ImmutableSortedMap.naturalOrder();
 
     // We ignore the same files that mini-aapt and aapt ignore.
     FileVisitor<Path> fileVisitor =
         new SimpleFileVisitor<Path>() {
           @Override
-          public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attr)
-              throws IOException {
+          public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attr) {
             String dirName = dir.getFileName().toString();
             // Special case: directory starting with '_' as per aapt.
             if (dirName.charAt(0) == '_' || !isPossibleResourceName(dirName)) {
@@ -335,7 +331,7 @@ public class AndroidResourceDescription
           }
 
           @Override
-          public FileVisitResult visitFile(Path file, BasicFileAttributes attr) throws IOException {
+          public FileVisitResult visitFile(Path file, BasicFileAttributes attr) {
             String filename = file.getFileName().toString();
             if (isPossibleResourceName(filename)) {
               paths.put(MorePaths.relativize(inputDir, file), PathSourcePath.of(filesystem, file));
@@ -378,10 +374,7 @@ public class AndroidResourceDescription
     if (fileOrDirName.charAt(fileOrDirName.length() - 1) == '~') {
       return false;
     }
-    if (MiniAapt.IGNORED_FILE_EXTENSIONS.contains(Files.getFileExtension(fileOrDirName))) {
-      return false;
-    }
-    return true;
+    return !MiniAapt.IGNORED_FILE_EXTENSIONS.contains(Files.getFileExtension(fileOrDirName));
   }
 
   @Override
@@ -392,12 +385,10 @@ public class AndroidResourceDescription
 
     if (flavors.size() == 1) {
       Flavor flavor = flavors.iterator().next();
-      if (flavor.equals(RESOURCES_SYMLINK_TREE_FLAVOR)
+      return flavor.equals(RESOURCES_SYMLINK_TREE_FLAVOR)
           || flavor.equals(ASSETS_SYMLINK_TREE_FLAVOR)
           || flavor.equals(AAPT2_COMPILE_FLAVOR)
-          || flavor.equals(ANDROID_RESOURCE_INDEX_FLAVOR)) {
-        return true;
-      }
+          || flavor.equals(ANDROID_RESOURCE_INDEX_FLAVOR);
     }
 
     return false;

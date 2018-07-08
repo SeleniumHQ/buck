@@ -17,6 +17,7 @@
 package com.facebook.buck.cli;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
@@ -28,8 +29,16 @@ import com.facebook.buck.apple.AppleTestBuilder;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
+import com.facebook.buck.event.BuckEventBusForTests.CapturingConsoleEventListener;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
@@ -38,26 +47,19 @@ import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavaTestBuilder;
 import com.facebook.buck.jvm.java.JavaTestDescription;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourceWithFlags;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeOutputStream;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.ProcessResult;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.JsonParser.Feature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.base.Charsets;
@@ -77,11 +79,11 @@ import java.util.SortedMap;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.Executors;
+import java.util.stream.Stream;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.kohsuke.args4j.CmdLineException;
 
 public class TargetsCommandTest {
 
@@ -91,14 +93,15 @@ public class TargetsCommandTest {
   private CommandRunnerParams params;
   private ProjectFilesystem filesystem;
   private ListeningExecutorService executor;
+  private CapturingConsoleEventListener capturingConsoleEventListener;
 
-  private Iterable<TargetNode<?, ?>> buildTargetNodes(
+  private Stream<TargetNode<?, ?>> buildTargetNodes(
       ProjectFilesystem filesystem, String buildTarget) {
     SortedSet<TargetNode<?, ?>> buildRules = new TreeSet<>();
     BuildTarget target = BuildTargetFactory.newInstance(filesystem.getRootPath(), buildTarget);
     TargetNode<?, ?> node = JavaLibraryBuilder.createBuilder(target).build();
     buildRules.add(node);
-    return buildRules;
+    return buildRules.stream();
   }
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
@@ -115,6 +118,8 @@ public class TargetsCommandTest {
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     ArtifactCache artifactCache = new NoopArtifactCache();
     BuckEventBus eventBus = BuckEventBusForTests.newInstance();
+    capturingConsoleEventListener = new CapturingConsoleEventListener();
+    eventBus.register(capturingConsoleEventListener);
 
     targetsCommand = new TargetsCommand();
     params =
@@ -137,10 +142,9 @@ public class TargetsCommandTest {
   }
 
   @Test
-  public void testJsonOutputForBuildTarget()
-      throws IOException, BuildFileParseException, InterruptedException {
+  public void testJsonOutputForBuildTarget() throws IOException, BuildFileParseException {
     // run `buck targets` on the build file and parse the observed JSON.
-    Iterable<TargetNode<?, ?>> nodes = buildTargetNodes(filesystem, "//:test-library");
+    Stream<TargetNode<?, ?>> nodes = buildTargetNodes(filesystem, "//:test-library");
 
     targetsCommand.printJsonForTargets(
         params, executor, nodes, ImmutableMap.of(), ImmutableSet.of());
@@ -208,17 +212,17 @@ public class TargetsCommandTest {
   }
 
   @Test
-  public void testJsonOutputForMissingBuildTarget()
-      throws BuildFileParseException, IOException, InterruptedException {
+  public void testJsonOutputForMissingBuildTarget() throws BuildFileParseException {
     // nonexistent target should not exist.
-    Iterable<TargetNode<?, ?>> buildRules = buildTargetNodes(filesystem, "//:nonexistent");
+    Stream<TargetNode<?, ?>> buildRules = buildTargetNodes(filesystem, "//:nonexistent");
     targetsCommand.printJsonForTargets(
         params, executor, buildRules, ImmutableMap.of(), ImmutableSet.of());
 
     String output = console.getTextWrittenToStdOut();
     assertEquals("[\n]\n", output);
-    assertEquals(
-        "unable to find rule for target //:nonexistent\n", console.getTextWrittenToStdErr());
+    assertThat(
+        capturingConsoleEventListener.getLogMessages(),
+        contains("unable to find rule for target //:nonexistent"));
   }
 
   @Test
@@ -232,7 +236,7 @@ public class TargetsCommandTest {
   }
 
   @Test
-  public void testGetMatchingBuildTargets() throws CmdLineException, IOException {
+  public void testGetMatchingBuildTargets() {
     BuildTarget prebuiltJarTarget = BuildTargetFactory.newInstance("//empty:empty");
     TargetNode<?, ?> prebuiltJarNode =
         PrebuiltJarBuilder.createBuilder(prebuiltJarTarget)
@@ -383,7 +387,7 @@ public class TargetsCommandTest {
   }
 
   @Test
-  public void testGetMatchingAppleLibraryBuildTarget() throws CmdLineException, IOException {
+  public void testGetMatchingAppleLibraryBuildTarget() {
     BuildTarget libraryTarget = BuildTargetFactory.newInstance("//foo:lib");
     TargetNode<?, ?> libraryNode =
         AppleLibraryBuilder.createBuilder(libraryTarget)
@@ -418,7 +422,7 @@ public class TargetsCommandTest {
   }
 
   @Test
-  public void testGetMatchingAppleTestBuildTarget() throws CmdLineException, IOException {
+  public void testGetMatchingAppleTestBuildTarget() {
     BuildTarget libraryTarget = BuildTargetFactory.newInstance("//foo:lib");
     TargetNode<?, ?> libraryNode =
         AppleLibraryBuilder.createBuilder(libraryTarget)
@@ -472,7 +476,7 @@ public class TargetsCommandTest {
   }
 
   @Test
-  public void testPathsUnderDirectories() throws CmdLineException, IOException {
+  public void testPathsUnderDirectories() {
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     Path resDir = Paths.get("some/resources/dir");
     BuildTarget androidResourceTarget = BuildTargetFactory.newInstance("//:res");
@@ -507,9 +511,7 @@ public class TargetsCommandTest {
     matchingBuildRules =
         targetsCommand.getMatchingNodes(
             targetGraph,
-            Optional.of(
-                ImmutableSet.of(
-                    Paths.get(resDir.toString() + "_extra").resolve("some_resource.txt"))),
+            Optional.of(ImmutableSet.of(Paths.get(resDir + "_extra").resolve("some_resource.txt"))),
             Optional.empty(),
             Optional.empty(),
             false,
@@ -532,7 +534,7 @@ public class TargetsCommandTest {
   }
 
   @Test
-  public void testDetectTestChanges() throws CmdLineException, IOException {
+  public void testDetectTestChanges() {
     BuildTarget libraryTarget = BuildTargetFactory.newInstance("//foo:lib");
     BuildTarget libraryTestTarget1 = BuildTargetFactory.newInstance("//foo:xctest1");
     BuildTarget libraryTestTarget2 = BuildTargetFactory.newInstance("//foo:xctest2");

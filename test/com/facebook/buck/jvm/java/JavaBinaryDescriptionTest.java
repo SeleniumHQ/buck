@@ -18,22 +18,21 @@ package com.facebook.buck.jvm.java;
 
 import static org.hamcrest.junit.MatcherAssert.assertThat;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.PrebuiltCxxLibraryBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.regex.Pattern;
 import org.hamcrest.Matchers;
@@ -43,15 +42,13 @@ public class JavaBinaryDescriptionTest {
 
   @Test
   public void rulesExportedFromDepsBecomeFirstOrderDeps() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
     FakeJavaLibrary transitiveLibrary =
-        resolver.addToIndex(
+        graphBuilder.addToIndex(
             new FakeJavaLibrary(BuildTargetFactory.newInstance("//:transitive_lib")));
     FakeJavaLibrary firstOrderLibrary =
-        resolver.addToIndex(
+        graphBuilder.addToIndex(
             new FakeJavaLibrary(
                 BuildTargetFactory.newInstance("//:first_order_lib"),
                 ImmutableSortedSet.of(transitiveLibrary)));
@@ -60,7 +57,7 @@ public class JavaBinaryDescriptionTest {
     BuildRule javaBinary =
         new JavaBinaryRuleBuilder(target)
             .setDeps(ImmutableSortedSet.of(firstOrderLibrary.getBuildTarget()))
-            .build(resolver);
+            .build(graphBuilder);
 
     assertThat(
         javaBinary.getBuildDeps(),
@@ -68,7 +65,7 @@ public class JavaBinaryDescriptionTest {
   }
 
   @Test
-  public void defaultCxxPlatform() throws Exception {
+  public void defaultCxxPlatform() {
     CxxPlatform cxxPlatform =
         CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(InternalFlavor.of("newplatform"));
     SourcePath lib = FakeSourcePath.of("lib");
@@ -89,11 +86,9 @@ public class JavaBinaryDescriptionTest {
 
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(cxxLibBuilder.build(), javaBinBuilder.build());
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
 
-    JarFattener javaBinary = (JarFattener) resolver.requireRule(javaBinBuilder.getTarget());
+    JarFattener javaBinary = (JarFattener) graphBuilder.requireRule(javaBinBuilder.getTarget());
 
     assertThat(javaBinary.getNativeLibraries().values(), Matchers.contains(lib));
   }

@@ -16,9 +16,9 @@
 
 package com.facebook.buck.worker;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
@@ -162,6 +162,7 @@ public class WorkerProcess implements Closeable {
       }
 
       throw new HumanReadableException(
+          e,
           "Error while trying to close the worker process %s.",
           Joiner.on(' ').join(processParams.getCommand()));
     }

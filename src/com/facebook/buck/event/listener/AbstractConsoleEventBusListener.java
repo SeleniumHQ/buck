@@ -17,6 +17,10 @@ package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.core.build.engine.BuildRuleStatus;
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
 import com.facebook.buck.distributed.DistBuildStatus;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.distributed.build_client.DistBuildRemoteProgressEvent;
@@ -33,13 +37,8 @@ import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.model.UnflavoredBuildTarget;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
-import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.rules.BuildRuleStatus;
 import com.facebook.buck.test.TestRuleEvent;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
@@ -58,7 +57,6 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.TreeRangeSet;
 import com.google.common.eventbus.Subscribe;
-import java.io.Closeable;
 import java.io.IOException;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
@@ -70,6 +68,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -85,7 +84,7 @@ import javax.annotation.concurrent.GuardedBy;
  * Base class for {@link BuckEventListener}s responsible for outputting information about the
  * running build to {@code stderr}.
  */
-public abstract class AbstractConsoleEventBusListener implements BuckEventListener, Closeable {
+public abstract class AbstractConsoleEventBusListener implements BuckEventListener {
 
   private static final Logger LOG = Logger.get(AbstractConsoleEventBusListener.class);
 
@@ -148,7 +147,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   @Nullable protected volatile HttpArtifactCacheEvent.Shutdown httpShutdownEvent;
 
-  protected volatile Optional<Integer> ruleCount = Optional.empty();
+  protected volatile OptionalInt ruleCount = OptionalInt.empty();
   protected Optional<String> publicAnnouncements = Optional.empty();
 
   protected final AtomicInteger numRulesCompleted = new AtomicInteger();
@@ -221,8 +220,14 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     return publicAnnouncements;
   }
 
+  public boolean displaysEstimatedProgress() {
+    return false;
+  }
+
   public void setProgressEstimator(ProgressEstimator estimator) {
-    progressEstimator = Optional.of(estimator);
+    if (displaysEstimatedProgress()) {
+      progressEstimator = Optional.of(estimator);
+    }
   }
 
   protected String formatElapsedTime(long elapsedTimeMs) {
@@ -514,9 +519,14 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   @Subscribe
   public void commandStartedEvent(CommandEvent.Started startedEvent) {
-    progressEstimator.ifPresent(
-        estimator ->
-            estimator.setCurrentCommand(startedEvent.getCommandName(), startedEvent.getArgs()));
+    try {
+      LOG.warn("Command.Started event received at %d", System.currentTimeMillis());
+      progressEstimator.ifPresent(
+          estimator ->
+              estimator.setCurrentCommand(startedEvent.getCommandName(), startedEvent.getArgs()));
+    } finally {
+      LOG.warn("Command.Started event done processing at %d", System.currentTimeMillis());
+    }
   }
 
   public static void aggregateStartedEvent(
@@ -622,14 +632,14 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   @Subscribe
   public void ruleCountCalculated(BuildEvent.RuleCountCalculated calculated) {
-    ruleCount = Optional.of(calculated.getNumRules());
+    ruleCount = OptionalInt.of(calculated.getNumRules());
     progressEstimator.ifPresent(estimator -> estimator.setNumberOfRules(calculated.getNumRules()));
     cacheRateStatsKeeper.ruleCountCalculated(calculated);
   }
 
   @Subscribe
   public void ruleCountUpdated(BuildEvent.UnskippedRuleCountUpdated updated) {
-    ruleCount = Optional.of(updated.getNumRules());
+    ruleCount = OptionalInt.of(updated.getNumRules());
     progressEstimator.ifPresent(estimator -> estimator.setNumberOfRules(updated.getNumRules()));
     cacheRateStatsKeeper.ruleCountUpdated(updated);
   }
@@ -644,7 +654,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
               locale,
               "%d/%d " + convertToAllCapsIfNeeded("jobs"),
               numRulesCompleted.get(),
-              ruleCount.get()));
+              ruleCount.getAsInt()));
       CacheRateStatsKeeper.CacheRateStatsUpdateEvent cacheRateStats =
           cacheRateStatsKeeper.getStats();
       columns.add(
@@ -652,20 +662,6 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
               locale,
               "%d " + convertToAllCapsIfNeeded("updated"),
               cacheRateStats.getUpdatedRulesCount()));
-      if (ruleCount.orElse(0) > 0) {
-        columns.add(
-            String.format(
-                locale,
-                "%.1f%% " + convertToAllCapsIfNeeded("cache miss"),
-                cacheRateStats.getCacheMissRate()));
-        if (cacheRateStats.getCacheErrorCount() > 0) {
-          columns.add(
-              String.format(
-                  locale,
-                  "%.1f%% " + convertToAllCapsIfNeeded("cache errors"),
-                  cacheRateStats.getCacheErrorRate()));
-        }
-      }
       jobSummary = Joiner.on(", ").join(columns);
     }
 
@@ -695,6 +691,19 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
             "%s",
             convertToAllCapsIfNeeded(
                 SizeUnit.toHumanReadableString(redableRemoteDownloadedBytes, locale))));
+    CacheRateStatsKeeper.CacheRateStatsUpdateEvent cacheRateStats = cacheRateStatsKeeper.getStats();
+    columns.add(
+        String.format(
+            locale,
+            "%.1f%% " + convertToAllCapsIfNeeded("cache miss"),
+            cacheRateStats.getCacheMissRate()));
+    if (cacheRateStats.getCacheErrorCount() > 0) {
+      columns.add(
+          String.format(
+              locale,
+              "%.1f%% " + convertToAllCapsIfNeeded("cache errors"),
+              cacheRateStats.getCacheErrorRate()));
+    }
     return parseLine + " " + Joiner.on(", ").join(columns);
   }
 
@@ -750,7 +759,9 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
 
   @Subscribe
   public void distBuildFinished(BuildEvent.DistBuildFinished finished) {
-    distBuildFinished = finished;
+    if (distBuildFinished == null) {
+      distBuildFinished = finished;
+    }
   }
 
   @Subscribe
@@ -913,8 +924,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   }
 
   @Override
-  public void outputTrace(BuildId buildId) {}
-
-  @Override
-  public void close() throws IOException {}
+  public void close() throws IOException {
+    progressEstimator.ifPresent(ProgressEstimator::close);
+  }
 }

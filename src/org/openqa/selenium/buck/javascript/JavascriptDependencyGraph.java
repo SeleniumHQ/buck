@@ -16,9 +16,9 @@
 
 package org.openqa.selenium.buck.javascript;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.graph.TopologicalSort;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;

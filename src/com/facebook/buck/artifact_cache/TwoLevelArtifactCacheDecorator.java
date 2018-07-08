@@ -17,6 +17,9 @@
 package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.counters.CounterRegistry;
 import com.facebook.buck.counters.IntegerCounter;
 import com.facebook.buck.counters.SamplingCounter;
@@ -26,15 +29,13 @@ import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Functions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.AsyncFunction;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -43,6 +44,8 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * The {@link DirArtifactCache} and {@link HttpArtifactCache} caches use a straightforward rulekey
@@ -117,9 +120,10 @@ public class TwoLevelArtifactCacheDecorator implements ArtifactCache, CacheDecor
   }
 
   @Override
-  public ListenableFuture<CacheResult> fetchAsync(RuleKey ruleKey, LazyPath output) {
+  public ListenableFuture<CacheResult> fetchAsync(
+      @Nullable BuildTarget target, RuleKey ruleKey, LazyPath output) {
     return Futures.transformAsync(
-        delegate.fetchAsync(ruleKey, output),
+        delegate.fetchAsync(target, ruleKey, output),
         (CacheResult fetchResult) -> {
           if (!fetchResult.getType().isSuccess()) {
             LOG.verbose("Missed first-level lookup.");
@@ -132,7 +136,7 @@ public class TwoLevelArtifactCacheDecorator implements ArtifactCache, CacheDecor
 
           String contentHashKey = fetchResult.getMetadata().get(METADATA_KEY);
           ListenableFuture<CacheResult> outputFileFetchResultFuture =
-              delegate.fetchAsync(new RuleKey(contentHashKey), output);
+              delegate.fetchAsync(target, new RuleKey(contentHashKey), output);
 
           return Futures.transformAsync(
               outputFileFetchResultFuture,
@@ -186,7 +190,7 @@ public class TwoLevelArtifactCacheDecorator implements ArtifactCache, CacheDecor
   }
 
   @Override
-  public ListenableFuture<Void> store(final ArtifactInfo info, final BorrowablePath output) {
+  public ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output) {
 
     return Futures.transformAsync(
         attemptTwoLevelStore(info, output),
@@ -195,7 +199,8 @@ public class TwoLevelArtifactCacheDecorator implements ArtifactCache, CacheDecor
             return Futures.immediateFuture(null);
           }
           return delegate.store(info, output);
-        });
+        },
+        MoreExecutors.directExecutor());
   }
 
   /**
@@ -219,46 +224,64 @@ public class TwoLevelArtifactCacheDecorator implements ArtifactCache, CacheDecor
     return delegate;
   }
 
-  private ListenableFuture<Boolean> attemptTwoLevelStore(
-      final ArtifactInfo info, final BorrowablePath output) {
+  private ListenableFuture<Boolean> attemptTwoLevelStore(ArtifactInfo info, BorrowablePath output) {
+    try {
+      long fileSize = projectFilesystem.getFileSize(output.getPath());
 
-    return Futures.transformAsync(
-        Futures.immediateFuture(null),
-        (AsyncFunction<Void, Boolean>)
-            input -> {
-              long fileSize = projectFilesystem.getFileSize(output.getPath());
+      if (!performTwoLevelStores
+          || fileSize < minimumTwoLevelStoredArtifactSize
+          || (maximumTwoLevelStoredArtifactSize.isPresent()
+              && fileSize > maximumTwoLevelStoredArtifactSize.get())) {
+        return Futures.immediateFuture(false);
+      }
+    } catch (IOException e) {
+      throw new RuntimeException("Cannot get file size of " + output.getPath());
+    }
 
-              if (!performTwoLevelStores
-                  || fileSize < minimumTwoLevelStoredArtifactSize
-                  || (maximumTwoLevelStoredArtifactSize.isPresent()
-                      && fileSize > maximumTwoLevelStoredArtifactSize.get())) {
-                return Futures.immediateFuture(false);
-              }
+    String hashCode;
+    try {
+      hashCode = computeSha1(output);
+    } catch (IOException e) {
+      throw new RuntimeException("Cannot compute SHA1 of " + output.getPath());
+    }
 
-              long hashComputationStart = System.currentTimeMillis();
-              String hashCode = projectFilesystem.computeSha1(output.getPath()) + "2c00";
-              long hashComputationEnd = System.currentTimeMillis();
-              secondLevelHashComputationTimeMs.addSample(hashComputationEnd - hashComputationStart);
+    ImmutableMap<String, String> metadataWithCacheKey =
+        ImmutableMap.<String, String>builder()
+            .putAll(info.getMetadata())
+            .put(METADATA_KEY, hashCode)
+            .build();
+    // We need to upload artifacts in this order to prevent race condition. If we would do
+    // it concurrently it is possible that we upload metadata before the file. Then other
+    // builder read metadata, but cannot find a file (which is still being uploaded), and
+    // decide that we have to re-upload it. With enough machines building the same target
+    // we end up with constant re-uploading and rebuilding flow. The following issue is
+    // only in case when output hash changes between builds.
+    Pair<ArtifactInfo, BorrowablePath> artifact =
+        new Pair<>(ArtifactInfo.builder().addRuleKeys(new RuleKey(hashCode)).build(), output);
+    Pair<ArtifactInfo, BorrowablePath> metadata =
+        new Pair<>(
+            ArtifactInfo.builder()
+                .setRuleKeys(info.getRuleKeys())
+                .setMetadata(metadataWithCacheKey)
+                .build(),
+            BorrowablePath.notBorrowablePath(emptyFilePath));
 
-              ImmutableMap<String, String> metadataWithCacheKey =
-                  ImmutableMap.<String, String>builder()
-                      .putAll(info.getMetadata())
-                      .put(METADATA_KEY, hashCode)
-                      .build();
+    return Futures.transform(
+        // This relies on the fact that delegate stores artifacts in sequential way in the order
+        // they are being passed. If we store them internally in consecutive way, there is a
+        // possibility of race condition.
+        delegate.store(ImmutableList.of(artifact, metadata)),
+        Functions.constant(true),
+        MoreExecutors.directExecutor());
+  }
 
-              return Futures.transform(
-                  Futures.allAsList(
-                      delegate.store(
-                          ArtifactInfo.builder()
-                              .setRuleKeys(info.getRuleKeys())
-                              .setMetadata(metadataWithCacheKey)
-                              .build(),
-                          BorrowablePath.notBorrowablePath(emptyFilePath)),
-                      delegate.store(
-                          ArtifactInfo.builder().addRuleKeys(new RuleKey(hashCode)).build(),
-                          output)),
-                  Functions.constant(true));
-            });
+  @Nonnull
+  private String computeSha1(BorrowablePath output) throws IOException {
+    long hashComputationStart = System.currentTimeMillis();
+    String hashCode = projectFilesystem.computeSha1(output.getPath()) + "2c00";
+    long hashComputationEnd = System.currentTimeMillis();
+    secondLevelHashComputationTimeMs.addSample(hashComputationEnd - hashComputationStart);
+    return hashCode;
   }
 
   @Override

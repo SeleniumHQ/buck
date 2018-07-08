@@ -16,20 +16,38 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
+import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Sets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.stream.Stream;
 import javax.annotation.Nullable;
 
-public class FakeBuildRule extends AbstractBuildRuleWithDeclaredAndExtraDeps implements BuildRule {
+public class FakeBuildRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
+    implements HasRuntimeDeps {
 
   @Nullable private Path outputFile;
+  private Set<BuildRule> runtimeDeps = new HashSet<BuildRule>();
+  private BuildRuleResolver ruleResolver; // real BuildRules shouldn't hold this in a field
 
   public FakeBuildRule(BuildTarget target, ImmutableSortedSet<BuildRule> deps) {
     this(target, new FakeProjectFilesystem(), TestBuildRuleParams.create().withDeclaredDeps(deps));
@@ -53,8 +71,21 @@ public class FakeBuildRule extends AbstractBuildRuleWithDeclaredAndExtraDeps imp
         TestBuildRuleParams.create().withDeclaredDeps(ImmutableSortedSet.copyOf(deps)));
   }
 
+  public FakeBuildRule(BuildTarget target, BuildRule... deps) {
+    this(target, new FakeProjectFilesystem(), deps);
+  }
+
   public FakeBuildRule(String target, BuildRule... deps) {
     this(BuildTargetFactory.newInstance(target), new FakeProjectFilesystem(), deps);
+  }
+
+  public FakeBuildRule setRuntimeDeps(BuildRule... deps) {
+    runtimeDeps = Sets.newHashSet(deps);
+    return this;
+  }
+
+  public BuildRuleResolver getRuleResolver() {
+    return ruleResolver;
   }
 
   @Override
@@ -80,5 +111,18 @@ public class FakeBuildRule extends AbstractBuildRuleWithDeclaredAndExtraDeps imp
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
     return ImmutableList.of();
+  }
+
+  @Override
+  public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
+    return runtimeDeps.stream().map(x -> x.getBuildTarget());
+  }
+
+  @Override
+  public void updateBuildRuleResolver(
+      BuildRuleResolver ruleResolver,
+      SourcePathRuleFinder ruleFinder,
+      SourcePathResolver pathResolver) {
+    this.ruleResolver = ruleResolver;
   }
 }

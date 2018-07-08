@@ -27,12 +27,13 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Files;
@@ -86,7 +87,8 @@ public class DoctorReportHelper {
         entry -> {
           Pair<Double, SizeUnit> humanReadableSize =
               SizeUnit.getHumanReadableSize(entry.getSize(), SizeUnit.BYTES);
-          String cmdArgs = entry.getCommandArgs().orElse("unknown command");
+          String cmdArgs =
+              entry.getCommandArgs().map(e -> Joiner.on(" ").join(e)).orElse("unknown command");
           cmdArgs = cmdArgs.substring(0, Math.min(cmdArgs.length(), ARGS_MAX_CHARS));
 
           return String.format(

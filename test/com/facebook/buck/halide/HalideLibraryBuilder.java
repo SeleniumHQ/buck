@@ -18,18 +18,18 @@ package com.facebook.buck.halide;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourceWithFlags;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.macros.StringWithMacros;
@@ -48,7 +48,9 @@ import java.util.regex.Pattern;
 
 public class HalideLibraryBuilder
     extends AbstractNodeBuilder<
-        HalideLibraryDescriptionArg.Builder, HalideLibraryDescriptionArg, HalideLibraryDescription,
+        HalideLibraryDescriptionArg.Builder,
+        HalideLibraryDescriptionArg,
+        HalideLibraryDescription,
         BuildRule> {
   public HalideLibraryBuilder(
       BuildTarget target,

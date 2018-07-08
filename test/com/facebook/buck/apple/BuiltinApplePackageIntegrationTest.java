@@ -23,10 +23,10 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -65,14 +65,14 @@ public class BuiltinApplePackageIntegrationTest {
     filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
   }
 
-  private static boolean isDirEmpty(final Path directory) throws IOException {
+  private static boolean isDirEmpty(Path directory) throws IOException {
     try (DirectoryStream<Path> dirStream = Files.newDirectoryStream(directory)) {
       return !dirStream.iterator().hasNext();
     }
   }
 
   @Test
-  public void packageHasProperStructure() throws IOException, InterruptedException {
+  public void packageHasProperStructure() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(
             this, "simple_application_bundle_no_debug", tmp);

@@ -16,17 +16,17 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import java.util.Optional;
 import org.immutables.value.Value;
 
@@ -53,7 +53,7 @@ public class JarGenruleDescription extends AbstractGenruleDescription<JarGenrule
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       JarGenruleDescriptionArg args,
       Optional<Arg> cmd,
       Optional<Arg> bash,
@@ -67,7 +67,7 @@ public class JarGenruleDescription extends AbstractGenruleDescription<JarGenrule
         buildTarget,
         projectFilesystem,
         sandboxExecutionStrategy,
-        resolver,
+        graphBuilder,
         params,
         args.getSrcs(),
         cmd,

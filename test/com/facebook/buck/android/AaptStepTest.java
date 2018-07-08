@@ -73,6 +73,7 @@ public class AaptStepTest {
         /* pathToOutputApk */ basePath.resolve("build").resolve("out.apk"),
         /* pathToRDotDText */ basePath.resolve("r"),
         pathToGeneratedProguardConfig,
+        ImmutableList.of(),
         isCrunchFiles,
         includesVectorDrawables,
         manifestEntries);
@@ -85,14 +86,11 @@ public class AaptStepTest {
    * calling replay().
    */
   private ExecutionContext createTestExecutionContext(Verbosity verbosity) {
-    ExecutionContext executionContext =
-        TestExecutionContext.newBuilder().setConsole(new TestConsole(verbosity)).build();
-
-    return executionContext;
+    return TestExecutionContext.newBuilder().setConsole(new TestConsole(verbosity)).build();
   }
 
   @Test
-  public void shouldEmitVerbosityFlagWithVerboseContext() throws Exception {
+  public void shouldEmitVerbosityFlagWithVerboseContext() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, false, false, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.ALL);
 
@@ -101,7 +99,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldNotEmitVerbosityFlagWithQuietContext() throws Exception {
+  public void shouldNotEmitVerbosityFlagWithQuietContext() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, false, false, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.SILENT);
 
@@ -110,7 +108,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldEmitGFlagIfProguardConfigPresent() throws Exception {
+  public void shouldEmitGFlagIfProguardConfigPresent() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, false, false, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.ALL);
 
@@ -123,7 +121,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldEmitNoCrunchFlagIfNotCrunch() throws Exception {
+  public void shouldEmitNoCrunchFlagIfNotCrunch() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, false, false, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.ALL);
 
@@ -133,7 +131,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldNotEmitNoCrunchFlagIfCrunch() throws Exception {
+  public void shouldNotEmitNoCrunchFlagIfCrunch() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, true, false, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.ALL);
 
@@ -143,7 +141,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldEmitNoVersionVectorsFlagIfRequested() throws Exception {
+  public void shouldEmitNoVersionVectorsFlagIfRequested() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, false, true, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.ALL);
 
@@ -153,7 +151,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldNotEmitNoVersionVectorsFlagIfNotRequested() throws Exception {
+  public void shouldNotEmitNoVersionVectorsFlagIfNotRequested() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, false, false, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.ALL);
 
@@ -163,7 +161,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldEmitFlagsForManifestEntries() throws Exception {
+  public void shouldEmitFlagsForManifestEntries() {
     ManifestEntries entries =
         ManifestEntries.builder()
             .setMinSdkVersion(3)
@@ -194,7 +192,7 @@ public class AaptStepTest {
   }
 
   @Test
-  public void shouldNotEmitFailOnInsertWithoutManifestEntries() throws Exception {
+  public void shouldNotEmitFailOnInsertWithoutManifestEntries() {
     AaptStep aaptStep = buildAaptStep(proguardConfig, true, false, ManifestEntries.empty());
     ExecutionContext executionContext = createTestExecutionContext(Verbosity.ALL);
     ImmutableList<String> command = aaptStep.getShellCommandInternal(executionContext);

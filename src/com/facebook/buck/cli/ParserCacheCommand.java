@@ -17,9 +17,10 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.ParserStateObjectInputStream;
 import com.facebook.buck.parser.thrift.RemoteDaemonicParserState;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.base.Preconditions;
 import java.io.FileInputStream;
@@ -52,15 +53,14 @@ public class ParserCacheCommand extends AbstractCommand {
   private String loadFilename = null;
 
   @Option(
-    name = "--changes",
-    usage =
-        "File containing a JSON formatted list of changed files "
-            + "that might invalidate the parser cache. The format of the file is an array of "
-            + "objects with two keys: \"path\" and \"status\". "
-            + "The path is relative to the root cell. "
-            + "The status is the same as the one reported by \"hg status\" or \"git status\". "
-            + "For example: \"A\", \"?\", \"R\", \"!\" or \"M\"."
-  )
+      name = "--changes",
+      usage =
+          "File containing a JSON formatted list of changed files "
+              + "that might invalidate the parser cache. The format of the file is an array of "
+              + "objects with two keys: \"path\" and \"status\". "
+              + "The path is relative to the root cell. "
+              + "The status is the same as the one reported by \"hg status\" or \"git status\". "
+              + "For example: \"A\", \"?\", \"R\", \"!\" or \"M\".")
   @Nullable
   private String changesPath = null;
 
@@ -75,9 +75,10 @@ public class ParserCacheCommand extends AbstractCommand {
 
     if (saveFilename != null) {
       invalidateChanges(params);
-      RemoteDaemonicParserState state = params.getParser().storeParserState(params.getCell());
+      RemoteDaemonicParserState state =
+          params.getParser().getPermState().serializeDaemonicParserState(params.getCell());
       try (FileOutputStream fos = new FileOutputStream(saveFilename);
-          ZipOutputStream zipos = new ZipOutputStream(fos); ) {
+          ZipOutputStream zipos = new ZipOutputStream(fos)) {
         zipos.putNextEntry(new ZipEntry("parser_data"));
         try (ObjectOutputStream oos = new ObjectOutputStream(zipos)) {
           oos.writeObject(state);
@@ -85,10 +86,10 @@ public class ParserCacheCommand extends AbstractCommand {
       }
     } else if (loadFilename != null) {
       try (FileInputStream fis = new FileInputStream(loadFilename);
-          ZipInputStream zipis = new ZipInputStream(fis); ) {
+          ZipInputStream zipis = new ZipInputStream(fis)) {
         ZipEntry entry = zipis.getNextEntry();
         Preconditions.checkState(entry.getName().equals("parser_data"));
-        try (ObjectInputStream ois = new ObjectInputStream(zipis)) {
+        try (ObjectInputStream ois = new ParserStateObjectInputStream(zipis)) {
           RemoteDaemonicParserState state;
           try {
             state = (RemoteDaemonicParserState) ois.readObject();
@@ -96,7 +97,7 @@ public class ParserCacheCommand extends AbstractCommand {
             params.getConsole().printErrorText("Invalid file format");
             return ExitCode.COMMANDLINE_ERROR;
           }
-          params.getParser().restoreParserState(state, params.getCell());
+          params.getParser().getPermState().restoreState(state, params.getCell());
         }
       }
       invalidateChanges(params);
@@ -137,7 +138,7 @@ public class ParserCacheCommand extends AbstractCommand {
           isRemoved = true;
         }
         Path fullPath = params.getCell().getRoot().resolve(path).normalize();
-        params.getParser().invalidateBasedOnPath(fullPath, isAdded || isRemoved);
+        params.getParser().getPermState().invalidateBasedOnPath(fullPath, isAdded || isRemoved);
       }
     }
   }

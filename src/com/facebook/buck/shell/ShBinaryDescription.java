@@ -16,18 +16,18 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasDeclaredDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableSet;
 import org.immutables.value.Value;
 
-public class ShBinaryDescription implements Description<ShBinaryDescriptionArg> {
+public class ShBinaryDescription implements DescriptionWithTargetGraph<ShBinaryDescriptionArg> {
 
   @Override
   public Class<ShBinaryDescriptionArg> getConstructorArgType() {
@@ -36,7 +36,7 @@ public class ShBinaryDescription implements Description<ShBinaryDescriptionArg> 
 
   @Override
   public ShBinary createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       ShBinaryDescriptionArg args) {
@@ -47,6 +47,11 @@ public class ShBinaryDescription implements Description<ShBinaryDescriptionArg> 
         params,
         args.getMain(),
         args.getResources());
+  }
+
+  @Override
+  public boolean producesCacheableSubgraph() {
+    return true;
   }
 
   @BuckStyleImmutable

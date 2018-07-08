@@ -17,8 +17,8 @@
 package com.facebook.buck.android.exopackage;
 
 import com.facebook.buck.android.HasInstallableApk;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import java.io.Closeable;
@@ -81,8 +81,7 @@ public interface AndroidDevicesHelper extends Closeable {
    *
    * @see #installApk(SourcePathResolver, HasInstallableApk, boolean, boolean, String)
    */
-  boolean uninstallApp(final String packageName, final boolean shouldKeepUserData)
-      throws InterruptedException;
+  boolean uninstallApp(String packageName, boolean shouldKeepUserData) throws InterruptedException;
 
   void startActivity(
       SourcePathResolver pathResolver,

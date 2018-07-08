@@ -16,8 +16,8 @@
 
 package com.facebook.buck.rules.coercer;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.CellPathResolver;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -60,7 +60,7 @@ public class PathTypeCoercer extends LeafTypeCoercer<Path> {
       if (pathString.isEmpty()) {
         throw new CoerceFailedException("invalid path");
       }
-      final Path normalizedPath =
+      Path normalizedPath =
           pathCache.getUnchecked(pathRelativeToProjectRoot).getUnchecked(pathString);
 
       if (pathExistenceVerificationMode.equals(PathExistenceVerificationMode.VERIFY)) {

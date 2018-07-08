@@ -16,9 +16,9 @@
 
 package com.facebook.buck.file;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
 import com.facebook.buck.file.downloader.Downloader;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.hash.HashCode;
@@ -27,7 +27,9 @@ import java.net.URISyntaxException;
 
 public class RemoteFileBuilder
     extends AbstractNodeBuilder<
-        RemoteFileDescriptionArg.Builder, RemoteFileDescriptionArg, RemoteFileDescription,
+        RemoteFileDescriptionArg.Builder,
+        RemoteFileDescriptionArg,
+        RemoteFileDescription,
         RemoteFile> {
   protected RemoteFileBuilder(Downloader downloader, BuildTarget target) {
     super(new RemoteFileDescription(createToolchainProviderWithDownloader(downloader)), target);

@@ -30,8 +30,10 @@ import com.facebook.buck.slb.HttpService;
 import com.facebook.buck.slb.LoadBalancedService;
 import com.facebook.buck.slb.RetryingHttpService;
 import com.facebook.buck.slb.SlbBuckConfig;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.timing.Clock;
+import com.facebook.buck.util.versioncontrol.VersionControlCommandFailedException;
+import com.facebook.buck.util.versioncontrol.VersionControlSupplier;
 import com.facebook.buck.util.zip.CustomZipEntry;
 import com.facebook.buck.util.zip.CustomZipOutputStream;
 import com.facebook.buck.util.zip.ZipOutputStreams;
@@ -86,15 +88,21 @@ public class DefaultDefectReporter implements DefectReporter {
   private void addFilesToArchive(CustomZipOutputStream out, ImmutableSet<Path> paths)
       throws IOException {
     for (Path logFile : paths) {
-      Preconditions.checkArgument(!logFile.isAbsolute(), "Should be a relative Path.", logFile);
-
-      // If the file is hidden(UNIX terms) save it as normal file.
-      if (logFile.getFileName().toString().startsWith(".")) {
-        out.putNextEntry(
-            new CustomZipEntry(Paths.get(logFile.getFileName().toString().substring(1))));
-      } else {
-        out.putNextEntry(new CustomZipEntry(logFile));
+      Path destPath = logFile;
+      if (destPath.isAbsolute()) {
+        // If it's an absolute path, make it relative instead
+        destPath = destPath.subpath(0, logFile.getNameCount());
+        Preconditions.checkArgument(!destPath.isAbsolute(), "Should be a relative path", destPath);
       }
+      if (destPath.getFileName().toString().startsWith(".")) {
+        // If the file is hidden(UNIX terms) save it as normal file.
+        destPath =
+            Optional.ofNullable(destPath.getParent())
+                .orElse(Paths.get(""))
+                .resolve(destPath.getFileName().toString().replaceAll("^\\.*", ""));
+      }
+
+      out.putNextEntry(new CustomZipEntry(destPath));
 
       try (InputStream input = filesystem.newFileInputStream(logFile)) {
         ByteStreams.copy(input, out);
@@ -103,11 +111,14 @@ public class DefaultDefectReporter implements DefectReporter {
     }
   }
 
-  private void addStringsAsFilesToArchive(
-      CustomZipOutputStream out, ImmutableMap<String, String> files) throws IOException {
-    for (Map.Entry<String, String> file : files.entrySet()) {
-      out.putNextEntry(new CustomZipEntry(file.getKey()));
-      out.write(file.getValue().getBytes(Charsets.UTF_8));
+  private void addNamedFilesToArchive(
+      CustomZipOutputStream out,
+      ImmutableMap<String, VersionControlSupplier<InputStream>> fileStreams)
+      throws IOException, VersionControlCommandFailedException, InterruptedException {
+    for (Map.Entry<String, VersionControlSupplier<InputStream>> fs : fileStreams.entrySet()) {
+      try (InputStream input = fs.getValue().get()) {
+        out.writeEntry(fs.getKey(), input);
+      }
       out.closeEntry();
     }
   }
@@ -149,12 +160,20 @@ public class DefaultDefectReporter implements DefectReporter {
       throws IOException {
     try (BufferedOutputStream baseOut = new BufferedOutputStream(outputStream);
         CustomZipOutputStream out = ZipOutputStreams.newOutputStream(baseOut, APPEND_TO_ZIP)) {
-      if (defectReport.getSourceControlInfo().isPresent()
-          && defectReport.getSourceControlInfo().get().getDiff().isPresent()) {
-        addStringsAsFilesToArchive(
-            out,
-            ImmutableMap.of(
-                DIFF_FILE_NAME, defectReport.getSourceControlInfo().get().getDiff().get()));
+
+      try {
+        if (defectReport.getSourceControlInfo().isPresent()
+            && defectReport.getSourceControlInfo().get().getDiff().isPresent()) {
+          addNamedFilesToArchive(
+              out,
+              ImmutableMap.of(
+                  DIFF_FILE_NAME, defectReport.getSourceControlInfo().get().getDiff().get()));
+        }
+      } catch (VersionControlCommandFailedException | InterruptedException e) {
+        // log the exceptions thrown from VersionControlSupplier<InputStream> when generating diff
+        LOG.warn(
+            e,
+            "Failed to gather diff from source control. Some diff information may be missing from the report");
       }
       addFilesToArchive(out, defectReport.getIncludedPaths());
 
@@ -164,9 +183,7 @@ public class DefaultDefectReporter implements DefectReporter {
   }
 
   private DefectSubmitResult uploadReport(
-      final DefectReport defectReport,
-      DefectSubmitResult.Builder defectSubmitResult,
-      ClientSideSlb slb)
+      DefectReport defectReport, DefectSubmitResult.Builder defectSubmitResult, ClientSideSlb slb)
       throws IOException {
     long timeout = doctorConfig.getReportTimeoutMs();
     OkHttpClient httpClient =

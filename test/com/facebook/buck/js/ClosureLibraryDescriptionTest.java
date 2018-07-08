@@ -26,26 +26,34 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.UserFlavor;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.js.JsFile.JsFileDev;
 import com.facebook.buck.js.JsLibrary.Files;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.UserFlavor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.stream.Collector;
+import java.util.stream.Collector.Characteristics;
 import java.util.stream.Stream;
 import org.hamcrest.BaseMatcher;
 import org.hamcrest.Description;
@@ -67,11 +75,12 @@ public class ClosureLibraryDescriptionTest {
   @Test
   public void ruleDependsOnInternalFileRule() {
     JsTestScenario scenario = scenarioBuilder.library(target).build();
-    BuildRule library = scenario.resolver.requireRule(target);
+    BuildRule library = scenario.graphBuilder.requireRule(target);
     assertThat(
         library.getBuildDeps(),
         hasItem(
-            scenario.resolver.requireRule(target.withAppendedFlavors(JsFlavors.LIBRARY_FILES))));
+            scenario.graphBuilder.requireRule(
+                target.withAppendedFlavors(JsFlavors.LIBRARY_FILES))));
   }
 
   @Test
@@ -86,11 +95,49 @@ public class ClosureLibraryDescriptionTest {
       scenarioBuilder.library(depTarget);
     }
     JsTestScenario scenario = scenarioBuilder.library(target, depTargets).build();
-    BuildRule library = scenario.resolver.requireRule(target);
+    BuildRule library = scenario.graphBuilder.requireRule(target);
 
     BuildRule[] deps =
-        scenario.resolver.getAllRules(Arrays.asList(depTargets)).stream().toArray(BuildRule[]::new);
+        scenario
+            .graphBuilder
+            .getAllRules(Arrays.asList(depTargets))
+            .stream()
+            .toArray(BuildRule[]::new);
     assertThat(library.getBuildDeps(), hasItems(deps));
+  }
+
+  @Test
+  public void rulePropagatesFlavorsToDeps() {
+    BuildTarget[] depTargets = {
+      BuildTargetFactory.newInstance("//dep:a"),
+      BuildTargetFactory.newInstance("//dep:b"),
+      BuildTargetFactory.newInstance("//dep:c"),
+    };
+
+    for (BuildTarget depTarget : depTargets) {
+      scenarioBuilder.library(depTarget);
+    }
+    JsTestScenario scenario = scenarioBuilder.library(target, depTargets).build();
+    BuildRule library =
+        scenario.graphBuilder.requireRule(target.withAppendedFlavors(JsFlavors.RELEASE));
+
+    BuildRule[] flavoredDeps =
+        scenario
+            .graphBuilder
+            .getAllRules(
+                Stream.of(depTargets)
+                    .map(x -> x.withAppendedFlavors(JsFlavors.RELEASE))
+                    .collect(ImmutableList.toImmutableList()))
+            .stream()
+            .toArray(BuildRule[]::new);
+    assertThat(library.getBuildDeps(), hasItems(flavoredDeps));
+    BuildRule[] unflavoredDeps =
+        scenario
+            .graphBuilder
+            .getAllRules(Arrays.asList(depTargets))
+            .stream()
+            .toArray(BuildRule[]::new);
+    assertThat(Arrays.asList(unflavoredDeps), everyItem(not(in(library.getBuildDeps()))));
   }
 
   @Test
@@ -100,7 +147,7 @@ public class ClosureLibraryDescriptionTest {
     PathSourcePath c = FakeSourcePath.of("source/c");
     JsTestScenario scenario = scenarioBuilder.library(target, a, b, c).build();
 
-    BuildRule library = scenario.resolver.requireRule(target);
+    BuildRule library = scenario.graphBuilder.requireRule(target);
     assertThat(library.getBuildDeps(), not(hasItem(instanceOf(JsFile.class))));
   }
 
@@ -110,7 +157,7 @@ public class ClosureLibraryDescriptionTest {
     BuildTarget withFlavors = target.withFlavors(extraFlavors);
     JsTestScenario scenario = scenarioBuilder.library(withFlavors).build();
 
-    BuildRule library = scenario.resolver.requireRule(withFlavors);
+    BuildRule library = scenario.graphBuilder.requireRule(withFlavors);
     BuildRule filesRule =
         library
             .getBuildDeps()
@@ -125,8 +172,9 @@ public class ClosureLibraryDescriptionTest {
   @Test
   public void internalFileRuleDependsOnWorker() {
     JsTestScenario scenario = scenarioBuilder.library(target).build();
-    BuildRule filesRule = internalFileRule(scenario.resolver);
-    assertThat(filesRule.getBuildDeps(), hasItem(scenario.resolver.getRule(scenario.workerTarget)));
+    BuildRule filesRule = internalFileRule(scenario.graphBuilder);
+    assertThat(
+        filesRule.getBuildDeps(), hasItem(scenario.graphBuilder.getRule(scenario.workerTarget)));
   }
 
   @Test
@@ -136,72 +184,130 @@ public class ClosureLibraryDescriptionTest {
     PathSourcePath c = FakeSourcePath.of("source/c");
     JsTestScenario scenario = scenarioBuilder.library(target, a, b, c).build();
 
-    BuildRule filesRule = internalFileRule(scenario.resolver);
+    BuildRule filesRule = internalFileRule(scenario.graphBuilder);
     assertThat(
         filesRule.getBuildDeps(),
         hasItems(Stream.of(a, b, c).map(JsFileMatcher::new).toArray(JsFileMatcher[]::new)));
   }
 
   @Test
+  public void internalFileRuleDoesNotDependOnLibDeps() {
+    BuildTarget a = BuildTargetFactory.newInstance("//libary:a");
+    BuildTarget b = BuildTargetFactory.newInstance("//libary:b");
+    JsTestScenario scenario = scenarioBuilder.library(a).library(b).library(target, a, b).build();
+
+    BuildRule filesRule = internalFileRule(scenario.graphBuilder);
+    assertThat(
+        scenario.graphBuilder.getAllRules(ImmutableList.of(a, b)),
+        everyItem(not(in(filesRule.getBuildDeps()))));
+  }
+
+  @Test
+  public void fileRulesDoNotDependOnLibDeps() {
+    ImmutableList<BuildTarget> libDeps =
+        ImmutableList.of(
+            BuildTargetFactory.newInstance("//libary:a"),
+            BuildTargetFactory.newInstance("//libary:b"));
+
+    for (BuildTarget lib : libDeps) {
+      scenarioBuilder.library(lib);
+    }
+    JsTestScenario scenario =
+        scenarioBuilder
+            .library(
+                target,
+                libDeps,
+                ImmutableList.of(FakeSourcePath.of("apples"), FakeSourcePath.of("pears")))
+            .build();
+
+    findJsFileRules(scenario.graphBuilder)
+        .map(ClosureLibraryDescriptionTest::getBuildDepsAsTargets)
+        .collect(countAssertions(deps -> assertThat(libDeps, everyItem(not(in(deps))))));
+  }
+
+  @Test
+  public void fileRulesDoNotDependOnGeneratedSourcesOfOtherFileRules() {
+    BuildTargetSourcePath a =
+        DefaultBuildTargetSourcePath.of(BuildTargetFactory.newInstance("//gen:a"));
+    BuildTargetSourcePath b =
+        DefaultBuildTargetSourcePath.of(BuildTargetFactory.newInstance("//gen:b"));
+
+    JsTestScenario scenario =
+        scenarioBuilder
+            .arbitraryRule(a.getTarget())
+            .arbitraryRule(b.getTarget())
+            .library(target, a, b)
+            .build();
+
+    ImmutableMap<SourcePath, JsFileDev> fileRules =
+        findJsFileRules(scenario.graphBuilder)
+            .filter(JsFileDev.class)
+            .collect(ImmutableMap.toImmutableMap(JsFileDev::getSource, Function.identity()));
+
+    assertThat(a.getTarget(), in(getBuildDepsAsTargets(fileRules.get(a))));
+    assertThat(b.getTarget(), not(in(getBuildDepsAsTargets(fileRules.get(a)))));
+    assertThat(b.getTarget(), in(getBuildDepsAsTargets(fileRules.get(b))));
+    assertThat(a.getTarget(), not(in(getBuildDepsAsTargets(fileRules.get(b)))));
+  }
+
+  @Test
   public void subBasePathForSourceFiles() {
-    final String basePath = "base/path";
-    final String filePath = String.format("%s/sub/file.js", targetDirectory);
-    final JsTestScenario scenario = buildScenario(basePath, FakeSourcePath.of(filePath));
+    String basePath = "base/path";
+    String filePath = String.format("%s/sub/file.js", targetDirectory);
+    JsTestScenario scenario = buildScenario(basePath, FakeSourcePath.of(filePath));
 
     assertEquals(
         "arbitrary/path/base/path/sub/file.js",
-        findFirstJsFileDevRule(scenario.resolver).getVirtualPath().get());
+        findFirstJsFileDevRule(scenario.graphBuilder).getVirtualPath().get());
   }
 
   @Test
   public void relativeBasePathForSourceFiles() {
-    final String basePath = "../base/path";
-    final String filePath = String.format("%s/sub/file.js", targetDirectory);
-    final JsTestScenario scenario = buildScenario(basePath, FakeSourcePath.of(filePath));
+    String basePath = "../base/path";
+    String filePath = String.format("%s/sub/file.js", targetDirectory);
+    JsTestScenario scenario = buildScenario(basePath, FakeSourcePath.of(filePath));
 
     assertEquals(
         "arbitrary/base/path/sub/file.js",
-        findFirstJsFileDevRule(scenario.resolver).getVirtualPath().get());
+        findFirstJsFileDevRule(scenario.graphBuilder).getVirtualPath().get());
   }
 
   @Test
   public void basePathReplacesBuildTargetSourcePath() {
-    final String basePath = "base/path.js";
-    final BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
+    String basePath = "base/path.js";
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     scenarioBuilder.arbitraryRule(target);
-    final JsTestScenario scenario =
-        buildScenario(basePath, DefaultBuildTargetSourcePath.of(target));
+    JsTestScenario scenario = buildScenario(basePath, DefaultBuildTargetSourcePath.of(target));
 
     assertEquals(
         "arbitrary/path/base/path.js",
-        findFirstJsFileDevRule(scenario.resolver).getVirtualPath().get());
+        findFirstJsFileDevRule(scenario.graphBuilder).getVirtualPath().get());
   }
 
   @Test
   public void relativeBasePathReplacesBuildTargetSourcePath() {
-    final String basePath = "../path.js";
-    final BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
+    String basePath = "../path.js";
+    BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     scenarioBuilder.arbitraryRule(target);
-    final JsTestScenario scenario =
-        buildScenario(basePath, DefaultBuildTargetSourcePath.of(target));
+    JsTestScenario scenario = buildScenario(basePath, DefaultBuildTargetSourcePath.of(target));
 
     assertEquals(
-        "arbitrary/path.js", findFirstJsFileDevRule(scenario.resolver).getVirtualPath().get());
+        "arbitrary/path.js", findFirstJsFileDevRule(scenario.graphBuilder).getVirtualPath().get());
   }
 
   @Test
   public void buildTargetWithSubpathPair() {
-    final String basePath = ".";
-    final BuildTarget target = BuildTargetFactory.newInstance("//:node_modules");
+    String basePath = ".";
+    BuildTarget target = BuildTargetFactory.newInstance("//:node_modules");
     scenarioBuilder.arbitraryRule(target);
-    final JsTestScenario scenario =
+    JsTestScenario scenario =
         buildScenario(
             basePath,
             new Pair<>(DefaultBuildTargetSourcePath.of(target), "node_modules/left-pad/index.js"));
 
     assertEquals(
         "arbitrary/path/node_modules/left-pad/index.js",
-        findFirstJsFileDevRule(scenario.resolver).getVirtualPath().get());
+        findFirstJsFileDevRule(scenario.graphBuilder).getVirtualPath().get());
   }
 
   @Test
@@ -214,18 +320,17 @@ public class ClosureLibraryDescriptionTest {
             .library(target, FakeSourcePath.of("apples"), FakeSourcePath.of("pears"))
             .build();
 
-    findJsFileRules(scenario.resolver)
+    findJsFileRules(scenario.graphBuilder)
         .map(JsFile::getBuildTarget)
-        .peek(
-            depTarget ->
-                assertThat(
-                    String.format(
-                        "JsFile dependency `%s` of JsLibrary `%s` must have flavors `%s`",
-                        depTarget, target, flavors),
-                    flavors,
-                    everyItem(in(depTarget.getFlavors()))))
-        .findAny()
-        .orElseThrow(() -> new IllegalStateException("No JsFile dependencies found for " + target));
+        .collect(
+            countAssertions(
+                depTarget ->
+                    assertThat(
+                        String.format(
+                            "JsFile dependency `%s` of JsLibrary `%s` must have flavors `%s`",
+                            depTarget, target, flavors),
+                        flavors,
+                        everyItem(in(depTarget.getFlavors())))));
   }
 
   @Test
@@ -237,17 +342,16 @@ public class ClosureLibraryDescriptionTest {
             .library(withPlatformFlavor, FakeSourcePath.of("apples"), FakeSourcePath.of("pears"))
             .build();
 
-    findJsFileRules(scenario.resolver)
+    findJsFileRules(scenario.graphBuilder)
         .map(JsFile::getBuildTarget)
-        .peek(
-            fileTarget ->
-                assertFalse(
-                    String.format(
-                        "JsFile dependency `%s` of JsLibrary `%s` must not have flavor `%s`",
-                        fileTarget, withPlatformFlavor, platformFlavor),
-                    fileTarget.getFlavors().contains(platformFlavor)))
-        .findAny()
-        .orElseThrow(() -> new IllegalStateException("No JsFile dependencies found for " + target));
+        .collect(
+            countAssertions(
+                fileTarget ->
+                    assertFalse(
+                        String.format(
+                            "JsFile dependency `%s` of JsLibrary `%s` must not have flavor `%s`",
+                            fileTarget, withPlatformFlavor, platformFlavor),
+                        fileTarget.getFlavors().contains(platformFlavor))));
   }
 
   @Test
@@ -266,20 +370,29 @@ public class ClosureLibraryDescriptionTest {
             .appleLibraryWithDeps(l, a, c)
             .bundleWithDeps(x, l)
             .bundleWithDeps(BuildTargetFactory.newInstance("//query-deps:bundle"))
-            .library(target, Query.of(String.format("deps(%s)", x)))
+            .library(
+                target,
+                Query.of(String.format("deps(%s)", x)),
+                FakeSourcePath.of("arbitrary/source"))
             .build();
 
     TargetNode<?, ?> node = scenario.targetGraph.get(target);
     assertThat(x, in(node.getBuildDeps()));
 
-    JsLibrary lib = scenario.resolver.getRuleWithType(target, JsLibrary.class);
-    ImmutableSortedSet<BuildRule> deps = scenario.resolver.getAllRules(ImmutableList.of(a, b, c));
+    JsLibrary lib = scenario.graphBuilder.getRuleWithType(target, JsLibrary.class);
+    ImmutableSortedSet<BuildRule> deps =
+        scenario.graphBuilder.getAllRules(ImmutableList.of(a, b, c));
     assertThat(deps, everyItem(in(lib.getBuildDeps())));
     assertEquals(
         deps.stream()
             .map(BuildRule::getSourcePathToOutput)
             .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
         lib.getLibraryDependencies());
+
+    assertThat(deps, everyItem(not(in(internalFileRule(scenario.graphBuilder).getBuildDeps()))));
+    findJsFileRules(scenario.graphBuilder)
+        .collect(
+            countAssertions(jsFile -> assertThat(deps, everyItem(not(in(jsFile.getBuildDeps()))))));
   }
 
   @Test
@@ -290,8 +403,8 @@ public class ClosureLibraryDescriptionTest {
     JsTestScenario scenario =
         scenarioBuilder.library(a).library(b).library(target, Query.of(a.toString()), b).build();
 
-    JsLibrary lib = scenario.resolver.getRuleWithType(target, JsLibrary.class);
-    ImmutableSortedSet<BuildRule> deps = scenario.resolver.getAllRules(ImmutableList.of(a, b));
+    JsLibrary lib = scenario.graphBuilder.getRuleWithType(target, JsLibrary.class);
+    ImmutableSortedSet<BuildRule> deps = scenario.graphBuilder.getAllRules(ImmutableList.of(a, b));
     assertThat(deps, everyItem(in(lib.getBuildDeps())));
     assertEquals(
         deps.stream()
@@ -300,24 +413,99 @@ public class ClosureLibraryDescriptionTest {
         lib.getLibraryDependencies());
   }
 
+  @Test
+  public void libraryRulesDoesNotDependOnGeneratedSources() {
+    BuildTarget a = BuildTargetFactory.newInstance("//:node_modules");
+    BuildTarget b = BuildTargetFactory.newInstance("//generated:dep");
+    scenarioBuilder.arbitraryRule(a).arbitraryRule(b);
+    JsTestScenario scenario =
+        buildScenario(
+            ".",
+            new Pair<>(DefaultBuildTargetSourcePath.of(a), "node_modules/left-pad/index.js"),
+            new Pair<>(DefaultBuildTargetSourcePath.of(b), "generated.png"));
+
+    ImmutableSortedSet<BuildRule> generatedSourcesRules =
+        scenario.graphBuilder.getAllRules(ImmutableList.of(a, b));
+
+    BuildRule filesRule =
+        scenario.graphBuilder.getRule(target.withAppendedFlavors(JsFlavors.LIBRARY_FILES));
+    assertThat(generatedSourcesRules, everyItem(not(in(filesRule.getBuildDeps()))));
+
+    BuildRule libRule = scenario.graphBuilder.getRule(target);
+    assertThat(generatedSourcesRules, everyItem(not(in(libRule.getBuildDeps()))));
+  }
+
+  @Test
+  public void locationMacrosInExtraJsonAddBuildDeps() {
+    BuildTarget referencedTarget = BuildTargetFactory.newInstance("//:ref");
+    JsTestScenario scenario =
+        scenarioBuilder
+            .arbitraryRule(referencedTarget)
+            .library(
+                target,
+                ImmutableList.of(FakeSourcePath.of("a/file"), FakeSourcePath.of("another/file")),
+                "[\"%s\"]",
+                LocationMacro.of(referencedTarget))
+            .build();
+
+    BuildRule referenced = scenario.graphBuilder.getRule(referencedTarget);
+
+    assertThat(referenced, in(scenario.graphBuilder.getRule(target).getBuildDeps()));
+
+    RichStream<JsFile> jsFileRules = findJsFileRules(scenario.graphBuilder);
+    jsFileRules.collect(
+        countAssertions(jsFile -> assertThat(referenced, in(jsFile.getBuildDeps()))));
+  }
+
   private JsTestScenario buildScenario(String basePath, SourcePath source) {
     return scenarioBuilder.library(target, basePath, source).build();
   }
 
-  private JsTestScenario buildScenario(String basePath, Pair<SourcePath, String> source) {
-    return scenarioBuilder.library(target, basePath, source).build();
+  private JsTestScenario buildScenario(String basePath, Pair<SourcePath, String>... sources) {
+    return scenarioBuilder.library(target, basePath, sources).build();
   }
 
-  private RichStream<JsFile> findJsFileRules(BuildRuleResolver resolver) {
-    return RichStream.from(internalFileRule(resolver).getBuildDeps()).filter(JsFile.class);
+  private RichStream<JsFile> findJsFileRules(ActionGraphBuilder graphBuilder) {
+    return RichStream.from(internalFileRule(graphBuilder).getBuildDeps()).filter(JsFile.class);
   }
 
-  private JsFile.JsFileDev findFirstJsFileDevRule(BuildRuleResolver resolver) {
-    return findJsFileRules(resolver).filter(JsFileDev.class).findFirst().get();
+  private JsFile.JsFileDev findFirstJsFileDevRule(ActionGraphBuilder graphBuilder) {
+    return findJsFileRules(graphBuilder).filter(JsFileDev.class).findFirst().get();
   }
 
-  private JsLibrary.Files internalFileRule(BuildRuleResolver resolver) {
-    return (Files) resolver.requireRule(target.withAppendedFlavors(JsFlavors.LIBRARY_FILES));
+  private JsLibrary.Files internalFileRule(ActionGraphBuilder graphBuilder) {
+    return (Files) graphBuilder.requireRule(target.withAppendedFlavors(JsFlavors.LIBRARY_FILES));
+  }
+
+  private static ImmutableList<BuildTarget> getBuildDepsAsTargets(BuildRule buildRule) {
+    return buildRule
+        .getBuildDeps()
+        .stream()
+        .map(BuildRule::getBuildTarget)
+        .collect(ImmutableList.toImmutableList());
+  }
+
+  private static <T> Collector<T, AtomicLong, Long> countAssertions(Consumer<T> assertion) {
+    /**
+     * Collects a stream by running the passed-in assertion on all stream items. The collection also
+     * asserts that the stream is non-empty, to avoid false positives when accidentally producing
+     * empty streams, e.g. by filtering.
+     */
+    return Collector.of(
+        AtomicLong::new,
+        (count, t) -> {
+          count.incrementAndGet();
+          assertion.accept(t);
+        },
+        (a, b) -> new AtomicLong(a.get() + b.get()),
+        count -> {
+          long value = count.get();
+          if (value == 0) {
+            throw new IllegalStateException("Stream was empty, did not assert anything.");
+          }
+          return value;
+        },
+        Characteristics.UNORDERED);
   }
 
   private static class JsFileMatcher extends BaseMatcher<BuildRule> {

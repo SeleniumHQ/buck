@@ -16,15 +16,15 @@
 
 package com.facebook.buck.event.listener;
 
+import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.core.rulekey.BuildRuleKeys;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rulekey.RuleKeyDiagnosticsMode;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.rules.BuildRuleKeys;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.ThrowingPrintWriter;
 import com.google.common.collect.ImmutableList;
@@ -108,11 +108,15 @@ public class RuleKeyDiagnosticsListener implements BuckEventListener {
   }
 
   @Override
-  public void outputTrace(BuildId buildId) throws InterruptedException {
+  public void close() {
     submitFlushDiagKeys();
     outputExecutor.execute(this::writeDiagGraph);
     outputExecutor.shutdown();
-    outputExecutor.awaitTermination(1, TimeUnit.HOURS);
+    try {
+      outputExecutor.awaitTermination(1, TimeUnit.HOURS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
   }
 
   /** Diagnostic keys flushing logic. */
@@ -165,7 +169,7 @@ public class RuleKeyDiagnosticsListener implements BuckEventListener {
    * Writes the directed acyclic graph of all the diagnosed rules to a file.
    *
    * <p>This is a subgraph of the whole graph where only diagnosed rules are included. What rules
-   * get diagnostics is specified with {@link com.facebook.buck.rules.RuleKeyDiagnosticsMode}.
+   * get diagnostics is specified with {@link RuleKeyDiagnosticsMode}.
    *
    * <p>The format is as follows. All data is written in a textual format using UTF-8 encoding. The
    * first line contains an integer N that denotes the number of diagnosed rules (nodes). The
@@ -194,7 +198,7 @@ public class RuleKeyDiagnosticsListener implements BuckEventListener {
     try {
       projectFilesystem.createParentDirs(path);
       try (OutputStream os = projectFilesystem.newUnbufferedFileOutputStream(path, false);
-          ThrowingPrintWriter out = new ThrowingPrintWriter(os, StandardCharsets.UTF_8); ) {
+          ThrowingPrintWriter out = new ThrowingPrintWriter(os, StandardCharsets.UTF_8)) {
         out.println(rulesInfo.size());
         for (Map.Entry<BuildRule, RuleInfo> entry : rulesInfo.entrySet()) {
           BuildRule rule = entry.getKey();

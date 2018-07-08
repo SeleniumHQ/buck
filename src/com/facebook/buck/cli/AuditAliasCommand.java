@@ -16,8 +16,8 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.util.ExitCode;
 import java.io.IOException;
 import java.util.Map;
@@ -29,9 +29,8 @@ public class AuditAliasCommand extends AbstractCommand {
   private boolean listAliases = false;
 
   @Option(
-    name = "--list-map",
-    usage = "List known build target aliases with their mappings to build targets."
-  )
+      name = "--list-map",
+      usage = "List known build target aliases with their mappings to build targets.")
   private boolean listAliasesMap = false;
 
   @Override

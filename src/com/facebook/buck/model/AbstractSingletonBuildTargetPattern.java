@@ -15,7 +15,9 @@
  */
 package com.facebook.buck.model;
 
-import com.facebook.buck.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import java.nio.file.Path;
 import org.immutables.value.Value;
 
@@ -34,7 +36,7 @@ abstract class AbstractSingletonBuildTargetPattern implements BuildTargetPattern
     int buildTarget = fullyQualifiedName.indexOf("//");
     int colon = fullyQualifiedName.lastIndexOf(':');
     return SingletonBuildTargetPattern.of(
-        UnflavoredBuildTarget.builder()
+        ImmutableUnflavoredBuildTarget.builder()
             .setBaseName(fullyQualifiedName.substring(buildTarget, colon))
             .setShortName(fullyQualifiedName.substring(colon + 1))
             .setCellPath(cellPath)

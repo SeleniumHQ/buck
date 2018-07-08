@@ -16,27 +16,33 @@
 
 package com.facebook.buck.cli;
 
-import static org.easymock.EasyMock.expect;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.httpserver.WebServer;
+import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import java.io.IOException;
 import java.util.Optional;
-import org.easymock.EasyMockSupport;
+import java.util.OptionalInt;
 import org.junit.Before;
 import org.junit.Test;
 
-public class ServerStatusCommandTest extends EasyMockSupport {
+public class ServerStatusCommandTest {
 
   private TestConsole console;
-  private WebServer webServer;
   private CommandRunnerParams params;
+  private OptionalInt webServerPort;
 
   @Before
   public void setUp() throws IOException, InterruptedException {
     console = new TestConsole();
-    webServer = createStrictMock(WebServer.class);
+    WebServer webServer =
+        new WebServer(0, new FakeProjectFilesystem()) {
+          @Override
+          public OptionalInt getPort() {
+            return webServerPort;
+          }
+        };
     params =
         CommandRunnerParamsForTesting.builder()
             .setWebserver(Optional.of(webServer))
@@ -46,8 +52,7 @@ public class ServerStatusCommandTest extends EasyMockSupport {
 
   @Test
   public void testWhenHttpserverRunning() throws IOException, InterruptedException {
-    expect(webServer.getPort()).andStubReturn(Optional.of(9000));
-    replayAll();
+    webServerPort = OptionalInt.of(9000);
 
     ServerStatusCommand command = new ServerStatusCommand();
     command.enableShowHttpserverPort();
@@ -57,8 +62,7 @@ public class ServerStatusCommandTest extends EasyMockSupport {
 
   @Test
   public void testWhenHttpserverNotRunning() throws IOException, InterruptedException {
-    expect(webServer.getPort()).andStubReturn(Optional.empty());
-    replayAll();
+    webServerPort = OptionalInt.empty();
 
     ServerStatusCommand command = new ServerStatusCommand();
     command.enableShowHttpserverPort();
@@ -68,8 +72,7 @@ public class ServerStatusCommandTest extends EasyMockSupport {
 
   @Test
   public void testPrintJson() throws IOException, InterruptedException {
-    expect(webServer.getPort()).andStubReturn(Optional.of(9000));
-    replayAll();
+    webServerPort = OptionalInt.of(9000);
 
     ServerStatusCommand command = new ServerStatusCommand();
     command.enableShowHttpserverPort();

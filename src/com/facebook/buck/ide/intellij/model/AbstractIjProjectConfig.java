@@ -16,10 +16,10 @@
 package com.facebook.buck.ide.intellij.model;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.ide.intellij.IjProjectPaths;
 import com.facebook.buck.ide.intellij.aggregation.AggregationMode;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
@@ -67,6 +67,8 @@ abstract class AbstractIjProjectConfig {
   public abstract boolean isCleanerEnabled();
 
   public abstract boolean isRemovingUnusedLibrariesEnabled();
+
+  public abstract boolean isRawSourcesForLibrariesEnabled();
 
   public abstract boolean isExcludeArtifactsEnabled();
 

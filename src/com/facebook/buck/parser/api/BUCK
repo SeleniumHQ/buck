@@ -1,4 +1,6 @@
-java_library(
+load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
+
+java_immutables_library(
     name = "api",
     srcs = glob([
         "*.java",
@@ -7,7 +9,9 @@ java_library(
         "PUBLIC",
     ],
     deps = [
+        "//src/com/facebook/buck/core/exceptions:exceptions",
         "//src/com/facebook/buck/parser/exceptions:exceptions",
+        "//src/com/facebook/buck/skylark/io:io",
         "//third-party/java/guava:guava",
     ],
 )

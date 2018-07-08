@@ -62,7 +62,7 @@ class DelegateRunNotifier extends RunNotifier {
     delegate.addListener(
         new RunListener() {
           @Override
-          public void testRunFinished(Result result) throws Exception {
+          public void testRunFinished(Result result) {
             onTestRunFinished();
           }
         });
@@ -108,13 +108,14 @@ class DelegateRunNotifier extends RunNotifier {
   @Override
   public void fireTestRunFinished(Result result) {
     // This method does not appear to be invoked. Presumably whoever has a reference to the original
-    // delegate is invoking its fireTestRunFinished(Description) method directly.
+    // delegate is invoking its fireTestRunFinished(Description) method
+    // directly.
     timer.cancel();
     delegate.fireTestRunFinished(result);
   }
 
   @Override
-  public void fireTestStarted(final Description description) throws StoppedByUserException {
+  public void fireTestStarted(Description description) throws StoppedByUserException {
     delegate.fireTestStarted(description);
 
     // Do not do apply the default timeout if the test has its own @Test(timeout).
@@ -165,11 +166,7 @@ class DelegateRunNotifier extends RunNotifier {
 
     // Do not do apply the default timeout if the test has its own @Rule Timeout.
     TestClass testClass = getTestClass(description);
-    if (BuckBlockJUnit4ClassRunner.hasTimeoutRule(testClass)) {
-      return true;
-    }
-
-    return false;
+    return BuckBlockJUnit4ClassRunner.hasTimeoutRule(testClass);
   }
 
   private TestClass getTestClass(Description description) {

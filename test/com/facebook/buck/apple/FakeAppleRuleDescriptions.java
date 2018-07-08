@@ -28,6 +28,7 @@ import com.facebook.buck.apple.toolchain.impl.AppleCxxPlatforms;
 import com.facebook.buck.apple.toolchain.impl.XcodeToolFinder;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.cxx.CxxBinaryFactory;
 import com.facebook.buck.cxx.CxxBinaryFlavored;
 import com.facebook.buck.cxx.CxxBinaryImplicitFlavors;
@@ -43,7 +44,6 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
 import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.FlavorDomain;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
@@ -91,6 +91,15 @@ public class FakeAppleRuleDescriptions {
           .setName("iphoneos")
           .setArchitectures(ImmutableList.of("i386", "x86_64"))
           .setVersion("8.0")
+          .setToolchains(ImmutableList.of())
+          .build();
+
+  public static final AppleSdk DEFAULT_WATCHOS_SDK =
+      AppleSdk.builder()
+          .setApplePlatform(ApplePlatform.WATCHOS)
+          .setName("watchos")
+          .setArchitectures(ImmutableList.of("armv7k"))
+          .setVersion("2.0")
           .setToolchains(ImmutableList.of())
           .build();
 
@@ -167,9 +176,8 @@ public class FakeAppleRuleDescriptions {
           "i386",
           DEFAULT_IPHONEOS_SDK_PATHS,
           DEFAULT_BUCK_CONFIG,
-          new XcodeToolFinder(),
-          FAKE_XCODE_BUILD_VERSION_CACHE,
-          Optional.empty());
+          new XcodeToolFinder(DEFAULT_BUCK_CONFIG.getView(AppleConfig.class)),
+          FAKE_XCODE_BUILD_VERSION_CACHE);
 
   public static final AppleCxxPlatform DEFAULT_IPHONEOS_X86_64_PLATFORM =
       AppleCxxPlatforms.buildWithXcodeToolFinder(
@@ -179,9 +187,19 @@ public class FakeAppleRuleDescriptions {
           "x86_64",
           DEFAULT_IPHONEOS_SDK_PATHS,
           DEFAULT_BUCK_CONFIG,
-          new XcodeToolFinder(),
-          FAKE_XCODE_BUILD_VERSION_CACHE,
-          Optional.empty());
+          new XcodeToolFinder(DEFAULT_BUCK_CONFIG.getView(AppleConfig.class)),
+          FAKE_XCODE_BUILD_VERSION_CACHE);
+
+  public static final AppleCxxPlatform DEFAULT_WATCHOS_ARMV7K_PLATFORM =
+      AppleCxxPlatforms.buildWithXcodeToolFinder(
+          FAKE_PROJECT_FILESYSTEM,
+          DEFAULT_WATCHOS_SDK,
+          "2.0",
+          "armv7k",
+          DEFAULT_IPHONEOS_SDK_PATHS,
+          DEFAULT_BUCK_CONFIG,
+          new XcodeToolFinder(DEFAULT_BUCK_CONFIG.getView(AppleConfig.class)),
+          FAKE_XCODE_BUILD_VERSION_CACHE);
 
   public static final AppleCxxPlatform DEFAULT_MACOSX_X86_64_PLATFORM =
       AppleCxxPlatforms.buildWithXcodeToolFinder(
@@ -191,9 +209,8 @@ public class FakeAppleRuleDescriptions {
           "x86_64",
           DEFAULT_MACOSX_SDK_PATHS,
           DEFAULT_BUCK_CONFIG,
-          new XcodeToolFinder(),
-          FAKE_XCODE_BUILD_VERSION_CACHE,
-          Optional.empty());
+          new XcodeToolFinder(DEFAULT_BUCK_CONFIG.getView(AppleConfig.class)),
+          FAKE_XCODE_BUILD_VERSION_CACHE);
 
   public static final CxxPlatform DEFAULT_PLATFORM =
       DefaultCxxPlatforms.build(Platform.MACOS, new CxxBuckConfig(DEFAULT_BUCK_CONFIG));
@@ -204,14 +221,16 @@ public class FakeAppleRuleDescriptions {
           DEFAULT_PLATFORM,
           DEFAULT_IPHONEOS_I386_PLATFORM.getCxxPlatform(),
           DEFAULT_IPHONEOS_X86_64_PLATFORM.getCxxPlatform(),
-          DEFAULT_MACOSX_X86_64_PLATFORM.getCxxPlatform());
+          DEFAULT_MACOSX_X86_64_PLATFORM.getCxxPlatform(),
+          DEFAULT_WATCHOS_ARMV7K_PLATFORM.getCxxPlatform());
 
   public static final FlavorDomain<AppleCxxPlatform> DEFAULT_APPLE_CXX_PLATFORM_FLAVOR_DOMAIN =
       FlavorDomain.of(
           "Fake Apple C++ Platforms",
           DEFAULT_IPHONEOS_I386_PLATFORM,
           DEFAULT_IPHONEOS_X86_64_PLATFORM,
-          DEFAULT_MACOSX_X86_64_PLATFORM);
+          DEFAULT_MACOSX_X86_64_PLATFORM,
+          DEFAULT_WATCHOS_ARMV7K_PLATFORM);
 
   public static final FlavorDomain<SwiftPlatform> DEFAULT_SWIFT_PLATFORM_FLAVOR_DOMAIN =
       new FlavorDomain<>(
@@ -222,7 +241,9 @@ public class FakeAppleRuleDescriptions {
               DEFAULT_IPHONEOS_X86_64_PLATFORM.getFlavor(),
               DEFAULT_IPHONEOS_X86_64_PLATFORM.getSwiftPlatform().get(),
               DEFAULT_MACOSX_X86_64_PLATFORM.getFlavor(),
-              DEFAULT_MACOSX_X86_64_PLATFORM.getSwiftPlatform().get()));
+              DEFAULT_MACOSX_X86_64_PLATFORM.getSwiftPlatform().get(),
+              DEFAULT_WATCHOS_ARMV7K_PLATFORM.getFlavor(),
+              DEFAULT_WATCHOS_ARMV7K_PLATFORM.getSwiftPlatform().get()));
 
   public static final SwiftLibraryDescription SWIFT_LIBRARY_DESCRIPTION =
       new SwiftLibraryDescription(

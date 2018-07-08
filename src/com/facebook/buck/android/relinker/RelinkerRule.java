@@ -16,6 +16,23 @@
 package com.facebook.buck.android.relinker;
 
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.rules.schedule.OverrideScheduleRule;
+import com.facebook.buck.core.rules.schedule.RuleScheduleInfo;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
@@ -23,23 +40,7 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.OverrideScheduleRule;
-import com.facebook.buck.rules.RuleScheduleInfo;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -79,10 +80,11 @@ class RelinkerRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @AddToRuleKey(stringify = true)
   private final ImmutableList<Pattern> symbolWhitelist;
 
-  private final BuildRuleParams buildRuleParams;
   private final CxxBuckConfig cxxBuckConfig;
   private final SourcePathResolver pathResolver;
   private final CellPathResolver cellPathResolver;
+
+  private SourcePathRuleFinder ruleFinder;
 
   public RelinkerRule(
       BuildTarget buildTarget,
@@ -107,7 +109,7 @@ class RelinkerRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.objdump = objdump;
     this.cxxBuckConfig = cxxBuckConfig;
     this.linkerArgs = linkerArgs;
-    this.buildRuleParams = buildRuleParams;
+    this.ruleFinder = ruleFinder;
     this.symbolsNeededPaths = symbolsNeededPaths;
     this.baseLibSourcePath = baseLibSourcePath;
     this.linker = linker;
@@ -165,14 +167,14 @@ class RelinkerRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public ImmutableList<Step> getBuildSteps(
-      BuildContext context, final BuildableContext buildableContext) {
+      BuildContext context, BuildableContext buildableContext) {
 
-    final ImmutableList.Builder<Step> relinkerSteps = ImmutableList.builder();
+    ImmutableList.Builder<Step> relinkerSteps = ImmutableList.builder();
     if (linker != null) {
       ImmutableList<Arg> args =
           ImmutableList.<Arg>builder()
               .addAll(linkerArgs)
-              .add(StringArg.of("-Wl,--version-script=" + getRelativeVersionFilePath().toString()))
+              .add(StringArg.of("-Wl,--version-script=" + getRelativeVersionFilePath()))
               .build();
 
       relinkerSteps.addAll(
@@ -181,7 +183,7 @@ class RelinkerRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
                       .withAppendedFlavors(InternalFlavor.of("cxx-link"))
                       .withoutFlavors(LinkerMapMode.NO_LINKER_MAP.getFlavor()),
                   getProjectFilesystem(),
-                  buildRuleParams::getBuildDeps,
+                  ruleFinder,
                   cellPathResolver,
                   linker,
                   getLibFilePath(),
@@ -309,5 +311,13 @@ class RelinkerRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
           Files.readAllLines(pathResolver.getAbsolutePath(source), Charsets.UTF_8));
     }
     return symbolsNeeded.build();
+  }
+
+  @Override
+  public void updateBuildRuleResolver(
+      BuildRuleResolver ruleResolver,
+      SourcePathRuleFinder ruleFinder,
+      SourcePathResolver pathResolver) {
+    this.ruleFinder = ruleFinder;
   }
 }

@@ -16,15 +16,14 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.macros.MacroException;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.query.QueryBuildTarget;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.query.Query;
 import com.google.common.base.Preconditions;
@@ -62,10 +61,9 @@ public class QueryTargetsMacroExpander extends QueryMacroExpander<QueryTargetsMa
   public Arg expandFrom(
       BuildTarget target,
       CellPathResolver cellNames,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       QueryTargetsMacro input,
-      QueryResults precomputedQueryResults)
-      throws MacroException {
+      QueryResults precomputedQueryResults) {
     return new QueriedTargetsArg(
         precomputedQueryResults
             .results
@@ -74,7 +72,7 @@ public class QueryTargetsMacroExpander extends QueryMacroExpander<QueryTargetsMa
                 queryTarget -> {
                   Preconditions.checkState(queryTarget instanceof QueryBuildTarget);
                   BuildRule rule =
-                      resolver.getRule(((QueryBuildTarget) queryTarget).getBuildTarget());
+                      graphBuilder.getRule(((QueryBuildTarget) queryTarget).getBuildTarget());
                   return rule.getBuildTarget();
                 })
             .sorted()

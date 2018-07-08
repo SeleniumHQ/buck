@@ -16,12 +16,12 @@
 
 package com.facebook.buck.ide.intellij.model;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.ide.intellij.IjDependencyListBuilder;
 import com.facebook.buck.ide.intellij.Util;
 import com.facebook.buck.ide.intellij.model.folders.IjFolder;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -134,5 +134,17 @@ abstract class AbstractIjModule implements IjProjectElement {
       scope = IjDependencyListBuilder.Scope.RUNTIME;
     }
     dependencyListBuilder.addModule(getName(), scope, false /* exported */);
+  }
+
+  @Override
+  public int hashCode() {
+    return getModuleImlFilePath().hashCode();
+  }
+
+  @Override
+  public boolean equals(Object another) {
+    return this == another
+        || another instanceof IjModule
+            && getModuleImlFilePath().equals(((IjModule) another).getModuleImlFilePath());
   }
 }

@@ -21,27 +21,29 @@ import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.apple.AppleBundleResources;
 import com.facebook.buck.apple.HasAppleBundleResourcesDescription;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.Flavored;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.shell.ExportFile;
 import com.facebook.buck.shell.ExportFileDescription;
+import com.facebook.buck.shell.ExportFileDirectoryAction;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreSuppliers;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -72,14 +74,14 @@ public class JsBundleGenruleDescription
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       JsBundleGenruleDescriptionArg args,
       Optional<Arg> cmd,
       Optional<Arg> bash,
       Optional<Arg> cmdExe) {
     ImmutableSortedSet<Flavor> flavors = buildTarget.getFlavors();
     BuildTarget bundleTarget = args.getJsBundle().withAppendedFlavors(flavors);
-    BuildRule jsBundle = resolver.requireRule(bundleTarget);
+    BuildRule jsBundle = graphBuilder.requireRule(bundleTarget);
 
     if (flavors.contains(JsFlavors.SOURCE_MAP)
         || flavors.contains(JsFlavors.DEPENDENCY_FILE)
@@ -95,11 +97,11 @@ public class JsBundleGenruleDescription
       if (args.getRewriteSourcemap() && flavors.contains(JsFlavors.SOURCE_MAP)) {
         output =
             ((JsBundleOutputs)
-                    resolver.requireRule(buildTarget.withoutFlavors(JsFlavors.SOURCE_MAP)))
+                    graphBuilder.requireRule(buildTarget.withoutFlavors(JsFlavors.SOURCE_MAP)))
                 .getSourcePathToSourceMap();
       } else if (args.getRewriteMisc() && flavors.contains(JsFlavors.MISC)) {
         output =
-            ((JsBundleOutputs) resolver.requireRule(buildTarget.withoutFlavors(JsFlavors.MISC)))
+            ((JsBundleOutputs) graphBuilder.requireRule(buildTarget.withoutFlavors(JsFlavors.MISC)))
                 .getSourcePathToMisc();
       } else {
         output =
@@ -108,16 +110,18 @@ public class JsBundleGenruleDescription
       }
 
       Path fileName =
-          DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver))
+          DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder))
               .getRelativePath(output)
               .getFileName();
       return new ExportFile(
           buildTarget,
           projectFilesystem,
-          new SourcePathRuleFinder(resolver),
+          new SourcePathRuleFinder(graphBuilder),
           fileName.toString(),
           ExportFileDescription.Mode.REFERENCE,
-          output);
+          output,
+          // TODO(27131551): temporary allow directory export until a proper fix is implemented
+          ExportFileDirectoryAction.ALLOW);
     }
 
     if (!(jsBundle instanceof JsBundleOutputs)) {
@@ -127,11 +131,11 @@ public class JsBundleGenruleDescription
     }
 
     Supplier<? extends SortedSet<BuildRule>> originalExtraDeps = params.getExtraDeps();
+    JsBundleOutputs bundleOutputs = (JsBundleOutputs) jsBundle;
     return new JsBundleGenrule(
         buildTarget,
         projectFilesystem,
-        sandboxExecutionStrategy,
-        resolver,
+        graphBuilder,
         params.withExtraDeps(
             MoreSuppliers.memoize(
                 () ->
@@ -139,17 +143,19 @@ public class JsBundleGenruleDescription
                         .addAll(originalExtraDeps.get())
                         .add(jsBundle)
                         .build())),
+        sandboxExecutionStrategy,
         args,
         cmd,
         bash,
         cmdExe,
-        (JsBundleOutputs) jsBundle,
         args.getEnvironmentExpansionSeparator(),
         toolchainProvider.getByNameIfPresent(
             AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class),
         toolchainProvider.getByNameIfPresent(AndroidNdk.DEFAULT_NAME, AndroidNdk.class),
         toolchainProvider.getByNameIfPresent(
-            AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class));
+            AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class),
+        bundleOutputs,
+        args.computeBundleName(buildTarget.getFlavors(), bundleOutputs::getBundleName));
   }
 
   @Override
@@ -177,7 +183,8 @@ public class JsBundleGenruleDescription
 
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractJsBundleGenruleDescriptionArg extends AbstractGenruleDescription.CommonArg {
+  interface AbstractJsBundleGenruleDescriptionArg
+      extends AbstractGenruleDescription.CommonArg, HasBundleName {
     BuildTarget getJsBundle();
 
     default String getOut() {

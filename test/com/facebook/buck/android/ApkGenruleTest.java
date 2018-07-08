@@ -19,35 +19,30 @@ package com.facebook.buck.android;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.Keystore;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.ImmutableBuildRuleCreationContext;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.sandbox.NoSandboxExecutionStrategy;
 import com.facebook.buck.shell.AbstractGenruleStep;
@@ -71,13 +66,12 @@ import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-import org.easymock.EasyMock;
 import org.junit.Test;
 
 public class ApkGenruleTest {
 
   private void createSampleAndroidBinaryRule(
-      BuildRuleResolver ruleResolver, ProjectFilesystem filesystem)
+      ActionGraphBuilder graphBuilder, ProjectFilesystem filesystem)
       throws NoSuchBuildTargetException {
     // Create a java_binary that depends on a java_library so it is possible to create a
     // java_binary rule with a classpath entry and a main class.
@@ -86,7 +80,7 @@ public class ApkGenruleTest {
     BuildRule androidLibRule =
         JavaLibraryBuilder.createBuilder(libAndroidTarget)
             .addSrc(Paths.get("java/com/facebook/util/Facebook.java"))
-            .build(ruleResolver, filesystem);
+            .build(graphBuilder, filesystem);
 
     BuildTarget keystoreTarget =
         BuildTargetFactory.newInstance(filesystem.getRootPath(), "//keystore:debug");
@@ -94,45 +88,34 @@ public class ApkGenruleTest {
         KeystoreBuilder.createBuilder(keystoreTarget)
             .setStore(FakeSourcePath.of(filesystem, "keystore/debug.keystore"))
             .setProperties(FakeSourcePath.of(filesystem, "keystore/debug.keystore.properties"))
-            .build(ruleResolver, filesystem);
+            .build(graphBuilder, filesystem);
 
     AndroidBinaryBuilder.createBuilder(
             BuildTargetFactory.newInstance(filesystem.getRootPath(), "//:fb4a"))
         .setManifest(FakeSourcePath.of("AndroidManifest.xml"))
         .setOriginalDeps(ImmutableSortedSet.of(androidLibRule.getBuildTarget()))
         .setKeystore(keystore.getBuildTarget())
-        .build(ruleResolver, filesystem);
+        .build(graphBuilder, filesystem);
   }
 
   @Test
   @SuppressWarnings("PMD.AvoidUsingHardCodedIP")
-  public void testCreateAndRunApkGenrule()
-      throws InterruptedException, IOException, NoSuchBuildTargetException {
+  public void testCreateAndRunApkGenrule() throws IOException, NoSuchBuildTargetException {
     ProjectFilesystem projectFilesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     FileSystem fileSystem = projectFilesystem.getRootPath().getFileSystem();
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    createSampleAndroidBinaryRule(ruleResolver, projectFilesystem);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    createSampleAndroidBinaryRule(graphBuilder, projectFilesystem);
 
     // From the Python object, create a ApkGenruleBuildRuleFactory to create a ApkGenrule.Builder
     // that builds a ApkGenrule from the Python object.
-    BuildTargetParser parser = EasyMock.createNiceMock(BuildTargetParser.class);
-    final BuildTarget apkTarget =
+    BuildTarget apkTarget =
         BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:fb4a");
 
-    EasyMock.expect(
-            parser.parse(
-                EasyMock.eq(":fb4a"),
-                EasyMock.anyObject(BuildTargetPatternParser.class),
-                EasyMock.anyObject()))
-        .andStubReturn(apkTarget);
-    EasyMock.replay(parser);
     BuildTarget buildTarget =
         BuildTargetFactory.newInstance(
             projectFilesystem.getRootPath(), "//src/com/facebook:sign_fb4a");
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
 
     ToolchainProvider toolchainProvider = new ToolchainProviderBuilder().build();
 
@@ -157,20 +140,16 @@ public class ApkGenruleTest {
     ApkGenrule apkGenrule =
         (ApkGenrule)
             description.createBuildRule(
-                ImmutableBuildRuleCreationContext.of(
-                    TargetGraph.EMPTY,
-                    ruleResolver,
-                    projectFilesystem,
-                    TestCellBuilder.createCellRoots(projectFilesystem)),
+                TestBuildRuleCreationContextFactory.create(graphBuilder, projectFilesystem),
                 buildTarget,
                 params,
                 arg);
-    ruleResolver.addToIndex(apkGenrule);
+    graphBuilder.addToIndex(apkGenrule);
 
     // Verify all of the observers of the Genrule.
     Path expectedApkOutput =
         projectFilesystem.resolve(
-            projectFilesystem.getBuckPaths().getGenDir().toString()
+            projectFilesystem.getBuckPaths().getGenDir()
                 + "/src/com/facebook/sign_fb4a/sign_fb4a.apk");
     assertEquals(expectedApkOutput, apkGenrule.getAbsoluteOutputFilePath());
     assertEquals(
@@ -294,8 +273,6 @@ public class ApkGenruleTest {
         ImmutableList.of("/bin/bash", "-e", scriptFilePath.toString()),
         genruleCommand.getShellCommand(executionContext));
     assertEquals("python signer.py $APK key.properties > $OUT", scriptFileContents);
-
-    EasyMock.verify(parser);
   }
 
   private ExecutionContext newEmptyExecutionContext() {

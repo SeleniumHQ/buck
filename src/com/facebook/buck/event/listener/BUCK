@@ -1,35 +1,23 @@
 load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
 
-CACHE_RATE_STATS_SRCS = ["CacheRateStatsKeeper.java"]
+CACHE_STATS_SRCS = [
+    "CacheRateStatsKeeper.java",
+    "RemoteCacheUploadStats.java",
+]
 
 java_library(
-    name = "CacheRateStatsKeeper",
-    srcs = CACHE_RATE_STATS_SRCS,
+    name = "CacheStats",
+    srcs = CACHE_STATS_SRCS,
     visibility = [
         "PUBLIC",
     ],
     deps = [
         "//src-gen:thrift",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
+        "//src/com/facebook/buck/core/build/event:event",
         "//src/com/facebook/buck/event:interfaces",
         "//src/com/facebook/buck/event/external:external_lib",
-        "//src/com/facebook/buck/rules:rules",
         "//third-party/java/guava:guava",
-    ],
-)
-
-BROADCAST_EVENT_LISTENER_SCRS = ["BroadcastEventListener.java"]
-
-java_library(
-    name = "BroadcastEventListener",
-    srcs = BROADCAST_EVENT_LISTENER_SCRS,
-    visibility = [
-        "PUBLIC",
-    ],
-    deps = [
-        "//src/com/facebook/buck/event:interfaces",
-        "//src/com/facebook/buck/event/external:external_lib",
-        "//third-party/java/jsr:jsr305",
     ],
 )
 
@@ -37,7 +25,7 @@ java_immutables_library(
     name = "listener",
     srcs = glob(
         ["*.java"],
-        exclude = CACHE_RATE_STATS_SRCS + BROADCAST_EVENT_LISTENER_SCRS,
+        exclude = CACHE_STATS_SRCS,
     ),
     tests = [
         "//test/com/facebook/buck/event/listener:listener",
@@ -50,12 +38,18 @@ java_immutables_library(
         "//src/com/facebook/buck/util/timing:timing",
         "//src/com/facebook/buck/io/file:file",
         "//src/com/facebook/buck/io/filesystem:filesystem",
-        ":CacheRateStatsKeeper",
+        "//src/com/facebook/buck/util/json:json",
+        ":CacheStats",
+        "//src/com/facebook/buck/core/build/event:event",
+        "//src/com/facebook/buck/core/model/targetgraph:targetgraph",
+        "//src/com/facebook/buck/core/model/actiongraph:actiongraph",
+        "//src/com/facebook/buck/core/test/rule:rule",
         "//src-gen:thrift",
         "//src/com/facebook/buck/util/config:config",
         "//src/com/facebook/buck/android:steps",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
         "//src/com/facebook/buck/build_type:build_type",
+        "//src/com/facebook/buck/parser:rule_pattern",
         "//src/com/facebook/buck/config:config",
         "//src/com/facebook/buck/counters:counters",
         "//src/com/facebook/buck/distributed:common",
@@ -76,14 +70,14 @@ java_immutables_library(
         "//src/com/facebook/buck/log:config",
         "//src/com/facebook/buck/log:log",
         "//src/com/facebook/buck/log/views:views",
-        "//src/com/facebook/buck/model:build_id",
         "//src/com/facebook/buck/model:model",
         "//src/com/facebook/buck/parser:config",
         "//src/com/facebook/buck/parser:parser",
         "//src/com/facebook/buck/parser/events:events",
-        "//src/com/facebook/buck/rules:rules",
+        "//src/com/facebook/buck/core/rules:rules",
         "//src/com/facebook/buck/rules/keys:keys",
         "//src/com/facebook/buck/slb:slb",
+        "//src/com/facebook/buck/core/test/event:event",
         "//src/com/facebook/buck/step:step",
         "//src/com/facebook/buck/test:config",
         "//src/com/facebook/buck/test:test",

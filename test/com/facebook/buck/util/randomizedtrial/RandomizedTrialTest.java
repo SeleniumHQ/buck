@@ -18,7 +18,9 @@ package com.facebook.buck.util.randomizedtrial;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.model.BuildId;
+import com.facebook.buck.core.model.BuildId;
+import java.util.Map;
+import java.util.TreeMap;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
@@ -53,8 +55,14 @@ public class RandomizedTrialTest {
     }
   }
 
+  public enum RegularEnum {
+    GROUP1,
+    GROUP2,
+    ;
+  }
+
   @Test
-  public void testCreatingWithWrongConfiguration() throws Exception {
+  public void testCreatingWithWrongConfiguration() {
     try {
       RandomizedTrial.getGroupStable("name", BrokenEnum.class);
     } catch (RuntimeException e) {
@@ -65,7 +73,7 @@ public class RandomizedTrialTest {
   }
 
   @Test
-  public void testPointStaysStable() throws Exception {
+  public void testPointStaysStable() {
     assertThat(
         RandomizedTrial.getPoint("test", "id"),
         Matchers.equalTo(RandomizedTrial.getPoint("test", "id")));
@@ -80,7 +88,7 @@ public class RandomizedTrialTest {
   //  }
 
   @Test
-  public void testGetGroupReturnsCorrectGroup() throws Exception {
+  public void testGetGroupReturnsCorrectGroup() {
     BuildId buildId = new BuildId("01234");
     double point = RandomizedTrial.getPoint("name", buildId.toString());
     MutableEnum.probabilityGroup1 = point;
@@ -92,7 +100,7 @@ public class RandomizedTrialTest {
   }
 
   @Test
-  public void testGetGroupStableReturnsCorrectGroup() throws Exception {
+  public void testGetGroupStableReturnsCorrectGroup() {
     double point = RandomizedTrial.getPoint("name");
     MutableEnum.probabilityGroup1 = point;
     MutableEnum.probabilityGroup2 = 1.0 - point;
@@ -100,5 +108,17 @@ public class RandomizedTrialTest {
     assertThat(
         RandomizedTrial.getGroupStable("name", MutableEnum.class),
         Matchers.equalTo(MutableEnum.GROUP2));
+  }
+
+  @Test
+  public void testGetGroupStableWithExperimentSetReturnsCorrectGroup() {
+    double point = RandomizedTrial.getPoint("name");
+    Map<RegularEnum, Double> enumValuesWithProbabilities = new TreeMap<>();
+    enumValuesWithProbabilities.put(RegularEnum.GROUP1, point);
+    enumValuesWithProbabilities.put(RegularEnum.GROUP2, 1.0 - point);
+
+    assertThat(
+        RandomizedTrial.getGroupStable("name", enumValuesWithProbabilities),
+        Matchers.equalTo(RegularEnum.GROUP2));
   }
 }

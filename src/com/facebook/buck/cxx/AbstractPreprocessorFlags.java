@@ -16,22 +16,22 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.PathShortener;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.Optionals;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.function.Function;
@@ -57,12 +57,12 @@ abstract class AbstractPreprocessorFlags implements AddsToRuleKey {
   /** Directories set via {@code -I}. */
   @AddToRuleKey
   @Value.Parameter
-  public abstract ImmutableSet<CxxHeaders> getIncludes();
+  public abstract ImmutableList<CxxHeaders> getIncludes();
 
   /** Directories set via {@code -F}. */
   @AddToRuleKey
   @Value.Parameter
-  public abstract ImmutableSet<FrameworkPath> getFrameworkPaths();
+  public abstract ImmutableList<FrameworkPath> getFrameworkPaths();
 
   @Value.Lazy
   public CxxIncludePaths getCxxIncludePaths() {
@@ -100,15 +100,31 @@ abstract class AbstractPreprocessorFlags implements AddsToRuleKey {
         .build();
   }
 
+  public CxxToolFlags getSanitizedIncludePathFlags(
+      DebugPathSanitizer sanitizer,
+      SourcePathResolver resolver,
+      PathShortener pathShortener,
+      Function<FrameworkPath, Path> frameworkPathTransformer,
+      Preprocessor preprocessor) {
+    return CxxToolFlags.explicitBuilder()
+        .addAllRuleFlags(
+            StringArg.from(
+                sanitizer.sanitizeFlags(
+                    getCxxIncludePaths()
+                        .getFlags(
+                            resolver, pathShortener, frameworkPathTransformer, preprocessor))))
+        .build();
+  }
+
   public CxxToolFlags getNonIncludePathFlags(
-      SourcePathResolver resolver, Optional<CxxPrecompiledHeader> pch, Preprocessor preprocessor) {
+      SourcePathResolver resolver, Optional<PrecompiledHeaderData> pch, Preprocessor preprocessor) {
     ExplicitCxxToolFlags.Builder builder = CxxToolFlags.explicitBuilder();
     ExplicitCxxToolFlags.addCxxToolFlags(builder, getOtherFlags());
     if (pch.isPresent()) {
-      boolean precompiled = pch.get().canPrecompile();
       builder.addAllRuleFlags(
           StringArg.from(
-              preprocessor.prefixOrPCHArgs(precompiled, pch.get().getIncludeFilePath(resolver))));
+              preprocessor.prefixOrPCHArgs(
+                  pch.get().isPrecompiled(), resolver.getAbsolutePath(pch.get().getHeader()))));
     }
     return builder.build();
   }
@@ -118,9 +134,9 @@ abstract class AbstractPreprocessorFlags implements AddsToRuleKey {
       PathShortener pathShortener,
       Function<FrameworkPath, Path> frameworkPathTransformer,
       Preprocessor preprocessor,
-      Optional<CxxPrecompiledHeader> pch) {
+      Optional<PrecompiledHeaderData> precompiledHeader) {
     return CxxToolFlags.concat(
-        getNonIncludePathFlags(resolver, pch, preprocessor),
+        getNonIncludePathFlags(resolver, precompiledHeader, preprocessor),
         getIncludePathFlags(resolver, pathShortener, frameworkPathTransformer, preprocessor));
   }
 }

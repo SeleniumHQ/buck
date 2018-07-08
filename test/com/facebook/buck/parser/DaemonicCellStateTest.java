@@ -21,14 +21,14 @@ import static org.junit.Assert.assertFalse;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.parser.PipelineNodeCache.Cache;
+import com.facebook.buck.parser.DaemonicCellState.Cache;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -75,32 +75,27 @@ public class DaemonicCellStateTest {
   }
 
   @Test
-  public void testPutComputedNodeIfNotPresent()
-      throws BuildTargetException, IOException, InterruptedException {
-    Cache<BuildTarget, Boolean> cache = state.getOrCreateCache(Boolean.class);
+  public void testPutComputedNodeIfNotPresent() throws BuildTargetException {
+    Cache<Boolean> cache = state.getOrCreateCache(Boolean.class);
     BuildTarget target =
         BuildTargetFactory.newInstance(filesystem.getRootPath(), "//path/to:target");
 
     // Make sure the cache has a raw node for this target.
     populateDummyRawNode(state, target);
 
-    cache.putComputedNodeIfNotPresent(rootCell, target, false);
-    assertEquals(
-        "Cached node was not found",
-        Optional.of(false),
-        cache.lookupComputedNode(rootCell, target));
+    cache.putComputedNodeIfNotPresent(target, false);
+    assertEquals("Cached node was not found", Optional.of(false), cache.lookupComputedNode(target));
 
-    assertFalse(cache.putComputedNodeIfNotPresent(rootCell, target, true));
+    assertFalse(cache.putComputedNodeIfNotPresent(target, true));
     assertEquals(
         "Previously cached node should not be updated",
         Optional.of(false),
-        cache.lookupComputedNode(rootCell, target));
+        cache.lookupComputedNode(target));
   }
 
   @Test
-  public void testCellNameDoesNotAffectInvalidation()
-      throws BuildTargetException, IOException, InterruptedException {
-    Cache<BuildTarget, Boolean> cache = childState.getOrCreateCache(Boolean.class);
+  public void testCellNameDoesNotAffectInvalidation() throws BuildTargetException {
+    Cache<Boolean> cache = childState.getOrCreateCache(Boolean.class);
 
     Path targetPath = childCell.getRoot().resolve("path/to/BUCK");
     BuildTarget target =
@@ -110,8 +105,8 @@ public class DaemonicCellStateTest {
     // Make sure the cache has a raw node for this target.
     populateDummyRawNode(childState, target);
 
-    cache.putComputedNodeIfNotPresent(childCell, target, true);
-    assertEquals(Optional.of(true), cache.lookupComputedNode(childCell, target));
+    cache.putComputedNodeIfNotPresent(target, true);
+    assertEquals(Optional.of(true), cache.lookupComputedNode(target));
 
     childState.putRawNodesIfNotPresentAndStripMetaEntries(
         targetPath,
@@ -126,6 +121,6 @@ public class DaemonicCellStateTest {
     assertEquals(
         "Cell-named target should still be invalidated",
         Optional.empty(),
-        cache.lookupComputedNode(childCell, target));
+        cache.lookupComputedNode(target));
   }
 }

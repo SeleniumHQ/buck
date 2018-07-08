@@ -18,7 +18,7 @@ package com.facebook.buck.android;
 
 import com.android.common.sdklib.build.ApkBuilder;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -71,6 +71,7 @@ public class AaptStep extends ShellStep {
   private final Path pathToOutputApkFile;
   private final Path pathToRDotTxtDir;
   private final Path pathToGeneratedProguardConfig;
+  private final ImmutableList<Path> pathToDependecyResourceApks;
 
   private final boolean isCrunchPngFiles;
   private final boolean includesVectorDrawables;
@@ -86,6 +87,7 @@ public class AaptStep extends ShellStep {
       Path pathToOutputApkFile,
       Path pathToRDotTxtDir,
       Path pathToGeneratedProguardConfig,
+      ImmutableList<Path> pathToDependecyResourceApks,
       boolean isCrunchPngFiles,
       boolean includesVectorDrawables,
       ManifestEntries manifestEntries) {
@@ -97,6 +99,7 @@ public class AaptStep extends ShellStep {
     this.pathToOutputApkFile = pathToOutputApkFile;
     this.pathToRDotTxtDir = pathToRDotTxtDir;
     this.pathToGeneratedProguardConfig = pathToGeneratedProguardConfig;
+    this.pathToDependecyResourceApks = pathToDependecyResourceApks;
     this.isCrunchPngFiles = isCrunchPngFiles;
     this.includesVectorDrawables = includesVectorDrawables;
     this.manifestEntries = manifestEntries;
@@ -145,15 +148,17 @@ public class AaptStep extends ShellStep {
     builder.add("--ignore-assets", IGNORE_ASSETS_PATTERN);
 
     if (manifestEntries.getMinSdkVersion().isPresent()) {
-      builder.add("--min-sdk-version", manifestEntries.getMinSdkVersion().get().toString());
+      builder.add(
+          "--min-sdk-version", String.valueOf(manifestEntries.getMinSdkVersion().getAsInt()));
     }
 
     if (manifestEntries.getTargetSdkVersion().isPresent()) {
-      builder.add("--target-sdk-version", manifestEntries.getTargetSdkVersion().get().toString());
+      builder.add(
+          "--target-sdk-version", String.valueOf(manifestEntries.getTargetSdkVersion().getAsInt()));
     }
 
     if (manifestEntries.getVersionCode().isPresent()) {
-      builder.add("--version-code", manifestEntries.getVersionCode().get().toString());
+      builder.add("--version-code", String.valueOf(manifestEntries.getVersionCode().getAsInt()));
     }
 
     if (manifestEntries.getVersionName().isPresent()) {
@@ -171,6 +176,10 @@ public class AaptStep extends ShellStep {
 
     if (includesVectorDrawables) {
       builder.add("--no-version-vectors");
+    }
+
+    for (Path path : pathToDependecyResourceApks) {
+      builder.add("--feature-of", path.toString());
     }
 
     return builder.build();

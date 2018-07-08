@@ -18,15 +18,16 @@ package com.facebook.buck.parser;
 import static com.facebook.buck.util.concurrent.MoreFutures.propagateCauseIfInstanceOf;
 import static com.google.common.base.Throwables.propagateIfInstanceOf;
 
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
+import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.KnownBuildRuleTypes;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -47,10 +48,12 @@ public abstract class ParsePipeline<T> implements AutoCloseable {
 
   private final AtomicBoolean shuttingDown;
   private final long minimumPerfEventTimeMs;
+  protected final BuckEventBus eventBus;
 
-  public ParsePipeline() {
+  public ParsePipeline(BuckEventBus eventBus) {
     this.shuttingDown = new AtomicBoolean(false);
     this.minimumPerfEventTimeMs = LOG.isVerboseEnabled() ? 0 : 1;
+    this.eventBus = eventBus;
   }
 
   /**
@@ -62,10 +65,7 @@ public abstract class ParsePipeline<T> implements AutoCloseable {
    * @throws BuildFileParseException for syntax errors.
    */
   public final ImmutableSet<T> getAllNodes(
-      final Cell cell,
-      KnownBuildRuleTypes knownBuildRuleTypes,
-      final Path buildFile,
-      AtomicLong processedBytes)
+      Cell cell, KnownBuildRuleTypes knownBuildRuleTypes, Path buildFile, AtomicLong processedBytes)
       throws BuildFileParseException {
     Preconditions.checkState(!shuttingDown.get());
 
@@ -89,9 +89,9 @@ public abstract class ParsePipeline<T> implements AutoCloseable {
    * @throws BuildTargetException if the buildTarget is malformed
    */
   public final T getNode(
-      final Cell cell,
+      Cell cell,
       KnownBuildRuleTypes knownBuildRuleTypes,
-      final BuildTarget buildTarget,
+      BuildTarget buildTarget,
       AtomicLong processedBytes)
       throws BuildFileParseException, BuildTargetException {
     Preconditions.checkState(!shuttingDown.get());

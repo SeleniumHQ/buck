@@ -16,7 +16,10 @@
 
 package com.facebook.buck.rules.modern.impl;
 
-import com.facebook.buck.rules.AddsToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.rules.modern.ValueCreator;
+import com.facebook.buck.rules.modern.ValueTypeInfo;
+import com.facebook.buck.rules.modern.ValueVisitor;
 
 /**
  * This type info delegates to a ClassInfo looked up at runtime. It is used for fields of (static)

@@ -17,28 +17,26 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.Dot;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.ActionGraphCache;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGraphAndBuildTargets;
-import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.versions.VersionException;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -52,7 +50,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.SortedSet;
 import java.util.TreeSet;
-import java.util.concurrent.ForkJoinPool;
 import javax.annotation.Nullable;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
@@ -92,11 +89,11 @@ public class AuditClasspathCommand extends AbstractCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(final CommandRunnerParams params)
+  public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
     // Create a TargetGraph that is composed of the transitive closure of all of the dependent
     // BuildRules for the specified BuildTargets.
-    final ImmutableSet<BuildTarget> targets =
+    ImmutableSet<BuildTarget> targets =
         getArgumentsFormattedAsBuildTargets(params.getBuckConfig())
             .stream()
             .map(
@@ -130,14 +127,13 @@ public class AuditClasspathCommand extends AbstractCommand {
       return ExitCode.PARSE_ERROR;
     }
 
-    try (CloseableMemoizedSupplier<ForkJoinPool, RuntimeException> poolSupplier =
-        getForkJoinPoolSupplier(params.getBuckConfig())) {
+    try {
       if (shouldGenerateDotOutput()) {
         return printDotOutput(params, targetGraph);
       } else if (shouldGenerateJsonOutput()) {
-        return printJsonClasspath(params, targetGraph, targets, poolSupplier);
+        return printJsonClasspath(params, targetGraph, targets);
       } else {
-        return printClasspath(params, targetGraph, targets, poolSupplier);
+        return printClasspath(params, targetGraph, targets);
       }
     } catch (VersionException e) {
       throw new HumanReadableException(e, MoreExceptions.getHumanReadableOrLocalizedMessage(e));
@@ -155,8 +151,7 @@ public class AuditClasspathCommand extends AbstractCommand {
       Dot.builder(targetGraph, "target_graph")
           .setNodeToName(
               targetNode -> "\"" + targetNode.getBuildTarget().getFullyQualifiedName() + "\"")
-          .setNodeToTypeName(
-              targetNode -> Description.getBuildRuleType(targetNode.getDescription()).getName())
+          .setNodeToTypeName(targetNode -> targetNode.getBuildRuleType().getName())
           .build()
           .writeOutput(params.getConsole().getStdOut());
     } catch (IOException e) {
@@ -167,10 +162,7 @@ public class AuditClasspathCommand extends AbstractCommand {
 
   @VisibleForTesting
   ExitCode printClasspath(
-      CommandRunnerParams params,
-      TargetGraph targetGraph,
-      ImmutableSet<BuildTarget> targets,
-      CloseableMemoizedSupplier<ForkJoinPool, RuntimeException> poolSupplier)
+      CommandRunnerParams params, TargetGraph targetGraph, ImmutableSet<BuildTarget> targets)
       throws InterruptedException, VersionException {
 
     if (params.getBuckConfig().getBuildVersions()) {
@@ -179,25 +171,23 @@ public class AuditClasspathCommand extends AbstractCommand {
               .getTargetGraph();
     }
 
-    BuildRuleResolver resolver =
+    ActionGraphBuilder graphBuilder =
         Preconditions.checkNotNull(
-                new ActionGraphCache(
-                        params.getBuckConfig().getMaxActionGraphCacheEntries(),
-                        params.getBuckConfig().getMaxActionGraphNodeCacheEntries())
+                new ActionGraphCache(params.getBuckConfig().getMaxActionGraphCacheEntries())
                     .getFreshActionGraph(
                         params.getBuckEventBus(),
                         targetGraph,
+                        params.getCell().getCellProvider(),
                         params.getBuckConfig().getActionGraphParallelizationMode(),
                         params.getBuckConfig().getShouldInstrumentActionGraph(),
-                        params.getBuckConfig().getIncrementalActionGraphMode(),
-                        poolSupplier))
-            .getResolver();
+                        params.getPoolSupplier()))
+            .getActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     SortedSet<Path> classpathEntries = new TreeSet<>();
 
     for (BuildTarget target : targets) {
-      BuildRule rule = Preconditions.checkNotNull(resolver.requireRule(target));
+      BuildRule rule = Preconditions.checkNotNull(graphBuilder.requireRule(target));
       HasClasspathEntries hasClasspathEntries = getHasClasspathEntriesFrom(rule);
       if (hasClasspathEntries != null) {
         classpathEntries.addAll(
@@ -217,10 +207,7 @@ public class AuditClasspathCommand extends AbstractCommand {
 
   @VisibleForTesting
   ExitCode printJsonClasspath(
-      CommandRunnerParams params,
-      TargetGraph targetGraph,
-      ImmutableSet<BuildTarget> targets,
-      CloseableMemoizedSupplier<ForkJoinPool, RuntimeException> poolSupplier)
+      CommandRunnerParams params, TargetGraph targetGraph, ImmutableSet<BuildTarget> targets)
       throws IOException, InterruptedException, VersionException {
 
     if (params.getBuckConfig().getBuildVersions()) {
@@ -229,25 +216,23 @@ public class AuditClasspathCommand extends AbstractCommand {
               .getTargetGraph();
     }
 
-    BuildRuleResolver resolver =
+    ActionGraphBuilder graphBuilder =
         Preconditions.checkNotNull(
-                new ActionGraphCache(
-                        params.getBuckConfig().getMaxActionGraphCacheEntries(),
-                        params.getBuckConfig().getMaxActionGraphNodeCacheEntries())
+                new ActionGraphCache(params.getBuckConfig().getMaxActionGraphCacheEntries())
                     .getFreshActionGraph(
                         params.getBuckEventBus(),
                         targetGraph,
+                        params.getCell().getCellProvider(),
                         params.getBuckConfig().getActionGraphParallelizationMode(),
                         params.getBuckConfig().getShouldInstrumentActionGraph(),
-                        params.getBuckConfig().getIncrementalActionGraphMode(),
-                        poolSupplier))
-            .getResolver();
+                        params.getPoolSupplier()))
+            .getActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     Multimap<String, String> targetClasspaths = LinkedHashMultimap.create();
 
     for (BuildTarget target : targets) {
-      BuildRule rule = Preconditions.checkNotNull(resolver.requireRule(target));
+      BuildRule rule = Preconditions.checkNotNull(graphBuilder.requireRule(target));
       HasClasspathEntries hasClasspathEntries = getHasClasspathEntriesFrom(rule);
       if (hasClasspathEntries == null) {
         continue;

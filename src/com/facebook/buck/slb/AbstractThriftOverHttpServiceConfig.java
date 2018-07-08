@@ -16,7 +16,7 @@
 
 package com.facebook.buck.slb;
 
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import org.immutables.value.Value;
 
 @Value.Immutable
@@ -32,6 +32,7 @@ abstract class AbstractThriftOverHttpServiceConfig {
     return ThriftProtocol.BINARY;
   }
 
+  @Value.Default
   public String getThriftPath() {
     return DEFAULT_THRIFT_PATH;
   }

@@ -16,19 +16,22 @@
 
 package org.openqa.selenium.buck.mozilla;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.ImmutableSortedSet;
 import org.immutables.value.Value;
 
-public class MozillaExtensionDescription implements Description<MozillaExtensionArg> {
+public class MozillaExtensionDescription implements
+    DescriptionWithTargetGraph<MozillaExtensionArg>,
+    VersionPropagator<MozillaExtensionArg> {
 
   @Override
   public Class<MozillaExtensionArg> getConstructorArgType() {
@@ -37,20 +40,25 @@ public class MozillaExtensionDescription implements Description<MozillaExtension
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       MozillaExtensionArg args) {
     return new Xpi(
         buildTarget,
         context.getProjectFilesystem(),
-        new SourcePathRuleFinder(context.getBuildRuleResolver()),
+        new SourcePathRuleFinder(context.getActionGraphBuilder()),
         args.getChrome(),
         args.getComponents(),
         args.getContent(),
         args.getInstall(),
         args.getResources(),
         args.getPlatforms());
+  }
+
+  @Override
+  public boolean producesCacheableSubgraph() {
+    return true;
   }
 
   @BuckStyleImmutable

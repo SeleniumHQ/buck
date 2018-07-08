@@ -16,8 +16,8 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.MetadataChecker;
+import com.facebook.buck.core.build.engine.impl.MetadataChecker;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
@@ -37,16 +37,16 @@ public class SuggestCommand extends AbstractCommand {
    * FineGrainedJavaDependencySuggester}.
    */
   @Override
-  public ExitCode runWithoutHelp(final CommandRunnerParams params)
+  public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
     if (arguments.size() != 1) {
       throw new CommandLineException("must specify exactly one argument to 'buck suggest'");
     }
 
-    final Console console = params.getConsole();
+    Console console = params.getConsole();
 
     String targetToBreakDown = Iterables.getOnlyElement(arguments);
-    final String fullyQualifiedTarget =
+    String fullyQualifiedTarget =
         Iterables.getOnlyElement(
             getCommandLineBuildTargetNormalizer(params.getBuckConfig())
                 .normalize(targetToBreakDown));

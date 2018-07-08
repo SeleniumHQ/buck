@@ -16,8 +16,8 @@
 
 package com.facebook.buck.step;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.google.common.annotations.VisibleForTesting;
@@ -155,11 +155,7 @@ public abstract class AbstractTestStep implements Step {
       return false;
     }
 
-    if (!output.equals(that.output)) {
-      return false;
-    }
-
-    return true;
+    return output.equals(that.output);
   }
 
   @Override

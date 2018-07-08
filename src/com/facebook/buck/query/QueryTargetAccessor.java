@@ -16,15 +16,15 @@
 
 package com.facebook.buck.query;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.rules.coercer.CoercedTypeCache;
 import com.facebook.buck.rules.coercer.ParamInfo;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
@@ -45,7 +45,7 @@ public class QueryTargetAccessor {
       // Ignore if the field does not exist in this rule.
       return ImmutableSet.of();
     }
-    final ImmutableSet.Builder<QueryTarget> builder = ImmutableSortedSet.naturalOrder();
+    ImmutableSet.Builder<QueryTarget> builder = ImmutableSortedSet.naturalOrder();
     info.traverse(
         node.getCellNames(),
         value -> {
@@ -75,7 +75,7 @@ public class QueryTargetAccessor {
       TypeCoercerFactory typeCoercerFactory,
       TargetNode<T, ?> node,
       String attribute,
-      final Predicate<Object> predicate) {
+      Predicate<Object> predicate) {
     Class<?> constructorArgClass = node.getConstructorArg().getClass();
     ParamInfo info =
         CoercedTypeCache.INSTANCE
@@ -85,7 +85,7 @@ public class QueryTargetAccessor {
       // Ignore if the field does not exist in this rule.
       return ImmutableSet.of();
     }
-    final ImmutableSet.Builder<Object> builder = ImmutableSet.builder();
+    ImmutableSet.Builder<Object> builder = ImmutableSet.builder();
     info.traverse(
         node.getCellNames(),
         value -> {

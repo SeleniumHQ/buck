@@ -21,15 +21,15 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 import static org.junit.Assert.assertNotNull;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.cxx.CxxCompilationDatabaseEntry;
 import com.facebook.buck.cxx.CxxCompilationDatabaseUtils;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -270,13 +270,13 @@ public class CompilationDatabaseIntegrationTest {
     commandArgs.add("-fdebug-compilation-dir");
     commandArgs.add("-Xclang");
     commandArgs.add("." + Strings.repeat("/", 399));
+    commandArgs.add("-o");
+    commandArgs.add(output);
     commandArgs.add("-c");
     commandArgs.add("-MD");
     commandArgs.add("-MF");
     commandArgs.add(output + ".dep");
     commandArgs.add(source);
-    commandArgs.add("-o");
-    commandArgs.add(output);
     assertThat(
         RichStream.from(entry.getArguments())
             .filter(c -> !c.contains("-fdebug-prefix-map"))

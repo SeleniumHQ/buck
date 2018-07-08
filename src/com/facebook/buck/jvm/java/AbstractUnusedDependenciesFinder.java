@@ -16,23 +16,23 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.immutables.BuckStylePackageVisibleTuple;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.java.JavaBuckConfig.UnusedDependenciesAction;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.UnflavoredBuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
-import com.facebook.buck.util.immutables.BuckStylePackageVisibleTuple;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -126,6 +126,11 @@ public abstract class AbstractUnusedDependenciesFinder implements Step {
         messageHandler, usedJars, javaLibraryDeps.getProvidedDepTargets(), "provided_deps");
     findUnusedDependenciesAndProcessMessages(
         messageHandler, usedJars, javaLibraryDeps.getExportedDepTargets(), "exported_deps");
+    findUnusedDependenciesAndProcessMessages(
+        messageHandler,
+        usedJars,
+        javaLibraryDeps.getExportedProvidedDepTargets(),
+        "exported_provided_deps");
   }
 
   private void findUnusedDependenciesAndProcessMessages(

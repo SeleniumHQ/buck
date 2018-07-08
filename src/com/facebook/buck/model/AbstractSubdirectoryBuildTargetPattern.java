@@ -15,8 +15,9 @@
  */
 package com.facebook.buck.model;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
 import java.nio.file.Path;
 import org.immutables.value.Value;
 
@@ -47,8 +48,8 @@ abstract class AbstractSubdirectoryBuildTargetPattern implements BuildTargetPatt
       return true;
     }
 
-    // If the getPathWithinCell() is empty, we match the top level directory in the cell. _Everything_ is
-    // a subdirectory of that.
+    // If the getPathWithinCell() is empty, we match the top level directory in the cell.
+    // _Everything_ is a subdirectory of that.
     return "".equals(getPathWithinCell().toString());
   }
 
@@ -59,6 +60,6 @@ abstract class AbstractSubdirectoryBuildTargetPattern implements BuildTargetPatt
 
   @Override
   public String toString() {
-    return getCellPath().getFileName().toString() + "//" + getPathWithinCell().toString() + "/...";
+    return getCellPath().getFileName() + "//" + getPathWithinCell() + "/...";
   }
 }

@@ -21,24 +21,23 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.shell.Genrule;
@@ -71,23 +70,27 @@ public class CxxPreprocessablesTest {
     }
 
     @Override
-    public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
+    public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(
+        CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
       return FluentIterable.from(getBuildDeps()).filter(CxxPreprocessorDep.class);
     }
 
     @Override
-    public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform) {
+    public CxxPreprocessorInput getCxxPreprocessorInput(
+        CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
       return input;
     }
 
     @Override
     public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-        CxxPlatform cxxPlatform) {
+        CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
       ImmutableMap.Builder<BuildTarget, CxxPreprocessorInput> builder = ImmutableMap.builder();
-      builder.put(getBuildTarget(), getCxxPreprocessorInput(cxxPlatform));
+      builder.put(getBuildTarget(), getCxxPreprocessorInput(cxxPlatform, graphBuilder));
       for (BuildRule dep : getBuildDeps()) {
         if (dep instanceof CxxPreprocessorDep) {
-          builder.putAll(((CxxPreprocessorDep) dep).getTransitiveCxxPreprocessorInput(cxxPlatform));
+          builder.putAll(
+              ((CxxPreprocessorDep) dep)
+                  .getTransitiveCxxPreprocessorInput(cxxPlatform, graphBuilder));
         }
       }
       return builder.build();
@@ -129,7 +132,7 @@ public class CxxPreprocessablesTest {
   }
 
   @Test
-  public void getTransitiveCxxPreprocessorInput() throws Exception {
+  public void getTransitiveCxxPreprocessorInput() {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     CxxPlatform cxxPlatform =
         CxxPlatformUtils.build(
@@ -168,15 +171,13 @@ public class CxxPreprocessablesTest {
     ImmutableList<CxxPreprocessorInput> actual =
         ImmutableList.copyOf(
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-                cxxPlatform, ImmutableList.<BuildRule>of(dep3)));
+                cxxPlatform, new TestActionGraphBuilder(), ImmutableList.<BuildRule>of(dep3)));
     assertEquals(expected, actual);
   }
 
   @Test
   public void createHeaderSymlinkTreeBuildRuleHasNoDeps() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // Setup up the main build target and build params, which some random dep.  We'll make
@@ -190,7 +191,7 @@ public class CxxPreprocessablesTest {
         GenruleBuilder.newGenruleBuilder(
                 BuildTargetFactory.newInstance(filesystem.getRootPath(), "//:genrule"))
             .setOut("foo/bar.o")
-            .build(resolver);
+            .build(graphBuilder);
 
     // Setup the link map with both a regular path-based source path and one provided by
     // another build rule.
@@ -206,7 +207,7 @@ public class CxxPreprocessablesTest {
         CxxPreprocessables.createHeaderSymlinkTreeBuildRule(
             target,
             filesystem,
-            new SourcePathRuleFinder(resolver),
+            new SourcePathRuleFinder(graphBuilder),
             root,
             links,
             HeaderMode.SYMLINK_TREE_ONLY);
@@ -218,8 +219,7 @@ public class CxxPreprocessablesTest {
   }
 
   @Test
-  public void getTransitiveNativeLinkableInputDoesNotTraversePastNonNativeLinkables()
-      throws Exception {
+  public void getTransitiveNativeLinkableInputDoesNotTraversePastNonNativeLinkables() {
     CxxPlatform cxxPlatform =
         CxxPlatformUtils.build(new CxxBuckConfig(FakeBuckConfig.builder().build()));
 
@@ -242,7 +242,7 @@ public class CxxPreprocessablesTest {
     CxxPreprocessorInput totalInput =
         CxxPreprocessorInput.concat(
             CxxPreprocessables.getTransitiveCxxPreprocessorInput(
-                cxxPlatform, ImmutableList.of(top)));
+                cxxPlatform, new TestActionGraphBuilder(), ImmutableList.of(top)));
     assertTrue(bottomInput.getPreprocessorFlags().get(CxxSource.Type.C).contains(sentinal));
     assertFalse(totalInput.getPreprocessorFlags().get(CxxSource.Type.C).contains(sentinal));
   }

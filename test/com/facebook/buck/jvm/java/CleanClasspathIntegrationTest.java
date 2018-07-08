@@ -18,9 +18,9 @@ package com.facebook.buck.jvm.java;
 
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.ProcessResult;
@@ -44,8 +44,7 @@ public class CleanClasspathIntegrationTest {
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   @Test
-  public void testJavaLibraryRuleDoesNotIncludeItsOwnOldOutputOnTheClasspath()
-      throws InterruptedException, IOException {
+  public void testJavaLibraryRuleDoesNotIncludeItsOwnOldOutputOnTheClasspath() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(
             this, "classpath_corruption_regression", tmp);

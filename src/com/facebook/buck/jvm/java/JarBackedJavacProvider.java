@@ -16,12 +16,12 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
 import javax.annotation.Nullable;
@@ -29,16 +29,13 @@ import javax.annotation.Nullable;
 public class JarBackedJavacProvider implements JavacProvider, AddsToRuleKey {
   @AddToRuleKey private final SourcePath javacJarPath;
   @AddToRuleKey private final String compilerClassName;
-  @AddToRuleKey private final Javac.Location javacLocation;
 
   // This is just used to cache the Javac derived from the other fields.
   @Nullable private Javac javac;
 
-  public JarBackedJavacProvider(
-      SourcePath javacJarPath, String compilerClassName, Javac.Location javacLocation) {
+  public JarBackedJavacProvider(SourcePath javacJarPath, String compilerClassName) {
     this.javacJarPath = javacJarPath;
     this.compilerClassName = compilerClassName;
-    this.javacLocation = javacLocation;
   }
 
   @Override
@@ -56,13 +53,7 @@ public class JarBackedJavacProvider implements JavacProvider, AddsToRuleKey {
 
       ImmutableSortedSet<SourcePath> fullJavacClasspath = builder.build();
 
-      switch (javacLocation) {
-        case IN_PROCESS:
-          javac = new JarBackedJavac(compilerClassName, fullJavacClasspath);
-          break;
-        default:
-          throw new AssertionError("Unknown javac location: " + javacLocation);
-      }
+      javac = new JarBackedJavac(compilerClassName, fullJavacClasspath);
     }
 
     return javac;

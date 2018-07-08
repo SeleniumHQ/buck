@@ -72,14 +72,14 @@ public class MoreThrowablesTest {
   }
 
   @Test
-  public void testGetInitialCauseSingleThrowable() throws Exception {
+  public void testGetInitialCauseSingleThrowable() {
     Exception exception = new Exception();
 
     assertEquals(getInitialCause(exception), exception);
   }
 
   @Test
-  public void testGetInitialCauseChainedThrowables() throws Exception {
+  public void testGetInitialCauseChainedThrowables() {
     Exception lowLevelException = new Exception();
     Exception midLevelExceptionA = new Exception(lowLevelException);
     Exception midLevelExceptionB = new Exception(midLevelExceptionA);
@@ -90,7 +90,7 @@ public class MoreThrowablesTest {
   }
 
   @Test
-  public void testGetInitialCauseLoopedThrowables() throws Exception {
+  public void testGetInitialCauseLoopedThrowables() {
     Exception lowLevelException = new Exception();
     Exception midLevelExceptionA = new Exception(lowLevelException);
     Exception midLevelExceptionB = new Exception(midLevelExceptionA);
@@ -102,7 +102,7 @@ public class MoreThrowablesTest {
   }
 
   @Test
-  public void testGetOrigin() throws Exception {
+  public void testGetOrigin() {
     Exception exception = new Exception();
     String expectedPrefix =
         this.getClass().getCanonicalName()
@@ -112,6 +112,34 @@ public class MoreThrowablesTest {
             + ".java:";
 
     assertTrue(getThrowableOrigin(exception).startsWith(expectedPrefix));
+  }
+
+  @Test
+  public void testThrowIfAnyCauseInstanceOf() throws Exception {
+    Exception first = new Exception("first");
+    IOException second = new IOException("second", first);
+    Exception third = new Exception("third", second);
+
+    // should not throw
+    MoreThrowables.throwIfAnyCauseInstanceOf(third, InterruptedException.class);
+
+    // should throw IOException
+    expected.expect(IOException.class);
+    MoreThrowables.throwIfAnyCauseInstanceOf(third, IOException.class);
+  }
+
+  @Test
+  public void testThrowIfInitialCauseInstanceOf() throws Exception {
+    Exception first = new InterruptedException("first");
+    IOException second = new IOException("second", first);
+    Exception third = new IOException("third", second);
+
+    // should not throw
+    MoreThrowables.throwIfInitialCauseInstanceOf(third, IOException.class);
+
+    // should throw InterruptedException
+    expected.expect(InterruptedException.class);
+    MoreThrowables.throwIfInitialCauseInstanceOf(third, InterruptedException.class);
   }
 
   public static class CausedBy extends TypeSafeMatcher<Throwable> {

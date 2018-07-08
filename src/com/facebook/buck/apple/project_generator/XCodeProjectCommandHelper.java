@@ -22,10 +22,23 @@ import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescriptionArg;
-import com.facebook.buck.apple.project_generator.ProjectGenerator.Option;
 import com.facebook.buck.cli.output.PathOutputPresenter;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.ProjectTestsMode;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.CellProvider;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.NoSuchTargetException;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.resolver.impl.SingleThreadedActionGraphBuilder;
+import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
@@ -34,31 +47,20 @@ import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.AbstractBottomUpTraversal;
 import com.facebook.buck.halide.HalideBuckConfig;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.model.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.parser.PerBuildState;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGraphAndTargets;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.ProcessManager;
 import com.facebook.buck.util.RichStream;
@@ -103,7 +105,7 @@ public class XCodeProjectCommandHelper {
   private final InstrumentedVersionedTargetGraphCache versionedTargetGraphCache;
   private final TypeCoercerFactory typeCoercerFactory;
   private final Cell cell;
-  private final ImmutableSet<String> appleCxxFlavors;
+  private final ImmutableSet<Flavor> appleCxxFlavors;
   private final RuleKeyConfiguration ruleKeyConfiguration;
   private final Console console;
   private final Optional<ProcessManager> processManager;
@@ -136,7 +138,7 @@ public class XCodeProjectCommandHelper {
       ImmutableMap<String, String> environment,
       ListeningExecutorService executorService,
       List<String> arguments,
-      ImmutableSet<String> appleCxxFlavors,
+      ImmutableSet<Flavor> appleCxxFlavors,
       boolean enableParserProfiling,
       boolean withTests,
       boolean withoutTests,
@@ -192,7 +194,7 @@ public class XCodeProjectCommandHelper {
                       enableParserProfiling,
                       executor,
                       argsParser.apply(arguments),
-                      PerBuildState.SpeculativeParsing.ENABLED,
+                      SpeculativeParsing.ENABLED,
                       parserConfig.getDefaultFlavorsMode())));
       projectGraph = getProjectGraphForIde(executor, passedInTargetsSet);
     } catch (BuildFileParseException e) {
@@ -231,7 +233,7 @@ public class XCodeProjectCommandHelper {
               isWithDependenciesTests(buckConfig),
               passedInTargetsSet.isEmpty(),
               executor);
-    } catch (BuildFileParseException | TargetGraph.NoSuchNodeException | VersionException e) {
+    } catch (BuildFileParseException | NoSuchTargetException | VersionException e) {
       buckEventBus.post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return ExitCode.PARSE_ERROR;
     } catch (HumanReadableException e) {
@@ -302,22 +304,27 @@ public class XCodeProjectCommandHelper {
   /** Run xcode specific project generation actions. */
   private ExitCode runXcodeProjectGenerator(
       ListeningExecutorService executor,
-      final TargetGraphAndTargets targetGraphAndTargets,
+      TargetGraphAndTargets targetGraphAndTargets,
       ImmutableSet<BuildTarget> passedInTargetsSet)
       throws IOException, InterruptedException {
     ExitCode exitCode = ExitCode.SUCCESS;
     AppleConfig appleConfig = buckConfig.getView(AppleConfig.class);
-    ImmutableSet<ProjectGenerator.Option> options =
-        buildWorkspaceGeneratorOptions(
-            readOnly,
-            isWithTests(buckConfig),
-            isWithDependenciesTests(buckConfig),
-            combinedProject,
-            appleConfig.shouldUseHeaderMapsInXcodeProject(),
-            appleConfig.shouldMergeHeaderMapsInXcodeProject(),
-            appleConfig.shouldGenerateHeaderSymlinkTreesOnly(),
-            appleConfig.shouldGenerateMissingUmbrellaHeaders(),
-            appleConfig.shouldAddLinkerFlagsForLinkWholeLibraries());
+    ProjectGeneratorOptions options =
+        ProjectGeneratorOptions.builder()
+            .setShouldGenerateReadOnlyFiles(readOnly)
+            .setShouldIncludeTests(isWithTests(buckConfig))
+            .setShouldIncludeDependenciesTests(isWithDependenciesTests(buckConfig))
+            .setShouldUseHeaderMaps(appleConfig.shouldUseHeaderMapsInXcodeProject())
+            .setShouldMergeHeaderMaps(appleConfig.shouldMergeHeaderMapsInXcodeProject())
+            .setShouldForceLoadLinkWholeLibraries(
+                appleConfig.shouldAddLinkerFlagsForLinkWholeLibraries())
+            .setShouldGenerateHeaderSymlinkTreesOnly(
+                appleConfig.shouldGenerateHeaderSymlinkTreesOnly())
+            .setShouldGenerateMissingUmbrellaHeader(
+                appleConfig.shouldGenerateMissingUmbrellaHeaders())
+            .setShouldUseShortNamesForTargets(true)
+            .setShouldCreateDirectoryStructure(combinedProject)
+            .build();
 
     LOG.debug("Xcode project generation: Generates workspaces for targets");
 
@@ -348,7 +355,7 @@ public class XCodeProjectCommandHelper {
                           cellPathToCellName.get(target.getCellPath()).stream().findAny();
                       if (cellName.isPresent()) {
                         return target.withUnflavoredBuildTarget(
-                            UnflavoredBuildTarget.of(
+                            ImmutableUnflavoredBuildTarget.of(
                                 target.getCellPath(),
                                 cellName,
                                 target.getBaseName(),
@@ -380,10 +387,10 @@ public class XCodeProjectCommandHelper {
       BuckConfig buckConfig,
       RuleKeyConfiguration ruleKeyConfiguration,
       ListeningExecutorService executorService,
-      final TargetGraphAndTargets targetGraphAndTargets,
+      TargetGraphAndTargets targetGraphAndTargets,
       ImmutableSet<BuildTarget> passedInTargetsSet,
-      ImmutableSet<ProjectGenerator.Option> options,
-      ImmutableSet<String> appleCxxFlavors,
+      ProjectGeneratorOptions options,
+      ImmutableSet<Flavor> appleCxxFlavors,
       FocusedModuleTargetMatcher focusModules,
       Map<Path, ProjectGenerator> projectGenerators,
       boolean combinedProject,
@@ -402,11 +409,11 @@ public class XCodeProjectCommandHelper {
     }
 
     LazyActionGraph lazyActionGraph =
-        new LazyActionGraph(targetGraphAndTargets.getTargetGraph(), buckEventBus);
+        new LazyActionGraph(targetGraphAndTargets.getTargetGraph(), cell.getCellProvider());
 
     LOG.debug("Generating workspace for config targets %s", targets);
     ImmutableSet.Builder<BuildTarget> requiredBuildTargetsBuilder = ImmutableSet.builder();
-    for (final BuildTarget inputTarget : targets) {
+    for (BuildTarget inputTarget : targets) {
       TargetNode<?, ?> inputNode = targetGraphAndTargets.getTargetGraph().get(inputTarget);
       XcodeWorkspaceConfigDescriptionArg workspaceArgs;
       if (inputNode.getDescription() instanceof XcodeWorkspaceConfigDescription) {
@@ -444,7 +451,7 @@ public class XCodeProjectCommandHelper {
               defaultCxxPlatform,
               appleCxxFlavors,
               buckConfig.getView(ParserConfig.class).getBuildFileName(),
-              lazyActionGraph::getBuildRuleResolverWhileRequiringSubgraph,
+              lazyActionGraph::getActionGraphBuilderWhileRequiringSubgraph,
               buckEventBus,
               ruleKeyConfiguration,
               halideBuckConfig,
@@ -492,7 +499,7 @@ public class XCodeProjectCommandHelper {
                   enableParserProfiling,
                   executor,
                   specs,
-                  PerBuildState.SpeculativeParsing.DISABLED,
+                  SpeculativeParsing.DISABLED,
                   parserConfig.getDefaultFlavorsMode())
               .stream()
               .flatMap(Collection::stream)
@@ -509,50 +516,6 @@ public class XCodeProjectCommandHelper {
             .toImmutableSet();
     LOG.debug("Selected unflavored targets: %s", passedInUnflavoredTargetsSet.toString());
     return FocusedModuleTargetMatcher.focusedOn(passedInUnflavoredTargetsSet);
-  }
-
-  @VisibleForTesting
-  static ImmutableSet<ProjectGenerator.Option> buildWorkspaceGeneratorOptions(
-      boolean isReadonly,
-      boolean isWithTests,
-      boolean isWithDependenciesTests,
-      boolean isProjectsCombined,
-      boolean shouldUseHeaderMaps,
-      boolean shouldMergeHeaderMaps,
-      boolean shouldGenerateHeaderSymlinkTreesOnly,
-      boolean shouldGenerateMissingUmbrellaHeaders,
-      boolean shouldAddLinkerFlagsForLinkWholeLibraries) {
-    ImmutableSet.Builder<ProjectGenerator.Option> optionsBuilder = ImmutableSet.builder();
-    if (isReadonly) {
-      optionsBuilder.add(ProjectGenerator.Option.GENERATE_READ_ONLY_FILES);
-    }
-    if (isWithTests) {
-      optionsBuilder.add(ProjectGenerator.Option.INCLUDE_TESTS);
-    }
-    if (isWithDependenciesTests) {
-      optionsBuilder.add(ProjectGenerator.Option.INCLUDE_DEPENDENCIES_TESTS);
-    }
-    if (isProjectsCombined) {
-      optionsBuilder.addAll(ProjectGenerator.COMBINED_PROJECT_OPTIONS);
-    } else {
-      optionsBuilder.addAll(ProjectGenerator.SEPARATED_PROJECT_OPTIONS);
-    }
-    if (!shouldUseHeaderMaps) {
-      optionsBuilder.add(ProjectGenerator.Option.DISABLE_HEADER_MAPS);
-    }
-    if (shouldMergeHeaderMaps) {
-      optionsBuilder.add(ProjectGenerator.Option.MERGE_HEADER_MAPS);
-    }
-    if (shouldAddLinkerFlagsForLinkWholeLibraries) {
-      optionsBuilder.add(Option.FORCE_LOAD_LINK_WHOLE_LIBRARIES);
-    }
-    if (shouldGenerateHeaderSymlinkTreesOnly) {
-      optionsBuilder.add(ProjectGenerator.Option.GENERATE_HEADERS_SYMLINK_TREES_ONLY);
-    }
-    if (shouldGenerateMissingUmbrellaHeaders) {
-      optionsBuilder.add(ProjectGenerator.Option.GENERATE_MISSING_UMBRELLA_HEADER);
-    }
-    return optionsBuilder.build();
   }
 
   @SuppressWarnings(value = "unchecked")
@@ -674,7 +637,7 @@ public class XCodeProjectCommandHelper {
 
   private TargetGraph getProjectGraphForIde(
       ListeningExecutorService executor, ImmutableSet<BuildTarget> passedInTargets)
-      throws InterruptedException, BuildFileParseException, BuildTargetException, IOException {
+      throws InterruptedException, BuildFileParseException, IOException {
 
     if (passedInTargets.isEmpty()) {
       return parser
@@ -700,8 +663,7 @@ public class XCodeProjectCommandHelper {
       boolean isWithDependenciesTests,
       boolean needsFullRecursiveParse,
       ListeningExecutorService executor)
-      throws IOException, InterruptedException, BuildFileParseException, BuildTargetException,
-          VersionException {
+      throws IOException, InterruptedException, BuildFileParseException, VersionException {
 
     ImmutableSet<BuildTarget> explicitTestTargets = ImmutableSet.of();
     ImmutableSet<BuildTarget> graphRootsOrSourceTargets =
@@ -775,7 +737,8 @@ public class XCodeProjectCommandHelper {
     return resultBuilder.build();
   }
 
-  private static boolean canGenerateImplicitWorkspaceForDescription(Description<?> description) {
+  private static boolean canGenerateImplicitWorkspaceForDescription(
+      DescriptionWithTargetGraph<?> description) {
     // We weren't given a workspace target, but we may have been given something that could
     // still turn into a workspace (for example, a library or an actual app rule). If that's the
     // case we still want to generate a workspace.
@@ -834,16 +797,16 @@ public class XCodeProjectCommandHelper {
   @ThreadSafe
   private static class LazyActionGraph {
     private final TargetGraph targetGraph;
-    private final BuildRuleResolver resolver;
+    private final ActionGraphBuilder graphBuilder;
 
-    public LazyActionGraph(TargetGraph targetGraph, BuckEventBus buckEventBus) {
+    public LazyActionGraph(TargetGraph targetGraph, CellProvider cellProvider) {
       this.targetGraph = targetGraph;
-      this.resolver =
-          new SingleThreadedBuildRuleResolver(
-              targetGraph, new DefaultTargetNodeToBuildRuleTransformer(), buckEventBus);
+      this.graphBuilder =
+          new SingleThreadedActionGraphBuilder(
+              targetGraph, new DefaultTargetNodeToBuildRuleTransformer(), cellProvider);
     }
 
-    public BuildRuleResolver getBuildRuleResolverWhileRequiringSubgraph(TargetNode<?, ?> root) {
+    public ActionGraphBuilder getActionGraphBuilderWhileRequiringSubgraph(TargetNode<?, ?> root) {
       TargetGraph subgraph = targetGraph.getSubgraph(ImmutableList.of(root));
 
       try {
@@ -851,14 +814,14 @@ public class XCodeProjectCommandHelper {
           new AbstractBottomUpTraversal<TargetNode<?, ?>, NoSuchBuildTargetException>(subgraph) {
             @Override
             public void visit(TargetNode<?, ?> node) throws NoSuchBuildTargetException {
-              resolver.requireRule(node.getBuildTarget());
+              graphBuilder.requireRule(node.getBuildTarget());
             }
           }.traverse();
         }
       } catch (NoSuchBuildTargetException e) {
         throw new HumanReadableException(e);
       }
-      return resolver;
+      return graphBuilder;
     }
   }
 }

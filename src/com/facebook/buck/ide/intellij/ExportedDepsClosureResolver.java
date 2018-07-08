@@ -16,11 +16,12 @@
 
 package com.facebook.buck.ide.intellij;
 
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.jvm.java.PrebuiltJarDescriptionArg;
 import com.google.common.collect.ImmutableSet;
 import java.util.HashMap;
 import java.util.Map;
@@ -56,6 +57,9 @@ public class ExportedDepsClosureResolver {
       JavaLibraryDescription.CoreArg arg =
           (JavaLibraryDescription.CoreArg) targetNode.getConstructorArg();
       exportedDeps = arg.getExportedDeps();
+    } else if (targetNode.getConstructorArg() instanceof PrebuiltJarDescriptionArg) {
+      PrebuiltJarDescriptionArg arg = (PrebuiltJarDescriptionArg) targetNode.getConstructorArg();
+      exportedDeps = arg.getDeps();
     }
 
     ImmutableSet<BuildTarget> exportedDepsClosure =

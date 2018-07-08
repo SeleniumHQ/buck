@@ -19,6 +19,7 @@ import com.facebook.buck.android.AndroidBinaryDescription;
 import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.android.AndroidResourceDescription;
 import com.facebook.buck.android.RobolectricTestDescription;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.ide.intellij.lang.android.AndroidBinaryModuleRule;
 import com.facebook.buck.ide.intellij.lang.android.AndroidLibraryModuleRule;
@@ -48,7 +49,6 @@ import com.facebook.buck.jvm.kotlin.KotlinLibraryDescription;
 import com.facebook.buck.jvm.kotlin.KotlinTestDescription;
 import com.facebook.buck.jvm.scala.ScalaLibraryDescription;
 import com.facebook.buck.jvm.scala.ScalaTestDescription;
-import com.facebook.buck.rules.Description;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import java.util.HashMap;
@@ -57,7 +57,7 @@ import java.util.Set;
 
 public class SupportedTargetTypeRegistry {
   /** These target types are mapped onto .iml module files. */
-  private static final ImmutableSet<Class<? extends Description<?>>>
+  private static final ImmutableSet<Class<? extends DescriptionWithTargetGraph<?>>>
       SUPPORTED_MODULE_DESCRIPTION_CLASSES =
           ImmutableSet.of(
               AndroidBinaryDescription.class,
@@ -79,12 +79,13 @@ public class SupportedTargetTypeRegistry {
     return SUPPORTED_MODULE_DESCRIPTION_CLASSES.contains(descriptionClass);
   }
 
-  public static boolean areTargetTypesEqual(Set<Class<? extends Description<?>>> otherTypes) {
+  public static boolean areTargetTypesEqual(
+      Set<Class<? extends DescriptionWithTargetGraph<?>>> otherTypes) {
     return SUPPORTED_MODULE_DESCRIPTION_CLASSES.equals(otherTypes);
   }
 
-  private final Map<Class<? extends Description<?>>, IjModuleRule<?>> moduleRuleIndex =
-      new HashMap<>();
+  private final Map<Class<? extends DescriptionWithTargetGraph<?>>, IjModuleRule<?>>
+      moduleRuleIndex = new HashMap<>();
 
   public SupportedTargetTypeRegistry(
       ProjectFilesystem projectFilesystem,

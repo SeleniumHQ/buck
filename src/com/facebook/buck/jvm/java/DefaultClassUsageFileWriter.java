@@ -16,10 +16,10 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.collect.ImmutableSetMultimap;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -49,7 +49,7 @@ public final class DefaultClassUsageFileWriter implements ClassUsageFileWriter {
       ImmutableSetMultimap<Path, Path> classUsageMap,
       ProjectFilesystem filesystem,
       CellPathResolver cellPathResolver) {
-    final ImmutableSetMultimap.Builder<Path, Path> builder = ImmutableSetMultimap.builder();
+    ImmutableSetMultimap.Builder<Path, Path> builder = ImmutableSetMultimap.builder();
 
     // Ensure deterministic ordering.
     builder.orderKeysBy(Comparator.naturalOrder());
@@ -85,11 +85,11 @@ public final class DefaultClassUsageFileWriter implements ClassUsageFileWriter {
    */
   private static Optional<Path> getCrossCellPath(Path jarAbsolutePath, CellPathResolver resolver) {
     for (Map.Entry<String, Path> cellEntry : resolver.getCellPaths().entrySet()) {
-      final Path cellRoot = cellEntry.getValue();
+      Path cellRoot = cellEntry.getValue();
       if (jarAbsolutePath.startsWith(cellRoot)) {
         Path relativePath = cellRoot.relativize(jarAbsolutePath);
         // We use an absolute path to represent a path rooted in another cell
-        final Path cellNameRoot = cellRoot.getRoot().resolve(cellEntry.getKey());
+        Path cellNameRoot = cellRoot.getRoot().resolve(cellEntry.getKey());
         return Optional.of(cellNameRoot.resolve(relativePath));
       }
     }

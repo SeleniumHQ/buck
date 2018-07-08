@@ -16,14 +16,17 @@
 
 package com.facebook.buck.rules.modern.impl;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.sourcepath.NonHashableSourcePathContainer;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.rules.modern.OutputPath;
+import com.facebook.buck.rules.modern.PublicOutputPath;
+import com.facebook.buck.rules.modern.ValueTypeInfo;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfos.ImmutableListValueTypeInfo;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfos.ImmutableSortedSetValueTypeInfo;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfos.OptionalValueTypeInfo;
-import com.facebook.buck.rules.modern.impl.ValueTypeInfos.OutputPathValueTypeInfo;
+import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
@@ -40,7 +43,10 @@ import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
+import java.util.regex.Pattern;
 
 /** Creates ValueTypeInfos for given Types/TypeTokens. */
 public class ValueTypeInfoFactory {
@@ -60,7 +66,9 @@ public class ValueTypeInfoFactory {
       return info;
     }
     try {
-      if (type instanceof ParameterizedType) {
+      if (type instanceof ParameterizedType
+          && !AddsToRuleKey.class.isAssignableFrom(
+              (Class<?>) ((ParameterizedType) type).getRawType())) {
         for (Type t : ((ParameterizedType) type).getActualTypeArguments()) {
           // Ensure that each required type argument's ValueTypeInfo is already computed.
           forType(t);
@@ -68,7 +76,8 @@ public class ValueTypeInfoFactory {
       }
       return typeInfos.computeIfAbsent(type, ValueTypeInfoFactory::computeTypeInfo);
     } catch (Exception t) {
-      throw new RuntimeException("Failed getting type info for type " + type.getTypeName(), t);
+      throw new BuckUncheckedExecutionException(
+          t, "When getting type info for type " + type.getTypeName());
     }
   }
 
@@ -77,7 +86,6 @@ public class ValueTypeInfoFactory {
    * strings, etc) or one of the supported generic types composed of other simple types.
    */
   static boolean isSimpleType(Type type) {
-    // TODO(cjhopman): enum should probably be considered a simple type.
     if (type instanceof Class) {
       Class<?> rawClass = Primitives.wrap((Class<?>) type);
       // These types need no processing for
@@ -89,13 +97,25 @@ public class ValueTypeInfoFactory {
           || rawClass.equals(Integer.class)
           || rawClass.equals(Long.class)
           || rawClass.equals(Float.class)
-          || rawClass.equals(Double.class);
+          || rawClass.equals(Double.class)
+          || rawClass.equals(OptionalInt.class);
+    } else if (type instanceof WildcardType) {
+      WildcardType wildcardType = (WildcardType) type;
+      Type[] upperBounds = wildcardType.getUpperBounds();
+      Preconditions.checkState(upperBounds.length == 1);
+      return false;
     }
     return false;
   }
 
   private static ValueTypeInfo<?> computeTypeInfo(Type type) {
     Preconditions.checkArgument(!(type instanceof TypeVariable));
+    if (type instanceof WildcardType) {
+      WildcardType wildcardType = (WildcardType) type;
+      Type[] upperBounds = wildcardType.getUpperBounds();
+      Preconditions.checkState(upperBounds.length == 1);
+      type = upperBounds[0];
+    }
     Preconditions.checkArgument(!(type instanceof WildcardType));
 
     if (isSimpleType(type)) {
@@ -105,15 +125,22 @@ public class ValueTypeInfoFactory {
       if (rawClass.equals(Path.class)) {
         throw new IllegalArgumentException(
             "Buildables should not have Path references. Use SourcePath or OutputPath instead");
+      }
+
+      if (rawClass.isEnum()) {
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        EnumValueTypeInfo enumValueTypeInfo = new EnumValueTypeInfo(rawClass);
+        return enumValueTypeInfo;
       } else if (SourcePath.class.isAssignableFrom(rawClass)) {
         return SourcePathValueTypeInfo.INSTANCE;
-      } else if (rawClass.isEnum()) {
-        // TODO(cjhopman): handle enums
-        throw new UnsupportedOperationException();
-      } else if (rawClass.equals(OutputPath.class)) {
-        return OutputPathValueTypeInfo.INSTANCE;
+      } else if (rawClass.equals(OutputPath.class) || rawClass.equals(PublicOutputPath.class)) {
+        return ValueTypeInfos.OutputPathValueTypeInfo.INSTANCE;
+      } else if (NonHashableSourcePathContainer.class.isAssignableFrom(rawClass)) {
+        return new NonHashableSourcePathContainerValueTypeInfo();
       } else if (BuildTarget.class.isAssignableFrom(rawClass)) {
         return BuildTargetTypeInfo.INSTANCE;
+      } else if (Pattern.class.isAssignableFrom(rawClass)) {
+        return PatternValueTypeInfo.INSTANCE;
       } else if (AddsToRuleKey.class.isAssignableFrom(rawClass)) {
         return DynamicTypeInfo.INSTANCE;
       }
@@ -125,6 +152,7 @@ public class ValueTypeInfoFactory {
       Preconditions.checkState(rawType instanceof Class<?>);
       Class<?> rawClass = (Class<?>) rawType;
 
+      Type[] typeArguments = ((ParameterizedType) type).getActualTypeArguments();
       if (((Class<?>) rawType).isAssignableFrom(ImmutableSet.class)) {
         throw new IllegalArgumentException(
             "Don't use ImmutableSet in Buildables. Use ImmutableSortedSet instead.");
@@ -132,26 +160,27 @@ public class ValueTypeInfoFactory {
         throw new IllegalArgumentException(
             "Don't use ImmutableMap in Buildables. Use ImmutableSortedMap instead.");
       } else if (rawClass.equals(Either.class)) {
-        // TODO(cjhopman): handle Either
-        throw new UnsupportedOperationException();
+        Preconditions.checkState(typeArguments.length == 2);
+        return new EitherValueTypeInfo<>(forType(typeArguments[0]), forType(typeArguments[1]));
       } else if (rawClass.equals(Pair.class)) {
         // TODO(cjhopman): handle Pair
         throw new UnsupportedOperationException();
+      } else if (Supplier.class.isAssignableFrom(rawClass)) {
+        Preconditions.checkState(typeArguments.length == 1);
+        return new SupplierValueTypeInfo<>(forType(typeArguments[0]));
       } else if (rawClass.equals(ImmutableList.class)) {
-        Type[] typeArguments = ((ParameterizedType) type).getActualTypeArguments();
         Preconditions.checkState(typeArguments.length == 1);
         return new ImmutableListValueTypeInfo<>(forType(typeArguments[0]));
       } else if (rawClass.equals(ImmutableSortedSet.class)) {
         // SortedSet is tested second because it is a subclass of Set, and therefore can
         // be assigned to something of type Set, but not vice versa.
-        Type[] typeArguments = ((ParameterizedType) type).getActualTypeArguments();
         Preconditions.checkState(typeArguments.length == 1);
         return new ImmutableSortedSetValueTypeInfo<>(forType(typeArguments[0]));
       } else if (rawClass.equals(ImmutableSortedMap.class)) {
-        // TODO(cjhopman): handle ImmutableSortedMap
-        throw new UnsupportedOperationException();
+        Preconditions.checkState(typeArguments.length == 2);
+        return new ImmutableSortedMapValueTypeInfo<>(
+            forType(typeArguments[0]), forType(typeArguments[1]));
       } else if (rawClass.equals(Optional.class)) {
-        Type[] typeArguments = ((ParameterizedType) type).getActualTypeArguments();
         Preconditions.checkState(typeArguments.length == 1);
         return new OptionalValueTypeInfo<>(forType(typeArguments[0]));
       } else if (AddsToRuleKey.class.isAssignableFrom(rawClass)) {

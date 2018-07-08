@@ -56,10 +56,10 @@ public class WorkerProcessPoolFactory {
    * a new one.
    */
   public WorkerProcessPool getWorkerProcessPool(
-      final ExecutionContext context, WorkerProcessParams paramsToUse) {
+      ExecutionContext context, WorkerProcessParams paramsToUse) {
     ConcurrentMap<String, WorkerProcessPool> processPoolMap;
-    final String key;
-    final HashCode workerHash;
+    String key;
+    HashCode workerHash;
     if (paramsToUse.getWorkerProcessIdentity().isPresent()
         && context.getPersistentWorkerPools().isPresent()) {
       processPoolMap = context.getPersistentWorkerPools().get();
@@ -98,32 +98,32 @@ public class WorkerProcessPoolFactory {
   }
 
   private WorkerProcessPool createWorkerProcessPool(
-      final ExecutionContext context,
-      final WorkerProcessParams paramsToUse,
+      ExecutionContext context,
+      WorkerProcessParams paramsToUse,
       ConcurrentMap<String, WorkerProcessPool> processPoolMap,
       String key,
-      final HashCode workerHash) {
-    final ProcessExecutorParams processParams =
+      HashCode workerHash) {
+    ProcessExecutorParams processParams =
         ProcessExecutorParams.builder()
             .setCommand(getCommand(context.getPlatform(), paramsToUse))
             .setEnvironment(getEnvironmentForProcess(context, paramsToUse))
             .setDirectory(filesystem.getRootPath())
             .build();
 
-    final Path workerTmpDir = paramsToUse.getTempDir();
-    final AtomicInteger workerNumber = new AtomicInteger(0);
+    Path workerTmpDir = paramsToUse.getTempDir();
+    AtomicInteger workerNumber = new AtomicInteger(0);
 
     WorkerProcessPool newPool =
-        new WorkerProcessPool(paramsToUse.getMaxWorkers(), workerHash) {
-          @Override
-          protected WorkerProcess startWorkerProcess() throws IOException {
-            Path tmpDir = workerTmpDir.resolve(Integer.toString(workerNumber.getAndIncrement()));
-            filesystem.mkdirs(tmpDir);
-            WorkerProcess process = createWorkerProcess(processParams, context, tmpDir);
-            process.ensureLaunchAndHandshake();
-            return process;
-          }
-        };
+        new WorkerProcessPool(
+            paramsToUse.getMaxWorkers(),
+            workerHash,
+            () -> {
+              Path tmpDir = workerTmpDir.resolve(Integer.toString(workerNumber.getAndIncrement()));
+              filesystem.mkdirs(tmpDir);
+              WorkerProcess process = createWorkerProcess(processParams, context, tmpDir);
+              process.ensureLaunchAndHandshake();
+              return process;
+            });
     WorkerProcessPool previousPool = processPoolMap.putIfAbsent(key, newPool);
     // If putIfAbsent does not return null, then that means another thread beat this thread
     // into putting an WorkerProcessPool in the map for this key. If that's the case, then we

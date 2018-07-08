@@ -20,6 +20,12 @@ import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
 import com.facebook.buck.command.BuildExecutorArgs;
 import com.facebook.buck.config.ActionGraphParallelizationMode;
 import com.facebook.buck.config.resources.ResourcesConfig;
+import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildMode;
 import com.facebook.buck.distributed.DistBuildService;
@@ -30,18 +36,12 @@ import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.parser.Parser;
-import com.facebook.buck.rules.ActionGraphCache;
-import com.facebook.buck.rules.BuildInfoStoreManager;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.facebook.buck.util.environment.Platform;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.versions.InstrumentedVersionedTargetGraphCache;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -87,6 +87,8 @@ abstract class AbstractDistBuildSlaveExecutorArgs {
   public abstract int getRemoteCoordinatorPort();
 
   public abstract StampedeId getStampedeId();
+
+  public abstract CapacityService getCapacityService();
 
   public abstract BuildSlaveRunId getBuildSlaveRunId();
 
@@ -165,9 +167,12 @@ abstract class AbstractDistBuildSlaveExecutorArgs {
             this.getDistBuildConfig().getBuckConfig().getShouldInstrumentActionGraph())
         .setIncrementalActionGraphMode(
             this.getDistBuildConfig().getBuckConfig().getIncrementalActionGraphMode())
+        .setIncrementalActionGraphExperimentGroups(
+            this.getDistBuildConfig().getBuckConfig().getIncrementalActionGraphExperimentGroups())
         .setDistBuildConfig(this.getDistBuildConfig())
         .setMaxActionGraphParallelism(this.getMaxActionGraphParallelism())
         .setActionGraphParallelizationMode(this.getActionGraphParallelizationMode())
+        .setCellProvider(this.getRootCell().getCellProvider())
         .build();
   }
 

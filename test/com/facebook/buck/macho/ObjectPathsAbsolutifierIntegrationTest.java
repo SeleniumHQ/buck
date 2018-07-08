@@ -27,16 +27,16 @@ import com.facebook.buck.apple.AppleDescriptions;
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
 import com.facebook.buck.apple.CodeSigning;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.cxx.toolchain.MungingDebugPathSanitizer;
-import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
@@ -191,17 +191,12 @@ public class ObjectPathsAbsolutifierIntegrationTest {
     assertThat(
         unsanitizedOutput,
         containsString(
-            "OSO "
-                + newCompDirValue
-                + "/buck-out/bin/"
-                + relativeSanitizedObjectFilePath.toString()));
+            "OSO " + newCompDirValue + "/buck-out/bin/" + relativeSanitizedObjectFilePath));
     assertThat(
         unsanitizedOutput,
-        containsString(
-            "SO " + newCompDirValue + "/" + relativeSourceFilePath.getParent().toString()));
+        containsString("SO " + newCompDirValue + "/" + relativeSourceFilePath.getParent()));
     assertThat(
-        unsanitizedOutput,
-        containsString("SOL " + newCompDirValue + "/" + relativeSourceFilePath.toString()));
+        unsanitizedOutput, containsString("SOL " + newCompDirValue + "/" + relativeSourceFilePath));
   }
 
   private boolean checkCodeSigning(Path absoluteBundlePath)
@@ -303,7 +298,7 @@ public class ObjectPathsAbsolutifierIntegrationTest {
     filesystem.mkdirs(unsanizitedBinaryPath.getParent());
 
     // copy bundle
-    MoreFiles.copyRecursively(sanitizedBinaryPath.getParent(), unsanizitedBinaryPath.getParent());
+    MostFiles.copyRecursively(sanitizedBinaryPath.getParent(), unsanizitedBinaryPath.getParent());
 
     DebugPathSanitizer sanitizer = getDebugPathSanitizer();
 

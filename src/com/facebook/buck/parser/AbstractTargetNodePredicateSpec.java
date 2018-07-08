@@ -16,10 +16,9 @@
 
 package com.facebook.buck.parser;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableMap;
 import java.util.Optional;
 import org.immutables.value.Value;
@@ -50,7 +49,7 @@ abstract class AbstractTargetNodePredicateSpec implements TargetNodeSpec {
         ImmutableMap.builder();
 
     for (TargetNode<?, ?> node : nodes) {
-      if (!onlyTests() || Description.getBuildRuleType(node.getDescription()).isTestRule()) {
+      if (!onlyTests() || node.getBuildRuleType().isTestRule()) {
         resultBuilder.put(node.getBuildTarget(), Optional.of(node));
       }
     }

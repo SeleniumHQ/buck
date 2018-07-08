@@ -16,16 +16,17 @@
 
 package com.facebook.buck.maven;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.MavenPublishable;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.UnflavoredBuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.maven.aether.AetherUtil;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.Verbosity;
@@ -38,6 +39,17 @@ import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.io.Files;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.PrintStream;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
 import org.apache.maven.repository.internal.MavenRepositorySystemUtils;
 import org.eclipse.aether.DefaultRepositorySystemSession;
 import org.eclipse.aether.RepositorySystem;
@@ -50,22 +62,11 @@ import org.eclipse.aether.repository.LocalRepository;
 import org.eclipse.aether.repository.RemoteRepository;
 import org.eclipse.aether.spi.locator.ServiceLocator;
 import org.eclipse.aether.util.artifact.SubArtifact;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Optional;
 
 public class Publisher {
 
   public static final String MAVEN_CENTRAL_URL = "https://repo1.maven.org/maven2";
-  private static final URL MAVEN_CENTRAL;
+  public static final URL MAVEN_CENTRAL;
 
   static {
     try {
@@ -91,14 +92,14 @@ public class Publisher {
    */
   public Publisher(
       Path localRepoPath,
-      Optional<URL> remoteRepoUrl,
+      URL remoteRepoUrl,
       Optional<String> username,
       Optional<String> password,
       Optional<String> pgpPassphrase,
       boolean dryRun) {
     this.localRepo = new LocalRepository(localRepoPath.toFile());
     this.remoteRepo =
-        AetherUtil.toRemoteRepository(remoteRepoUrl.orElse(MAVEN_CENTRAL), username, password);
+        AetherUtil.toRemoteRepository(remoteRepoUrl, username, password);
     this.pgpPassphrase = pgpPassphrase;
     this.locator = AetherUtil.initServiceLocator();
     this.dryRun = dryRun;

@@ -17,12 +17,12 @@
 package com.facebook.buck.distributed;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.distributed.thrift.BuildJobStateBuckConfig;
 import com.facebook.buck.distributed.thrift.BuildJobStateCell;
 import com.facebook.buck.distributed.thrift.OrderedStringMapEntry;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.util.config.Config;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -124,8 +124,6 @@ public class DistBuildCellIndexer {
     jobState.setRawBuckConfig(rawConfig);
     jobState.setArchitecture(buckConfig.getArchitecture().name());
     jobState.setPlatform(buckConfig.getPlatform().name());
-    jobState.setCellAliasToIndex(
-        Maps.transformValues(buckConfig.getCellPathResolver().getCellPaths(), this::getCellIndex));
 
     return jobState;
   }

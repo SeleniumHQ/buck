@@ -19,16 +19,16 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.dalvik.CanaryFactory;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.classes.FileLike;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -265,25 +265,24 @@ public class PreDexedFilesSorter {
 
     /** @see com.facebook.buck.android.dalvik.CanaryFactory#create(String, int) */
     private DexWithClasses createCanary(
-        final ProjectFilesystem filesystem,
+        ProjectFilesystem filesystem,
         String storeName,
-        final int index,
+        int index,
         ImmutableList.Builder<Step> steps) {
-      final FileLike fileLike = CanaryFactory.create(storeName, index);
-      final String canaryDirName = "canary_" + storeName + "_" + String.valueOf(index);
-      final Path scratchDirectoryForCanaryClass = scratchDirectory.resolve(canaryDirName);
+      FileLike fileLike = CanaryFactory.create(storeName, index);
+      String canaryDirName = "canary_" + storeName + "_" + String.valueOf(index);
+      Path scratchDirectoryForCanaryClass = scratchDirectory.resolve(canaryDirName);
 
       // Strip the .class suffix to get the class name for the DexWithClasses object.
-      final String relativePathToClassFile = fileLike.getRelativePath();
+      String relativePathToClassFile = fileLike.getRelativePath();
       Preconditions.checkState(relativePathToClassFile.endsWith(".class"));
-      final String className = relativePathToClassFile.replaceFirst("\\.class$", "");
+      String className = relativePathToClassFile.replaceFirst("\\.class$", "");
 
       // Write out the .class file.
       steps.add(
           new AbstractExecutionStep("write_canary_class") {
             @Override
-            public StepExecutionResult execute(ExecutionContext context)
-                throws IOException, InterruptedException {
+            public StepExecutionResult execute(ExecutionContext context) throws IOException {
               Path classFile = scratchDirectoryForCanaryClass.resolve(relativePathToClassFile);
               try (InputStream inputStream = fileLike.getInput()) {
                 filesystem.createParentDirs(classFile);
@@ -336,7 +335,7 @@ public class PreDexedFilesSorter {
         Set<SourcePath> primaryDexInputs,
         Multimap<Path, SourcePath> secondaryOutputToInputs,
         Map<Path, DexWithClasses> metadataTxtDexEntries,
-        final ImmutableMap<SourcePath, Sha1HashCode> dexInputHashes) {
+        ImmutableMap<SourcePath, Sha1HashCode> dexInputHashes) {
       this.apkModule = apkModule;
       this.primaryDexInputs = primaryDexInputs;
       this.secondaryOutputToInputs = secondaryOutputToInputs;

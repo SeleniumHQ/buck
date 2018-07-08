@@ -16,10 +16,10 @@
 
 package com.facebook.buck.jvm.java.autodeps;
 
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.util.ZipFileTraversal;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -52,10 +52,10 @@ final class PrebuiltJarSymbolsFinder implements JavaSymbolsRule.SymbolsFinder {
     ProjectFilesystem filesystem = sourcePath.getFilesystem();
     Path absolutePath = filesystem.resolve(sourcePath.getRelativePath());
 
-    final Set<String> providedSymbols = new HashSet<>();
+    Set<String> providedSymbols = new HashSet<>();
     new ZipFileTraversal(absolutePath) {
       @Override
-      public void visit(ZipFile zipFile, ZipEntry zipEntry) throws IOException {
+      public void visit(ZipFile zipFile, ZipEntry zipEntry) {
         String name = zipEntry.getName();
         if (!name.endsWith(CLASS_SUFFIX) || name.contains("$")) {
           return;

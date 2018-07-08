@@ -16,21 +16,23 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.attr.NoopInstallable;
+import com.facebook.buck.core.rules.common.InstallTrigger;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasDeclaredDeps;
-import com.facebook.buck.rules.InstallTrigger;
-import com.facebook.buck.rules.KnownBuildRuleTypes;
-import com.facebook.buck.rules.NoopInstallable;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.shell.ExportFileDescription;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -40,7 +42,6 @@ import com.facebook.buck.step.StepExecutionResults;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
@@ -51,7 +52,6 @@ import org.immutables.value.Value;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.kohsuke.args4j.CmdLineException;
 
 public class InstallTriggerIntegrationTest {
   private static final String TRIGGER_TARGET = "//:install_trigger";
@@ -69,13 +69,13 @@ public class InstallTriggerIntegrationTest {
             cell ->
                 KnownBuildRuleTypes.builder()
                     .addDescriptions(new InstallTriggerDescription())
-                    .addDescriptions(new ExportFileDescription())
+                    .addDescriptions(new ExportFileDescription(FakeBuckConfig.builder().build()))
                     .build());
     workspace.setUp();
   }
 
   @Test
-  public void testInstallTrigger() throws CmdLineException, IOException, InterruptedException {
+  public void testInstallTrigger() throws IOException {
     // Even without changes, the rule should always build locally.
     // Build it twice with buckd.
     workspace.runBuckdCommand("install", TRIGGER_TARGET).assertSuccess();
@@ -91,7 +91,7 @@ public class InstallTriggerIntegrationTest {
   }
 
   private static class InstallTriggerDescription
-      implements Description<InstallTriggerDescriptionArg> {
+      implements DescriptionWithTargetGraph<InstallTriggerDescriptionArg> {
     @Override
     public Class<InstallTriggerDescriptionArg> getConstructorArgType() {
       return InstallTriggerDescriptionArg.class;
@@ -99,7 +99,7 @@ public class InstallTriggerIntegrationTest {
 
     @Override
     public BuildRule createBuildRule(
-        BuildRuleCreationContext context,
+        BuildRuleCreationContextWithTargetGraph context,
         BuildTarget buildTarget,
         BuildRuleParams params,
         InstallTriggerDescriptionArg args) {
@@ -137,8 +137,7 @@ public class InstallTriggerIntegrationTest {
         return ImmutableList.of(
             new AbstractExecutionStep("verify_trigger") {
               @Override
-              public StepExecutionResult execute(ExecutionContext context)
-                  throws IOException, InterruptedException {
+              public StepExecutionResult execute(ExecutionContext context) {
                 trigger.verify(context);
                 return StepExecutionResults.SUCCESS;
               }

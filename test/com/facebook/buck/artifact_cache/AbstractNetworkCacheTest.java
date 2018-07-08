@@ -18,10 +18,10 @@ package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
-import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.slb.HttpService;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.concurrent.FakeListeningExecutorService;
@@ -34,7 +34,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -60,8 +59,8 @@ public class AbstractNetworkCacheTest {
 
   private void testStoreCall(
       int expectStoreCallCount, Optional<Long> maxArtifactSizeBytes, int... artifactBytes)
-      throws InterruptedException, IOException, ExecutionException {
-    final AtomicInteger storeCallCount = new AtomicInteger(0);
+      throws InterruptedException, ExecutionException {
+    AtomicInteger storeCallCount = new AtomicInteger(0);
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
     ListeningExecutorService service =
         new FakeListeningExecutorService() {
@@ -71,6 +70,8 @@ public class AbstractNetworkCacheTest {
           }
         };
 
+    HttpService httpService = new TestHttpService();
+
     AbstractNetworkCache cache =
         new AbstractNetworkCache(
             NetworkCacheArgs.builder()
@@ -78,11 +79,11 @@ public class AbstractNetworkCacheTest {
                 .setCacheMode(ArtifactCacheMode.http)
                 .setRepository("some_repository")
                 .setScheduleType("some_schedule_type")
-                .setFetchClient(EasyMock.createMock(HttpService.class))
-                .setStoreClient(EasyMock.createMock(HttpService.class))
+                .setFetchClient(httpService)
+                .setStoreClient(httpService)
                 .setCacheReadMode(CacheReadMode.READWRITE)
                 .setProjectFilesystem(filesystem)
-                .setBuckEventBus(EasyMock.createMock(BuckEventBus.class))
+                .setBuckEventBus(BuckEventBusForTests.newInstance())
                 .setHttpWriteExecutorService(service)
                 .setHttpFetchExecutorService(service)
                 .setErrorTextTemplate("super error message")
@@ -90,30 +91,29 @@ public class AbstractNetworkCacheTest {
                 .setMaxStoreSizeBytes(maxArtifactSizeBytes)
                 .build()) {
           @Override
-          protected FetchResult fetchImpl(RuleKey ruleKey, LazyPath output) throws IOException {
+          protected FetchResult fetchImpl(RuleKey ruleKey, LazyPath output) {
             return null;
           }
 
           @Override
-          protected MultiContainsResult multiContainsImpl(ImmutableSet<RuleKey> ruleKeys)
-              throws IOException {
+          protected MultiContainsResult multiContainsImpl(ImmutableSet<RuleKey> ruleKeys) {
             return null;
           }
 
           @Override
-          protected StoreResult storeImpl(ArtifactInfo info, Path file) throws IOException {
+          protected StoreResult storeImpl(ArtifactInfo info, Path file) {
             storeCallCount.incrementAndGet();
             return StoreResult.builder().build();
           }
 
           @Override
           protected MultiFetchResult multiFetchImpl(
-              Iterable<AbstractAsynchronousCache.FetchRequest> requests) throws IOException {
+              Iterable<AbstractAsynchronousCache.FetchRequest> requests) {
             return null;
           }
 
           @Override
-          protected CacheDeleteResult deleteImpl(List<RuleKey> ruleKeys) throws IOException {
+          protected CacheDeleteResult deleteImpl(List<RuleKey> ruleKeys) {
             throw new RuntimeException("Delete operation is not supported");
           }
         };

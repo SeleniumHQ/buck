@@ -42,12 +42,12 @@ import com.google.common.io.Files;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.Rule;
@@ -86,7 +86,7 @@ public class SmartDexingStepTest {
             outputFile.toPath(),
             outputHashFile,
             EnumSet.of(DxStep.Option.NO_OPTIMIZE),
-            Optional.empty(),
+            OptionalInt.empty(),
             Optional.empty(),
             DxStep.DX);
     assertFalse("'dummy' is not a matching input hash", rule.checkIsCached());
@@ -119,7 +119,7 @@ public class SmartDexingStepTest {
         filesToDex,
         outputPath,
         dxOptions,
-        Optional.empty(),
+        OptionalInt.empty(),
         Optional.empty(),
         DxStep.DX);
 
@@ -162,7 +162,7 @@ public class SmartDexingStepTest {
         filesToDex,
         outputPath,
         dxOptions,
-        Optional.of(9),
+        OptionalInt.of(9),
         Optional.empty(),
         DxStep.DX);
 
@@ -205,7 +205,7 @@ public class SmartDexingStepTest {
         filesToDex,
         outputPath,
         dxOptions,
-        Optional.empty(),
+        OptionalInt.empty(),
         Optional.empty(),
         DxStep.DX);
 
@@ -242,7 +242,7 @@ public class SmartDexingStepTest {
         filesToDex,
         outputPath,
         dxOptions,
-        Optional.empty(),
+        OptionalInt.empty(),
         Optional.empty(),
         DxStep.DX);
 
@@ -283,27 +283,25 @@ public class SmartDexingStepTest {
         filesToDex,
         outputPath,
         dxOptions,
-        Optional.empty(),
+        OptionalInt.empty(),
         Optional.empty(),
         DxStep.DX);
   }
 
-  private AndroidPlatformTarget createAndroidPlatformTarget() throws IOException {
-    AndroidPlatformTarget androidPlatformTarget =
-        AndroidPlatformTarget.of(
-            "android",
-            Paths.get(""),
-            Collections.emptyList(),
-            Paths.get(""),
-            Paths.get(""),
-            Paths.get(""),
-            Paths.get(""),
-            Paths.get(""),
-            Paths.get("/usr/bin/dx"),
-            Paths.get(""),
-            Paths.get(""),
-            Paths.get(""),
-            Paths.get(""));
-    return androidPlatformTarget;
+  private AndroidPlatformTarget createAndroidPlatformTarget() {
+    return AndroidPlatformTarget.of(
+        "android",
+        Paths.get(""),
+        Collections.emptyList(),
+        Paths.get(""),
+        Paths.get(""),
+        Paths.get(""),
+        Paths.get(""),
+        Paths.get(""),
+        Paths.get("/usr/bin/dx"),
+        Paths.get(""),
+        Paths.get(""),
+        Paths.get(""),
+        Paths.get(""));
   }
 }

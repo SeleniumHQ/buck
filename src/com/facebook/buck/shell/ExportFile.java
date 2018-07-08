@@ -16,24 +16,27 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.HasOutputName;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
+import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.HasOutputName;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.CacheableBuildRule;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
-import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
+import com.facebook.buck.shell.ExportFileDescription.Mode;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -48,9 +51,8 @@ import java.util.SortedSet;
 import java.util.stream.Stream;
 
 /**
- * Export a file so that it can be easily referenced by other {@link
- * com.facebook.buck.rules.BuildRule}s. There are several valid ways of using export_file (all
- * examples in a build file located at "path/to/buck/BUCK").
+ * Export a file so that it can be easily referenced by other {@link BuildRule}s. There are several
+ * valid ways of using export_file (all examples in a build file located at "path/to/buck/BUCK").
  *
  * <p>The most common usage of export_file is:
  *
@@ -96,11 +98,12 @@ import java.util.stream.Stream;
  * of the file to be saved.
  */
 public class ExportFile extends AbstractBuildRule
-    implements HasOutputName, HasRuntimeDeps, SupportsInputBasedRuleKey, CacheableBuildRule {
+    implements HasOutputName, HasRuntimeDeps, SupportsInputBasedRuleKey {
 
   @AddToRuleKey private final String name;
   @AddToRuleKey private final ExportFileDescription.Mode mode;
   @AddToRuleKey private final SourcePath src;
+  @AddToRuleKey private final ExportFileDirectoryAction directoryAction;
 
   private final ImmutableSortedSet<BuildRule> buildDeps;
 
@@ -109,12 +112,14 @@ public class ExportFile extends AbstractBuildRule
       ProjectFilesystem projectFilesystem,
       SourcePathRuleFinder ruleFinder,
       String name,
-      ExportFileDescription.Mode mode,
-      SourcePath src) {
+      Mode mode,
+      SourcePath src,
+      ExportFileDirectoryAction directoryAction) {
     super(buildTarget, projectFilesystem);
     this.name = name;
     this.mode = mode;
     this.src = src;
+    this.directoryAction = directoryAction;
     this.buildDeps =
         ruleFinder.getRule(src).map(ImmutableSortedSet::of).orElse(ImmutableSortedSet.of());
   }
@@ -139,6 +144,10 @@ public class ExportFile extends AbstractBuildRule
       BuildContext context, BuildableContext buildableContext) {
     SourcePathResolver resolver = context.getSourcePathResolver();
 
+    if (resolver.getFilesystem(src).isDirectory(resolver.getRelativePath(src))) {
+      handleDirectory(context.getEventBus());
+    }
+
     // This file is copied rather than symlinked so that when it is included in an archive zip and
     // unpacked on another machine, it is an ordinary file in both scenarios.
     ImmutableList.Builder<Step> builder = ImmutableList.builder();
@@ -162,6 +171,24 @@ public class ExportFile extends AbstractBuildRule
     }
 
     return builder.build();
+  }
+
+  private void handleDirectory(BuckEventBus eventBus) {
+    switch (directoryAction) {
+      case FAIL:
+        throw new HumanReadableException(getDirectoryViolationMessage(src));
+      case WARN:
+        eventBus.post(ConsoleEvent.warning(getDirectoryViolationMessage(src)));
+        break;
+      case ALLOW:
+        break;
+      default:
+        throw new IllegalStateException();
+    }
+  }
+
+  private static String getDirectoryViolationMessage(SourcePath src) {
+    return String.format("Trying to export a directory '%s' but it is not allowed.", src);
   }
 
   @Override

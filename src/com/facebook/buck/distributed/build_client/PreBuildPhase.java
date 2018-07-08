@@ -20,6 +20,11 @@ import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientSt
 import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientStat.LOCAL_PREPARATION;
 
 import com.facebook.buck.command.BuildExecutorArgs;
+import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.graph.ActionAndTargetGraphs;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.distributed.ArtifactCacheByBuildRule;
 import com.facebook.buck.distributed.ClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildArtifactCacheImpl;
@@ -33,15 +38,11 @@ import com.facebook.buck.distributed.thrift.BuckVersion;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildMode;
+import com.facebook.buck.distributed.thrift.MinionRequirements;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.ActionAndTargetGraphs;
-import com.facebook.buck.rules.ParallelRuleKeyCalculator;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableList;
@@ -68,7 +69,7 @@ public class PreBuildPhase {
   private final BuildExecutorArgs buildExecutorArgs;
   private final ImmutableSet<BuildTarget> topLevelTargets;
   private final ActionAndTargetGraphs actionAndTargetGraphs;
-  private final String buildLabel;
+  private volatile String buildLabel;
 
   public PreBuildPhase(
       DistBuildService distBuildService,
@@ -99,7 +100,7 @@ public class PreBuildPhase {
       BuckEventBus eventBus,
       BuildId buildId,
       BuildMode buildMode,
-      int numberOfMinions,
+      MinionRequirements minionRequirements,
       String repository,
       String tenantId,
       ListenableFuture<ParallelRuleKeyCalculator<RuleKey>> localRuleKeyCalculatorFuture)
@@ -110,18 +111,24 @@ public class PreBuildPhase {
     List<String> buildTargets =
         topLevelTargets
             .stream()
-            .map(x -> x.getFullyQualifiedName())
+            .map(BuildTarget::getFullyQualifiedName)
             .sorted()
             .collect(Collectors.toList());
     BuildJob job =
         distBuildService.createBuild(
-            buildId, buildMode, numberOfMinions, repository, tenantId, buildTargets, buildLabel);
+            buildId, buildMode, minionRequirements, repository, tenantId, buildTargets, buildLabel);
     distBuildClientStats.stopTimer(CREATE_DISTRIBUTED_BUILD);
 
-    final StampedeId stampedeId = job.getStampedeId();
+    if (job.getBuildLabel() != null) {
+      // Override the build label with the server-side inferred label.
+      this.buildLabel = job.getBuildLabel();
+      distBuildClientStats.setUserOrInferredBuildLabel(buildLabel);
+    }
+
+    StampedeId stampedeId = job.getStampedeId();
     eventBus.post(new DistBuildCreatedEvent(stampedeId));
 
-    LOG.info("Created job. Build id = " + stampedeId.getId());
+    LOG.info("Created job. StampedeId = " + stampedeId.getId());
 
     consoleEventsDispatcher.postDistBuildStatusEvent(
         job, ImmutableList.of(), "SERIALIZING AND UPLOADING DATA");
@@ -184,7 +191,7 @@ public class PreBuildPhase {
               localRuleKeyCalculator -> {
                 try (ArtifactCacheByBuildRule artifactCache =
                     new DistBuildArtifactCacheImpl(
-                        actionAndTargetGraphs.getActionGraphAndResolver().getResolver(),
+                        actionAndTargetGraphs.getActionGraphAndBuilder().getActionGraphBuilder(),
                         networkExecutorService,
                         buildExecutorArgs.getArtifactCacheFactory().remoteOnlyInstance(true, false),
                         eventBus,
@@ -195,10 +202,11 @@ public class PreBuildPhase {
                                 .localOnlyInstance(true, false)))) {
 
                   return new CacheOptimizedBuildTargetsQueueFactory(
-                          actionAndTargetGraphs.getActionGraphAndResolver().getResolver(),
+                          actionAndTargetGraphs.getActionGraphAndBuilder().getActionGraphBuilder(),
                           artifactCache,
                           /* isDeepRemoteBuild */ false,
-                          localRuleKeyCalculator.getRuleDepsCache())
+                          localRuleKeyCalculator.getRuleDepsCache(),
+                          /* shouldBuildSelectedTargetsLocally */ false)
                       .uploadCriticalNodesFromLocalCache(topLevelTargets, distBuildClientStats);
 
                 } catch (Exception e) {

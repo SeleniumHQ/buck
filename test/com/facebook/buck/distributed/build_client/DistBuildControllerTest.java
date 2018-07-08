@@ -17,6 +17,7 @@
 package com.facebook.buck.distributed.build_client;
 
 import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientStat.LOCAL_PREPARATION;
+import static org.easymock.EasyMock.capture;
 import static org.easymock.EasyMock.createNiceMock;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.expectLastCall;
@@ -29,6 +30,17 @@ import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.command.BuildExecutorArgs;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.build.distributed.synchronization.impl.RemoteBuildRuleSynchronizer;
+import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.build.event.BuildEvent.DistBuildFinished;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.actiongraph.ActionGraph;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
+import com.facebook.buck.core.model.graph.ActionAndTargetGraphs;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.distributed.BuildSlaveEventWrapper;
 import com.facebook.buck.distributed.ClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildCellIndexer;
@@ -36,6 +48,7 @@ import com.facebook.buck.distributed.DistBuildCreatedEvent;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildService.DistBuildRejectedException;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
+import com.facebook.buck.distributed.DistLocalBuildMode;
 import com.facebook.buck.distributed.ExitCode;
 import com.facebook.buck.distributed.thrift.BuckVersion;
 import com.facebook.buck.distributed.thrift.BuildJob;
@@ -53,19 +66,12 @@ import com.facebook.buck.distributed.thrift.BuildSlaveInfo;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
 import com.facebook.buck.distributed.thrift.BuildStatus;
+import com.facebook.buck.distributed.thrift.MinionRequirements;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.InvocationInfo;
+import com.facebook.buck.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.ActionAndTargetGraphs;
-import com.facebook.buck.rules.ActionGraph;
-import com.facebook.buck.rules.ActionGraphAndResolver;
-import com.facebook.buck.rules.BuildInfoStoreManager;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.RemoteBuildRuleSynchronizer;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGraphAndBuildTargets;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -90,6 +96,8 @@ import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
+import org.easymock.Capture;
+import org.easymock.CaptureType;
 import org.easymock.EasyMock;
 import org.junit.After;
 import org.junit.Before;
@@ -99,6 +107,7 @@ public class DistBuildControllerTest {
   private static final String REPOSITORY = "repositoryOne";
   private static final String TENANT_ID = "tenantOne";
   private static final String BUILD_LABEL = "unit_test";
+  private static final String MINION_TYPE = "standard_type";
   private static final List<String> BUILD_TARGETS = Lists.newArrayList();
 
   private DistBuildService mockDistBuildService;
@@ -121,7 +130,7 @@ public class DistBuildControllerTest {
     scheduler = Executors.newSingleThreadScheduledExecutor();
     buckVersion = new BuckVersion();
     buckVersion.setGitHash("thishashisamazing");
-    distBuildClientStatsTracker = new ClientStatsTracker(BUILD_LABEL);
+    distBuildClientStatsTracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
     distBuildCellIndexer = new DistBuildCellIndexer(new TestCellBuilder().build());
     directExecutor =
         new FakeWeightedListeningExecutorService(MoreExecutors.newDirectExecutorService());
@@ -133,8 +142,7 @@ public class DistBuildControllerTest {
     invocationInfo = FakeInvocationInfoFactory.create();
   }
 
-  private DistBuildController createController(ListenableFuture<BuildJobState> asyncBuildJobState)
-      throws IOException, InterruptedException {
+  private DistBuildController createController(ListenableFuture<BuildJobState> asyncBuildJobState) {
 
     BuckConfig buckConfig = FakeBuckConfig.builder().build();
     BuildExecutorArgs executorArgs =
@@ -149,7 +157,8 @@ public class DistBuildControllerTest {
             .setRuleKeyConfiguration(
                 ConfigRuleKeyConfigurationFactory.create(
                     FakeBuckConfig.builder().build(),
-                    BuckPluginManagerFactory.createPluginManager()))
+                    TestBuckModuleManagerFactory.create(
+                        BuckPluginManagerFactory.createPluginManager())))
             .setRootCell(
                 new TestCellBuilder()
                     .setFilesystem(new FakeProjectFilesystem())
@@ -163,9 +172,9 @@ public class DistBuildControllerTest {
 
     ActionAndTargetGraphs graphs =
         ActionAndTargetGraphs.builder()
-            .setActionGraphAndResolver(
-                ActionGraphAndResolver.of(
-                    createNiceMock(ActionGraph.class), createNiceMock(BuildRuleResolver.class)))
+            .setActionGraphAndBuilder(
+                ActionGraphAndBuilder.of(
+                    createNiceMock(ActionGraph.class), createNiceMock(ActionGraphBuilder.class)))
             .setUnversionedTargetGraph(
                 TargetGraphAndBuildTargets.of(createNiceMock(TargetGraph.class), ImmutableSet.of()))
             .build();
@@ -173,6 +182,7 @@ public class DistBuildControllerTest {
         DistBuildControllerArgs.builder()
             .setBuilderExecutorArgs(executorArgs)
             .setBuckEventBus(mockEventBus)
+            .setDistBuildStartedEvent(BuildEvent.distBuildStarted())
             .setTopLevelTargets(ImmutableSet.of())
             .setBuildGraphs(graphs)
             .setAsyncJobState(asyncBuildJobState)
@@ -192,17 +202,19 @@ public class DistBuildControllerTest {
   }
 
   private DistBuildController.ExecutionResult runBuildWithController(
-      DistBuildController distBuildController) throws IOException, InterruptedException {
+      DistBuildController distBuildController) throws InterruptedException {
     // Normally LOCAL_PREPARATION get started in BuildCommand, so simulate that here,
     // otherwise when we stop the timer it will fail with an exception about not being started.
     distBuildClientStatsTracker.startTimer(LOCAL_PREPARATION);
+
     return distBuildController.executeAndPrintFailuresToEventBus(
         directExecutor,
         fakeProjectFilesystem,
         fakeFileHashCache,
         invocationInfo,
         BuildMode.REMOTE_BUILD,
-        1,
+        DistLocalBuildMode.WAIT_FOR_REMOTE,
+        new MinionRequirements(),
         REPOSITORY,
         TENANT_ID,
         SettableFuture.create());
@@ -248,7 +260,7 @@ public class DistBuildControllerTest {
   @Test
   public void testReturnsExecutionResultOnSyncPreparationFailure()
       throws IOException, InterruptedException {
-    final BuildJobState buildJobState = createMinimalFakeBuildJobState();
+    BuildJobState buildJobState = createMinimalFakeBuildJobState();
 
     DistBuildController controller = createController(Futures.immediateFuture(buildJobState));
 
@@ -271,7 +283,7 @@ public class DistBuildControllerTest {
             mockDistBuildService.createBuild(
                 invocationInfo.getBuildId(),
                 BuildMode.REMOTE_BUILD,
-                1,
+                new MinionRequirements(),
                 REPOSITORY,
                 TENANT_ID,
                 BUILD_TARGETS,
@@ -301,12 +313,12 @@ public class DistBuildControllerTest {
   @Test
   public void testReturnsExecutionResultOnDistBuildException()
       throws IOException, InterruptedException, DistBuildRejectedException {
-    final BuildSlaveRunId buildSlaveRunId = new BuildSlaveRunId();
+    BuildSlaveRunId buildSlaveRunId = new BuildSlaveRunId();
     buildSlaveRunId.setId("my-fav-runid");
     BuildJob job = new BuildJob();
     job.setStampedeId(stampedeId);
 
-    final BuildJobState buildJobState = createMinimalFakeBuildJobState();
+    BuildJobState buildJobState = createMinimalFakeBuildJobState();
 
     setupExpectationsForSuccessfulDistBuildPrepStep(job, buildJobState);
 
@@ -338,12 +350,12 @@ public class DistBuildControllerTest {
   @Test
   public void testOrderlyExecution()
       throws IOException, InterruptedException, DistBuildRejectedException {
-    final BuildSlaveRunId buildSlaveRunId = new BuildSlaveRunId();
+    BuildSlaveRunId buildSlaveRunId = new BuildSlaveRunId();
     buildSlaveRunId.setId("my-fav-runid");
     BuildJob job = new BuildJob();
     job.setStampedeId(stampedeId);
 
-    final BuildJobState buildJobState = createMinimalFakeBuildJobState();
+    BuildJobState buildJobState = createMinimalFakeBuildJobState();
 
     setupExpectationsForSuccessfulDistBuildPrepStep(job, buildJobState);
 
@@ -392,7 +404,7 @@ public class DistBuildControllerTest {
 
     expect(mockDistBuildService.getCurrentBuildJobState(stampedeId)).andReturn(job);
 
-    expect(mockLogStateTracker.createRealtimeLogRequests(job.getBuildSlaves()))
+    expect(mockLogStateTracker.createStreamLogRequests(job.getBuildSlaves()))
         .andReturn(ImmutableList.of());
     expect(mockDistBuildService.createBuildSlaveEventsQuery(stampedeId, buildSlaveRunId, 0))
         .andReturn(query);
@@ -410,7 +422,7 @@ public class DistBuildControllerTest {
     job.setStatus(BuildStatus.FAILED);
     expect(mockDistBuildService.getCurrentBuildJobState(stampedeId)).andReturn(job);
 
-    expect(mockLogStateTracker.createRealtimeLogRequests(job.getBuildSlaves()))
+    expect(mockLogStateTracker.createStreamLogRequests(job.getBuildSlaves()))
         .andReturn(ImmutableList.of());
     expect(mockLogStateTracker.getBuildSlaveLogsMaterializer())
         .andReturn(createNiceMock(BuildSlaveLogsMaterializer.class))
@@ -442,7 +454,7 @@ public class DistBuildControllerTest {
     job.getBuildSlaves().set(0, slaveInfo1);
     expect(mockDistBuildService.getCurrentBuildJobState(stampedeId)).andReturn(job);
 
-    expect(mockLogStateTracker.createRealtimeLogRequests(job.getBuildSlaves()))
+    expect(mockLogStateTracker.createStreamLogRequests(job.getBuildSlaves()))
         .andReturn(ImmutableList.of());
 
     query.setFirstEventNumber(1);
@@ -454,6 +466,10 @@ public class DistBuildControllerTest {
     mockEventBus.post(isA(ClientSideBuildSlaveFinishedStatsEvent.class));
     expectLastCall().times(1);
 
+    Capture<DistBuildFinished> finishedEvent = Capture.newInstance(CaptureType.LAST);
+    mockEventBus.post(capture(finishedEvent));
+    expectLastCall().atLeastOnce();
+
     replay(mockDistBuildService);
     replay(mockEventBus);
     replay(mockLogStateTracker);
@@ -461,12 +477,15 @@ public class DistBuildControllerTest {
     DistBuildController.ExecutionResult executionResult =
         runBuildWithController(createController(Futures.immediateFuture(buildJobState)));
 
-    assertEquals(
-        ExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE.getCode(), executionResult.exitCode);
-
     verify(mockDistBuildService);
     verify(mockLogStateTracker);
     verify(mockEventBus);
+
+    assertEquals(
+        ExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE.getCode(), executionResult.exitCode);
+    assertEquals(
+        ExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE.getCode(),
+        finishedEvent.getValue().getExitCode());
   }
 
   // Sets up mock expectations for a successful distributed build preparation step
@@ -476,7 +495,7 @@ public class DistBuildControllerTest {
             mockDistBuildService.createBuild(
                 invocationInfo.getBuildId(),
                 BuildMode.REMOTE_BUILD,
-                1,
+                new MinionRequirements(),
                 REPOSITORY,
                 TENANT_ID,
                 BUILD_TARGETS,

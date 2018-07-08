@@ -22,13 +22,12 @@ import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.replay;
 import static org.junit.Assert.assertSame;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.type.BuildRuleType;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.io.ArchiveMemberPath;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourceRoot;
 import com.facebook.buck.rules.keys.hasher.ForwardingRuleKeyHasher;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
 import com.facebook.buck.util.sha1.Sha1HashCode;
@@ -106,6 +105,11 @@ public class ForwardingRuleKeyHasherTest {
 
     expect(guavaHasher.putNumber((double) 42)).andReturn(guavaHasher);
     expect(stringHasher.putNumber((double) 42)).andReturn(stringHasher);
+    expect(guavaHasher.hash()).andReturn(hash);
+    expect(stringHasher.hash()).andReturn(string);
+
+    expect(guavaHasher.putCharacter((char) 42)).andReturn(guavaHasher);
+    expect(stringHasher.putCharacter((char) 42)).andReturn(stringHasher);
     expect(guavaHasher.hash()).andReturn(hash);
     expect(stringHasher.hash()).andReturn(string);
 
@@ -279,6 +283,7 @@ public class ForwardingRuleKeyHasherTest {
     newHasher(guavaHasher, stringHasher).putNumber((byte) 42).hash();
     newHasher(guavaHasher, stringHasher).putNumber((float) 42).hash();
     newHasher(guavaHasher, stringHasher).putNumber((double) 42).hash();
+    newHasher(guavaHasher, stringHasher).putCharacter((char) 42).hash();
     newHasher(guavaHasher, stringHasher).putString("42").hash();
     newHasher(guavaHasher, stringHasher).putBytes(BYTE_ARRAY).hash();
     newHasher(guavaHasher, stringHasher).putPattern(PATTERN).hash();
@@ -331,8 +336,8 @@ public class ForwardingRuleKeyHasherTest {
 
   @Test
   public void testHashAndOnHash() {
-    final String string = "hash";
-    final HashCode hash = createMock(HashCode.class);
+    String string = "hash";
+    HashCode hash = createMock(HashCode.class);
 
     @SuppressWarnings("unchecked")
     RuleKeyHasher<String> stringHasher = createStrictMock(RuleKeyHasher.class);

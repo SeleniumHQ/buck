@@ -16,20 +16,20 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.collect.ImmutableList;
@@ -90,12 +90,13 @@ public class JavaLibraryRules {
    *     system-specific library names to their {@link SourcePath} objects.
    */
   public static ImmutableMap<String, SourcePath> getNativeLibraries(
-      Iterable<BuildRule> deps, final CxxPlatform cxxPlatform) {
+      Iterable<BuildRule> deps, CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     // Allow the transitive walk to find NativeLinkables through the BuildRuleParams deps of a
     // JavaLibrary or CalculateAbi object. The deps may be either one depending if we're compiling
     // against ABI rules or full rules
     return NativeLinkables.getTransitiveSharedLibraries(
         cxxPlatform,
+        graphBuilder,
         deps,
         r ->
             r instanceof JavaLibrary || r instanceof CalculateAbi
@@ -105,12 +106,12 @@ public class JavaLibraryRules {
   }
 
   public static ImmutableSortedSet<BuildRule> getAbiRules(
-      BuildRuleResolver resolver, Iterable<BuildRule> inputs) {
+      ActionGraphBuilder graphBuilder, Iterable<BuildRule> inputs) {
     ImmutableSortedSet.Builder<BuildRule> abiRules = ImmutableSortedSet.naturalOrder();
     for (BuildRule input : inputs) {
       if (input instanceof HasJavaAbi && ((HasJavaAbi) input).getAbiJar().isPresent()) {
         Optional<BuildTarget> abiJarTarget = ((HasJavaAbi) input).getAbiJar();
-        BuildRule abiJarRule = resolver.requireRule(abiJarTarget.get());
+        BuildRule abiJarRule = graphBuilder.requireRule(abiJarTarget.get());
         abiRules.add(abiJarRule);
       }
     }
@@ -118,7 +119,7 @@ public class JavaLibraryRules {
   }
 
   public static ImmutableSortedSet<BuildRule> getSourceOnlyAbiRules(
-      BuildRuleResolver resolver, Iterable<BuildRule> inputs) {
+      ActionGraphBuilder graphBuilder, Iterable<BuildRule> inputs) {
     ImmutableSortedSet.Builder<BuildRule> abiRules = ImmutableSortedSet.naturalOrder();
     for (BuildRule input : inputs) {
       if (input instanceof HasJavaAbi) {
@@ -129,7 +130,7 @@ public class JavaLibraryRules {
         }
 
         if (abiJarTarget.isPresent()) {
-          BuildRule abiJarRule = resolver.requireRule(abiJarTarget.get());
+          BuildRule abiJarRule = graphBuilder.requireRule(abiJarTarget.get());
           abiRules.add(abiJarRule);
         }
       }
@@ -138,10 +139,10 @@ public class JavaLibraryRules {
   }
 
   public static ZipArchiveDependencySupplier getAbiClasspath(
-      BuildRuleResolver resolver, Iterable<BuildRule> inputs) {
+      ActionGraphBuilder graphBuilder, Iterable<BuildRule> inputs) {
     return new ZipArchiveDependencySupplier(
-        new SourcePathRuleFinder(resolver),
-        getAbiRules(resolver, inputs)
+        new SourcePathRuleFinder(graphBuilder),
+        getAbiRules(graphBuilder, inputs)
             .stream()
             .map(BuildRule::getSourcePathToOutput)
             .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())));

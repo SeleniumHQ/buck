@@ -16,9 +16,9 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.core.cell.CellConfig;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.log.LogConfigSetup;
-import com.facebook.buck.rules.CellConfig;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.ExitCode;
 import com.google.common.base.Strings;
@@ -37,18 +37,16 @@ import org.kohsuke.args4j.spi.SubCommands;
 public abstract class AbstractContainerCommand implements Command {
 
   @Option(
-    name = "--help",
-    aliases = {"-h"},
-    usage = "Shows this screen and exits."
-  )
+      name = "--help",
+      aliases = {"-h"},
+      usage = "Shows this screen and exits.")
   @SuppressWarnings("PMD.UnusedPrivateField")
   private boolean helpScreen;
 
   @Option(
-    name = "--flagfile",
-    metaVar = "FILE",
-    usage = "File to read command line arguments from."
-  )
+      name = "--flagfile",
+      metaVar = "FILE",
+      usage = "File to read command line arguments from.")
   @SuppressWarnings("PMD.UnusedPrivateField")
   private String[] files;
 
@@ -158,5 +156,13 @@ public abstract class AbstractContainerCommand implements Command {
       return ImmutableList.of();
     }
     return getSubcommand().get().getEventListeners(executorPool, scheduledExecutorService);
+  }
+
+  @Override
+  public boolean performsBuild() {
+    if (!getSubcommand().isPresent()) {
+      return false;
+    }
+    return getSubcommand().get().performsBuild();
   }
 }

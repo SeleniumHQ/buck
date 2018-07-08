@@ -16,13 +16,14 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -47,21 +48,29 @@ abstract class AbstractOmnibusRoots {
   /** @return the {@link NativeLinkable} roots that are excluded from omnibus linking. */
   abstract ImmutableMap<BuildTarget, NativeLinkable> getExcludedRoots();
 
-  public static Builder builder(CxxPlatform cxxPlatform, ImmutableSet<BuildTarget> excludes) {
-    return new Builder(cxxPlatform, excludes);
+  public static Builder builder(
+      CxxPlatform cxxPlatform,
+      ImmutableSet<BuildTarget> excludes,
+      ActionGraphBuilder graphBuilder) {
+    return new Builder(cxxPlatform, excludes, graphBuilder);
   }
 
   public static class Builder {
 
     private final CxxPlatform cxxPlatform;
     private final ImmutableSet<BuildTarget> excludes;
+    private final ActionGraphBuilder graphBuilder;
 
     private final Map<BuildTarget, NativeLinkTarget> includedRoots = new LinkedHashMap<>();
     private final Map<BuildTarget, NativeLinkable> excludedRoots = new LinkedHashMap<>();
 
-    private Builder(CxxPlatform cxxPlatform, ImmutableSet<BuildTarget> excludes) {
+    private Builder(
+        CxxPlatform cxxPlatform,
+        ImmutableSet<BuildTarget> excludes,
+        ActionGraphBuilder graphBuilder) {
       this.cxxPlatform = cxxPlatform;
       this.excludes = excludes;
+      this.graphBuilder = graphBuilder;
     }
 
     /** Add a root which is included in omnibus linking. */
@@ -80,10 +89,11 @@ abstract class AbstractOmnibusRoots {
      * @return whether the node was added as a root.
      */
     public void addPotentialRoot(NativeLinkable node) {
-      Optional<NativeLinkTarget> target = NativeLinkables.getNativeLinkTarget(node, cxxPlatform);
+      Optional<NativeLinkTarget> target =
+          NativeLinkables.getNativeLinkTarget(node, cxxPlatform, graphBuilder);
       if (target.isPresent()
           && !excludes.contains(node.getBuildTarget())
-          && node.supportsOmnibusLinking(cxxPlatform)) {
+          && node.supportsOmnibusLinking(cxxPlatform, graphBuilder)) {
         addIncludedRoot(target.get());
       } else {
         addExcludedRoot(node);
@@ -91,31 +101,31 @@ abstract class AbstractOmnibusRoots {
     }
 
     private ImmutableMap<BuildTarget, NativeLinkable> buildExcluded() {
-      final Map<BuildTarget, NativeLinkable> excluded = new LinkedHashMap<>();
+      Map<BuildTarget, NativeLinkable> excluded = new LinkedHashMap<>();
       excluded.putAll(excludedRoots);
 
       // Find all excluded nodes reachable from the included roots.
       Map<BuildTarget, NativeLinkable> includedRootDeps = new LinkedHashMap<>();
       for (NativeLinkTarget target : includedRoots.values()) {
-        for (NativeLinkable linkable : target.getNativeLinkTargetDeps(cxxPlatform)) {
+        for (NativeLinkable linkable : target.getNativeLinkTargetDeps(cxxPlatform, graphBuilder)) {
           includedRootDeps.put(linkable.getBuildTarget(), linkable);
         }
       }
       new AbstractBreadthFirstTraversal<NativeLinkable>(includedRootDeps.values()) {
         @Override
         public Iterable<NativeLinkable> visit(NativeLinkable linkable) throws RuntimeException {
-          if (!linkable.supportsOmnibusLinking(cxxPlatform)) {
+          if (!linkable.supportsOmnibusLinking(cxxPlatform, graphBuilder)) {
             excluded.put(linkable.getBuildTarget(), linkable);
             return ImmutableSet.of();
           }
           return Iterables.concat(
-              linkable.getNativeLinkableDepsForPlatform(cxxPlatform),
-              linkable.getNativeLinkableExportedDepsForPlatform(cxxPlatform));
+              linkable.getNativeLinkableDepsForPlatform(cxxPlatform, graphBuilder),
+              linkable.getNativeLinkableExportedDepsForPlatform(cxxPlatform, graphBuilder));
         }
       }.start();
 
       // Prepare the final map of excluded roots, starting with the pre-defined ones.
-      final Map<BuildTarget, NativeLinkable> updatedExcludedRoots = new LinkedHashMap<>();
+      Map<BuildTarget, NativeLinkable> updatedExcludedRoots = new LinkedHashMap<>();
       updatedExcludedRoots.putAll(excludedRoots);
 
       // Recursively expand the excluded nodes including any preloaded deps, as we'll need this full
@@ -127,8 +137,8 @@ abstract class AbstractOmnibusRoots {
             updatedExcludedRoots.put(linkable.getBuildTarget(), linkable);
           }
           return Iterables.concat(
-              linkable.getNativeLinkableDepsForPlatform(cxxPlatform),
-              linkable.getNativeLinkableExportedDepsForPlatform(cxxPlatform));
+              linkable.getNativeLinkableDepsForPlatform(cxxPlatform, graphBuilder),
+              linkable.getNativeLinkableExportedDepsForPlatform(cxxPlatform, graphBuilder));
         }
       }.start();
 

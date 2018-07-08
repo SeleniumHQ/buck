@@ -18,19 +18,19 @@ package com.facebook.buck.jvm.java;
 
 import static com.facebook.buck.jvm.java.AbstractJavacOptions.SpoolMode;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.SymlinkFileStep;
@@ -68,7 +68,7 @@ public class JavacToJarStepFactory extends CompileToJarStepFactory implements Ad
       CompilerParameters compilerParameters,
       @Nullable JarParameters abiJarParameters,
       @Nullable JarParameters libraryJarParameters) {
-    final JavacOptions buildTimeOptions =
+    JavacOptions buildTimeOptions =
         javacOptions.withBootclasspathFromContext(extraClasspathProvider);
 
     return new JavacPipelineState(
@@ -91,7 +91,7 @@ public class JavacToJarStepFactory extends CompileToJarStepFactory implements Ad
       /* output params */
       Builder<Step> steps,
       BuildableContext buildableContext) {
-    final JavacOptions buildTimeOptions =
+    JavacOptions buildTimeOptions =
         javacOptions.withBootclasspathFromContext(extraClasspathProvider);
 
     boolean generatingCode = !javacOptions.getAnnotationProcessingParams().isEmpty();
@@ -214,7 +214,7 @@ public class JavacToJarStepFactory extends CompileToJarStepFactory implements Ad
         postprocessClassesCommands.toString());
 
     if (isSpoolingToJarEnabled) {
-      final JavacOptions buildTimeOptions =
+      JavacOptions buildTimeOptions =
           javacOptions.withBootclasspathFromContext(extraClasspathProvider);
       boolean generatingCode = !buildTimeOptions.getAnnotationProcessingParams().isEmpty();
       if (generatingCode) {

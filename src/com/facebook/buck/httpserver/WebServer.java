@@ -18,12 +18,19 @@ package com.facebook.buck.httpserver;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.trace.BuildTraces;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Server;
@@ -46,14 +53,17 @@ import org.eclipse.jetty.servlet.ServletHolder;
  */
 public class WebServer {
 
+  private static final Logger LOG = Logger.get(WebServer.class);
+
   private static final String INDEX_CONTEXT_PATH = "/";
   private static final String ARTIFACTS_CONTEXT_PATH = "/artifacts";
   private static final String STATIC_CONTEXT_PATH = "/static";
   private static final String TRACE_CONTEXT_PATH = "/trace";
   private static final String TRACES_CONTEXT_PATH = "/traces";
   private static final String TRACE_DATA_CONTEXT_PATH = "/tracedata";
+  private static final Path HTTP_PORT_FILE = Paths.get(".httpport");
 
-  private Optional<Integer> port;
+  private OptionalInt port;
   private final ProjectFilesystem projectFilesystem;
   private final Server server;
   private final StreamingWebSocketServlet streamingWebSocketServlet;
@@ -65,17 +75,18 @@ public class WebServer {
    */
   public WebServer(int port, ProjectFilesystem projectFilesystem) {
     this.projectFilesystem = projectFilesystem;
-    this.port = Optional.empty();
+    this.port = OptionalInt.empty();
     this.server = new Server(port);
     this.streamingWebSocketServlet = new StreamingWebSocketServlet();
     this.artifactCacheHandler = new ArtifactCacheHandler(projectFilesystem);
   }
 
-  public Optional<Integer> getPort() {
+  /** @return The port that web server is listening on. */
+  public OptionalInt getPort() {
     if (!port.isPresent()) {
       for (Connector connector : server.getConnectors()) {
         if (connector instanceof ServerConnector) {
-          port = Optional.of(((ServerConnector) connector).getLocalPort());
+          port = OptionalInt.of(((ServerConnector) connector).getLocalPort());
           break;
         }
       }
@@ -90,6 +101,11 @@ public class WebServer {
 
   public StreamingWebSocketServlet getStreamingWebSocketServlet() {
     return streamingWebSocketServlet;
+  }
+
+  /** @return Number of clients streaming from webserver */
+  public int getNumActiveConnections() {
+    return streamingWebSocketServlet.getNumActiveConnections();
   }
 
   /**
@@ -117,6 +133,18 @@ public class WebServer {
       server.start();
     } catch (Exception e) {
       throw new WebServerException("Cannot start Websocket server.", e);
+    }
+
+    OptionalInt port = getPort();
+    if (port.isPresent()) {
+      LOG.debug("Web server is started on port %d.", port.getAsInt());
+      // announce web server by creating a file in buck-out
+      Path filePath = this.projectFilesystem.getBuckPaths().getBuckOut().resolve(HTTP_PORT_FILE);
+      try {
+        Files.write(filePath, String.valueOf(port.getAsInt()).getBytes(StandardCharsets.UTF_8));
+      } catch (IOException e) {
+        throw new WebServerException("Unable to write to " + HTTP_PORT_FILE, e);
+      }
     }
   }
 

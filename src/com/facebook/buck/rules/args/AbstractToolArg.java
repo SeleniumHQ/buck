@@ -16,10 +16,10 @@
 
 package com.facebook.buck.rules.args;
 
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.Tool;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.google.common.base.Joiner;
 import java.util.function.Consumer;
 import org.immutables.value.Value;

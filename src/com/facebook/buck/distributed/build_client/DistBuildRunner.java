@@ -15,6 +15,8 @@
  */
 package com.facebook.buck.distributed.build_client;
 
+import com.facebook.buck.core.build.distributed.synchronization.impl.RemoteBuildRuleSynchronizer;
+import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.ExitCode;
 import com.facebook.buck.distributed.StampedeLocalBuildStatusEvent;
@@ -22,8 +24,6 @@ import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.RemoteBuildRuleSynchronizer;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
@@ -98,6 +98,16 @@ public class DistBuildRunner {
     runDistributedBuildFuture = executor.submit(this::performStampedeDistributedBuild);
   }
 
+  /** Launches dist build synchronously */
+  public synchronized void runDistBuildSync() {
+    runDistributedBuildFuture = executor.submit(this::performStampedeDistributedBuild);
+    try {
+      runDistributedBuildFuture.get();
+    } catch (ExecutionException | InterruptedException e) {
+      LOG.error(e, "Stampede distributed build failed with exception");
+    }
+  }
+
   private void performStampedeDistributedBuild() {
     // If finally {} block is reached without an exit code being set, there was an exception
     int exitCode = ExitCode.DISTRIBUTED_BUILD_STEP_LOCAL_EXCEPTION.getCode();
@@ -134,11 +144,11 @@ public class DistBuildRunner {
       }
 
       // Local build should not be blocked, even if one of the distributed stages failed.
-      remoteBuildSynchronizer.signalCompletionOfRemoteBuild();
-      BuildEvent.DistBuildFinished finished =
-          BuildEvent.distBuildFinished(
-              Preconditions.checkNotNull(started), com.facebook.buck.util.ExitCode.map(exitCode));
-      eventBus.post(finished);
+      remoteBuildSynchronizer.signalCompletionOfRemoteBuild(
+          distributedBuildExitCode.get() == ExitCode.SUCCESSFUL.getCode());
+      // We probably already have sent the DistBuildFinishedEvent but in case it slipped through the
+      // exceptions, send it again.
+      eventBus.post(BuildEvent.distBuildFinished(Preconditions.checkNotNull(started), exitCode));
 
       // Whichever build phase is executing should now move to the final stage.
       buildPhaseLatches.forEach(latch -> latch.countDown());
@@ -157,7 +167,7 @@ public class DistBuildRunner {
 
     String statusString =
         localBuildSucceeded
-            ? "succeeded"
+            ? "finished"
             : String.format("failed [exitCode=%d]", localBuildExitCode);
     eventBus.post(new StampedeLocalBuildStatusEvent(statusString));
 

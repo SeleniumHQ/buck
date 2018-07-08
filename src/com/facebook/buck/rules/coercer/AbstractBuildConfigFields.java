@@ -16,10 +16,11 @@
 
 package com.facebook.buck.rules.coercer;
 
-import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.rules.coercer.BuildConfigFields.Field;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Joiner;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableMap;
@@ -143,7 +144,7 @@ abstract class AbstractBuildConfigFields implements Iterable<Field> {
     builder.append("public class BuildConfig {\n");
     builder.append("  private BuildConfig() {}\n");
 
-    final String prefix = "  public static final ";
+    String prefix = "  public static final ";
     for (Field field : getNameToField().values()) {
       String type = field.getType();
       if ("boolean".equals(type)) {
@@ -188,7 +189,7 @@ abstract class AbstractBuildConfigFields implements Iterable<Field> {
 
   /**
    * @return value that represents the data stored in this object such that it can be used to
-   *     represent this object in a {@link com.facebook.buck.rules.RuleKey}.
+   *     represent this object in a {@link RuleKey}.
    */
   @Override
   public String toString() {

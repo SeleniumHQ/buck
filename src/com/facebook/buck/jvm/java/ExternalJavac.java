@@ -16,33 +16,22 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfo;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.NonHashableSourcePathContainer;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.Tool;
-import com.facebook.buck.rules.VersionedTool;
-import com.facebook.buck.util.Console;
-import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.ProcessExecutor;
-import com.facebook.buck.util.ProcessExecutor.Result;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.facebook.buck.util.types.Either;
 import com.facebook.buck.util.unarchive.ArchiveFormat;
 import com.facebook.buck.util.unarchive.ExistingFileMode;
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -51,82 +40,17 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Optional;
 import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /** javac implemented in a separate binary. */
 public class ExternalJavac implements Javac {
   @AddToRuleKey private final Supplier<Tool> javac;
-  private final Either<Path, BuildTargetSourcePath> actualPath;
   private final String shortName;
 
-  public ExternalJavac(final Either<Path, SourcePath> pathToJavac) {
-    // TODO(cjhopman): This is weird. It shouldn't be taking in a Path, it should get that as a
-    // PathSourcePath instead.
-    if (pathToJavac.isRight() && pathToJavac.getRight() instanceof BuildTargetSourcePath) {
-      BuildTargetSourcePath buildTargetPath = (BuildTargetSourcePath) pathToJavac.getRight();
-      this.shortName = buildTargetPath.getTarget().toString();
-      this.actualPath = Either.ofRight(buildTargetPath);
-      this.javac =
-          MoreSuppliers.<Tool>memoize(
-              () ->
-                  new Tool() {
-                    @AddToRuleKey
-                    private final NonHashableSourcePathContainer container =
-                        new NonHashableSourcePathContainer(buildTargetPath);
-
-                    @Override
-                    public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
-                      return ImmutableList.of(
-                          resolver.getAbsolutePath(container.getSourcePath()).toString());
-                    }
-
-                    @Override
-                    public ImmutableMap<String, String> getEnvironment(
-                        SourcePathResolver resolver) {
-                      return ImmutableMap.of();
-                    }
-                  });
-    } else {
-      Path actualPath =
-          pathToJavac.transform(
-              path -> path,
-              path ->
-                  ((PathSourcePath) path)
-                      .getFilesystem()
-                      .resolve(((PathSourcePath) path).getRelativePath()));
-      this.actualPath = Either.ofLeft(actualPath);
-      this.shortName = actualPath.toString();
-      this.javac =
-          MoreSuppliers.memoize(
-              () -> {
-                ProcessExecutorParams params =
-                    ProcessExecutorParams.builder()
-                        .setCommand(ImmutableList.of(actualPath.toString(), "-version"))
-                        .build();
-                Result result;
-                try {
-                  result = createProcessExecutor().launchAndExecute(params);
-                } catch (InterruptedException | IOException e) {
-                  throw new RuntimeException(e);
-                }
-                Optional<String> stderr = result.getStderr();
-                String output = stderr.orElse("").trim();
-                final String version;
-                if (Strings.isNullOrEmpty(output)) {
-                  version = actualPath.toString();
-                } else {
-                  version = JavacVersion.of(output).toString();
-                }
-                return VersionedTool.of(actualPath, "external_javac", version);
-              });
-    }
-  }
-
-  @VisibleForTesting
-  Either<Path, BuildTargetSourcePath> getActualPath() {
-    return actualPath;
+  public ExternalJavac(Supplier<Tool> javac, String shortName) {
+    this.javac = MoreSuppliers.memoize(javac);
+    this.shortName = shortName;
   }
 
   @Override
@@ -137,15 +61,6 @@ public class ExternalJavac implements Javac {
   @Override
   public ImmutableMap<String, String> getEnvironment(SourcePathResolver resolver) {
     return javac.get().getEnvironment(resolver);
-  }
-
-  public static Javac createJavac(Either<Path, SourcePath> pathToJavac) {
-    return new ExternalJavac(pathToJavac);
-  }
-
-  @VisibleForTesting
-  ProcessExecutor createProcessExecutor() {
-    return new DefaultProcessExecutor(Console.createNullConsole());
   }
 
   @Override
@@ -178,6 +93,7 @@ public class ExternalJavac implements Javac {
       Path pathToSrcsList,
       Path workingDirectory,
       boolean trackClassUsage,
+      boolean trackJavacPhaseEvents,
       @Nullable JarParameters abiJarParaameters,
       @Nullable JarParameters libraryJarParameters,
       AbiGenerationMode abiGenerationMode,
@@ -188,13 +104,13 @@ public class ExternalJavac implements Javac {
 
     return new Invocation() {
       @Override
-      public int buildSourceOnlyAbiJar() throws InterruptedException {
+      public int buildSourceOnlyAbiJar() {
         throw new UnsupportedOperationException(
             "Cannot build source-only ABI jar with external javac.");
       }
 
       @Override
-      public int buildSourceAbiJar() throws InterruptedException {
+      public int buildSourceAbiJar() {
         throw new UnsupportedOperationException("Cannot build source ABI jar with external javac.");
       }
 
@@ -204,9 +120,7 @@ public class ExternalJavac implements Javac {
             abiGenerationMode == AbiGenerationMode.CLASS,
             "Cannot compile ABI jars with external javac");
         ImmutableList.Builder<String> command = ImmutableList.builder();
-        command.add(
-            actualPath.transform(
-                Object::toString, path -> sourcePathResolver.getAbsolutePath(path).toString()));
+        command.addAll(javac.get().getCommandPrefix(sourcePathResolver));
         ImmutableList<Path> expandedSources;
         try {
           expandedSources =

@@ -44,22 +44,22 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXVariantGroup;
 import com.facebook.buck.apple.xcode.xcodeproj.ProductType;
 import com.facebook.buck.apple.xcode.xcodeproj.ProductTypes;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.SourceWithFlags;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxSource;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.js.JsBundleOutputs;
 import com.facebook.buck.js.JsBundleOutputsDescription;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourceWithFlags;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.coercer.FrameworkPath;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -383,9 +383,9 @@ class NewNativeTargetProjectMutator {
   }
 
   private void traverseGroupsTreeAndHandleSources(
-      final PBXGroup sourcesGroup,
-      final PBXSourcesBuildPhase sourcesBuildPhase,
-      final PBXHeadersBuildPhase headersBuildPhase,
+      PBXGroup sourcesGroup,
+      PBXSourcesBuildPhase sourcesBuildPhase,
+      PBXHeadersBuildPhase headersBuildPhase,
       Iterable<GroupedSource> groupedSources) {
     GroupedSource.Visitor visitor =
         new GroupedSource.Visitor() {
@@ -575,7 +575,7 @@ class NewNativeTargetProjectMutator {
         resourceDirs,
         variantResourceFiles);
 
-    final PBXBuildPhase phase = new PBXResourcesBuildPhase();
+    PBXBuildPhase phase = new PBXResourcesBuildPhase();
     addResourcesFileReference(
         targetGroup,
         resourceFiles.build(),

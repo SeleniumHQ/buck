@@ -16,9 +16,11 @@
 
 package com.facebook.buck.skylark.packages;
 
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.skylark.io.Globber;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableMap;
+import com.google.devtools.build.lib.cmdline.PackageIdentifier;
+import com.google.devtools.build.lib.events.EventHandler;
 import org.immutables.value.Value;
 
 /** Exposes package information to Skylark functions. */
@@ -33,4 +35,10 @@ abstract class AbstractPackageContext {
    * through a {@code --config} command line option.
    */
   public abstract ImmutableMap<String, ImmutableMap<String, String>> getRawConfig();
+
+  /** Returns a package identifier of the build file that is being parsed. */
+  public abstract PackageIdentifier getPackageIdentifier();
+
+  /** @return The event handler for reporting events during package parsing. */
+  public abstract EventHandler getEventHandler();
 }

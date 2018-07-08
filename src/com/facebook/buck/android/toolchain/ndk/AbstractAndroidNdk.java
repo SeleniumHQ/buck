@@ -16,10 +16,10 @@
 
 package com.facebook.buck.android.toolchain.ndk;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.toolchain.ComparableToolchain;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
@@ -36,6 +36,10 @@ public abstract class AbstractAndroidNdk implements ComparableToolchain {
 
   @Value.Parameter
   public abstract Path getNdkRootPath();
+
+  /** Escaping logic can be different and depends on the version of Android NDK. */
+  @Value.Parameter
+  public abstract boolean shouldEscapeCFlagsInDoubleQuotes();
 
   @Value.Parameter
   @Value.Auxiliary

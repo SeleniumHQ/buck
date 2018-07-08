@@ -18,6 +18,12 @@ package com.facebook.buck.event.listener;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheConnectEvent;
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.test.event.TestSummaryEvent;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEvent;
@@ -42,17 +48,11 @@ import com.facebook.buck.jvm.java.tracing.JavacPhaseEvent;
 import com.facebook.buck.log.CommandThreadFactory;
 import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
-import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.rules.TestSummaryEvent;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.test.external.ExternalTestRunEvent;
 import com.facebook.buck.test.external.ExternalTestSpecCalculationEvent;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.ProcessResourceConsumption;
 import com.facebook.buck.util.Threads;
@@ -85,6 +85,7 @@ import java.util.Date;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.ExecutionException;
@@ -102,7 +103,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
           .build(
               new CacheLoader<String, String>() {
                 @Override
-                public String load(String key) throws Exception {
+                public String load(String key) {
                   return CaseFormat.UPPER_CAMEL
                       .converterTo(CaseFormat.LOWER_UNDERSCORE)
                       .convert(key)
@@ -126,6 +127,8 @@ public class ChromeTraceBuildListener implements BuckEventListener {
 
   private final ExecutorService outputExecutor;
 
+  private final BuildId buildId;
+
   public ChromeTraceBuildListener(
       ProjectFilesystem projectFilesystem,
       InvocationInfo invocationInfo,
@@ -147,14 +150,15 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       ProjectFilesystem projectFilesystem,
       InvocationInfo invocationInfo,
       Clock clock,
-      final Locale locale,
-      final TimeZone timeZone,
+      Locale locale,
+      TimeZone timeZone,
       ThreadMXBean threadMXBean,
       ChromeTraceBuckConfig config)
       throws IOException {
     this.logDirectoryPath = invocationInfo.getLogDirectoryPath();
     this.projectFilesystem = projectFilesystem;
     this.clock = clock;
+    this.buildId = invocationInfo.getBuildId();
     this.dateFormat =
         new ThreadLocal<SimpleDateFormat>() {
           @Override
@@ -221,7 +225,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
               "build.*.trace",
               PathListing.GET_PATH_MODIFIED_TIME,
               PathListing.FilterMode.EXCLUDE,
-              Optional.of(config.getMaxTraces()),
+              OptionalInt.of(config.getMaxTraces()),
               Optional.empty())) {
         projectFilesystem.deleteFileAtPath(path);
       }
@@ -250,32 +254,28 @@ public class ChromeTraceBuildListener implements BuckEventListener {
   }
 
   @Override
-  public void outputTrace(BuildId buildId) {
+  public void close() throws IOException {
+    LOG.debug("Writing Chrome trace to %s", tracePath);
+    outputExecutor.shutdown();
     try {
-      LOG.debug("Writing Chrome trace to %s", tracePath);
-      outputExecutor.shutdown();
-      try {
-        if (!outputExecutor.awaitTermination(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-          LOG.warn("Failed to log buck trace %s.  Trace might be corrupt", tracePath);
-        }
-      } catch (InterruptedException e) {
-        Threads.interruptCurrentThread();
+      if (!outputExecutor.awaitTermination(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+        LOG.warn("Failed to log buck trace %s.  Trace might be corrupt", tracePath);
       }
-
-      chromeTraceWriter.writeEnd();
-      chromeTraceWriter.close();
-      traceStream.close();
-      uploadTraceIfConfigured(buildId);
-
-      String symlinkName = config.getCompressTraces() ? "build.trace.gz" : "build.trace";
-      Path symlinkPath = projectFilesystem.getBuckPaths().getLogDir().resolve(symlinkName);
-      projectFilesystem.createSymLink(
-          projectFilesystem.resolve(symlinkPath), projectFilesystem.resolve(tracePath), true);
-
-      deleteOldTraces();
-    } catch (IOException e) {
-      throw new HumanReadableException(e, "Unable to write trace file: " + e);
+    } catch (InterruptedException e) {
+      Threads.interruptCurrentThread();
     }
+
+    chromeTraceWriter.writeEnd();
+    chromeTraceWriter.close();
+    traceStream.close();
+    uploadTraceIfConfigured(this.buildId);
+
+    String symlinkName = config.getCompressTraces() ? "build.trace.gz" : "build.trace";
+    Path symlinkPath = projectFilesystem.getBuckPaths().getLogDir().resolve(symlinkName);
+    projectFilesystem.createSymLink(
+        projectFilesystem.resolve(symlinkPath), projectFilesystem.resolve(tracePath), true);
+
+    deleteOldTraces();
   }
 
   @Subscribe
@@ -580,7 +580,9 @@ public class ChromeTraceBuildListener implements BuckEventListener {
         "buck",
         started.getCategory(),
         ChromeTraceEvent.Phase.BEGIN,
-        ImmutableMap.of("rule_key", Joiner.on(", ").join(started.getRuleKeys())),
+        ImmutableMap.of(
+            "rule_key", Joiner.on(", ").join(started.getRuleKeys()),
+            "rule", started.getTarget().orElse("unknown")),
         started);
   }
 
@@ -589,7 +591,8 @@ public class ChromeTraceBuildListener implements BuckEventListener {
     ImmutableMap.Builder<String, String> argumentsBuilder =
         ImmutableMap.<String, String>builder()
             .put("success", Boolean.toString(finished.isSuccess()))
-            .put("rule_key", Joiner.on(", ").join(finished.getRuleKeys()));
+            .put("rule_key", Joiner.on(", ").join(finished.getRuleKeys()))
+            .put("rule", finished.getTarget().orElse("unknown"));
     Optionals.putIfPresent(
         finished.getCacheResult().map(Object::toString), "cache_result", argumentsBuilder);
 
@@ -841,13 +844,13 @@ public class ChromeTraceBuildListener implements BuckEventListener {
       String name,
       ChromeTraceEvent.Phase phase,
       ImmutableMap<String, ? extends Object> arguments,
-      final BuckEvent event) {
+      BuckEvent event) {
     long threadId = event.getThreadId();
     long timestampInMicroseconds = TimeUnit.NANOSECONDS.toMicros(event.getNanoTime());
     long threadTimestampInMicroseconds =
         TimeUnit.NANOSECONDS.toMicros(event.getThreadUserNanoTime());
 
-    final ChromeTraceEvent chromeTraceEvent =
+    ChromeTraceEvent chromeTraceEvent =
         new ChromeTraceEvent(
             category,
             name,
@@ -920,7 +923,7 @@ public class ChromeTraceBuildListener implements BuckEventListener {
   }
 
   @SuppressWarnings("PMD.EmptyCatchBlock")
-  private void submitTraceEvent(final ChromeTraceEvent chromeTraceEvent) {
+  private void submitTraceEvent(ChromeTraceEvent chromeTraceEvent) {
     @SuppressWarnings("unused")
     Future<?> unused =
         outputExecutor.submit(

@@ -21,9 +21,10 @@ import static com.facebook.buck.event.TestEventConfigurator.configureTestEventAt
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent.StoreType;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.rules.RuleKey;
 import com.google.common.collect.ImmutableSet;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -32,17 +33,19 @@ public class ArtifactCacheTestUtils {
 
   private ArtifactCacheTestUtils() {}
 
-  static HttpArtifactCacheEvent.Started newFetchStartedEvent(RuleKey rulekey) {
-    return newFetchStartedEventImpl(rulekey, false);
+  static HttpArtifactCacheEvent.Started newFetchStartedEvent(BuildTarget target, RuleKey rulekey) {
+    return newFetchStartedEventImpl(target, rulekey, false);
   }
 
-  public static HttpArtifactCacheEvent.Started newFetchConfiguredStartedEvent(RuleKey rulekey) {
-    return newFetchStartedEventImpl(rulekey, true);
+  public static HttpArtifactCacheEvent.Started newFetchConfiguredStartedEvent(
+      BuildTarget target, RuleKey rulekey) {
+    return newFetchStartedEventImpl(target, rulekey, true);
   }
 
   private static HttpArtifactCacheEvent.Started newFetchStartedEventImpl(
-      RuleKey ruleKey, boolean configured) {
-    HttpArtifactCacheEvent.Started started = HttpArtifactCacheEvent.newFetchStartedEvent(ruleKey);
+      BuildTarget target, RuleKey ruleKey, boolean configured) {
+    HttpArtifactCacheEvent.Started started =
+        HttpArtifactCacheEvent.newFetchStartedEvent(target, ruleKey);
     if (configured) {
       started.configure(-1, -1, -1, -1, new BuildId());
     }
@@ -93,7 +96,7 @@ public class ArtifactCacheTestUtils {
       Optional<String> rulekey,
       ImmutableSet<RuleKey> ruleKeys,
       boolean configureEvent) {
-    final HttpArtifactCacheEvent.Scheduled scheduled =
+    HttpArtifactCacheEvent.Scheduled scheduled =
         HttpArtifactCacheEvent.newStoreScheduledEvent(rulekey, ruleKeys, StoreType.ARTIFACT);
     HttpArtifactCacheEvent.Started event = HttpArtifactCacheEvent.newStoreStartedEvent(scheduled);
     if (configureEvent) {

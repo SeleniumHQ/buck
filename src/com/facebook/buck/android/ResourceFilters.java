@@ -16,8 +16,8 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreStrings;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -55,7 +55,10 @@ public class ResourceFilters {
           "menu",
           "raw",
           "values",
-          "xml");
+          "xml",
+          // "interpolator" is not officially documented in the above
+          // link, but several support library aar files use it.
+          "interpolator");
 
   /**
    * Represents the names and values of valid densities for resources as defined in
@@ -239,7 +242,7 @@ public class ResourceFilters {
       Collection<Path> candidates,
       Set<ResourceFilters.Density> targetDensities,
       boolean canDownscale) {
-    final Set<Path> pathsToRemove = filterByDensity(candidates, targetDensities, canDownscale);
+    Set<Path> pathsToRemove = filterByDensity(candidates, targetDensities, canDownscale);
     return path -> !pathsToRemove.contains(path);
   }
 
@@ -268,9 +271,9 @@ public class ResourceFilters {
    * Density#NO_QUALIFIER} when the target does not exists.
    */
   public static Predicate<Path> createDensityFilter(
-      final ProjectFilesystem filesystem, final Set<Density> targetDensities) {
+      ProjectFilesystem filesystem, Set<Density> targetDensities) {
     return resourceFile -> {
-      final Path resourceFolder = getResourceFolder(resourceFile);
+      Path resourceFolder = getResourceFolder(resourceFile);
       if (resourceFolder.getFileName().toString().startsWith("drawable")) {
         // Drawables are handled independently, so do not do anything with them.
         return true;
@@ -287,7 +290,7 @@ public class ResourceFilters {
       }
 
       if (density.equals(Density.NO_QUALIFIER)) {
-        final String resourceType = getResourceType(resourceFolder);
+        String resourceType = getResourceType(resourceFolder);
         return resourceType.equals("values")
             || FluentIterable.from(targetDensities)
                 .anyMatch(

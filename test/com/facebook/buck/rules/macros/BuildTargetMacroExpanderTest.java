@@ -16,23 +16,21 @@
 
 package com.facebook.buck.rules.macros;
 
-import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
+import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.macros.MacroException;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -46,24 +44,21 @@ import org.junit.Test;
 public class BuildTargetMacroExpanderTest {
 
   private static Optional<BuildTarget> match(String blob) throws MacroException {
-    final List<BuildTarget> found = new ArrayList<>();
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    List<BuildTarget> found = new ArrayList<>();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     FakeBuildRule rule = new FakeBuildRule("//something:manifest");
-    resolver.addToIndex(rule);
+    graphBuilder.addToIndex(rule);
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildTargetMacroExpander<?> macroExpander =
         new ExecutableMacroExpander() {
           @Override
-          public Arg expand(SourcePathResolver resolver, ExecutableMacro ignored, BuildRule rule)
-              throws MacroException {
+          public Arg expand(SourcePathResolver resolver, ExecutableMacro ignored, BuildRule rule) {
             found.add(rule.getBuildTarget());
             return StringArg.of("");
           }
         };
     MacroHandler handler = new MacroHandler(ImmutableMap.of("exe", macroExpander));
-    handler.expand(rule.getBuildTarget(), createCellRoots(filesystem), resolver, blob);
+    handler.expand(rule.getBuildTarget(), createCellRoots(filesystem), graphBuilder, blob);
     return Optional.ofNullable(Iterables.getFirst(found, null));
   }
 

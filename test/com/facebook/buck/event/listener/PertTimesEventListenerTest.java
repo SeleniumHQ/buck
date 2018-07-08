@@ -20,6 +20,12 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
@@ -27,15 +33,9 @@ import com.facebook.buck.event.BuckInitializationDurationEvent;
 import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.event.listener.PerfTimesEventListener.PerfTimesEvent;
 import com.facebook.buck.log.PerfTimesStats;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.ParseEvent;
-import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleDurationTracker;
-import com.facebook.buck.rules.BuildRuleEvent;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.rules.keys.FakeRuleKeyFactory;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
@@ -150,7 +150,7 @@ public class PertTimesEventListenerTest {
 
     fakeClock.setCurrentTimeMillis(4000);
     HttpArtifactCacheEvent.Started fetchStarted =
-        HttpArtifactCacheEvent.newFetchStartedEvent(ruleKey);
+        HttpArtifactCacheEvent.newFetchStartedEvent(buildRule.getBuildTarget(), ruleKey);
     eventBus.post(fetchStarted);
 
     fakeClock.setCurrentTimeMillis(4500);

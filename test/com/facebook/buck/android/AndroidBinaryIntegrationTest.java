@@ -26,10 +26,10 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.ProcessResult;
@@ -39,7 +39,7 @@ import com.facebook.buck.testutil.integration.DexInspector;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.zip.ZipConstants;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -109,7 +109,11 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     zipInspector.assertFileDoesNotExist("classes2.dex");
 
     zipInspector.assertFileExists("classes.dex");
-    zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
+    if (AssumeAndroidPlatform.isArmAvailable()) {
+      zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
+    }
+    zipInspector.assertFileExists("lib/armeabi-v7a/libnative_cxx_lib.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_lib.so");
   }
 
   @Test
@@ -124,7 +128,11 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     zipInspector.assertFileDoesNotExist("classes2.dex");
 
     zipInspector.assertFileExists("classes.dex");
-    zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
+    if (AssumeAndroidPlatform.isArmAvailable()) {
+      zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
+    }
+    zipInspector.assertFileExists("lib/armeabi-v7a/libnative_cxx_lib.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_lib.so");
   }
 
   @Test
@@ -143,21 +151,48 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     zipInspector.assertFileExists("classes2.dex");
 
     zipInspector.assertFileExists("classes.dex");
-    zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
+    if (AssumeAndroidPlatform.isArmAvailable()) {
+      zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
+    }
+    zipInspector.assertFileExists("lib/armeabi-v7a/libnative_cxx_lib.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_lib.so");
+  }
+
+  @Test
+  public void testDisguisedExecutableIsRenamedWithNDKPrior17() throws IOException {
+    AssumeAndroidPlatform.assumeArmIsAvailable();
+    Path output = workspace.buildAndReturnOutput("//apps/sample:app_with_disguised_exe-16");
+    ZipInspector zipInspector = new ZipInspector(output);
+    zipInspector.assertFileExists("lib/armeabi/libmybinary.so");
+    zipInspector.assertFileExists("lib/armeabi-v7a/libmybinary.so");
+    zipInspector.assertFileExists("lib/x86/libmybinary.so");
   }
 
   @Test
   public void testDisguisedExecutableIsRenamed() throws IOException {
     Path output = workspace.buildAndReturnOutput("//apps/sample:app_with_disguised_exe");
     ZipInspector zipInspector = new ZipInspector(output);
-    zipInspector.assertFileExists("lib/armeabi/libmybinary.so");
+    zipInspector.assertFileExists("lib/armeabi-v7a/libmybinary.so");
+    zipInspector.assertFileExists("lib/x86/libmybinary.so");
+  }
+
+  @Test
+  public void testNdkLibraryIsIncludedWithNdkPrior17() throws IOException {
+    AssumeAndroidPlatform.assumeArmIsAvailable();
+    Path output = workspace.buildAndReturnOutput("//apps/sample:app_with_ndk_library-16");
+    ZipInspector zipInspector = new ZipInspector(output);
+    zipInspector.assertFileExists("lib/armeabi/libfakenative.so");
+    zipInspector.assertFileExists("lib/armeabi-v7a/libfakenative.so");
+    zipInspector.assertFileExists("lib/mips/libfakenative.so");
+    zipInspector.assertFileExists("lib/x86/libfakenative.so");
   }
 
   @Test
   public void testNdkLibraryIsIncluded() throws IOException {
     Path output = workspace.buildAndReturnOutput("//apps/sample:app_with_ndk_library");
     ZipInspector zipInspector = new ZipInspector(output);
-    zipInspector.assertFileExists("lib/armeabi/libfakenative.so");
+    zipInspector.assertFileExists("lib/armeabi-v7a/libfakenative.so");
+    zipInspector.assertFileExists("lib/x86/libfakenative.so");
   }
 
   @Test
@@ -165,7 +200,7 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
     String apkWithNdkLibrary = "//apps/sample:app_with_ndk_library";
     Path output = workspace.buildAndReturnOutput(apkWithNdkLibrary);
     ZipInspector zipInspector = new ZipInspector(output);
-    zipInspector.assertFileExists("lib/armeabi/libfakenative.so");
+    zipInspector.assertFileExists("lib/armeabi-v7a/libfakenative.so");
 
     // Sleep 1 second (plus another half to be super duper safe) to make sure that
     // fakesystem.c gets a later timestamp than the fakesystem.o that was produced
@@ -265,7 +300,7 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
   }
 
   @Test
-  public void testDxFindsReferencedResources() throws InterruptedException, IOException {
+  public void testDxFindsReferencedResources() throws IOException {
     workspace.runBuckBuild(SIMPLE_TARGET).assertSuccess();
     BuildTarget dexTarget = BuildTargetFactory.newInstance("//java/com/sample/lib:lib#dex");
     ProjectFilesystem filesystem =
@@ -408,6 +443,12 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
   }
 
   @Test
+  public void testApkWithNoResourcesBuildsCorrectlyWithAapt2() throws Exception {
+    AssumeAndroidPlatform.assumeAapt2WithOutputTextSymbolsIsAvailable();
+    workspace.runBuckBuild("//apps/sample:app_aapt2_with_no_res").assertSuccess();
+  }
+
+  @Test
   public void testSimpleAapt2App() throws Exception {
     AssumeAndroidPlatform.assumeAapt2WithOutputTextSymbolsIsAvailable();
 
@@ -464,6 +505,34 @@ public class AndroidBinaryIntegrationTest extends AbiCompilationModeTest {
   @Test
   public void testApkEmptyResDirectoriesBuildsCorrectly() throws IOException {
     workspace.runBuckBuild("//apps/sample:app_with_aar_and_no_res").assertSuccess();
+  }
+
+  @Test
+  public void testNativeLibGeneratedProguardConfigIsUsedByProguardWithNdkPrior17()
+      throws IOException {
+    AssumeAndroidPlatform.assumeArmIsAvailable();
+    String target = "//apps/sample:app_with_native_lib_proguard-16";
+    workspace.runBuckBuild(target).assertSuccess();
+
+    Path generatedConfig =
+        workspace.getPath(
+            BuildTargets.getGenPath(
+                filesystem,
+                BuildTargetFactory.newInstance(target)
+                    .withFlavors(AndroidBinaryGraphEnhancer.NATIVE_LIBRARY_PROGUARD_FLAVOR),
+                NativeLibraryProguardGenerator.OUTPUT_FORMAT));
+
+    Path proguardDir =
+        workspace.getPath(
+            BuildTargets.getGenPath(
+                filesystem, BuildTargetFactory.newInstance(target), "%s/proguard"));
+
+    Path proguardCommandLine = proguardDir.resolve("command-line.txt");
+    // Check that the proguard command line references the native lib proguard config.
+    assertTrue(workspace.getFileContents(proguardCommandLine).contains(generatedConfig.toString()));
+    assertEquals(
+        workspace.getFileContents("native/proguard_gen/expected-16.pro"),
+        workspace.getFileContents(generatedConfig));
   }
 
   @Test

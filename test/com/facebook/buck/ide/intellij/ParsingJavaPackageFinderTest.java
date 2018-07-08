@@ -18,11 +18,11 @@ package com.facebook.buck.ide.intellij;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.ide.intellij.lang.java.ParsingJavaPackageFinder;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaCompilationConstants;
 import com.facebook.buck.jvm.java.JavaFileParser;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableSet;
@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -91,6 +92,62 @@ public class ParsingJavaPackageFinderTest {
             dummyPackageFinder);
 
     assertEquals("org.test.package1", parsingJavaPackageFinder.findJavaPackage(matchPath));
+  }
+
+  @Test
+  public void testSuccessfullyGetSourceRootFromSource() {
+    Path somePath = Paths.get("a/b/c/com/foo/bar/Baz.java");
+    fakeProjectFilesystem.writeContentsToPath("package com.foo.bar;\nclass Baz {}", somePath);
+    assertEquals(
+        new ParsingJavaPackageFinder.PackagePathResolver(javaFileParser, fakeProjectFilesystem)
+            .getSourceRootFromSource(somePath),
+        Optional.of(Paths.get("a", "b", "c")));
+  }
+
+  @Test
+  public void testGetSourceRootFromSourceWithMismatchedDirectories() {
+    Path somePath = Paths.get("a/b/c/com/foo/boink/Baz.java");
+    fakeProjectFilesystem.writeContentsToPath("package com.foo.bar;\nclass Baz {}", somePath);
+    assertEquals(
+        new ParsingJavaPackageFinder.PackagePathResolver(javaFileParser, fakeProjectFilesystem)
+            .getSourceRootFromSource(somePath),
+        Optional.empty());
+  }
+
+  @Test
+  public void testMisleadingCommentsWithPackageStatement() {
+    Path misleadingPath = Paths.get("case1/org/test/package1/Foo.java");
+    fakeProjectFilesystem.writeContentsToPath(
+        "/**\n"
+            + "package misleading;\n"
+            + "import haha;\n"
+            + "*/\n"
+            + "package org.is.correct;\n"
+            + "\n"
+            + "class Foo{}",
+        misleadingPath);
+    JavaPackageFinder parsingJavaPackageFinder =
+        ParsingJavaPackageFinder.preparse(
+            javaFileParser,
+            fakeProjectFilesystem,
+            ImmutableSortedSet.of(misleadingPath),
+            dummyPackageFinder);
+    assertEquals("org.is.correct", parsingJavaPackageFinder.findJavaPackage(misleadingPath));
+  }
+
+  @Test
+  public void testMisleadingCommentsWithoutPackageGoesToFallback() {
+    Path misleadingPath = Paths.get("case1/org/test/package1/Foo.java");
+    fakeProjectFilesystem.writeContentsToPath(
+        "/**\n" + "package misleading;\n" + "import haha;\n" + "*/\n" + "class Foo{}",
+        misleadingPath);
+    JavaPackageFinder parsingJavaPackageFinder =
+        ParsingJavaPackageFinder.preparse(
+            javaFileParser,
+            fakeProjectFilesystem,
+            ImmutableSortedSet.of(misleadingPath),
+            dummyPackageFinder);
+    assertEquals("dummy", parsingJavaPackageFinder.findJavaPackage(misleadingPath));
   }
 
   @Test

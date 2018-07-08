@@ -16,19 +16,20 @@
 
 package com.facebook.buck.cxx.toolchain.linker;
 
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.file.FileScrubber;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
  * An object wrapping a linker, providing its source path and an interface to decorate arguments
@@ -106,10 +107,10 @@ public interface Linker extends Tool {
   ImmutableList<Arg> createUndefinedSymbolsLinkerArgs(
       ProjectFilesystem projectFilesystem,
       BuildRuleParams baseParams,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       SourcePathRuleFinder ruleFinder,
       BuildTarget target,
-      Iterable<? extends SourcePath> symbolFiles);
+      ImmutableList<? extends SourcePath> symbolFiles);
 
   Iterable<Arg> getSharedLibFlag();
 
@@ -118,6 +119,14 @@ public interface Linker extends Tool {
   boolean hasFilePathSizeLimitations();
 
   SharedLibraryLoadingType getSharedLibraryLoadingType();
+
+  Optional<ExtraOutputsDeriver> getExtraOutputsDeriver();
+
+  /** Derives extra outputs from linker args */
+  interface ExtraOutputsDeriver {
+    ImmutableMap<String, Path> deriveExtraOutputsFromArgs(
+        ImmutableList<String> linkerArgs, Path output);
+  }
 
   /** The various ways to link an output file. */
   enum LinkType {

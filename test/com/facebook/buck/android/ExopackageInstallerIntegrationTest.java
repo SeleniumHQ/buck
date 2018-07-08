@@ -27,12 +27,12 @@ import com.facebook.buck.android.exopackage.ExopackageInfo.DexInfo;
 import com.facebook.buck.android.exopackage.ExopackageInstaller;
 import com.facebook.buck.android.exopackage.ExopackagePathAndHash;
 import com.facebook.buck.android.exopackage.TestAndroidDevice;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -615,7 +615,7 @@ public class ExopackageInstallerIntegrationTest {
     if (!modularDexesContents.isEmpty()) {
       ImmutableList.Builder<String> topLevelMetadata = ImmutableList.builder();
       filesystem.deleteRecursivelyIfExists(modulesDirectory);
-      final Builder<DexInfo> moduleInfoBuilder = ImmutableList.builder();
+      Builder<DexInfo> moduleInfoBuilder = ImmutableList.builder();
       for (int i = 0; i < modularDexesContents.size(); i++) {
         String dexContent = modularDexesContents.get(i);
         String moduleName = dexContent.trim();
@@ -628,7 +628,7 @@ public class ExopackageInstallerIntegrationTest {
         builder.addExoFile("modular-dex/" + dexJarName, dexContent);
         // Write the metadata for this module
         Path moduleManifest = moduleDirectory.resolve(moduleName + ".metadata");
-        final String metadataContents = String.format("%s %s", sourceFilename, dexHash);
+        String metadataContents = String.format("%s %s", sourceFilename, dexHash);
         writeFile(moduleManifest, metadataContents);
         builder.addExoFile("modular-dex/" + moduleName + ".metadata", metadataContents);
         moduleInfoBuilder.add(

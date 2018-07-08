@@ -22,14 +22,14 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.google.common.collect.ImmutableMap;
 import org.junit.Test;
 
 public class JavacPhaseEventTest {
   @Test
-  public void testEquals() throws Exception {
+  public void testEquals() {
     BuildTarget target = BuildTargetFactory.newInstance("//fake:rule");
     JavacPhaseEvent.Phase phase = JavacPhaseEvent.Phase.ENTER;
 
@@ -43,7 +43,7 @@ public class JavacPhaseEventTest {
   }
 
   @Test
-  public void testIsRelated() throws Exception {
+  public void testIsRelated() {
     BuildTarget target = BuildTargetFactory.newInstance("//fake:rule");
     JavacPhaseEvent.Phase phase = JavacPhaseEvent.Phase.ANALYZE;
 

@@ -16,20 +16,22 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasDeclaredDeps;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionPropagator;
+import com.google.common.collect.ImmutableSet;
+import java.util.Optional;
 import org.immutables.value.Value;
 
 /**
@@ -37,7 +39,7 @@ import org.immutables.value.Value;
  * javax.annotation.processing.Processor} or TODO(jkeljo): a {@link com.sun.source.util.Plugin}).
  */
 public class JavaAnnotationProcessorDescription
-    implements Description<JavaAnnotationProcessorDescriptionArg>,
+    implements DescriptionWithTargetGraph<JavaAnnotationProcessorDescriptionArg>,
         VersionPropagator<JavaAnnotationProcessorDescriptionArg> {
   @Override
   public Class<JavaAnnotationProcessorDescriptionArg> getConstructorArgType() {
@@ -46,12 +48,25 @@ public class JavaAnnotationProcessorDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       JavaAnnotationProcessorDescriptionArg args) {
+    if (!args.getProcessorClass().isPresent() && args.getProcessorClasses().isEmpty()) {
+      throw new HumanReadableException(
+          String.format("%s: must specify a processor class, none specified;", buildTarget));
+    }
+
     JavacPluginProperties.Builder propsBuilder = JavacPluginProperties.builder();
-    propsBuilder.addProcessorNames(args.getProcessorClass());
+
+    if (args.getProcessorClass().isPresent()) {
+      propsBuilder.addProcessorNames(args.getProcessorClass().get());
+    } else {
+      for (String pClass : args.getProcessorClasses()) {
+        propsBuilder.addProcessorNames(pClass);
+      }
+    }
+
     for (BuildRule dep : params.getBuildDeps()) {
       if (!(dep instanceof JavaLibrary)) {
         throw new HumanReadableException(
@@ -69,7 +84,7 @@ public class JavaAnnotationProcessorDescription
     JavacPluginProperties properties = propsBuilder.build();
 
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(context.getBuildRuleResolver()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(context.getActionGraphBuilder()));
     return new JavaAnnotationProcessor(
         buildTarget,
         context.getProjectFilesystem(),
@@ -82,7 +97,13 @@ public class JavaAnnotationProcessorDescription
   @Value.Immutable
   interface AbstractJavaAnnotationProcessorDescriptionArg
       extends CommonDescriptionArg, HasDeclaredDeps {
-    String getProcessorClass();
+
+    @Value.Default
+    default Optional<String> getProcessorClass() {
+      return Optional.empty();
+    }
+
+    ImmutableSet<String> getProcessorClasses();
 
     @Value.Default
     default boolean isIsolateClassLoader() {

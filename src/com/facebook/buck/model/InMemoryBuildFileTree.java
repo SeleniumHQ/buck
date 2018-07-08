@@ -16,6 +16,7 @@
 
 package com.facebook.buck.model;
 
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.file.MorePaths;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -103,7 +104,7 @@ public class InMemoryBuildFileTree extends BuildFileTree {
   }
 
   @VisibleForTesting
-  Collection<Path> getChildPaths(final Path path) {
+  Collection<Path> getChildPaths(Path path) {
     Node node = Preconditions.checkNotNull(basePathToNodeIndex.get(path));
     if (node.children == null) {
       return ImmutableList.of();

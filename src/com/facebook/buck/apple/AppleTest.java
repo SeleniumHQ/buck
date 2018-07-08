@@ -17,32 +17,32 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.toolchain.AppleDeveloperDirectoryForTestsProvider;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
+import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.test.rule.ExternalTestRunnerRule;
+import com.facebook.buck.core.test.rule.ExternalTestRunnerTestSpec;
+import com.facebook.buck.core.test.rule.TestRule;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.ExternalTestRunnerRule;
-import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
-import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
-import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TestRule;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.test.TestCaseSummary;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.util.types.Pair;
@@ -111,6 +111,7 @@ public class AppleTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private final String testLogDirectoryEnvironmentVariable;
   private final String testLogLevelEnvironmentVariable;
   private final String testLogLevel;
+  private final Optional<ImmutableMap<String, String>> testSpecificEnvironmentVariables;
 
   /**
    * Absolute path to xcode developer dir.
@@ -188,7 +189,8 @@ public class AppleTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
       String testLogLevel,
       Optional<Long> testRuleTimeoutMs,
       boolean isUiTest,
-      Optional<Either<SourcePath, String>> snapshotReferenceImagesPath) {
+      Optional<Either<SourcePath, String>> snapshotReferenceImagesPath,
+      Optional<ImmutableMap<String, String>> testSpecificEnvironmentVariables) {
     super(buildTarget, projectFilesystem, params);
     this.xctool = xctool;
     this.xctoolStutterTimeout = xctoolStutterTimeout;
@@ -214,6 +216,7 @@ public class AppleTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.testLogLevel = testLogLevel;
     this.isUiTest = isUiTest;
     this.snapshotReferenceImagesPath = snapshotReferenceImagesPath;
+    this.testSpecificEnvironmentVariables = testSpecificEnvironmentVariables;
   }
 
   @Override
@@ -264,6 +267,12 @@ public class AppleTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
     Optional<Path> testHostAppPath = extractBundlePathForBundle(testHostApp, buildContext);
     Optional<Path> uiTestTargetAppPath = extractBundlePathForBundle(uiTestTargetApp, buildContext);
+
+    ImmutableMap<String, String> testEnvironmentOverrides =
+        ImmutableMap.<String, String>builder()
+            .putAll(options.getEnvironmentOverrides())
+            .putAll(this.testSpecificEnvironmentVariables.orElse(ImmutableMap.of()))
+            .build();
 
     if (!useXctest) {
       if (!xctool.isPresent()) {
@@ -325,7 +334,7 @@ public class AppleTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
           new XctoolRunTestsStep(
               getProjectFilesystem(),
               buildContext.getSourcePathResolver().getAbsolutePath(xctool.get()),
-              options.getEnvironmentOverrides(),
+              testEnvironmentOverrides,
               xctoolStutterTimeout,
               platformName,
               destinationSpecifierArg,
@@ -360,7 +369,7 @@ public class AppleTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
       HashMap<String, String> environment = new HashMap<>();
       environment.putAll(xctest.getEnvironment(buildContext.getSourcePathResolver()));
-      environment.putAll(options.getEnvironmentOverrides());
+      environment.putAll(testEnvironmentOverrides);
       if (testHostAppPath.isPresent()) {
         environment.put("XCInjectBundleInto", testHostAppPath.get().toString());
       }
@@ -410,7 +419,7 @@ public class AppleTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Callable<TestResults> interpretTestResults(
-      final ExecutionContext executionContext,
+      ExecutionContext executionContext,
       SourcePathResolver pathResolver,
       boolean isUsingTestSelectors) {
     return () -> {

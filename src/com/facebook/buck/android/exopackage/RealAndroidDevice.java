@@ -25,6 +25,7 @@ import com.android.ddmlib.ShellCommandUnresponsiveException;
 import com.android.ddmlib.TimeoutException;
 import com.facebook.buck.android.AdbHelper;
 import com.facebook.buck.android.agent.util.AgentUtil;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.SimplePerfEvent;
@@ -32,7 +33,6 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.MoreSuppliers;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -165,10 +165,10 @@ public class RealAndroidDevice implements AndroidDevice {
       return Optional.empty();
     }
 
-    final String packagePrefix = "  Package [" + packageName + "] (";
-    final String otherPrefix = "  Package [";
+    String packagePrefix = "  Package [" + packageName + "] (";
+    String otherPrefix = "  Package [";
     boolean sawPackageLine = false;
-    final Splitter splitter = Splitter.on('=').limit(2);
+    Splitter splitter = Splitter.on('=').limit(2);
 
     String codePath = null;
     String resourcePath = null;
@@ -313,7 +313,7 @@ public class RealAndroidDevice implements AndroidDevice {
                   : null;
             }
           };
-      final String waitForDebuggerFlag = waitForDebugger ? "-D" : "";
+      String waitForDebuggerFlag = waitForDebugger ? "-D" : "";
       device.executeShellCommand(
           //  0x10200000 is FLAG_ACTIVITY_RESET_TASK_IF_NEEDED | FLAG_ACTIVITY_NEW_TASK; the
           // constant values are public ABI.  This way of invoking "am start" makes buck install -r
@@ -629,7 +629,7 @@ public class RealAndroidDevice implements AndroidDevice {
   public void rmFiles(String dirPath, Iterable<String> filesToDelete) throws Exception {
     String commandPrefix = "cd " + dirPath + " && rm ";
     // Add a fudge factor for separators and error checking.
-    final int overhead = commandPrefix.length() + 100;
+    int overhead = commandPrefix.length() + 100;
     for (List<String> rmArgs : chunkArgs(filesToDelete, MAX_ADB_COMMAND_SIZE - overhead)) {
       String command = commandPrefix + Joiner.on(' ').join(rmArgs);
       LOG.debug("Executing %s", command);

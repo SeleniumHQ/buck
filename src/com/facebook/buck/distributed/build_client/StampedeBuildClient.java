@@ -16,13 +16,16 @@
 package com.facebook.buck.distributed.build_client;
 
 import com.facebook.buck.command.LocalBuildExecutorInvoker;
+import com.facebook.buck.core.build.distributed.synchronization.impl.RemoteBuildRuleSynchronizer;
+import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.distributed.ClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildService;
+import com.facebook.buck.distributed.DistLocalBuildMode;
+import com.facebook.buck.distributed.ExitCode;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.RemoteBuildRuleSynchronizer;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -38,13 +41,14 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class StampedeBuildClient {
   private static final Logger LOG = Logger.get(StampedeBuildClient.class);
-  public static final String PENDING_STAMPEDE_ID = "PENDING_STAMPEDE_ID";
+  public static final String PENDING_STAMPEDE_ID = ClientStatsTracker.PENDING_STAMPEDE_ID;
 
   private final RemoteBuildRuleSynchronizer remoteBuildRuleSynchronizer;
   private final AtomicReference<StampedeId> stampedeIdReference =
       new AtomicReference<>(createPendingStampedeId());
   private final BuckEventBus eventBus;
   private final ClientStatsTracker clientStatsTracker;
+  private final Optional<String> autoStampedeMessage;
 
   private final LocalBuildRunner racerBuildRunner;
   private final LocalBuildRunner synchronizedBuildRunner;
@@ -66,10 +70,11 @@ public class StampedeBuildClient {
       boolean waitGracefullyForDistributedBuildThreadToFinish,
       long distributedBuildThreadKillTimeoutSeconds,
       Optional<StampedeId> stampedeId) {
-    stampedeId.ifPresent(id -> this.stampedeIdReference.set(id));
+    stampedeId.ifPresent(this.stampedeIdReference::set);
     this.eventBus = eventBus;
     this.clientStatsTracker = clientStatsTracker;
     this.remoteBuildRuleSynchronizer = remoteBuildRuleSynchronizer;
+    this.autoStampedeMessage = Optional.empty();
     this.racerBuildRunner =
         createStampedeLocalBuildRunner(
             executorForLocalBuild,
@@ -105,10 +110,12 @@ public class StampedeBuildClient {
       DistBuildControllerInvocationArgs distBuildControllerInvocationArgs,
       ClientStatsTracker clientStatsTracker,
       boolean waitGracefullyForDistributedBuildThreadToFinish,
-      long distributedBuildThreadKillTimeoutSeconds) {
+      long distributedBuildThreadKillTimeoutSeconds,
+      Optional<String> autoStampedeMessage) {
     this.eventBus = eventBus;
     this.clientStatsTracker = clientStatsTracker;
     this.remoteBuildRuleSynchronizer = new RemoteBuildRuleSynchronizer();
+    this.autoStampedeMessage = autoStampedeMessage;
     this.racerBuildRunner =
         createStampedeLocalBuildRunner(
             executorForLocalBuild, localBuildExecutorInvoker, "racer", false, Optional.empty());
@@ -137,20 +144,28 @@ public class StampedeBuildClient {
   /**
    * Kicks off distributed build, then runs a multi-phase local build which.
    *
-   * @throws InterruptedException
+   * @throws InterruptedException if proceedToLocalSynchronizedBuildPhase gets interrupted.
    */
-  public int build(boolean skipRacingPhase, boolean localBuildFallbackEnabled)
+  public int build(DistLocalBuildMode distLocalBuildMode, boolean localBuildFallbackEnabled)
       throws InterruptedException {
     LOG.info(
         String.format(
-            "Stampede build client starting. skipRacingPhase=[%s], localBuildFallbackEnabled=[%s].",
-            skipRacingPhase, localBuildFallbackEnabled));
+            "Stampede build client starting. distLocalBuildMode=[%s], localBuildFallbackEnabled=[%s].",
+            distLocalBuildMode, localBuildFallbackEnabled));
 
-    // Kick off the distributed build
-    distBuildRunner.runDistBuildAsync();
+    if (distLocalBuildMode.equals(DistLocalBuildMode.FIRE_AND_FORGET)) {
+      distBuildRunner.runDistBuildSync();
+      eventBus.post(ConsoleEvent.info("Fire and forget build was scheduled."));
+      LOG.info("Stampede build in fire-and-forget mode started remotely. Exiting local client.");
+      return ExitCode.SUCCESSFUL.getCode();
+    } else {
+      // Kick off the distributed build
+      distBuildRunner.runDistBuildAsync();
+    }
 
-    boolean proceedToLocalSynchronizedBuildPhase = skipRacingPhase;
-    if (!skipRacingPhase) {
+    boolean proceedToLocalSynchronizedBuildPhase =
+        distLocalBuildMode.equals(DistLocalBuildMode.WAIT_FOR_REMOTE);
+    if (distLocalBuildMode.equals(DistLocalBuildMode.NO_WAIT_FOR_REMOTE)) {
       clientStatsTracker.setPerformedRacingBuild(true);
       proceedToLocalSynchronizedBuildPhase =
           !RacingBuildPhase.run(
@@ -164,6 +179,7 @@ public class StampedeBuildClient {
     clientStatsTracker.setRacingBuildFinishedFirst(!proceedToLocalSynchronizedBuildPhase);
 
     if (proceedToLocalSynchronizedBuildPhase) {
+      eventBus.post(new DistBuildSuperConsoleEvent(autoStampedeMessage));
       eventBus.post(BuildEvent.reset());
       SynchronizedBuildPhase.run(
           distBuildRunner,
@@ -242,8 +258,8 @@ public class StampedeBuildClient {
   }
 
   private static DistBuildControllerInvoker createDistBuildControllerInvoker(
-      final DistBuildController distBuildController,
-      final DistBuildControllerInvocationArgs distBuildControllerInvocationArgs) {
+      DistBuildController distBuildController,
+      DistBuildControllerInvocationArgs distBuildControllerInvocationArgs) {
     return () -> {
       DistBuildController.ExecutionResult distBuildResult =
           distBuildController.executeAndPrintFailuresToEventBus(
@@ -252,7 +268,8 @@ public class StampedeBuildClient {
               distBuildControllerInvocationArgs.getFileHashCache(),
               distBuildControllerInvocationArgs.getInvocationInfo(),
               distBuildControllerInvocationArgs.getBuildMode(),
-              distBuildControllerInvocationArgs.getNumberOfMinions(),
+              distBuildControllerInvocationArgs.getDistLocalBuildMode(),
+              distBuildControllerInvocationArgs.getMinionRequirements(),
               distBuildControllerInvocationArgs.getRepository(),
               distBuildControllerInvocationArgs.getTenantId(),
               distBuildControllerInvocationArgs.getRuleKeyCalculatorFuture());

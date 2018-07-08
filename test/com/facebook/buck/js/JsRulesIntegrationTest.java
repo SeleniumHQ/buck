@@ -16,27 +16,36 @@
 
 package com.facebook.buck.js;
 
+import static org.hamcrest.Matchers.everyItem;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.testutil.PredicateMatcher;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.util.environment.Platform;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.stream.Stream;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -67,6 +76,70 @@ public class JsRulesIntegrationTest {
     workspace.runBuckBuild("//js:fruit").assertSuccess();
 
     workspace.verify(Paths.get("simple_library_build.expected"), genPath);
+  }
+
+  @Test
+  public void librariesDoNotMaterializeGeneratedDeps() throws IOException, InterruptedException {
+    String libraryTarget = "//js:lib-depending-on-lib-with-generated-sources";
+
+    workspace.enableDirCache();
+    workspace.runBuckBuild(libraryTarget).assertSuccess();
+    workspace.runBuckCommand("clean", "--keep-cache");
+
+    // changing this file invalidates the library target, but not the library dependency with
+    // generated source files. Thus, the generated sources should not be materialized in buck-out,
+    // which we just cleaned with the preceding command.
+    assertTrue(workspace.replaceFileContents("js/apple.js", "apple", "apple=\"braeburn\""));
+    workspace.runBuckBuild("--shallow", libraryTarget).assertSuccess();
+
+    String[] bits =
+        workspace
+            .runBuckCommand("targets", "--show-full-output", "//external:node-modules-installation")
+            .assertSuccess()
+            .getStdout()
+            .split("\\s+");
+    File generated = Paths.get(bits[1]).toFile();
+    assertFalse(generated.exists());
+  }
+
+  @Test
+  public void bundlesMaterializeGeneratedDeps() throws IOException, InterruptedException {
+    String bundleTarget = "//js:bundle-with-generated-sources";
+
+    // We build all dependencies of the bundle target, and clean buck-out/ afterwards. That means
+    // that buck can reuse cached artifacts on the next run, where we will build the bundle
+    // target itself.
+    workspace.enableDirCache();
+    Stream<String> directDeps =
+        Arrays.stream(
+                workspace
+                    .runBuckCommand("query", String.format("deps(%s, 1)", bundleTarget))
+                    .assertSuccess()
+                    .getStdout()
+                    .split("\\s+"))
+            .filter(s -> !s.equals(bundleTarget));
+    workspace.runBuckBuild(directDeps.toArray(String[]::new)).assertSuccess();
+    workspace.runBuckCommand("clean", "--keep-cache");
+
+    workspace.runBuckBuild("--shallow", bundleTarget).assertSuccess();
+
+    String[] bits =
+        workspace
+            .runBuckCommand(
+                "targets",
+                "--show-full-output",
+                "//external:node-modules-installation",
+                "//external:exported.js")
+            .assertSuccess()
+            .getStdout()
+            .split("\\s+");
+
+    ImmutableList<File> generatedSources =
+        Stream.of(bits[1], bits[3])
+            .map(Paths::get)
+            .map(Path::toFile)
+            .collect(ImmutableList.toImmutableList());
+    assertThat(generatedSources, everyItem(new PredicateMatcher<>("path exists", File::exists)));
   }
 
   @Test
@@ -299,5 +372,11 @@ public class JsRulesIntegrationTest {
   public void genruleAllowsToRewriteMiscDir() throws IOException {
     workspace.runBuckBuild("//js:misc-genrule").assertSuccess();
     workspace.verify(Paths.get("misc_genrule.expected"), genPath);
+  }
+
+  private Path getGenPath(String filename) {
+    return projectFilesystem
+        .getPathForRelativePath(projectFilesystem.getBuckPaths().getGenDir())
+        .resolve(filename);
   }
 }

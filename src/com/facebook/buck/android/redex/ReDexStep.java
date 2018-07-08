@@ -18,11 +18,11 @@ package com.facebook.buck.android.redex;
 
 import com.facebook.buck.android.KeystoreProperties;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -84,7 +84,7 @@ public class ReDexStep extends ShellStep {
 
   public static ImmutableList<Step> createSteps(
       BuildTarget target,
-      final ProjectFilesystem filesystem,
+      ProjectFilesystem filesystem,
       AndroidSdkLocation androidSdkLocation,
       SourcePathResolver resolver,
       RedexOptions redexOptions,
@@ -127,7 +127,7 @@ public class ReDexStep extends ShellStep {
 
   @Override
   protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
-    ImmutableList.Builder<String> args = ImmutableList.<String>builder();
+    ImmutableList.Builder<String> args = ImmutableList.builder();
 
     // In practice, redexBinaryArgs is likely to be a single argument, which is the path to the
     // ReDex binary.

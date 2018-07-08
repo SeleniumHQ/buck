@@ -16,7 +16,7 @@
 
 package com.facebook.buck.log;
 
-import com.facebook.buck.model.BuildId;
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.util.DirectoryCleaner;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.Platform;
@@ -28,6 +28,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -83,12 +84,12 @@ public class GlobalStateManager {
   }
 
   public LoggerIsMappedToThreadScope setupLoggers(
-      final InvocationInfo info,
+      InvocationInfo info,
       OutputStream consoleHandlerStream,
-      final OutputStream consoleHandlerOriginalStream,
-      final Verbosity consoleHandlerVerbosity) {
-    final long threadId = Thread.currentThread().getId();
-    final String commandId = info.getCommandId();
+      OutputStream consoleHandlerOriginalStream,
+      Verbosity consoleHandlerVerbosity) {
+    long threadId = Thread.currentThread().getId();
+    String commandId = info.getCommandId();
 
     ReferenceCountedWriter defaultWriter = createReferenceCountedWriter(info.getLogFilePath());
     ReferenceCountedWriter newWriter = defaultWriter.newReference();
@@ -113,8 +114,7 @@ public class GlobalStateManager {
     return new LoggerIsMappedToThreadScope() {
       @Override
       public Closeable setWriter(ConsoleHandlerState.Writer writer) {
-        final ConsoleHandlerState.Writer previousWriter =
-            commandIdToConsoleHandlerWriter.get(commandId);
+        ConsoleHandlerState.Writer previousWriter = commandIdToConsoleHandlerWriter.get(commandId);
         commandIdToConsoleHandlerWriter.put(commandId, writer);
         return () -> commandIdToConsoleHandlerWriter.put(commandId, previousWriter);
       }
@@ -153,7 +153,7 @@ public class GlobalStateManager {
     };
   }
 
-  private void createUserFriendlySymLink(final InvocationInfo info) {
+  private void createUserFriendlySymLink(InvocationInfo info) {
     try {
       String symlinkName = "last_" + info.getSubCommand();
       Path symlinkPath = info.getBuckLogDir().resolve(symlinkName);
@@ -191,7 +191,8 @@ public class GlobalStateManager {
     try {
       Files.createDirectories(logFilePath.getParent());
       return new ReferenceCountedWriter(
-          new OutputStreamWriter(new FileOutputStream(logFilePath.toString()), "UTF-8"));
+          new OutputStreamWriter(
+              new FileOutputStream(logFilePath.toString()), StandardCharsets.UTF_8));
     } catch (FileNotFoundException e) {
       throw new RuntimeException(String.format("Could not create file [%s].", logFilePath), e);
     } catch (IOException e) {
@@ -282,7 +283,7 @@ public class GlobalStateManager {
    * @exception IOException if an I/O error occurs.
    */
   @Override
-  protected void finalize() throws IOException {
+  protected void finalize() {
     // Close off any log file writers that may still be hanging about.
     List<String> allKeys = Lists.newArrayList(commandIdToLogFileHandlerWriter.keySet());
     for (String commandId : allKeys) {

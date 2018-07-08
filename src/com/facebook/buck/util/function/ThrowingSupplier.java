@@ -16,19 +16,22 @@
 
 package com.facebook.buck.util.function;
 
+import com.google.common.base.Throwables;
 import java.util.function.Supplier;
 
-public interface ThrowingSupplier<T, E extends Exception> extends Supplier<T> {
-  @Override
-  default T get() {
-    try {
-      return throwingGet();
-    } catch (RuntimeException e) {
-      throw e;
-    } catch (Exception e) {
-      throw new RuntimeException(e);
-    }
-  }
+/** This version of {@code Supplier<T>} can throw an exception. */
+public interface ThrowingSupplier<T, E extends Exception> {
+  T get() throws E;
 
-  T throwingGet() throws E;
+  /** Returns a Supplier that will wrap any thrown exception in a RuntimeException. */
+  default Supplier<T> asSupplier() {
+    return () -> {
+      try {
+        return get();
+      } catch (Exception e) {
+        Throwables.throwIfUnchecked(e);
+        throw new RuntimeException(e);
+      }
+    };
+  }
 }

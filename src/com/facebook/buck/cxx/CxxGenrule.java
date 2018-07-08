@@ -16,34 +16,27 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.HasOutputName;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.HasOutputName;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CacheableBuildRule;
-import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.shell.Genrule;
 
 /** Genrule with C++ aware macros. */
-public class CxxGenrule extends NoopBuildRuleWithDeclaredAndExtraDeps
-    implements HasOutputName, CacheableBuildRule {
+public class CxxGenrule extends NoopBuildRuleWithDeclaredAndExtraDeps implements HasOutputName {
 
-  private BuildRuleResolver resolver;
   private final String output;
 
   public CxxGenrule(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver resolver,
       String output) {
     super(buildTarget, projectFilesystem, params);
-    this.resolver = resolver;
     this.output = output;
   }
 
@@ -52,18 +45,11 @@ public class CxxGenrule extends NoopBuildRuleWithDeclaredAndExtraDeps
     return output;
   }
 
-  public SourcePath getGenrule(CxxPlatform cxxPlatform) {
+  /** Get the genrule */
+  public SourcePath getGenrule(CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     Genrule rule =
         (Genrule)
-            resolver.requireRule(getBuildTarget().withAppendedFlavors(cxxPlatform.getFlavor()));
+            graphBuilder.requireRule(getBuildTarget().withAppendedFlavors(cxxPlatform.getFlavor()));
     return rule.getSourcePathToOutput();
-  }
-
-  @Override
-  public void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver) {
-    this.resolver = ruleResolver;
   }
 }

@@ -16,21 +16,23 @@
 
 package com.facebook.buck.command;
 
+import com.facebook.buck.core.build.engine.BuildResult;
+import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildResult;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleSuccessType;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ErrorLogger;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.exceptions.BuckExecutionException;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -115,7 +117,8 @@ public class BuildReport {
                         "Error encountered while building %s.",
                         failureResult.getRule().getFullyQualifiedName());
                   }
-                })
+                },
+                new HumanReadableExceptionAugmentor(ImmutableMap.of()))
             .setSuppressStackTraces(true)
             .logException(failure);
       }

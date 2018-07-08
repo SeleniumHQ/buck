@@ -19,11 +19,11 @@ package com.facebook.buck.artifact_cache;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Futures;
@@ -44,7 +44,7 @@ public class TwoLevelArtifactCacheDecoratorTest {
       new RuleKey("1111111111111111111111111111111111111111");
 
   @Test
-  public void testCacheFetch() throws InterruptedException, IOException {
+  public void testCacheFetch() throws IOException {
     try (InMemoryArtifactCache inMemoryArtifactCache = new InMemoryArtifactCache();
         TwoLevelArtifactCacheDecorator twoLevelCache =
             new TwoLevelArtifactCacheDecorator(
@@ -57,14 +57,14 @@ public class TwoLevelArtifactCacheDecoratorTest {
       LazyPath dummyFile = LazyPath.ofInstance(tmp.newFile());
 
       assertThat(
-          Futures.getUnchecked(twoLevelCache.fetchAsync(dummyRuleKey, dummyFile)).getType(),
+          Futures.getUnchecked(twoLevelCache.fetchAsync(null, dummyRuleKey, dummyFile)).getType(),
           Matchers.equalTo(CacheResultType.MISS));
 
       twoLevelCache.store(
           ArtifactInfo.builder().addRuleKeys(dummyRuleKey).build(),
           BorrowablePath.notBorrowablePath(dummyFile.get()));
       assertThat(
-          Futures.getUnchecked(twoLevelCache.fetchAsync(dummyRuleKey, dummyFile)).getType(),
+          Futures.getUnchecked(twoLevelCache.fetchAsync(null, dummyRuleKey, dummyFile)).getType(),
           Matchers.equalTo(CacheResultType.HIT));
 
       twoLevelCache.store(
@@ -72,14 +72,14 @@ public class TwoLevelArtifactCacheDecoratorTest {
           BorrowablePath.notBorrowablePath(dummyFile.get()));
 
       assertThat(
-          Futures.getUnchecked(twoLevelCache.fetchAsync(dummyRuleKey2, dummyFile)).getType(),
+          Futures.getUnchecked(twoLevelCache.fetchAsync(null, dummyRuleKey2, dummyFile)).getType(),
           Matchers.equalTo(CacheResultType.HIT));
       assertThat(inMemoryArtifactCache.getArtifactCount(), Matchers.equalTo(3));
     }
   }
 
   @Test
-  public void testResultDoesntHaveAddedMetadata() throws InterruptedException, IOException {
+  public void testResultDoesntHaveAddedMetadata() throws IOException {
     try (InMemoryArtifactCache inMemoryArtifactCache = new InMemoryArtifactCache();
         TwoLevelArtifactCacheDecorator twoLevelCache =
             new TwoLevelArtifactCacheDecorator(
@@ -94,7 +94,7 @@ public class TwoLevelArtifactCacheDecoratorTest {
           ArtifactInfo.builder().addRuleKeys(dummyRuleKey).build(),
           BorrowablePath.notBorrowablePath(dummyFile.get()));
       CacheResult cacheResult =
-          Futures.getUnchecked(twoLevelCache.fetchAsync(dummyRuleKey, dummyFile));
+          Futures.getUnchecked(twoLevelCache.fetchAsync(null, dummyRuleKey, dummyFile));
       assertThat(cacheResult.getType(), Matchers.equalTo(CacheResultType.HIT));
       assertThat(
           cacheResult.getMetadata().keySet(),
@@ -103,7 +103,7 @@ public class TwoLevelArtifactCacheDecoratorTest {
   }
 
   private void testStoreThresholds(int artifactSize, int expectedArtifactsInCache)
-      throws InterruptedException, IOException {
+      throws IOException {
     try (InMemoryArtifactCache inMemoryArtifactCache = new InMemoryArtifactCache();
         TwoLevelArtifactCacheDecorator twoLevelCache =
             new TwoLevelArtifactCacheDecorator(
@@ -141,7 +141,7 @@ public class TwoLevelArtifactCacheDecoratorTest {
   }
 
   @Test
-  public void testMetadataIsNotShared() throws InterruptedException, IOException {
+  public void testMetadataIsNotShared() throws IOException {
     try (InMemoryArtifactCache inMemoryArtifactCache = new InMemoryArtifactCache();
         TwoLevelArtifactCacheDecorator twoLevelCache =
             new TwoLevelArtifactCacheDecorator(
@@ -153,7 +153,7 @@ public class TwoLevelArtifactCacheDecoratorTest {
                 /* maximumTwoLevelStoredArtifactSize */ Optional.empty())) {
       LazyPath dummyFile = LazyPath.ofInstance(tmp.newFile());
 
-      final String testMetadataKey = "testMetaKey";
+      String testMetadataKey = "testMetaKey";
       twoLevelCache.store(
           ArtifactInfo.builder()
               .addRuleKeys(dummyRuleKey)
@@ -167,8 +167,10 @@ public class TwoLevelArtifactCacheDecoratorTest {
               .build(),
           BorrowablePath.notBorrowablePath(dummyFile.get()));
 
-      CacheResult fetch1 = Futures.getUnchecked(twoLevelCache.fetchAsync(dummyRuleKey, dummyFile));
-      CacheResult fetch2 = Futures.getUnchecked(twoLevelCache.fetchAsync(dummyRuleKey2, dummyFile));
+      CacheResult fetch1 =
+          Futures.getUnchecked(twoLevelCache.fetchAsync(null, dummyRuleKey, dummyFile));
+      CacheResult fetch2 =
+          Futures.getUnchecked(twoLevelCache.fetchAsync(null, dummyRuleKey2, dummyFile));
       // The metadata shouldn't be shared
       assertNotEquals(
           fetch1.getMetadata().get(testMetadataKey), fetch2.getMetadata().get(testMetadataKey));
@@ -176,7 +178,7 @@ public class TwoLevelArtifactCacheDecoratorTest {
   }
 
   @Test
-  public void testCanRead2LStoresIfStoresDisabled() throws InterruptedException, IOException {
+  public void testCanRead2LStoresIfStoresDisabled() throws IOException {
     try (InMemoryArtifactCache inMemoryArtifactCache = new InMemoryArtifactCache();
         TwoLevelArtifactCacheDecorator twoLevelCache =
             new TwoLevelArtifactCacheDecorator(
@@ -202,7 +204,8 @@ public class TwoLevelArtifactCacheDecoratorTest {
       assertThat(inMemoryArtifactCache.getArtifactCount(), Matchers.equalTo(2));
 
       assertThat(
-          Futures.getUnchecked(twoLevelCacheNoStore.fetchAsync(dummyRuleKey, dummyFile)).getType(),
+          Futures.getUnchecked(twoLevelCacheNoStore.fetchAsync(null, dummyRuleKey, dummyFile))
+              .getType(),
           Matchers.equalTo(CacheResultType.HIT));
     }
   }

@@ -18,7 +18,10 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildState;
+import com.facebook.buck.parser.PerBuildStateFactory;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
@@ -53,7 +56,7 @@ public class AuditTestsCommand extends AbstractCommand {
   @Override
   public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
-    final ImmutableSet<String> fullyQualifiedBuildTargets =
+    ImmutableSet<String> fullyQualifiedBuildTargets =
         ImmutableSet.copyOf(getArgumentsFormattedAsBuildTargets(params.getBuckConfig()));
 
     if (fullyQualifiedBuildTargets.isEmpty()) {
@@ -74,17 +77,19 @@ public class AuditTestsCommand extends AbstractCommand {
     try (CommandThreadManager pool =
             new CommandThreadManager("Audit", getConcurrencyLimit(params.getBuckConfig()));
         PerBuildState parserState =
-            new PerBuildState(
-                params.getTypeCoercerFactory(),
-                new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
-                params.getParser().getPermState(),
-                params.getBuckEventBus(),
-                params.getExecutableFinder(),
-                pool.getListeningExecutorService(),
-                params.getCell(),
-                params.getKnownBuildRuleTypesProvider(),
-                getEnableParserProfiling(),
-                PerBuildState.SpeculativeParsing.ENABLED)) {
+            new PerBuildStateFactory()
+                .create(
+                    params.getTypeCoercerFactory(),
+                    params.getParser().getPermState(),
+                    new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
+                    params.getBuckEventBus(),
+                    new ParserPythonInterpreterProvider(
+                        params.getCell().getBuckConfig(), params.getExecutableFinder()),
+                    pool.getListeningExecutorService(),
+                    params.getCell(),
+                    params.getKnownBuildRuleTypesProvider(),
+                    getEnableParserProfiling(),
+                    SpeculativeParsing.ENABLED)) {
       BuckQueryEnvironment env =
           BuckQueryEnvironment.from(
               params, parserState, pool.getListeningExecutorService(), getEnableParserProfiling());
@@ -93,7 +98,8 @@ public class AuditTestsCommand extends AbstractCommand {
           env,
           "testsof('%s')",
           getArgumentsFormattedAsBuildTargets(params.getBuckConfig()),
-          shouldGenerateJsonOutput());
+          shouldGenerateJsonOutput(),
+          ImmutableSet.of());
     } catch (Exception e) {
       if (e.getCause() instanceof InterruptedException) {
         throw (InterruptedException) e.getCause();

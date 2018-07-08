@@ -19,10 +19,10 @@ package com.facebook.buck.jvm.java;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultCellPathResolver;
-import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.JsonMatcher;
 import com.facebook.buck.util.Escaper;
@@ -136,7 +136,7 @@ public class DefaultClassUsageFileWriterTest {
         Platform.detect() == Platform.WINDOWS
             ? Escaper.Quoter.DOUBLE_WINDOWS_JAVAC
             : Escaper.Quoter.DOUBLE;
-    final String escapedExpectedAwayCellPath = quoter.quote(expectedAwayCellPath.toString());
+    String escapedExpectedAwayCellPath = quoter.quote(expectedAwayCellPath.toString());
     assertThat(
         new String(Files.readAllBytes(outputOne)),
         new JsonMatcher(

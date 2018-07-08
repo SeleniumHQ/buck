@@ -16,7 +16,7 @@
 
 package com.facebook.buck.cxx.toolchain.elf;
 
-import com.facebook.buck.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.google.common.base.Preconditions;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -43,7 +43,7 @@ public class Elf {
     this.header = ElfHeader.parse(this.buffer);
 
     // Initialize a cache we'll use to store parsed section headers.
-    this.sections = new ArrayList<>(Collections.<ElfSection>nCopies(header.e_shnum, null));
+    this.sections = new ArrayList<>(Collections.nCopies(header.e_shnum, null));
   }
 
   public int getNumberOfSections() {

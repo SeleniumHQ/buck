@@ -26,20 +26,26 @@ import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.config.DirCacheEntry;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.cell.name.RelativeCellName;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.rules.BuildStamp.STAMP_KIND;
+import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
-import com.facebook.buck.parser.Parser;
+import com.facebook.buck.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.parser.DefaultParser;
+import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.ActionGraphCache;
-import com.facebook.buck.rules.BuildInfoStoreManager;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.RelativeCellName;
-import com.facebook.buck.rules.TestCellBuilder;
+import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
+import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
@@ -62,16 +68,16 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Optional;
-import org.easymock.EasyMockSupport;
 import org.junit.Before;
 import org.junit.Test;
 import org.kohsuke.args4j.CmdLineException;
 import org.pf4j.PluginManager;
 
 /** Unit test for {@link CleanCommand}. */
-public class CleanCommandTest extends EasyMockSupport {
+public class CleanCommandTest {
 
   private ProjectFilesystem projectFilesystem;
 
@@ -276,21 +282,32 @@ public class CleanCommandTest extends EasyMockSupport {
     return createCommandRunnerParams(buckConfig, cell);
   }
 
-  private CommandRunnerParams createCommandRunnerParams(BuckConfig buckConfig, Cell cell)
-      throws InterruptedException, IOException {
+  private CommandRunnerParams createCommandRunnerParams(BuckConfig buckConfig, Cell cell) {
     ProcessExecutor processExecutor = new FakeProcessExecutor();
 
     PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
+    TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
+    KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
+        KnownBuildRuleTypesProvider.of(
+            DefaultKnownBuildRuleTypesFactory.of(
+                processExecutor, pluginManager, new TestSandboxExecutionStrategyFactory()));
+    ExecutableFinder executableFinder = new ExecutableFinder();
 
     return CommandRunnerParams.of(
         new TestConsole(),
-        new ByteArrayInputStream("".getBytes("UTF-8")),
+        new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)),
         cell,
         new InstrumentedVersionedTargetGraphCache(
             new VersionedTargetGraphCache(), new NoOpCacheStatsTracker()),
         new SingletonArtifactCacheFactory(new NoopArtifactCache()),
-        createMock(TypeCoercerFactory.class),
-        createMock(Parser.class),
+        typeCoercerFactory,
+        new DefaultParser(
+            buckConfig.getView(ParserConfig.class),
+            typeCoercerFactory,
+            new ConstructorArgMarshaller(typeCoercerFactory),
+            knownBuildRuleTypesProvider,
+            executableFinder,
+            new TargetSpecResolver()),
         BuckEventBusForTests.newInstance(),
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()),
@@ -305,19 +322,18 @@ public class CleanCommandTest extends EasyMockSupport {
         ImmutableMap.of(),
         new FakeExecutor(),
         CommandRunnerParamsForTesting.BUILD_ENVIRONMENT_DESCRIPTION,
-        new ActionGraphCache(
-            buckConfig.getMaxActionGraphCacheEntries(),
-            buckConfig.getMaxActionGraphNodeCacheEntries()),
-        KnownBuildRuleTypesProvider.of(
-            DefaultKnownBuildRuleTypesFactory.of(
-                processExecutor, pluginManager, new TestSandboxExecutionStrategyFactory())),
+        new ActionGraphCache(buckConfig.getMaxActionGraphCacheEntries()),
+        knownBuildRuleTypesProvider,
         new BuildInfoStoreManager(),
         Optional.empty(),
         Optional.empty(),
         new DefaultProjectFilesystemFactory(),
         TestRuleKeyConfigurationFactory.create(),
         processExecutor,
-        new ExecutableFinder(),
-        pluginManager);
+        executableFinder,
+        pluginManager,
+        STAMP_KIND.STABLE.getBuildStamp(),
+        TestBuckModuleManagerFactory.create(pluginManager),
+        Main.getForkJoinPoolSupplier(buckConfig));
   }
 }

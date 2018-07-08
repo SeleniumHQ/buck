@@ -22,23 +22,22 @@ import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.*;
 
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.model.ImmutableBuildTarget;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.keys.AlterRuleKeys;
 import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
 import com.facebook.buck.rules.modern.Buildable;
@@ -49,12 +48,15 @@ import com.facebook.buck.rules.modern.OutputPath;
 import com.facebook.buck.rules.modern.OutputPathResolver;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.util.ErrorLogger;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
 import java.util.function.Consumer;
 import org.hamcrest.Matchers;
+import org.junit.Ignore;
 import org.junit.Test;
 
 @SuppressWarnings("unused")
@@ -107,10 +109,10 @@ public class DefaultClassInfoTest {
   }
 
   @Test
-  public void testDerivedClass() throws Exception {
-    BuildTarget target1 = BuildTarget.of(Paths.get("some1"), "//some1", "name");
-    BuildTarget target2 = BuildTarget.of(Paths.get("some2"), "//some2", "name");
-    BuildTarget target3 = BuildTarget.of(Paths.get("some3"), "//some3", "name");
+  public void testDerivedClass() {
+    BuildTarget target1 = ImmutableBuildTarget.of(Paths.get("some1"), "//some1", "name");
+    BuildTarget target2 = ImmutableBuildTarget.of(Paths.get("some2"), "//some2", "name");
+    BuildTarget target3 = ImmutableBuildTarget.of(Paths.get("some3"), "//some3", "name");
 
     BuildRule rule1 = new FakeBuildRule(target1, ImmutableSortedSet.of());
     BuildRule rule2 = new FakeBuildRule(target2, ImmutableSortedSet.of());
@@ -163,13 +165,13 @@ public class DefaultClassInfoTest {
     buildRuleConsumer.accept(rule3);
 
     replay(inputRuleResolver, buildRuleConsumer);
-    classInfo.computeDeps(buildable, inputRuleResolver, buildRuleConsumer);
+    classInfo.visit(buildable, new DepsComputingVisitor(inputRuleResolver, buildRuleConsumer));
     verify(inputRuleResolver, buildRuleConsumer);
 
     outputConsumer.accept(buildable.baseOutputPath);
 
     replay(outputConsumer);
-    classInfo.getOutputs(buildable, outputConsumer);
+    classInfo.visit(buildable, new OutputPathVisitor(outputConsumer));
     verify(outputConsumer);
   }
 
@@ -180,7 +182,8 @@ public class DefaultClassInfoTest {
           (Buildable) (buildContext, filesystem, outputPathResolver, buildCellPathFactory) -> null);
     } catch (Exception e) {
       assertThat(e.getMessage(), Matchers.containsString("cannot be or reference synthetic"));
-      assertThat(e.getMessage(), Matchers.containsString("DefaultClassInfoTest"));
+      assertThat(
+          ErrorLogger.getUserFriendlyMessage(e), Matchers.containsString("DefaultClassInfoTest"));
       throw e;
     }
   }
@@ -192,7 +195,8 @@ public class DefaultClassInfoTest {
     } catch (Exception e) {
       assertThat(
           e.getMessage(), Matchers.containsString("cannot be or reference anonymous classes"));
-      assertThat(e.getMessage(), Matchers.containsString("DefaultClassInfoTest"));
+      assertThat(
+          ErrorLogger.getUserFriendlyMessage(e), Matchers.containsString("DefaultClassInfoTest"));
       throw e;
     }
   }
@@ -204,7 +208,7 @@ public class DefaultClassInfoTest {
       DefaultClassInfoFactory.forInstance(new LocalBuildable());
     } catch (Exception e) {
       assertThat(e.getMessage(), Matchers.containsString("cannot be or reference local classes"));
-      assertThat(e.getMessage(), Matchers.containsString("LocalBuildable"));
+      assertThat(ErrorLogger.getUserFriendlyMessage(e), Matchers.containsString("LocalBuildable"));
       throw e;
     }
   }
@@ -219,7 +223,9 @@ public class DefaultClassInfoTest {
       assertThat(
           e.getMessage(),
           Matchers.containsString("cannot be or reference inner non-static classes"));
-      assertThat(e.getMessage(), Matchers.containsString("NonStaticInnerBuildable"));
+      assertThat(
+          ErrorLogger.getUserFriendlyMessage(e),
+          Matchers.containsString("NonStaticInnerBuildable"));
       throw e;
     }
   }
@@ -228,6 +234,7 @@ public class DefaultClassInfoTest {
     int value = 0;
   }
 
+  @Ignore("We should enforce final fields, but to ease transition to MBR we don't.")
   @Test(expected = Exception.class)
   public void testNonFinalField() {
     try {
@@ -244,6 +251,7 @@ public class DefaultClassInfoTest {
     static int value = 0;
   }
 
+  @Ignore("We should enforce final fields, but to ease transition to MBR we don't.")
   @Test(expected = Exception.class)
   public void testNonFinalStaticField() {
     try {
@@ -258,7 +266,7 @@ public class DefaultClassInfoTest {
   }
 
   static class BadBase extends NoOpBuildable {
-    int value = 0;
+    @AddToRuleKey Path value = null;
   }
 
   static class DerivedFromBadBased extends BadBase {}
@@ -268,8 +276,14 @@ public class DefaultClassInfoTest {
     try {
       DefaultClassInfoFactory.forInstance(new DerivedFromBadBased());
     } catch (Exception e) {
-      assertThat(e.getMessage(), Matchers.containsString("must be final (BadBase.value)"));
-      assertThat(e.getMessage(), Matchers.containsString("DerivedFromBadBased"));
+      assertThat(
+          e.getMessage(), Matchers.containsString("Buildables should not have Path references"));
+      assertThat(
+          ErrorLogger.getUserFriendlyMessage(e),
+          Matchers.containsString("DefaultClassInfoTest$BadBase"));
+      assertThat(
+          ErrorLogger.getUserFriendlyMessage(e),
+          Matchers.containsString("DefaultClassInfoTest$DerivedFromBadBased"));
       throw e;
     }
   }
@@ -281,9 +295,7 @@ public class DefaultClassInfoTest {
         new NoOpModernBuildRule(
             BuildTargetFactory.newInstance("//some:target"),
             new FakeProjectFilesystem(),
-            new SourcePathRuleFinder(
-                new SingleThreadedBuildRuleResolver(
-                    TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()))));
+            new SourcePathRuleFinder(new TestActionGraphBuilder())));
   }
 
   static class NoOpModernBuildRule extends ModernBuildRule<NoOpModernBuildRule>

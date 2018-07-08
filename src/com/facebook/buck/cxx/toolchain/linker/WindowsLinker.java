@@ -16,26 +16,44 @@
 
 package com.facebook.buck.cxx.toolchain.linker;
 
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.tool.DelegatingTool;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.file.FileScrubber;
+import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DelegatingTool;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
 
 /**
  * A specialization of {@link Linker} containing information specific to the Windows implementation.
  */
 public class WindowsLinker extends DelegatingTool implements Linker, HasImportLibrary {
+
+  private ExtraOutputsDeriver WINDOWS_EXTRA_OUTPUTS_DERIVER =
+      new ExtraOutputsDeriver() {
+        @Override
+        public ImmutableMap<String, Path> deriveExtraOutputsFromArgs(
+            ImmutableList<String> linkerArgs, Path output) {
+          boolean isPdbGenerated = linkerArgs.stream().anyMatch("/DEBUG"::equals);
+          if (isPdbGenerated) {
+            String pdbFilename = MorePaths.getNameWithoutExtension(output) + ".pdb";
+            Path pdbOutput = output.getParent().resolve(pdbFilename);
+            return ImmutableMap.of("pdb", pdbOutput);
+          }
+          return ImmutableMap.of();
+        }
+      };
+
   public WindowsLinker(Tool tool) {
     super(tool);
   }
@@ -84,10 +102,10 @@ public class WindowsLinker extends DelegatingTool implements Linker, HasImportLi
   public ImmutableList<Arg> createUndefinedSymbolsLinkerArgs(
       ProjectFilesystem projectFilesystem,
       BuildRuleParams baseParams,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       SourcePathRuleFinder ruleFinder,
       BuildTarget target,
-      Iterable<? extends SourcePath> symbolFiles) {
+      ImmutableList<? extends SourcePath> symbolFiles) {
     throw new UnsupportedOperationException();
   }
 
@@ -126,8 +144,13 @@ public class WindowsLinker extends DelegatingTool implements Linker, HasImportLi
   }
 
   @Override
+  public Optional<ExtraOutputsDeriver> getExtraOutputsDeriver() {
+    return Optional.of(WINDOWS_EXTRA_OUTPUTS_DERIVER);
+  }
+
+  @Override
   public Iterable<Arg> importLibrary(Path output) {
-    return StringArg.from("/IMPLIB:" + importLibraryPath(output).toString());
+    return StringArg.from("/IMPLIB:" + importLibraryPath(output));
   }
 
   @Override

@@ -28,6 +28,24 @@ import com.facebook.buck.apple.toolchain.CodeSignIdentity;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileMetadata;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
+import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.rules.tool.BinaryBuildRule;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.HasAppleDebugSymbolDeps;
 import com.facebook.buck.cxx.NativeTestable;
@@ -37,24 +55,7 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BinaryBuildRule;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.CommandTool;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
@@ -64,7 +65,6 @@ import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.MoveStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.step.fs.WriteFileStep;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.types.Either;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -79,6 +79,7 @@ import com.google.common.io.Files;
 import com.google.common.util.concurrent.Futures;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -175,11 +176,13 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private final boolean cacheable;
   private final boolean verifyResources;
 
+  private final Duration codesignTimeout;
+
   AppleBundle(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver buildRuleResolver,
+      ActionGraphBuilder graphBuilder,
       Either<AppleBundleExtension, String> extension,
       Optional<String> productName,
       SourcePath infoPlist,
@@ -203,7 +206,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       boolean verifyResources,
       ImmutableList<String> codesignFlags,
       Optional<String> codesignIdentity,
-      Optional<Boolean> ibtoolModuleFlag) {
+      Optional<Boolean> ibtoolModuleFlag,
+      Duration codesignTimeout) {
     super(buildTarget, projectFilesystem, params);
     this.extension =
         extension.isLeft() ? extension.getLeft().toFileExtension() : extension.getRight();
@@ -214,8 +218,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
     Optional<SourcePath> entitlementsFile = Optional.empty();
     if (binary.isPresent()) {
       Optional<HasEntitlementsFile> hasEntitlementsFile =
-          buildRuleResolver.requireMetadata(
-              binary.get().getBuildTarget(), HasEntitlementsFile.class);
+          graphBuilder.requireMetadata(binary.get().getBuildTarget(), HasEntitlementsFile.class);
       if (hasEntitlementsFile.isPresent()) {
         entitlementsFile = hasEntitlementsFile.get().getEntitlementsFile();
       }
@@ -267,11 +270,13 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       this.codeSignIdentitiesSupplier = Suppliers.ofInstance(ImmutableList.of());
     }
     this.codesignAllocatePath = appleCxxPlatform.getCodesignAllocate();
-    this.codesign = appleCxxPlatform.getCodesignProvider().resolve(buildRuleResolver);
+    this.codesign = appleCxxPlatform.getCodesignProvider().resolve(graphBuilder);
     this.swiftStdlibTool =
         appleCxxPlatform.getSwiftPlatform().isPresent()
             ? appleCxxPlatform.getSwiftPlatform().get().getSwiftStdlibTool()
             : Optional.empty();
+
+    this.codesignTimeout = codesignTimeout;
   }
 
   public static String getBinaryName(BuildTarget buildTarget, Optional<String> productName) {
@@ -554,7 +559,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
         // Fall back to getting CODE_SIGN_ENTITLEMENTS from info_plist_substitutions.
         if (!entitlementsPlist.isPresent()) {
-          final Path srcRoot =
+          Path srcRoot =
               getProjectFilesystem().getRootPath().resolve(getBuildTarget().getBasePath());
           Optional<String> entitlementsPlistString =
               InfoPlistSubstitution.getVariableExpansionForPlatform(
@@ -591,9 +596,9 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
             Optional.of(
                 BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s.xcent"));
 
-        final Path dryRunResultPath = bundleRoot.resolve(PP_DRY_RUN_RESULT_FILE);
+        Path dryRunResultPath = bundleRoot.resolve(PP_DRY_RUN_RESULT_FILE);
 
-        final ProvisioningProfileCopyStep provisioningProfileCopyStep =
+        ProvisioningProfileCopyStep provisioningProfileCopyStep =
             new ProvisioningProfileCopyStep(
                 getProjectFilesystem(),
                 infoPlistOutputPath,
@@ -650,9 +655,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       addSwiftStdlibStepIfNeeded(
           context.getSourcePathResolver(),
           bundleRoot.resolve(destinations.getFrameworksPath()),
-          dryRunCodeSigning
-              ? Optional.<Supplier<CodeSignIdentity>>empty()
-              : Optional.of(codeSignIdentitySupplier),
+          dryRunCodeSigning ? Optional.empty() : Optional.of(codeSignIdentitySupplier),
           stepsBuilder,
           false /* is for packaging? */);
 
@@ -674,7 +677,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 dryRunCodeSigning
                     ? Optional.of(codeSignOnCopyPath.resolve(CODE_SIGN_DRY_RUN_ARGS_FILE))
                     : Optional.empty(),
-                codesignFlags));
+                codesignFlags,
+                codesignTimeout));
       }
 
       stepsBuilder.add(
@@ -689,12 +693,13 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
               dryRunCodeSigning
                   ? Optional.of(bundleRoot.resolve(CODE_SIGN_DRY_RUN_ARGS_FILE))
                   : Optional.empty(),
-              codesignFlags));
+              codesignFlags,
+              codesignTimeout));
     } else {
       addSwiftStdlibStepIfNeeded(
           context.getSourcePathResolver(),
           bundleRoot.resolve(destinations.getFrameworksPath()),
-          Optional.<Supplier<CodeSignIdentity>>empty(),
+          Optional.empty(),
           stepsBuilder,
           false /* is for packaging? */);
     }
@@ -724,21 +729,18 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   private boolean needsPkgInfoFile() {
-    if (extension.equals(AppleBundleExtension.XPC.toFileExtension())) {
-      return false;
-    }
-
-    return true;
+    return !(extension.equals(AppleBundleExtension.XPC.toFileExtension())
+        || extension.equals(AppleBundleExtension.QLGENERATOR.toFileExtension()));
   }
 
   private void appendCopyBinarySteps(
       ImmutableList.Builder<Step> stepsBuilder, BuildContext context) {
     Preconditions.checkArgument(hasBinary);
 
-    final Path binaryOutputPath =
+    Path binaryOutputPath =
         context
             .getSourcePathResolver()
-            .getRelativePath(Preconditions.checkNotNull(binary.get().getSourcePathToOutput()));
+            .getAbsolutePath(Preconditions.checkNotNull(binary.get().getSourcePathToOutput()));
 
     ImmutableMap.Builder<Path, Path> binariesBuilder = ImmutableMap.builder();
     binariesBuilder.put(bundleBinaryPath, binaryOutputPath);
@@ -787,7 +789,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ImmutableList.Builder<Step> stepsBuilder, BuildContext context, Path binaryOutputPath) {
     if ((isLegacyWatchApp() || platform.getName().contains("watch"))
         && binary.get() instanceof WriteFile) {
-      final Path watchKitStubDir = bundleRoot.resolve("_WatchKitStub");
+      Path watchKitStubDir = bundleRoot.resolve("_WatchKitStub");
       stepsBuilder.add(
           MkdirStep.of(
               BuildCellRelativePath.fromCellRelativePath(
@@ -807,7 +809,7 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
               getProjectFilesystem(),
               buildContext
                   .getSourcePathResolver()
-                  .getRelativePath(appleDsym.get().getSourcePathToOutput()),
+                  .getAbsolutePath(appleDsym.get().getSourcePathToOutput()),
               bundleRoot.getParent(),
               CopyStep.DirectoryMode.DIRECTORY_AND_CONTENTS));
       appendDsymRenameStepToMatchBundleName(stepsBuilder, buildableContext, buildContext);
@@ -906,13 +908,9 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   private boolean needsAppInfoPlistKeysOnMac() {
-    if (extension.equals(AppleBundleExtension.XPC.toFileExtension())) {
-      // XPC bundles on macOS don't require app-specific keys
-      // (which also confuses Finder in displaying the XPC bundles as apps)
-      return false;
-    }
-
-    return true;
+    // XPC bundles on macOS don't require app-specific keys
+    // (which also confuses Finder in displaying the XPC bundles as apps)
+    return !extension.equals(AppleBundleExtension.XPC.toFileExtension());
   }
 
   private ImmutableMap<String, NSObject> getInfoPlistAdditionalKeys() {
@@ -976,7 +974,8 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
       boolean isForPackaging) {
     // It's apparently safe to run this even on a non-swift bundle (in that case, no libs
     // are copied over).
-    if (swiftStdlibTool.isPresent()) {
+    boolean shouldCopySwiftStdlib = !extension.equals(AppleBundleExtension.APPEX.toFileExtension());
+    if (swiftStdlibTool.isPresent() && shouldCopySwiftStdlib) {
       ImmutableList.Builder<String> swiftStdlibCommand = ImmutableList.builder();
       swiftStdlibCommand.addAll(swiftStdlibTool.get().getCommandPrefix(resolver));
       swiftStdlibCommand.add(
@@ -1115,11 +1114,13 @@ public class AppleBundle extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public CxxPreprocessorInput getPrivateCxxPreprocessorInput(CxxPlatform cxxPlatform) {
+  public CxxPreprocessorInput getPrivateCxxPreprocessorInput(
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     if (binary.isPresent()) {
       BuildRule binaryRule = binary.get();
       if (binaryRule instanceof NativeTestable) {
-        return ((NativeTestable) binaryRule).getPrivateCxxPreprocessorInput(cxxPlatform);
+        return ((NativeTestable) binaryRule)
+            .getPrivateCxxPreprocessorInput(cxxPlatform, graphBuilder);
       }
     }
     return CxxPreprocessorInput.of();

@@ -18,10 +18,10 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
 import com.facebook.buck.artifact_cache.config.DirCacheEntry;
+import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.event.listener.JavaUtilsLoggingBuildListener;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.Cell;
 import com.facebook.buck.util.ExitCode;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -41,12 +41,11 @@ public class CleanCommand extends AbstractCommand {
   private boolean keepCache = false;
 
   @Option(
-    name = DRY_RUN_ARG,
-    usage = "Performs a dry-run and prints the paths that would be removed."
-  )
+      name = DRY_RUN_ARG,
+      usage = "Performs a dry-run and prints the paths that would be removed.")
   private boolean dryRun = false;
 
-  private void cleanCell(CommandRunnerParams params, Cell cell) throws IOException {
+  private void cleanCell(CommandRunnerParams params, Cell cell) {
     // Ideally, we would like the implementation of this method to be as simple as:
     //
     // getProjectFilesystem().deleteRecursivelyIfExists(BuckConstant.BUCK_OUTPUT_DIRECTORY);

@@ -18,10 +18,12 @@ package com.facebook.buck.rules.macros;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.model.macros.MacroException;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.WriteToFileArg;
 import com.google.common.collect.ImmutableCollection;
@@ -35,7 +37,7 @@ public interface MacroExpander {
   Arg expand(
       BuildTarget target,
       CellPathResolver cellNames,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       ImmutableList<String> input,
       Object precomputedWork)
       throws MacroException;
@@ -47,7 +49,7 @@ public interface MacroExpander {
   default Arg expandForFile(
       BuildTarget target,
       CellPathResolver cellNames,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       ImmutableList<String> input,
       Object precomputedWork)
       throws MacroException {
@@ -61,7 +63,7 @@ public interface MacroExpander {
     return makeExpandToFileArg(
         target,
         hasher.hash().toString(),
-        expand(target, cellNames, resolver, input, precomputedWork));
+        expand(target, cellNames, graphBuilder, input, precomputedWork));
   }
 
   default Arg makeExpandToFileArg(BuildTarget target, String prefix, Arg delegate) {
@@ -69,11 +71,10 @@ public interface MacroExpander {
   }
 
   /**
-   * @return names of additional {@link com.facebook.buck.rules.TargetNode}s which must be followed
-   *     by the parser to support this macro when constructing the target graph. To be used by
-   *     {@link
-   *     com.facebook.buck.rules.ImplicitDepsInferringDescription#findDepsForTargetFromConstructorArgs}
-   *     to extract implicit dependencies hidden behind macros.
+   * @return names of additional {@link TargetNode}s which must be followed by the parser to support
+   *     this macro when constructing the target graph. To be used by {@link
+   *     ImplicitDepsInferringDescription#findDepsForTargetFromConstructorArgs} to extract implicit
+   *     dependencies hidden behind macros.
    */
   void extractParseTimeDeps(
       BuildTarget target,
@@ -87,7 +88,7 @@ public interface MacroExpander {
   Object extractRuleKeyAppendables(
       BuildTarget target,
       CellPathResolver cellNames,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       ImmutableList<String> input,
       Object precomputedWork)
       throws MacroException;
@@ -96,7 +97,7 @@ public interface MacroExpander {
   Object precomputeWork(
       BuildTarget target,
       CellPathResolver cellNames,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       ImmutableList<String> input)
       throws MacroException;
 }

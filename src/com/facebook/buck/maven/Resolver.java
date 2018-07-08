@@ -22,6 +22,7 @@ import static org.eclipse.aether.util.artifact.JavaScopes.TEST;
 import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.graph.TraversableGraph;
 import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.maven.aether.AetherUtil;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -179,7 +180,7 @@ public class Resolver {
     // We now have the complete set of dependencies. Build the graph of dependencies. We'd like
     // aether to do this for us, but it doesn't preserve the complete dependency information we need
     // to accurately construct build files.
-    final MutableDirectedGraph<Artifact> graph = buildDependencyGraph(knownDeps);
+    MutableDirectedGraph<Artifact> graph = buildDependencyGraph(knownDeps);
 
     // Now we have the graph, grab the sources and jars for each dependency, as well as the relevant
     // checksums (which are download by default. Yay!)
@@ -190,8 +191,7 @@ public class Resolver {
   }
 
   private ImmutableSetMultimap<Path, Prebuilt> downloadArtifacts(
-      final MutableDirectedGraph<Artifact> graph,
-      ImmutableMap<String, Dependency> specifiedDependencies)
+      MutableDirectedGraph<Artifact> graph, ImmutableMap<String, Dependency> specifiedDependencies)
       throws ExecutionException, InterruptedException {
     ListeningExecutorService exec =
         MoreExecutors.listeningDecorator(
@@ -224,7 +224,7 @@ public class Resolver {
   }
 
   private Map.Entry<Path, Prebuilt> downloadArtifact(
-      final Artifact artifactToDownload,
+      Artifact artifactToDownload,
       TraversableGraph<Artifact> graph,
       ImmutableMap<String, Dependency> specifiedDependencies)
       throws IOException, ArtifactResolutionException {
@@ -295,16 +295,15 @@ public class Resolver {
    *     returned.
    */
   @VisibleForTesting
-  Optional<Path> getNewerVersionFile(final Artifact artifactToDownload, Path project)
-      throws IOException {
-    final Version artifactToDownloadVersion;
+  Optional<Path> getNewerVersionFile(Artifact artifactToDownload, Path project) throws IOException {
+    Version artifactToDownloadVersion;
     try {
       artifactToDownloadVersion = versionScheme.parseVersion(artifactToDownload.getVersion());
     } catch (InvalidVersionSpecificationException e) {
       throw new RuntimeException(e);
     }
 
-    final Pattern versionExtractor =
+    Pattern versionExtractor =
         Pattern.compile(
             String.format(
                 ARTIFACT_FILE_NAME_REGEX_FORMAT,

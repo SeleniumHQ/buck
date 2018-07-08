@@ -19,12 +19,12 @@ package com.facebook.buck.jvm.java;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.ClassLoaderCache;
 import java.io.IOException;
@@ -51,7 +51,7 @@ public class AnnotationProcessorFactoryTest {
   }
 
   private boolean isAnnotationProcessorClassLoaderReused(
-      String annotationProcessor, boolean canReuseClasspath) throws MalformedURLException {
+      String annotationProcessor, boolean canReuseClasspath) {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     SourcePath classpath = FakeSourcePath.of("some/path/to.jar");
     ClassLoader baseClassLoader = ToolProvider.getSystemToolClassLoader();

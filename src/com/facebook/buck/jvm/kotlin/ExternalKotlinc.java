@@ -17,11 +17,12 @@ package com.facebook.buck.jvm.kotlin;
 
 import static com.google.common.collect.Iterables.transform;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKeyAppendable;
+import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.RuleKeyAppendable;
-import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
@@ -48,7 +49,7 @@ public class ExternalKotlinc implements Kotlinc, RuleKeyAppendable {
   private final Path pathToKotlinc;
   private final Supplier<KotlincVersion> version;
 
-  public ExternalKotlinc(final Path pathToKotlinc) {
+  public ExternalKotlinc(Path pathToKotlinc) {
     this.pathToKotlinc = pathToKotlinc;
 
     this.version =
@@ -105,12 +106,27 @@ public class ExternalKotlinc implements Kotlinc, RuleKeyAppendable {
       ProjectFilesystem projectFilesystem)
       throws InterruptedException {
 
+    ImmutableList<Path> expandedSources;
+    try {
+      expandedSources =
+          getExpandedSourcePaths(
+              projectFilesystem,
+              context.getProjectFilesystemFactory(),
+              kotlinSourceFilePaths,
+              workingDirectory);
+    } catch (Throwable throwable) {
+      throwable.printStackTrace();
+      throw new HumanReadableException(
+          "Unable to expand sources for %s into %s", invokingRule, workingDirectory);
+    }
+
     ImmutableList<String> command =
         ImmutableList.<String>builder()
             .add(pathToKotlinc.toString())
+            .addAll(options)
             .addAll(
                 transform(
-                    kotlinSourceFilePaths,
+                    expandedSources,
                     path -> projectFilesystem.resolve(path).toAbsolutePath().toString()))
             .build();
 
@@ -155,6 +171,16 @@ public class ExternalKotlinc implements Kotlinc, RuleKeyAppendable {
   @Override
   public String getShortName() {
     return pathToKotlinc.toString();
+  }
+
+  @Override
+  public Path getAnnotationProcessorPath() {
+    throw new IllegalStateException("Not supported yet");
+  }
+
+  @Override
+  public Path getStdlibPath() {
+    throw new IllegalStateException("Not supported yet");
   }
 
   @Override

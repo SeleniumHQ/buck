@@ -16,6 +16,24 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.DependencyAggregation;
+import com.facebook.buck.core.rules.impl.SymlinkTree;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.cxx.toolchain.Compiler;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxFlavorSanitizer;
@@ -27,21 +45,7 @@ import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DependencyAggregation;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.RuleKeyObjectSink;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SymlinkTree;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -50,10 +54,7 @@ import com.facebook.buck.rules.keys.AbstractRuleKeyBuilder;
 import com.facebook.buck.rules.keys.AlterRuleKeys;
 import com.facebook.buck.rules.keys.NoopRuleKeyScopedHasher;
 import com.facebook.buck.rules.keys.hasher.GuavaRuleKeyHasher;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreSuppliers;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -96,7 +97,7 @@ abstract class AbstractCxxSourceRuleFactory {
   protected abstract BuildTarget getBaseBuildTarget();
 
   @Value.Parameter
-  protected abstract BuildRuleResolver getResolver();
+  protected abstract ActionGraphBuilder getActionGraphBuilder();
 
   @Value.Parameter
   protected abstract SourcePathResolver getPathResolver();
@@ -145,7 +146,7 @@ abstract class AbstractCxxSourceRuleFactory {
     return getCxxBuckConfig().isPCHEnabled()
         && sourceType.getPrecompiledHeaderLanguage().isPresent()
         && CxxSourceTypes.getPreprocessor(getCxxPlatform(), sourceType)
-            .resolve(getResolver())
+            .resolve(getActionGraphBuilder())
             .supportsPrecompiledHeaders();
   }
 
@@ -161,7 +162,7 @@ abstract class AbstractCxxSourceRuleFactory {
     return PreIncludeFactory.of(
             getProjectFilesystem(),
             getBaseBuildTarget(),
-            getResolver(),
+            getActionGraphBuilder(),
             getPathResolver(),
             getRuleFinder(),
             getCxxPlatform(),
@@ -174,7 +175,7 @@ abstract class AbstractCxxSourceRuleFactory {
   protected ImmutableSortedSet<BuildRule> getPreprocessDeps() {
     ImmutableSortedSet.Builder<BuildRule> builder = ImmutableSortedSet.naturalOrder();
     for (CxxPreprocessorInput input : getCxxPreprocessorInput()) {
-      builder.addAll(input.getDeps(getResolver(), getRuleFinder()));
+      builder.addAll(input.getDeps(getActionGraphBuilder(), getRuleFinder()));
     }
     if (getPreInclude().isPresent()) {
       builder.addAll(
@@ -199,12 +200,10 @@ abstract class AbstractCxxSourceRuleFactory {
 
   @Value.Lazy
   protected ImmutableList<CxxHeaders> getIncludes() {
-    ImmutableList<CxxHeaders> result =
-        getCxxPreprocessorInput()
-            .stream()
-            .flatMap(input -> input.getIncludes().stream())
-            .collect(ImmutableList.toImmutableList());
-    return result;
+    return getCxxPreprocessorInput()
+        .stream()
+        .flatMap(input -> input.getIncludes().stream())
+        .collect(ImmutableList.toImmutableList());
   }
 
   private final Function<CxxSource.Type, ImmutableList<Arg>> rulePreprocessorFlags =
@@ -221,13 +220,14 @@ abstract class AbstractCxxSourceRuleFactory {
               key -> {
                 Preprocessor preprocessor =
                     CxxSourceTypes.getPreprocessor(getCxxPlatform(), key.getSourceType())
-                        .resolve(getResolver());
+                        .resolve(getActionGraphBuilder());
+                // TODO(cjhopman): The aggregated deps logic should move into PreprocessorDelegate
+                // itself.
+                BuildRule aggregatedDeps = requireAggregatedPreprocessDepsRule();
                 PreprocessorDelegate delegate =
                     new PreprocessorDelegate(
-                        getPathResolver(),
-                        getCxxPlatform().getCompilerDebugPathSanitizer(),
                         getCxxPlatform().getHeaderVerification(),
-                        getProjectFilesystem().getRootPath(),
+                        PathSourcePath.of(getProjectFilesystem(), Paths.get("")),
                         preprocessor,
                         PreprocessorFlags.of(
                             getPreInclude().map(PreInclude::getHeaderSourcePath),
@@ -237,8 +237,11 @@ abstract class AbstractCxxSourceRuleFactory {
                         CxxDescriptionEnhancer.frameworkPathToSearchPath(
                             getCxxPlatform(), getPathResolver()),
                         getSandboxTree(),
-                        /* leadingIncludePaths */ Optional.empty());
-                return new PreprocessorDelegateCacheValue(delegate);
+                        /* leadingIncludePaths */ Optional.empty(),
+                        Optional.of(aggregatedDeps),
+                        getCxxPlatform().getConflictingHeaderBasenameWhitelist());
+                return new PreprocessorDelegateCacheValue(
+                    delegate, getSanitizerForSourceType(key.getSourceType()));
               });
 
   /**
@@ -249,7 +252,7 @@ abstract class AbstractCxxSourceRuleFactory {
    * files in a target, and m is the number of targets.
    */
   private BuildRule requireAggregatedPreprocessDepsRule() {
-    return getResolver()
+    return getActionGraphBuilder()
         .computeIfAbsent(
             createAggregatedPreprocessDepsBuildTarget(),
             target ->
@@ -273,7 +276,7 @@ abstract class AbstractCxxSourceRuleFactory {
 
   /** @return the object file name for the given source name. */
   private String getCompileOutputName(String name) {
-    Linker ld = getCxxPlatform().getLd().resolve(getResolver());
+    Linker ld = getCxxPlatform().getLd().resolve(getActionGraphBuilder());
     String outName = ld.hasFilePathSizeLimitations() ? "out" : getOutputName(name);
     return outName + "." + getCxxPlatform().getObjectFileExtension();
   }
@@ -369,10 +372,10 @@ abstract class AbstractCxxSourceRuleFactory {
     Preconditions.checkArgument(CxxSourceTypes.isCompilableType(source.getType()));
 
     BuildTarget target = createCompileBuildTarget(name);
-    DepsBuilder depsBuilder = new DepsBuilder(getRuleFinder());
 
     Compiler compiler =
-        CxxSourceTypes.getCompiler(getCxxPlatform(), source.getType()).resolve(getResolver());
+        CxxSourceTypes.getCompiler(getCxxPlatform(), source.getType())
+            .resolve(getActionGraphBuilder());
 
     // Build up the list of compiler flags.
     CxxToolFlags flags =
@@ -389,9 +392,6 @@ abstract class AbstractCxxSourceRuleFactory {
 
     CompilerDelegate compilerDelegate =
         new CompilerDelegate(getCxxPlatform().getCompilerDebugPathSanitizer(), compiler, flags);
-    depsBuilder.add(compilerDelegate);
-
-    depsBuilder.add(source);
 
     // TODO(steveo): this does not account for `precompiledHeaderRule`.
 
@@ -399,20 +399,19 @@ abstract class AbstractCxxSourceRuleFactory {
     return CxxPreprocessAndCompile.compile(
         target,
         getProjectFilesystem(),
-        depsBuilder.build(),
+        getRuleFinder(),
         compilerDelegate,
-        getCompileOutputPath(target, name),
+        getCompileOutputName(name),
         source.getPath(),
         source.getType(),
-        getSanitizerForSourceType(source.getType()),
-        getSandboxTree());
+        getSanitizerForSourceType(source.getType()));
   }
 
   @VisibleForTesting
   public CxxPreprocessAndCompile requireCompileBuildRule(String name, CxxSource source) {
     CxxPreprocessAndCompile rule =
         (CxxPreprocessAndCompile)
-            getResolver()
+            getActionGraphBuilder()
                 .computeIfAbsent(
                     createCompileBuildTarget(name), target -> createCompileBuildRule(name, source));
     Preconditions.checkState(
@@ -426,7 +425,7 @@ abstract class AbstractCxxSourceRuleFactory {
       CxxSource.Type type, ImmutableList<String> sourceFlags) {
     Compiler compiler =
         CxxSourceTypes.getCompiler(getCxxPlatform(), CxxSourceTypes.getPreprocessorOutputType(type))
-            .resolve(getResolver());
+            .resolve(getActionGraphBuilder());
     return CxxToolFlags.explicitBuilder()
         .addAllPlatformFlags(StringArg.from(getPicType().getFlags(compiler)))
         .addAllPlatformFlags(getPlatformPreprocessorFlags(type))
@@ -446,7 +445,7 @@ abstract class AbstractCxxSourceRuleFactory {
                 getPicType()
                     .getFlags(
                         CxxSourceTypes.getCompiler(getCxxPlatform(), outputType)
-                            .resolve(getResolver()))))
+                            .resolve(getActionGraphBuilder()))))
         // Add in the platform specific compiler flags.
         .addAllPlatformFlags(getPlatformCompileFlags(outputType))
         .addAllRuleFlags(getRuleCompileFlags(outputType))
@@ -457,7 +456,7 @@ abstract class AbstractCxxSourceRuleFactory {
   private CxxInferCapture requireInferCaptureBuildRule(
       String name, CxxSource source, InferBuckConfig inferConfig) {
     return (CxxInferCapture)
-        getResolver()
+        getActionGraphBuilder()
             .computeIfAbsent(
                 createInferCaptureBuildTarget(name),
                 target -> {
@@ -493,7 +492,7 @@ abstract class AbstractCxxSourceRuleFactory {
                       source.getPath(),
                       source.getType(),
                       getPreInclude(),
-                      getCompileOutputPath(target, name),
+                      getCompileOutputName(name),
                       preprocessorDelegateValue.getPreprocessorDelegate(),
                       inferConfig);
                 });
@@ -510,53 +509,42 @@ abstract class AbstractCxxSourceRuleFactory {
     LOG.verbose("Creating preprocess and compile %s for %s", target, source);
     Preconditions.checkArgument(CxxSourceTypes.isPreprocessableType(source.getType()));
 
-    DepsBuilder depsBuilder = new DepsBuilder(getRuleFinder());
-    depsBuilder.add(requireAggregatedPreprocessDepsRule());
-
     CompilerDelegate compilerDelegate =
         new CompilerDelegate(
             getCxxPlatform().getCompilerDebugPathSanitizer(),
             CxxSourceTypes.getCompiler(
                     getCxxPlatform(), CxxSourceTypes.getPreprocessorOutputType(source.getType()))
-                .resolve(getResolver()),
+                .resolve(getActionGraphBuilder()),
             computeCompilerFlags(source.getType(), source.getFlags()));
-    depsBuilder.add(compilerDelegate);
 
     PreprocessorDelegateCacheValue preprocessorDelegateValue =
         preprocessorDelegates.apply(
             PreprocessorDelegateCacheKey.of(source.getType(), source.getFlags()));
     PreprocessorDelegate preprocessorDelegate = preprocessorDelegateValue.getPreprocessorDelegate();
-    depsBuilder.add(preprocessorDelegate);
-
-    depsBuilder.add(source);
 
     Optional<CxxPrecompiledHeader> precompiledHeaderRule =
         getOptionalPrecompiledHeader(preprocessorDelegateValue, source);
-    if (precompiledHeaderRule.isPresent()) {
-      depsBuilder.add(precompiledHeaderRule.get());
-      if (getPrecompiledHeader().isPresent()) {
-        // For a precompiled header (and not a prefix header), we may need extra include paths.
-        // The PCH build might have involved some deps that this rule does not have, so we
-        // would need to pull in its include paths to ensure any includes that happen during this
-        // build play out the same way as they did for the PCH.
-        preprocessorDelegate =
-            preprocessorDelegate.withLeadingIncludePaths(
-                precompiledHeaderRule.get().getCxxIncludePaths());
-      }
+    if (precompiledHeaderRule.isPresent() && getPrecompiledHeader().isPresent()) {
+      // For a precompiled header (and not a prefix header), we may need extra include paths.
+      // The PCH build might have involved some deps that this rule does not have, so we
+      // would need to pull in its include paths to ensure any includes that happen during this
+      // build play out the same way as they did for the PCH.
+      preprocessorDelegate =
+          preprocessorDelegate.withLeadingIncludePaths(
+              precompiledHeaderRule.get().getCxxIncludePaths());
     }
 
     return CxxPreprocessAndCompile.preprocessAndCompile(
         target,
         getProjectFilesystem(),
-        depsBuilder.build(),
+        getRuleFinder(),
         preprocessorDelegate,
         compilerDelegate,
-        getCompileOutputPath(target, name),
+        getCompileOutputName(name),
         source.getPath(),
         source.getType(),
         precompiledHeaderRule,
-        getSanitizerForSourceType(source.getType()),
-        getSandboxTree());
+        getSanitizerForSourceType(source.getType()));
   }
 
   Optional<CxxPrecompiledHeader> getOptionalPrecompiledHeader(
@@ -569,7 +557,12 @@ abstract class AbstractCxxSourceRuleFactory {
 
     return Optional.of(
         requirePrecompiledHeaderBuildRule(
-            preprocessorDelegateValue, source.getType(), source.getFlags()));
+            preprocessorDelegateValue,
+            source.getType(),
+            source.getFlags(),
+            getActionGraphBuilder(),
+            getRuleFinder(),
+            getPathResolver()));
   }
 
   @VisibleForTesting
@@ -577,7 +570,7 @@ abstract class AbstractCxxSourceRuleFactory {
       String name, CxxSource source) {
     CxxPreprocessAndCompile rule =
         (CxxPreprocessAndCompile)
-            getResolver()
+            getActionGraphBuilder()
                 .computeIfAbsent(
                     createCompileBuildTarget(name),
                     target -> createPreprocessAndCompileBuildRule(name, source));
@@ -610,7 +603,10 @@ abstract class AbstractCxxSourceRuleFactory {
   private CxxPrecompiledHeader requirePrecompiledHeaderBuildRule(
       PreprocessorDelegateCacheValue preprocessorDelegateCacheValue,
       CxxSource.Type sourceType,
-      ImmutableList<String> sourceFlags) {
+      ImmutableList<String> sourceFlags,
+      ActionGraphBuilder graphBuilder,
+      SourcePathRuleFinder ruleFinder,
+      SourcePathResolver pathResolver) {
 
     // This method should be called only if prefix/precompiled header param present.
     Preconditions.checkState(getPreInclude().isPresent());
@@ -625,7 +621,10 @@ abstract class AbstractCxxSourceRuleFactory {
         preprocessorDelegateCacheValue::getBaseHash,
         getCxxPlatform(),
         sourceType,
-        sourceFlags);
+        sourceFlags,
+        graphBuilder,
+        ruleFinder,
+        pathResolver);
   }
 
   public ImmutableSet<CxxInferCapture> requireInferCaptureBuildRules(
@@ -638,13 +637,13 @@ abstract class AbstractCxxSourceRuleFactory {
       String name = entry.getKey();
       CxxSource source = entry.getValue();
 
-      Preconditions.checkState(
-          CxxSourceTypes.isPreprocessableType(source.getType()),
-          "Only preprocessable source types are currently supported");
-
       if (sourceFilter.isBlacklisted(source)) {
         continue;
       }
+
+      Preconditions.checkState(
+          CxxSourceTypes.isPreprocessableType(source.getType()),
+          "Only preprocessable source types are currently supported");
 
       CxxInferCapture rule = requireInferCaptureBuildRule(name, source, inferConfig);
       objects.add(rule);
@@ -724,7 +723,8 @@ abstract class AbstractCxxSourceRuleFactory {
       return builder.build();
     }
 
-    PreprocessorDelegateCacheValue(PreprocessorDelegate preprocessorDelegate) {
+    PreprocessorDelegateCacheValue(
+        PreprocessorDelegate preprocessorDelegate, DebugPathSanitizer sanitizer) {
       this.preprocessorDelegate = preprocessorDelegate;
       this.preprocessorHash =
           MoreSuppliers.memoize(
@@ -736,10 +736,14 @@ abstract class AbstractCxxSourceRuleFactory {
 
                         @AddToRuleKey
                         CxxToolFlags nonIncludePathFlags =
-                            preprocessorDelegate.getNonIncludePathFlags(Optional.empty());
+                            preprocessorDelegate.getNonIncludePathFlags(getPathResolver());
                       }));
       this.preprocessorFullHash =
-          MoreSuppliers.memoize(() -> computeHash(preprocessorDelegate.getIncludePathFlags()));
+          MoreSuppliers.memoize(
+              () ->
+                  computeHash(
+                      preprocessorDelegate.getSanitizedIncludePathFlags(
+                          getPathResolver(), sanitizer)));
     }
 
     PreprocessorDelegate getPreprocessorDelegate() {

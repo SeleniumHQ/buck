@@ -42,6 +42,14 @@
 {/template}
 
 /***/
+{template .dx_threads}
+{call .entry_link}
+  {param section : 'dx' /}
+  {param entry : 'threads' /}
+{/call}
+{/template}
+
+/***/
 {template .httpserver}
 {call .section_link}
   {param section: 'httpserver' /}
@@ -58,9 +66,10 @@
 /**
  * @param section The section the entry is in.
  * @param entry The name of the entry to link to.
+ * @param? link_text The text of the link
  */
 {template .entry_link}
-<a href="{ROOT}concept/buckconfig.html#{$section}.{$entry}">{$section}.{$entry}</a>
+<a href="{ROOT}concept/buckconfig.html#{$section}.{$entry}">{if isNonnull($link_text)}{$link_text}{else}{$section}.{$entry}{/if}</a>
 {/template}
 
 /***/
@@ -108,6 +117,22 @@
 {call .entry_link}
   {param section: 'apple' /}
   {param entry: '*_toolchains_override' /}
+{/call}
+{/template}
+
+/***/
+{template .apple_replacement}
+{call .entry_link}
+  {param section: 'apple' /}
+  {param entry: '*_replacement' /}
+{/call}
+{/template}
+
+/***/
+{template .apple_xcode_tool_name_override}
+{call .entry_link}
+  {param section: 'apple' /}
+  {param entry: '*_xcode_tool_name_override' /}
 {/call}
 {/template}
 
@@ -228,6 +253,14 @@
 {call .entry_link}
     {param section: 'test' /}
     {param entry: 'rule_timeout' /}
+{/call}
+{/template}
+
+/***/
+{template .test_external_runner}
+{call .entry_link}
+    {param section: 'test' /}
+    {param entry: 'external_runner' /}
 {/call}
 {/template}
 

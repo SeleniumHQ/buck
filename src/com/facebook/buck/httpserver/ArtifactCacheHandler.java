@@ -21,11 +21,11 @@ import com.facebook.buck.artifact_cache.ArtifactInfo;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheBinaryProtocol;
 import com.facebook.buck.artifact_cache.StoreResponseReadResult;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.RuleKey;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.ByteSource;
 import com.google.common.util.concurrent.Futures;
@@ -35,7 +35,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Path;
 import java.util.Optional;
-import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.server.Request;
@@ -60,7 +59,7 @@ public class ArtifactCacheHandler extends AbstractHandler {
   @Override
   public void handle(
       String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response)
-      throws IOException, ServletException {
+      throws IOException {
     try {
       int status = HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
       String method = baseRequest.getMethod();
@@ -86,7 +85,7 @@ public class ArtifactCacheHandler extends AbstractHandler {
       return HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
     }
 
-    String path = baseRequest.getUri().getPath();
+    String path = baseRequest.getHttpURI().getPath();
     String[] pathElements = path.split("/");
     if (pathElements.length != 4 || !pathElements[2].equals("key")) {
       response.getWriter().write("Incorrect url format.");
@@ -102,12 +101,13 @@ public class ArtifactCacheHandler extends AbstractHandler {
           projectFilesystem.createTempFile(
               projectFilesystem.getBuckPaths().getScratchDir(), "outgoing_rulekey", ".tmp");
       CacheResult fetchResult =
-          Futures.getUnchecked(artifactCache.get().fetchAsync(ruleKey, LazyPath.ofInstance(temp)));
+          Futures.getUnchecked(
+              artifactCache.get().fetchAsync(null, ruleKey, LazyPath.ofInstance(temp)));
       if (!fetchResult.getType().isSuccess()) {
         return HttpServletResponse.SC_NOT_FOUND;
       }
 
-      final Path tempFinal = temp;
+      Path tempFinal = temp;
       HttpArtifactCacheBinaryProtocol.FetchResponse fetchResponse =
           new HttpArtifactCacheBinaryProtocol.FetchResponse(
               ImmutableSet.of(ruleKey),

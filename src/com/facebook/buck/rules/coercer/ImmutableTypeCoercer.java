@@ -16,8 +16,8 @@
 
 package com.facebook.buck.rules.coercer;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.CellPathResolver;
 import com.google.common.collect.ImmutableMap;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -68,10 +68,12 @@ public class ImmutableTypeCoercer<T> implements TypeCoercer<T> {
 
   @Override
   public void traverse(CellPathResolver cellRoots, T object, Traversal traversal) {
+    traversal.traverse(object);
     for (ParamInfo paramInfo : paramInfos.values()) {
       @SuppressWarnings("unchecked")
       TypeCoercer<Object> paramTypeCoercer = (TypeCoercer<Object>) paramInfo.getTypeCoercer();
-      paramTypeCoercer.traverse(cellRoots, object, traversal);
+      Object fieldValue = paramInfo.get(object);
+      paramTypeCoercer.traverse(cellRoots, fieldValue, traversal);
     }
   }
 

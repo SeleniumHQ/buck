@@ -18,6 +18,14 @@ package com.facebook.buck.jvm.java.autodeps;
 
 import com.facebook.buck.android.AndroidLibraryDescription;
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.build.engine.BuildEngine;
+import com.facebook.buck.core.build.engine.BuildEngineBuildContext;
+import com.facebook.buck.core.build.engine.BuildResult;
+import com.facebook.buck.core.description.DescriptionCache;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.type.BuildRuleType;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
@@ -25,14 +33,6 @@ import com.facebook.buck.jvm.java.JavaTestDescription;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.PrebuiltJarDescription;
 import com.facebook.buck.jvm.java.PrebuiltJarDescriptionArg;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildEngine;
-import com.facebook.buck.rules.BuildEngineBuildContext;
-import com.facebook.buck.rules.BuildResult;
-import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.step.ExecutionContext;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
@@ -77,18 +77,18 @@ public class JavaDepsFinder {
 
   private static final Set<BuildRuleType> RULES_TO_VISIT =
       ImmutableSet.of(
-          Description.getBuildRuleType(AndroidLibraryDescription.class),
-          Description.getBuildRuleType(JavaLibraryDescription.class),
-          Description.getBuildRuleType(JavaTestDescription.class),
-          Description.getBuildRuleType(PrebuiltJarDescription.class));
+          DescriptionCache.getBuildRuleType(AndroidLibraryDescription.class),
+          DescriptionCache.getBuildRuleType(JavaLibraryDescription.class),
+          DescriptionCache.getBuildRuleType(JavaTestDescription.class),
+          DescriptionCache.getBuildRuleType(PrebuiltJarDescription.class));
 
   /** Java dependency information that is extracted from a {@link TargetGraph}. */
   public static class DependencyInfo {
     public final HashMultimap<String, TargetNode<?, ?>> symbolToProviders = HashMultimap.create();
   }
 
-  public DependencyInfo findDependencyInfoForGraph(final TargetGraph graph) {
-    final DependencyInfo dependencyInfo = new DependencyInfo();
+  public DependencyInfo findDependencyInfoForGraph(TargetGraph graph) {
+    DependencyInfo dependencyInfo = new DependencyInfo();
 
     // Walk the graph and for each Java rule we record the Java entities it provides.
     //
@@ -96,7 +96,7 @@ public class JavaDepsFinder {
     // visit each node could be done in parallel, so long as the updates to the above collections
     // were thread-safe.
     for (TargetNode<?, ?> node : graph.getNodes()) {
-      if (!RULES_TO_VISIT.contains(Description.getBuildRuleType(node.getDescription()))) {
+      if (!RULES_TO_VISIT.contains(node.getBuildRuleType())) {
         continue;
       }
 

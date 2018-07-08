@@ -38,7 +38,7 @@ public class UnusedDependenciesFinderIntegrationTest {
   public void setUp() throws InterruptedException, IOException {
     workspace =
         TestDataHelper.createProjectWorkspaceForScenario(
-            this, "unused_dependencies", temporaryFolder, true);
+            this, "unused_dependencies", temporaryFolder);
     workspace.setUp();
   }
 
@@ -151,6 +151,24 @@ public class UnusedDependenciesFinderIntegrationTest {
         Matchers.allOf(
             Matchers.containsString(
                 "Target //:bar_with_exported_dep is declared with unused targets in exported_deps:"),
+            Matchers.containsString("buck//third-party/java/jsr:jsr305")));
+  }
+
+  @Test
+  public void testShowWarningAboutExportedProvidedDeps() throws IOException {
+    ProcessResult processResult =
+        workspace.runBuckCommand(
+            "build",
+            "-c",
+            "java.unused_dependencies_action=warn",
+            ":bar_with_exported_provided_dep");
+
+    processResult.assertSuccess();
+    assertThat(
+        processResult.getStderr(),
+        Matchers.allOf(
+            Matchers.containsString(
+                "Target //:bar_with_exported_provided_dep is declared with unused targets in exported_provided_deps:"),
             Matchers.containsString("buck//third-party/java/jsr:jsr305")));
   }
 }

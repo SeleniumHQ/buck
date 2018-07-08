@@ -17,11 +17,12 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.parser.ProjectBuildFileParserFactory;
+import com.facebook.buck.parser.DefaultProjectBuildFileParserFactory;
+import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.google.common.base.Preconditions;
 import java.io.IOException;
@@ -30,9 +31,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
-import javax.annotation.Nullable;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
 
@@ -61,13 +60,13 @@ public class AuditIncludesCommand extends AbstractCommand {
       throws IOException, InterruptedException {
     ProjectFilesystem projectFilesystem = params.getCell().getFilesystem();
     try (ProjectBuildFileParser parser =
-        ProjectBuildFileParserFactory.createBuildFileParser(
-            params.getCell(),
-            new DefaultTypeCoercerFactory(),
-            params.getConsole(),
-            params.getBuckEventBus(),
-            params.getExecutableFinder(),
-            params.getKnownBuildRuleTypesProvider().get(params.getCell()).getDescriptions())) {
+        new DefaultProjectBuildFileParserFactory(
+                new DefaultTypeCoercerFactory(),
+                params.getConsole(),
+                new ParserPythonInterpreterProvider(
+                    params.getCell().getBuckConfig(), params.getExecutableFinder()),
+                params.getKnownBuildRuleTypesProvider())
+            .createBuildFileParser(params.getBuckEventBus(), params.getCell())) {
       PrintStream out = params.getConsole().getStdOut();
       for (String pathToBuildFile : getArguments()) {
         if (!json) {
@@ -82,17 +81,8 @@ public class AuditIncludesCommand extends AbstractCommand {
           path = root.resolve(path);
         }
 
-        List<Map<String, Object>> rawRules = parser.getAllRulesAndMetaRules(path, new AtomicLong());
-
-        int includesMetadataEntryIndex = 3;
-        Preconditions.checkState(
-            includesMetadataEntryIndex <= rawRules.size(), "__includes metadata entry is missing.");
-        // __includes meta rule is the 3rd one from the end
-        Map<String, Object> includesMetaRule =
-            rawRules.get(rawRules.size() - includesMetadataEntryIndex);
-        @SuppressWarnings("unchecked")
-        @Nullable
-        Iterable<String> includes = (Iterable<String>) includesMetaRule.get("__includes");
+        Iterable<String> includes =
+            parser.getBuildFileManifest(path, new AtomicLong()).getIncludes();
         printIncludesToStdout(
             params, Preconditions.checkNotNull(includes, "__includes metadata entry is missing"));
       }

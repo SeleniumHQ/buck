@@ -20,37 +20,39 @@ import com.facebook.buck.android.exopackage.AndroidDevicesHelperFactory;
 import com.facebook.buck.command.Build;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.resources.ResourcesConfig;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionWaiter;
+import com.facebook.buck.core.build.engine.BuildEngine;
+import com.facebook.buck.core.build.engine.config.CachingBuildEngineBuckConfig;
+import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDelegate;
+import com.facebook.buck.core.build.engine.impl.CachingBuildEngine;
+import com.facebook.buck.core.build.engine.impl.MetadataChecker;
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.test.rule.ExternalTestRunnerRule;
+import com.facebook.buck.core.test.rule.ExternalTestRunnerTestSpec;
+import com.facebook.buck.core.test.rule.TestRule;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.ActionGraphAndResolver;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildEngine;
-import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.CachingBuildEngine;
-import com.facebook.buck.rules.CachingBuildEngineBuckConfig;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.ExternalTestRunnerRule;
-import com.facebook.buck.rules.ExternalTestRunnerTestSpec;
-import com.facebook.buck.rules.LocalCachingBuildEngineDelegate;
-import com.facebook.buck.rules.MetadataChecker;
-import com.facebook.buck.rules.NoOpRemoteBuildRuleCompletionWaiter;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGraphAndBuildTargets;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TargetNodes;
-import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
+import com.facebook.buck.rules.modern.builders.ModernBuildRuleBuilderFactory;
+import com.facebook.buck.rules.modern.config.ModernBuildRuleConfig;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
@@ -60,16 +62,15 @@ import com.facebook.buck.test.CoverageReportFormat;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.external.ExternalTestRunEvent;
 import com.facebook.buck.test.external.ExternalTestSpecCalculationEvent;
-import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.ForwardingProcessListener;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.MoreExceptions;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.versions.VersionException;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
@@ -93,7 +94,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.ResourceBundle;
 import java.util.Set;
-import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import javax.annotation.Nullable;
@@ -110,20 +110,16 @@ public class TestCommand extends BuildCommand {
 
   private static final Logger LOG = Logger.get(TestCommand.class);
 
-  @Option(
-    name = "--all",
-    usage = "Whether all of the tests should be run. " + "If no targets are given, --all is implied"
-  )
+  @Option(name = "--all", usage = "Whether all of the tests should be run. ")
   private boolean all = false;
 
   @Option(name = "--code-coverage", usage = "Whether code coverage information will be generated.")
   private boolean isCodeCoverageEnabled = false;
 
   @Option(
-    name = "--code-coverage-format",
-    usage = "Comma separated Formats to be used for coverage",
-    handler = CoverageReportFormatsHandler.class
-  )
+      name = "--code-coverage-format",
+      usage = "Comma separated Formats to be used for coverage",
+      handler = CoverageReportFormatsHandler.class)
   private CoverageReportFormat[] coverageReportFormats =
       new CoverageReportFormat[] {CoverageReportFormat.HTML};
 
@@ -131,9 +127,8 @@ public class TestCommand extends BuildCommand {
   private String coverageReportTitle = "Code-Coverage Analysis";
 
   @Option(
-    name = "--debug",
-    usage = "Whether the test will start suspended with a JDWP debug port of 5005"
-  )
+      name = "--debug",
+      usage = "Whether the test will start suspended with a JDWP debug port of 5005")
   private boolean isDebugEnabled = false;
 
   @Option(name = "--xml", usage = "Where to write test output as XML.")
@@ -141,9 +136,8 @@ public class TestCommand extends BuildCommand {
   private String pathToXmlTestOutput = null;
 
   @Option(
-    name = "--run-with-java-agent",
-    usage = "Whether the test will start a java profiling agent"
-  )
+      name = "--run-with-java-agent",
+      usage = "Whether the test will start a java profiling agent")
   @Nullable
   private String pathToJavaAgent = null;
 
@@ -154,37 +148,33 @@ public class TestCommand extends BuildCommand {
   // TODO(#9061229): See if we can remove this option entirely. For now, the
   // underlying code has been removed, and this option is ignored.
   @Option(
-    name = "--ignore-when-dependencies-fail",
-    aliases = {"-i"},
-    usage = "Deprecated option (ignored).",
-    hidden = true
-  )
+      name = "--ignore-when-dependencies-fail",
+      aliases = {"-i"},
+      usage = "Deprecated option (ignored).",
+      hidden = true)
   @SuppressWarnings("PMD.UnusedPrivateField")
   private boolean isIgnoreFailingDependencies;
 
   @Option(
-    name = "--shuffle",
-    usage =
-        "Randomize the order in which test classes are executed."
-            + "WARNING: only works for Java tests!"
-  )
+      name = "--shuffle",
+      usage =
+          "Randomize the order in which test classes are executed."
+              + "WARNING: only works for Java tests!")
   private boolean isShufflingTests;
 
   @Option(
-    name = "--exclude-transitive-tests",
-    usage =
-        "Only run the tests targets that were specified on the command line (without adding "
-            + "more tests by following dependencies)."
-  )
+      name = "--exclude-transitive-tests",
+      usage =
+          "Only run the tests targets that were specified on the command line (without adding "
+              + "more tests by following dependencies).")
   private boolean shouldExcludeTransitiveTests;
 
   @Option(
-    name = "--test-runner-env",
-    usage =
-        "Add or override an environment variable passed to the test runner. Later occurrences "
-            + "override earlier occurrences. Currently this only support Apple(ios/osx) tests.",
-    handler = EnvironmentOverrideOptionHandler.class
-  )
+      name = "--test-runner-env",
+      usage =
+          "Add or override an environment variable passed to the test runner. Later occurrences "
+              + "override earlier occurrences. Currently this only support Apple(ios/osx) tests.",
+      handler = EnvironmentOverrideOptionHandler.class)
   private Map<String, String> environmentOverrides = new HashMap<>();
 
   @AdditionalOptions @SuppressFieldNotInitialized private AdbCommandLineOptions adbOptions;
@@ -197,14 +187,13 @@ public class TestCommand extends BuildCommand {
   @AdditionalOptions @SuppressFieldNotInitialized private TestLabelOptions testLabelOptions;
 
   @Option(
-    name = "--",
-    usage =
-        "When an external test runner is specified to be used (in the .buckconfig file), "
-            + "all options specified after -- get forwarded directly to the external test runner. "
-            + "Available options after -- are specific to that particular test runner and you may "
-            + "also want to consult its help pages.",
-    handler = ConsumeAllOptionsHandler.class
-  )
+      name = "--",
+      usage =
+          "When an external test runner is specified to be used (in the .buckconfig file), "
+              + "all options specified after -- get forwarded directly to the external test runner. "
+              + "Available options after -- are specific to that particular test runner and you may "
+              + "also want to consult its help pages.",
+      handler = ConsumeAllOptionsHandler.class)
   private List<String> withDashArguments = new ArrayList<>();
 
   public boolean isRunAllTests() {
@@ -322,7 +311,7 @@ public class TestCommand extends BuildCommand {
 
     try (CommandThreadManager testPool =
         new CommandThreadManager("Test-Run", getTestConcurrencyLimit(params))) {
-      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(build.getRuleResolver());
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(build.getGraphBuilder());
       int exitCodeInt =
           TestRunning.runTests(
               params,
@@ -339,7 +328,7 @@ public class TestCommand extends BuildCommand {
   }
 
   private ExitCode runTestsExternal(
-      final CommandRunnerParams params,
+      CommandRunnerParams params,
       Build build,
       Iterable<String> command,
       Iterable<TestRule> testRules,
@@ -409,19 +398,26 @@ public class TestCommand extends BuildCommand {
     // Launch and run the external test runner, forwarding it's stdout/stderr to the console.
     // We wait for it to complete then returns its error code.
     ListeningProcessExecutor processExecutor = new ListeningProcessExecutor();
-    ProcessExecutorParams processExecutorParams =
+
+    ProcessExecutorParams.Builder builder =
         ProcessExecutorParams.builder()
             .addAllCommand(command)
             .addAllCommand(withDashArguments)
             .setEnvironment(params.getEnvironment())
-            .addCommand("--buck-test-info", infoFile.toString())
-            .addCommand("--jobs", String.valueOf(getTestConcurrencyLimit(params).threadLimit))
-            .setDirectory(params.getCell().getFilesystem().getRootPath())
-            .build();
+            .setDirectory(params.getCell().getFilesystem().getRootPath());
+    if (!withDashArguments.contains("--buck-test-info")) {
+      builder = builder.addCommand("--buck-test-info", infoFile.toString());
+    }
+    if (!withDashArguments.contains("--jobs") && !withDashArguments.contains("-j")) {
+      builder =
+          builder.addCommand("--jobs", String.valueOf(getTestConcurrencyLimit(params).threadLimit));
+    }
+    ProcessExecutorParams processExecutorParams = builder.build();
+
     ForwardingProcessListener processListener =
         new ForwardingProcessListener(
             params.getConsole().getStdOut(), params.getConsole().getStdErr());
-    final ImmutableSet<String> testTargets =
+    ImmutableSet<String> testTargets =
         StreamSupport.stream(testRules.spliterator(), /* parallel */ false)
             .map(BuildRule::getBuildTarget)
             .map(Object::toString)
@@ -448,21 +444,26 @@ public class TestCommand extends BuildCommand {
   }
 
   @Override
+  protected void assertArguments(CommandRunnerParams params) {
+    // If the person said to run everything, run everything.
+    if (all) {
+      return;
+    }
+    super.assertArguments(params);
+  }
+
+  @Override
   public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
+
+    assertArguments(params);
+
     LOG.debug("Running with arguments %s", getArguments());
 
     try (CommandThreadManager pool =
-            new CommandThreadManager("Test", getConcurrencyLimit(params.getBuckConfig()));
-        CloseableMemoizedSupplier<ForkJoinPool, RuntimeException> poolSupplier =
-            getForkJoinPoolSupplier(params.getBuckConfig())) {
-      // Post the build started event, setting it to the Parser recorded start time if appropriate.
+        new CommandThreadManager("Test", getConcurrencyLimit(params.getBuckConfig())); ) {
       BuildEvent.Started started = BuildEvent.started(getArguments());
-      if (params.getParser().getParseStartTime().isPresent()) {
-        params.getBuckEventBus().post(started, params.getParser().getParseStartTime().get());
-      } else {
-        params.getBuckEventBus().post(started);
-      }
+      params.getBuckEventBus().post(started);
 
       // The first step is to parse all of the build files. This will populate the parser and find
       // all of the test rules.
@@ -548,18 +549,19 @@ public class TestCommand extends BuildCommand {
         return ExitCode.PARSE_ERROR;
       }
 
-      ActionGraphAndResolver actionGraphAndResolver =
+      ActionGraphAndBuilder actionGraphAndBuilder =
           params
               .getActionGraphCache()
               .getActionGraph(
                   params.getBuckEventBus(),
                   targetGraphAndBuildTargets.getTargetGraph(),
+                  params.getCell().getCellProvider(),
                   params.getBuckConfig(),
                   params.getRuleKeyConfiguration(),
-                  poolSupplier);
+                  params.getPoolSupplier());
       // Look up all of the test rules in the action graph.
       Iterable<TestRule> testRules =
-          Iterables.filter(actionGraphAndResolver.getActionGraph().getNodes(), TestRule.class);
+          Iterables.filter(actionGraphAndBuilder.getActionGraph().getNodes(), TestRule.class);
 
       // Unless the user requests that we build filtered tests, filter them out here, before
       // the build.
@@ -576,14 +578,22 @@ public class TestCommand extends BuildCommand {
           getDefaultRuleKeyCacheScope(
               params,
               new RuleKeyCacheRecycler.SettingsAffectingCache(
-                  params.getBuckConfig().getKeySeed(), actionGraphAndResolver.getActionGraph()))) {
+                  params.getBuckConfig().getKeySeed(), actionGraphAndBuilder.getActionGraph()))) {
         LocalCachingBuildEngineDelegate localCachingBuildEngineDelegate =
             new LocalCachingBuildEngineDelegate(params.getFileHashCache());
         SourcePathRuleFinder sourcePathRuleFinder =
-            new SourcePathRuleFinder(actionGraphAndResolver.getResolver());
+            new SourcePathRuleFinder(actionGraphAndBuilder.getActionGraphBuilder());
         try (CachingBuildEngine cachingBuildEngine =
                 new CachingBuildEngine(
                     localCachingBuildEngineDelegate,
+                    ModernBuildRuleBuilderFactory.getBuildStrategy(
+                        params.getBuckConfig().getView(ModernBuildRuleConfig.class),
+                        actionGraphAndBuilder.getActionGraphBuilder(),
+                        params.getCell(),
+                        params.getBuckConfig().getCellPathResolver(),
+                        localCachingBuildEngineDelegate.getFileHashCache(),
+                        params.getBuckEventBus(),
+                        params.getConsole()),
                     pool.getWeightedListeningExecutorService(),
                     new DefaultStepRunner(),
                     getBuildEngineMode().orElse(cachingBuildEngineBuckConfig.getBuildEngineMode()),
@@ -591,7 +601,7 @@ public class TestCommand extends BuildCommand {
                     cachingBuildEngineBuckConfig.getBuildDepFiles(),
                     cachingBuildEngineBuckConfig.getBuildMaxDepFileCacheEntries(),
                     cachingBuildEngineBuckConfig.getBuildArtifactCacheSizeLimit(),
-                    actionGraphAndResolver.getResolver(),
+                    actionGraphAndBuilder.getActionGraphBuilder(),
                     sourcePathRuleFinder,
                     DefaultSourcePathResolver.from(sourcePathRuleFinder),
                     params.getBuildInfoStoreManager(),
@@ -600,13 +610,13 @@ public class TestCommand extends BuildCommand {
                     RuleKeyFactories.of(
                         params.getRuleKeyConfiguration(),
                         localCachingBuildEngineDelegate.getFileHashCache(),
-                        actionGraphAndResolver.getResolver(),
+                        actionGraphAndBuilder.getActionGraphBuilder(),
                         params.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
                         ruleKeyCacheScope.getCache()),
                     new NoOpRemoteBuildRuleCompletionWaiter());
             Build build =
                 new Build(
-                    actionGraphAndResolver.getResolver(),
+                    actionGraphAndBuilder.getActionGraphBuilder(),
                     params.getCell(),
                     cachingBuildEngine,
                     params.getArtifactCacheFactory().newInstance(),
@@ -620,7 +630,7 @@ public class TestCommand extends BuildCommand {
                     isKeepGoing())) {
 
           // Build all of the test rules.
-          int exitCodeInt =
+          ExitCode exitCode =
               build.executeAndPrintFailuresToEventBus(
                   RichStream.from(testRules)
                       .map(TestRule::getBuildTarget)
@@ -628,7 +638,6 @@ public class TestCommand extends BuildCommand {
                   params.getBuckEventBus(),
                   params.getConsole(),
                   getPathToBuildReport(params.getBuckConfig()));
-          ExitCode exitCode = ExitCode.map(exitCodeInt);
           params.getBuckEventBus().post(BuildEvent.finished(started, exitCode));
           if (exitCode != ExitCode.SUCCESS) {
             return exitCode;
@@ -648,7 +657,7 @@ public class TestCommand extends BuildCommand {
               BuildContext.builder()
                   .setSourcePathResolver(
                       DefaultSourcePathResolver.from(
-                          new SourcePathRuleFinder(actionGraphAndResolver.getResolver())))
+                          new SourcePathRuleFinder(actionGraphAndBuilder.getActionGraphBuilder())))
                   .setBuildCellRootPath(params.getCell().getRoot())
                   .setJavaPackageFinder(params.getJavaPackageFinder())
                   .setEventBus(params.getBuckEventBus())
@@ -802,5 +811,16 @@ public class TestCommand extends BuildCommand {
     public String getMetaVariable(ResourceBundle rb) {
       return getDefaultMetaVariable();
     }
+  }
+
+  @Override
+  public boolean performsBuild() {
+    return true;
+  }
+
+  /** It prints error message when users do not pass arguments to underlying binary correctly. */
+  @Override
+  public void handleException(CmdLineException e) throws CmdLineException {
+    handleException(e, "If using an external runner, remember to use '--'.");
   }
 }

@@ -15,10 +15,10 @@
  */
 package com.facebook.buck.distributed.build_client;
 
+import com.facebook.buck.core.build.distributed.synchronization.impl.RemoteBuildRuleSynchronizer;
 import com.facebook.buck.distributed.StampedeLocalBuildStatusEvent;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.RemoteBuildRuleSynchronizer;
 
 /** Util class that contains orchestration code for synchronized build phase. */
 public class SynchronizedBuildPhase {
@@ -59,6 +59,7 @@ public class SynchronizedBuildPhase {
       LOG.info("Distributed build failed before local build.");
       if (localBuildFallbackEnabled) {
         LOG.info("Falling back to local synchronized build. Waiting for it to finish..");
+        eventBus.post(new StampedeLocalBuildStatusEvent("fallback", "Local Build"));
         synchronizedBuildRunner.waitUntilFinished();
       } else {
         LOG.info("Killing local synchronized build as local fallback not enabled.");

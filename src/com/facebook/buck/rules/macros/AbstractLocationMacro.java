@@ -16,8 +16,8 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.google.common.annotations.VisibleForTesting;
 import java.util.Optional;
 import java.util.regex.Matcher;

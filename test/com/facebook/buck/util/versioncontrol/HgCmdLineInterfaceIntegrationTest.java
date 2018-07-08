@@ -19,7 +19,6 @@ package com.facebook.buck.util.versioncontrol;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
@@ -29,10 +28,14 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.TestProcessExecutorFactory;
 import com.facebook.buck.util.unarchive.ArchiveFormat;
 import com.facebook.buck.util.unarchive.ExistingFileMode;
+import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.io.CharStreams;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.hamcrest.Matchers;
@@ -143,12 +146,12 @@ public class HgCmdLineInterfaceIntegrationTest {
   public void testDiffBetweenTheSameRevision()
       throws VersionControlCommandFailedException, InterruptedException {
     exception.expect(VersionControlCommandFailedException.class);
-    repoThreeCmdLine.diffBetweenRevisions("adf7a0", "adf7a0");
+    repoThreeCmdLine.diffBetweenRevisions("adf7a0", "adf7a0").get();
   }
 
   @Test
   public void testDiffBetweenDiffs()
-      throws VersionControlCommandFailedException, InterruptedException {
+      throws VersionControlCommandFailedException, InterruptedException, IOException {
     ImmutableList<String> expectedValue =
         ImmutableList.of(
             "# HG changeset patch",
@@ -162,36 +165,12 @@ public class HgCmdLineInterfaceIntegrationTest {
             "diff --git a/change2 b/change2",
             "new file mode 100644",
             "");
-    assertEquals(
-        String.join("\n", expectedValue),
-        repoThreeCmdLine.diffBetweenRevisions("b1fd7e", "2911b3"));
-  }
-
-  @Test
-  public void testHgRootSubdir()
-      throws VersionControlCommandFailedException, InterruptedException, IOException {
-    // Use a subdir of the repository
-    HgCmdLineInterface hgCmdLineInterface =
-        makeHgCmdLine(reposPath.resolve(REPO_WITH_SUB_DIR + "/subdir"));
-    Path result = hgCmdLineInterface.getHgRoot();
-    // Use toRealPath to follow the pecularities of the OS X tempdir system, which uses a
-    // /var -> /private/var symlink.
-    assertEquals(result, reposPath.resolve(REPO_WITH_SUB_DIR).toRealPath());
-  }
-
-  @Test
-  public void testHgRootOutsideRepo()
-      throws VersionControlCommandFailedException, InterruptedException {
-    // Note: reposPath is not a hg repository, so we have to create a HgCmdLineInterface directly
-    // here.
-    HgCmdLineInterface hgCmdLineInterface =
-        new HgCmdLineInterface(
-            new TestProcessExecutorFactory(),
-            reposPath,
-            new VersionControlBuckConfig(FakeBuckConfig.builder().build()).getHgCmd(),
-            ImmutableMap.of());
-    Path result = hgCmdLineInterface.getHgRoot();
-    assertNull(result);
+    try (InputStream diffFileStream =
+        repoThreeCmdLine.diffBetweenRevisions("b1fd7e", "2911b3").get()) {
+      InputStreamReader diffFileReader = new InputStreamReader(diffFileStream, Charsets.UTF_8);
+      String actualDiff = CharStreams.toString(diffFileReader);
+      assertEquals(String.join("\n", expectedValue), actualDiff);
+    }
   }
 
   private static Path explodeReposZip() throws InterruptedException, IOException {
@@ -219,8 +198,7 @@ public class HgCmdLineInterfaceIntegrationTest {
     return reposPath;
   }
 
-  private static VersionControlCmdLineInterface makeCmdLine(Path repoRootDir)
-      throws InterruptedException {
+  private static VersionControlCmdLineInterface makeCmdLine(Path repoRootDir) {
     return new DelegatingVersionControlCmdLineInterface(
         repoRootDir,
         new TestProcessExecutorFactory(),

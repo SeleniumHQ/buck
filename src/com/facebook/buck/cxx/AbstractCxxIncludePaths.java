@@ -16,13 +16,13 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.immutables.BuckStylePackageVisibleTuple;
 import com.facebook.buck.cxx.toolchain.PathShortener;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.MoreIterables;
-import com.facebook.buck.util.immutables.BuckStylePackageVisibleTuple;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -51,8 +51,8 @@ abstract class AbstractCxxIncludePaths {
    * <p>Combinines their path lists, deduping them (keeping the earlier of the repeated instance).
    */
   public static CxxIncludePaths concat(Iterator<CxxIncludePaths> itemIter) {
-    ImmutableSet.Builder<CxxHeaders> ipathBuilder = ImmutableSet.<CxxHeaders>builder();
-    ImmutableSet.Builder<FrameworkPath> fpathBuilder = ImmutableSet.<FrameworkPath>builder();
+    ImmutableSet.Builder<CxxHeaders> ipathBuilder = ImmutableSet.builder();
+    ImmutableSet.Builder<FrameworkPath> fpathBuilder = ImmutableSet.builder();
 
     while (itemIter.hasNext()) {
       CxxIncludePaths item = itemIter.next();

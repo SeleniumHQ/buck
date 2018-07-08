@@ -16,29 +16,28 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -107,8 +106,7 @@ public class CxxCompilationDatabase extends AbstractBuildRule implements HasRunt
                 outputJsonFile.getParent())));
     steps.add(
         new GenerateCompilationCommandsJson(
-            context.getSourcePathResolver(),
-            context.getSourcePathResolver().getRelativePath(getSourcePathToOutput())));
+            context, context.getSourcePathResolver().getRelativePath(getSourcePathToOutput())));
     return steps.build();
   }
 
@@ -143,13 +141,12 @@ public class CxxCompilationDatabase extends AbstractBuildRule implements HasRunt
 
   class GenerateCompilationCommandsJson extends AbstractExecutionStep {
 
-    private final SourcePathResolver pathResolver;
+    private final BuildContext context;
     private final Path outputRelativePath;
 
-    public GenerateCompilationCommandsJson(
-        SourcePathResolver pathResolver, Path outputRelativePath) {
+    public GenerateCompilationCommandsJson(BuildContext context, Path outputRelativePath) {
       super("generate compile_commands.json");
-      this.pathResolver = pathResolver;
+      this.context = context;
       this.outputRelativePath = outputRelativePath;
     }
 
@@ -182,8 +179,10 @@ public class CxxCompilationDatabase extends AbstractBuildRule implements HasRunt
       ProjectFilesystem inputFilesystem = compileRule.getProjectFilesystem();
 
       String fileToCompile =
-          inputFilesystem.resolve(pathResolver.getAbsolutePath(inputSourcePath)).toString();
-      ImmutableList<String> arguments = compileRule.getCommand(pathResolver);
+          inputFilesystem
+              .resolve(context.getSourcePathResolver().getAbsolutePath(inputSourcePath))
+              .toString();
+      ImmutableList<String> arguments = compileRule.getCommand(context);
       return CxxCompilationDatabaseEntry.of(
           inputFilesystem.getRootPath().toString(), fileToCompile, arguments);
     }

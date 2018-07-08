@@ -53,8 +53,8 @@ public class TestPublisher extends Publisher implements AutoCloseable {
       HttpdForTests.DummyPutRequestsHandler putRequestsHandler)
       throws Exception {
     super(
-        pseudoLocalRepo.getRoot(),
-        Optional.of(httpd.getRootUri().toURL()),
+        pseudoLocalRepo,
+        httpd.getRootUri().toURL(),
         /* username */ Optional.empty(),
         /* password */ Optional.empty(),
         /* gpg passphrase */ Optional.empty(),

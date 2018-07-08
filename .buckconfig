@@ -24,7 +24,7 @@
     rule_key_logger_enabled = True
 # [cache]
 #   ; Disable the default directory cache.
-#   mode = 
+#   mode =
 [build]
     metadata_storage = sqlite
 [download]
@@ -63,6 +63,7 @@
     allow_symlinks = forbid
     watchman_cursor = clock_id
     glob_handler = watchman
+    embedded_cell_buck_out_enabled = true
 [test]
     ; Maximum timeout of 1 minute per test.
     timeout = 90000
@@ -71,5 +72,4 @@
 [ui]
   build_rule_minimum_duration_millis=500
 [parser]
-  polyglot_parsing_enabled=true
   default_build_file_syntax=skylark

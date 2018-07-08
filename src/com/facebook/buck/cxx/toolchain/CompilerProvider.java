@@ -16,9 +16,9 @@
 
 package com.facebook.buck.cxx.toolchain;
 
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.Tool;
-import com.facebook.buck.rules.ToolProvider;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.google.common.base.Suppliers;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -46,6 +46,8 @@ public class CompilerProvider extends CxxToolProvider<Compiler> {
         return new GccCompiler(tool);
       case WINDOWS:
         return new WindowsCompiler(tool);
+      case WINDOWS_ML64:
+        return new WindowsMl64Compiler(tool);
     }
     throw new IllegalStateException();
   }

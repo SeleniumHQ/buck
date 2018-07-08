@@ -16,29 +16,27 @@
 
 package com.facebook.buck.rules.macros;
 
-import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
+import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.rules.tool.BinaryBuildRule;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
+import com.facebook.buck.core.toolchain.tool.impl.CommandTool.Builder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBinaryRuleBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.macros.MacroException;
-import com.facebook.buck.rules.BinaryBuildRule;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.CommandTool;
-import com.facebook.buck.rules.CommandTool.Builder;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.ToolArg;
@@ -54,32 +52,30 @@ import org.junit.Test;
 
 public class ExecutableMacroExpanderTest {
 
-  private BuildRule createSampleJavaBinaryRule(BuildRuleResolver ruleResolver) throws Exception {
+  private BuildRule createSampleJavaBinaryRule(ActionGraphBuilder graphBuilder) {
     // Create a java_binary that depends on a java_library so it is possible to create a
     // java_binary rule with a classpath entry and a main class.
     BuildRule javaLibrary =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//java/com/facebook/util:util"))
             .addSrc(Paths.get("java/com/facebook/util/ManifestGenerator.java"))
-            .build(ruleResolver);
+            .build(graphBuilder);
 
     BuildTarget buildTarget =
         BuildTargetFactory.newInstance("//java/com/facebook/util:ManifestGenerator");
     return new JavaBinaryRuleBuilder(buildTarget)
         .setDeps(ImmutableSortedSet.of(javaLibrary.getBuildTarget()))
         .setMainClass("com.facebook.util.ManifestGenerator")
-        .build(ruleResolver);
+        .build(graphBuilder);
   }
 
   @Test
   public void testReplaceBinaryBuildRuleRefsInCmd() throws Exception {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget target =
         BuildTargetFactory.newInstance(filesystem.getRootPath(), "//cheese", "cake");
-    createSampleJavaBinaryRule(ruleResolver);
+    createSampleJavaBinaryRule(graphBuilder);
     String originalCmd = "$(exe //java/com/facebook/util:ManifestGenerator) $OUT";
 
     // Interpolate the build target in the genrule cmd string.
@@ -87,7 +83,7 @@ public class ExecutableMacroExpanderTest {
     MacroHandler macroHandler =
         new MacroHandler(ImmutableMap.of("exe", new ExecutableMacroExpander()));
     String transformedString =
-        macroHandler.expand(target, createCellRoots(filesystem), ruleResolver, originalCmd);
+        macroHandler.expand(target, createCellRoots(filesystem), graphBuilder, originalCmd);
 
     // Verify that the correct cmd was created.
     Path expectedClasspath =
@@ -103,10 +99,8 @@ public class ExecutableMacroExpanderTest {
 
   @Test
   public void testReplaceRelativeBinaryBuildRuleRefsInCmd() throws Exception {
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    BuildRule rule = createSampleJavaBinaryRule(ruleResolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    BuildRule rule = createSampleJavaBinaryRule(graphBuilder);
     String originalCmd = "$(exe :ManifestGenerator) $OUT";
 
     // Interpolate the build target in the genrule cmd string.
@@ -115,7 +109,7 @@ public class ExecutableMacroExpanderTest {
         new MacroHandler(ImmutableMap.of("exe", new ExecutableMacroExpander()));
     String transformedString =
         macroHandler.expand(
-            rule.getBuildTarget(), createCellRoots(filesystem), ruleResolver, originalCmd);
+            rule.getBuildTarget(), createCellRoots(filesystem), graphBuilder, originalCmd);
 
     // Verify that the correct cmd was created.
     Path expectedClasspath =
@@ -130,10 +124,8 @@ public class ExecutableMacroExpanderTest {
 
   @Test
   public void testDepsGenrule() throws Exception {
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    BuildRule rule = createSampleJavaBinaryRule(ruleResolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    BuildRule rule = createSampleJavaBinaryRule(graphBuilder);
 
     // Interpolate the build target in the genrule cmd string.
     String originalCmd = "$(exe :ManifestGenerator) $OUT";
@@ -143,7 +135,7 @@ public class ExecutableMacroExpanderTest {
         new MacroHandler(ImmutableMap.of("exe", new ExecutableMacroExpander()));
     String transformedString =
         macroHandler.expand(
-            rule.getBuildTarget(), createCellRoots(filesystem), ruleResolver, originalCmd);
+            rule.getBuildTarget(), createCellRoots(filesystem), graphBuilder, originalCmd);
 
     // Verify that the correct cmd was created.
     Path expectedClasspath =
@@ -159,18 +151,16 @@ public class ExecutableMacroExpanderTest {
   @Test
   public void testBuildTimeDependencies() throws Exception {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
-    final BuildRule dep1 =
+    BuildRule dep1 =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep1"))
             .setOut("arg1")
-            .build(ruleResolver, filesystem);
-    final BuildRule dep2 =
+            .build(graphBuilder, filesystem);
+    BuildRule dep2 =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep2"))
             .setOut("arg2")
-            .build(ruleResolver, filesystem);
+            .build(graphBuilder, filesystem);
 
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     BuildRuleParams params = TestBuildRuleParams.create();
@@ -179,7 +169,7 @@ public class ExecutableMacroExpanderTest {
             .addArg(SourcePathArg.of(dep1.getSourcePathToOutput()))
             .addArg(SourcePathArg.of(dep2.getSourcePathToOutput()))
             .build();
-    ruleResolver.addToIndex(
+    graphBuilder.addToIndex(
         new NoopBinaryBuildRule(target, new FakeProjectFilesystem(), params) {
           @Override
           public Tool getExecutableCommand() {
@@ -195,13 +185,13 @@ public class ExecutableMacroExpanderTest {
         expander.expandFrom(
             target,
             cellRoots,
-            ruleResolver,
+            graphBuilder,
             expander.parse(target, cellRoots, ImmutableList.of("//:rule"))));
     Arg expanded =
         expander.expandFrom(
             target,
             cellRoots,
-            ruleResolver,
+            graphBuilder,
             expander.parse(target, cellRoots, ImmutableList.of("//:rule")));
     assertThat(expanded, Matchers.instanceOf(ToolArg.class));
     assertEquals(tool, ((ToolArg) expanded).getTool());
@@ -209,14 +199,12 @@ public class ExecutableMacroExpanderTest {
 
   @Test
   public void extractRuleKeyAppendable() throws MacroException {
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
     FakeProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleParams params = TestBuildRuleParams.create();
-    final Tool tool = new CommandTool.Builder().addArg("command").build();
-    ruleResolver.addToIndex(
+    Tool tool = new CommandTool.Builder().addArg("command").build();
+    graphBuilder.addToIndex(
         new NoopBinaryBuildRule(target, projectFilesystem, params) {
           @Override
           public Tool getExecutableCommand() {
@@ -229,7 +217,7 @@ public class ExecutableMacroExpanderTest {
         expander.expandFrom(
             target,
             cellRoots,
-            ruleResolver,
+            graphBuilder,
             expander.parse(target, cellRoots, ImmutableList.of("//:rule"))),
         Matchers.equalTo(ToolArg.of(tool)));
   }

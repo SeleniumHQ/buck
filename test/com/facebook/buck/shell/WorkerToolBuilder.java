@@ -17,15 +17,18 @@
 package com.facebook.buck.shell;
 
 import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 public class WorkerToolBuilder
     extends AbstractNodeBuilder<
-        WorkerToolDescriptionArg.Builder, WorkerToolDescriptionArg, WorkerToolDescription,
+        WorkerToolDescriptionArg.Builder,
+        WorkerToolDescriptionArg,
+        WorkerToolDescription,
         DefaultWorkerTool> {
   private WorkerToolBuilder(BuildTarget target) {
     super(new WorkerToolDescription(FakeBuckConfig.builder().build()), target);
@@ -35,7 +38,7 @@ public class WorkerToolBuilder
     return new WorkerToolBuilder(target);
   }
 
-  public WorkerToolBuilder setEnv(ImmutableMap<String, String> env) {
+  public WorkerToolBuilder setEnv(ImmutableMap<String, StringWithMacros> env) {
     getArgForPopulating().setEnv(env);
     return this;
   }
@@ -45,7 +48,7 @@ public class WorkerToolBuilder
     return this;
   }
 
-  public WorkerToolBuilder setArgs(String... args) {
+  public WorkerToolBuilder setArgs(StringWithMacros... args) {
     getArgForPopulating().setArgs(Either.ofRight(ImmutableList.copyOf(args)));
     return this;
   }

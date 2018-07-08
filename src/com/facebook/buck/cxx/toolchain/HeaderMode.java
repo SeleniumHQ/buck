@@ -16,9 +16,9 @@
 
 package com.facebook.buck.cxx.toolchain;
 
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorConvertible;
-import com.facebook.buck.model.InternalFlavor;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorConvertible;
+import com.facebook.buck.core.model.InternalFlavor;
 import com.google.common.base.CaseFormat;
 
 public enum HeaderMode implements FlavorConvertible {
@@ -32,6 +32,11 @@ public enum HeaderMode implements FlavorConvertible {
    * symbolic links to the headers.
    */
   SYMLINK_TREE_WITH_HEADER_MAP,
+  /**
+   * Creates the tree of symbolic links of headers and creates a module map that references the
+   * symbolic links to the headers.
+   */
+  SYMLINK_TREE_WITH_MODULEMAP,
   ;
 
   private final Flavor flavor;

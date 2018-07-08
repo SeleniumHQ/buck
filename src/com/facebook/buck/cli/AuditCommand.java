@@ -30,16 +30,19 @@ public class AuditCommand extends AbstractContainerCommand {
     @SubCommand(name = "alias", impl = AuditAliasCommand.class),
     @SubCommand(name = "buildinfo", impl = AuditBuildInfoCommand.class),
     @SubCommand(name = "buildruletypes", impl = AuditBuildRuleTypesCommand.class),
+    @SubCommand(name = "buildruletype", impl = AuditBuildRuleTypeCommand.class),
     @SubCommand(name = "cell", impl = AuditCellCommand.class),
     @SubCommand(name = "classpath", impl = AuditClasspathCommand.class),
     @SubCommand(name = "config", impl = AuditConfigCommand.class),
     @SubCommand(name = "dependencies", impl = AuditDependenciesCommand.class),
     @SubCommand(name = "flavors", impl = AuditFlavorsCommand.class),
     @SubCommand(name = "input", impl = AuditInputCommand.class),
+    @SubCommand(name = "modules", impl = AuditModulesCommand.class),
     @SubCommand(name = "owner", impl = AuditOwnerCommand.class),
     @SubCommand(name = "rules", impl = AuditRulesCommand.class),
     @SubCommand(name = "tests", impl = AuditTestsCommand.class),
     @SubCommand(name = "includes", impl = AuditIncludesCommand.class),
+    @SubCommand(name = "mbr", impl = AuditMbrCommand.class),
   })
   @SuppressFieldNotInitialized
   Command subcommand;

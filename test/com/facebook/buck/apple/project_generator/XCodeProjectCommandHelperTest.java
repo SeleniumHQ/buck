@@ -17,6 +17,7 @@
 package com.facebook.buck.apple.project_generator;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.AppleBinaryBuilder;
 import com.facebook.buck.apple.AppleBundleBuilder;
@@ -27,18 +28,19 @@ import com.facebook.buck.apple.XcodeWorkspaceConfigBuilder;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.cli.output.NullPathOutputPresenter;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
 import com.facebook.buck.event.BuckEventBusForTests;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.Cell;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGraphAndTargets;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
+import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.SettableFakeClock;
 import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableSet;
@@ -72,6 +74,8 @@ public class XCodeProjectCommandHelperTest {
 
   @Before
   public void buildGraph() {
+    assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
+
     // Create the following dep tree:
     //
     // FooBin -has-test-> FooBinTest
@@ -193,7 +197,7 @@ public class XCodeProjectCommandHelperTest {
             /* withDependenciesTests = */ false);
 
     assertEquals(
-        ImmutableSortedSet.<TargetNode<?, ?>>of(
+        ImmutableSortedSet.of(
             workspaceNode,
             fooBinNode,
             fooBinBinaryNode,
@@ -215,7 +219,7 @@ public class XCodeProjectCommandHelperTest {
             /* withDependenciesTests */ true);
 
     assertEquals(
-        ImmutableSortedSet.<TargetNode<?, ?>>of(
+        ImmutableSortedSet.of(
             workspaceNode,
             fooBinNode,
             fooBinBinaryNode,
@@ -240,7 +244,7 @@ public class XCodeProjectCommandHelperTest {
             /* withDependenciesTests */ false);
 
     assertEquals(
-        ImmutableSortedSet.<TargetNode<?, ?>>of(
+        ImmutableSortedSet.of(
             workspaceNode,
             fooBinNode,
             fooBinBinaryNode,
@@ -260,7 +264,7 @@ public class XCodeProjectCommandHelperTest {
             /* withDependenciesTests */ true);
 
     assertEquals(
-        ImmutableSortedSet.<TargetNode<?, ?>>of(
+        ImmutableSortedSet.of(
             workspaceNode,
             fooBinNode,
             fooBinBinaryNode,
@@ -437,16 +441,18 @@ public class XCodeProjectCommandHelperTest {
         MoreExecutors.newDirectExecutorService(),
         targetGraphAndTargets,
         passedInTargetsSet,
-        XCodeProjectCommandHelper.buildWorkspaceGeneratorOptions(
-            false,
-            isWithTests,
-            isWithDependenciesTests,
-            false,
-            true /* shouldUseHeaderMaps */,
-            false /* shouldMergeHeaderMaps */,
-            false /* shouldGenerateHeaderSymlinkTreeOnly */,
-            false,
-            false),
+        ProjectGeneratorOptions.builder()
+            .setShouldGenerateReadOnlyFiles(false)
+            .setShouldIncludeTests(isWithTests)
+            .setShouldIncludeDependenciesTests(isWithDependenciesTests)
+            .setShouldUseHeaderMaps(true)
+            .setShouldMergeHeaderMaps(false)
+            .setShouldForceLoadLinkWholeLibraries(false)
+            .setShouldGenerateHeaderSymlinkTreesOnly(false)
+            .setShouldGenerateMissingUmbrellaHeader(false)
+            .setShouldUseShortNamesForTargets(true)
+            .setShouldCreateDirectoryStructure(false)
+            .build(),
         ImmutableSet.of(),
         FocusedModuleTargetMatcher.noFocus(),
         projectGenerators,

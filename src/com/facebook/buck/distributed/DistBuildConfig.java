@@ -17,7 +17,11 @@
 package com.facebook.buck.distributed;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.distributed.thrift.BuildMode;
+import com.facebook.buck.distributed.thrift.MinionRequirements;
+import com.facebook.buck.distributed.thrift.MinionType;
+import com.facebook.buck.distributed.thrift.SchedulingEnvironmentType;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.slb.SlbBuckConfig;
 import com.facebook.buck.util.config.Config;
@@ -25,9 +29,12 @@ import com.facebook.buck.util.config.Configs;
 import com.facebook.buck.util.config.RawConfig;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.TimeUnit;
 import okhttp3.OkHttpClient;
 
@@ -55,8 +62,19 @@ public class DistBuildConfig {
   private static final BuildMode BUILD_MODE_DEFAULT_VALUE = BuildMode.REMOTE_BUILD;
 
   private static final String NUMBER_OF_MINIONS = "number_of_minions";
-  private static final Integer NUMBER_OF_MINIONS_DEFAULT_VALUE = 2;
+  private static final Integer NUMBER_OF_MINIONS_DEFAULT_VALUE = 0;
 
+  // List of top-level projects to be attempted to run with Stampede.
+  private static final String AUTO_STAMPEDE_PROJECT_WHITELIST = "auto_stampede_project_whitelist";
+
+  // Users on this list will not get automatic Stampede builds, even if building a target
+  // that is part of a whitelisted proejct.
+  private static final String AUTO_STAMPEDE_USER_BLACKLIST = "auto_stampede_user_blacklist";
+
+  private static final String NUMBER_OF_LOW_SPEC_MINIONS = "number_of_low_spec_minions";
+
+  private static final String JOB_NAME_ENVIRONMENT_VARIABLE = "job_name_environment_variable";
+  private static final String TAKS_ID_ENVIRONMENT_VARIABLE = "task_id_environment_variable";
   private static final String REPOSITORY = "repository";
   private static final String DEFAULT_REPOSITORY = "";
   private static final String TENANT_ID = "tenant_id";
@@ -66,6 +84,7 @@ public class DistBuildConfig {
   private static final String DEFAULT_BUILD_LABEL = "";
 
   private static final String MINION_QUEUE = "minion_queue";
+  private static final String LOW_SPEC_MINION_QUEUE = "low_spec_minion_queue";
 
   private static final String SOURCE_FILE_MULTI_FETCH_BUFFER_PERIOD_MS =
       "source_file_multi_fetch_buffer_period_ms";
@@ -100,6 +119,13 @@ public class DistBuildConfig {
       "frontend_request_retry_interval_millis";
   private static final long DEFAULT_FRONTEND_REQUEST_RETRY_INTERVAL_MILLIS = 1000;
 
+  private static final String BUILD_SLAVE_REQUEST_MAX_RETRIES = "build_slave_request_max_retries";
+  private static final int DEFAULT_BUILD_SLAVE_REQUEST_MAX_RETRIES = 3;
+
+  private static final String BUILD_SLAVE_REQUEST_RETRY_INTERVAL_MILLIS =
+      "build_slave_request_retry_interval_millis";
+  private static final long DEFAULT_BUILD_SLAVE_REQUEST_RETRY_INTERVAL_MILLIS = 500;
+
   private static final String MINION_POLL_LOOP_INTERVAL_MILLIS = "minion_poll_loop_interval_millis";
   private static final long DEFAULT_MINION_POLL_LOOP_INTERVAL_MILLIS = 10;
 
@@ -120,6 +146,10 @@ public class DistBuildConfig {
   private static final String MAX_MINION_SILENCE_MILLIS = "max_minion_silence_millis";
   private static final long DEFAULT_MAX_MINION_SILENCE_MILLIS = TimeUnit.SECONDS.toMillis(30);
 
+  private static final String MAX_CONSECUTIVE_SLOW_DEAD_MINION_CHECKS =
+      "max_consecutive_slow_dead_minion_checks";
+  private static final int DEFAULT_MAX_CONSECUTIVE_SLOW_DEAD_MINION_CHECKS = 3;
+
   private static final String ENABLE_DEEP_REMOTE_BUILD = "enable_deep_remote_build";
   private static final boolean DEFAULT_ENABLE_DEEP_REMOTE_BUILD = false;
 
@@ -129,10 +159,15 @@ public class DistBuildConfig {
   private static final String ENABLE_CACHE_MISS_ANALYSIS = "enable_cache_miss_analysis";
   private static final boolean DEFAULT_ENABLE_CACHE_MISS_ANALYSIS = false;
 
-  private static final String ALWAYS_WAIT_FOR_REMOTE_BUILD_BEFORE_PROCEEDING_LOCALLY =
-      "always_wait_for_remote_build_before_proceeding_locally";
-  private static final boolean DEFAULT_ALWAYS_WAIT_FOR_REMOTE_BUILD_BEFORE_PROCEEDING_LOCALLY =
-      true;
+  private static final String MINION_TYPE = "minion_type";
+  private static final String DEFAULT_MINION_TYPE = MinionType.STANDARD_SPEC.name();
+
+  private static final String ENVIRONMENT_TYPE = "environment_type";
+  private static final String DEFAULT_ENVIRONMENT_TYPE =
+      SchedulingEnvironmentType.IDENTICAL_HARDWARE.name();
+
+  public static final String LOCAL_MODE = "local_mode";
+  public static final DistLocalBuildMode DEFAULT_LOCAL_MODE = DistLocalBuildMode.WAIT_FOR_REMOTE;
 
   private static final String MOST_BUILD_RULES_FINISHED_PERCENTAGE_THRESHOLD =
       "most_build_rules_finished_percentage_threshold";
@@ -141,21 +176,16 @@ public class DistBuildConfig {
   private static final String ENABLE_UPLOADS_FROM_LOCAL_CACHE = "enable_uploads_from_local_cache";
   private static final boolean DEFAULT_ENABLE_UPLOADS_FROM_LOCAL_CACHE = false;
 
-  // Percentage of available CPU cores to use for the coordinator build.
-  // Default this to 75% to ensure coordinator is always responsive to requests from minions
-  private static final String COORDINATOR_BUILD_CAPACITY_RATIO = "coordinator_build_capacity_ratio";
-  private static final Double DEFAULT_COORDINATOR_BUILD_CAPACITY_RATIO = 0.75;
+  private static final String ENABLE_RELEASING_MINIONS_EARLY = "enable_releasing_minions_early";
+  private static final boolean DEFAULT_ENABLE_RELEASING_MINIONS_EARLY = true;
 
-  // Percentage of available CPU cores to use for the minion builds.
-  // Default this to 90% to ensure we never timeout requests to the coordinator.
-  private static final String MINION_BUILD_CAPACITY_RATIO = "minion_build_capacity_ratio";
-  private static final Double DEFAULT_MINION_BUILD_CAPACITY_RATIO = 0.9;
-
-  // This flag needs to be set to 'true' if automated stampede build is to be attempted. It
-  // allows for a global on/off switch per repository (while the experiments.stampede_beta_test
-  // flag can then be used for a e.g. per user switch).
-  private static final String AUTO_STAMPEDE_BUILD_ENABLED = "auto_stampede_build_enabled";
-  private static final boolean DEFAULT_AUTO_STAMPEDE_BUILD_ENABLED = false;
+  /**
+   * While the experiments.stampede_beta_test flag is set to true, this flag can be used to
+   * configure whether we want auto-stampede conversion for all builds, no builds, or some builds.
+   * See {@link AutoStampedeMode}.
+   */
+  private static final String AUTO_STAMPEDE_EXPERIMENTS_ENABLED =
+      "auto_stampede_experiments_enabled";
 
   private static final String EXPERIMENTS_SECTION = "experiments";
   private static final String STAMPEDE_BETA_TEST = "stampede_beta_test";
@@ -166,6 +196,23 @@ public class DistBuildConfig {
   private static final String FILE_MATERIALIZATION_TIMEOUT_SECS =
       "pending_file_materialization_timeout_secs";
   private static final long DEFAULT_FILE_MATERIALIZATION_TIMEOUT_SECS = 30;
+
+  private static final String CACHE_SYNCHRONIZATION_SAFETY_MARGIN_MILLIS =
+      "cache_synchronization_safety_margin_millis";
+  private static final int DEFAULT_CACHE_SYNCHRONIZATION_SAFETY_MARGIN_MILLIS = 5000;
+
+  private static final String BUILD_SELECTED_TARGETS_LOCALLY = "build_selected_targets_locally";
+  private static final boolean DEFAULT_BUILD_SELECTED_TARGETS_LOCALLY = true;
+
+  // Stacking BuckConfig keys.
+  private static final String STACK_SIZE = "stacking_stack_size";
+  private static final Integer STACK_SIZE_DEFAULT_VALUE = 1;
+
+  private static final String SLAVE_SERVER_HTTP_PORT = "slave_server_http_port";
+  private static final Integer SLAVE_SERVER_HTTP_PORT_DEFAULT_VALUE = 8080;
+
+  private static final String ENABLE_GREEDY_STACKING = "enable_greedy_stacking";
+  private static final boolean DEFAULT_ENABLE_GREEDY_STACKING = false;
 
   private final SlbBuckConfig frontendConfig;
   private final BuckConfig buckConfig;
@@ -187,7 +234,15 @@ public class DistBuildConfig {
     return buckConfig.getLong(STAMPEDE_SECTION, SOURCE_FILE_MULTI_FETCH_BUFFER_PERIOD_MS);
   }
 
-  public Optional<Integer> getSourceFileMultiFetchMaxBufferSize() {
+  public Optional<String> getJobNameEnvironmentVariable() {
+    return buckConfig.getValue(STAMPEDE_SECTION, JOB_NAME_ENVIRONMENT_VARIABLE);
+  }
+
+  public Optional<String> getTaskIdEnvironmentVariable() {
+    return buckConfig.getValue(STAMPEDE_SECTION, TAKS_ID_ENVIRONMENT_VARIABLE);
+  }
+
+  public OptionalInt getSourceFileMultiFetchMaxBufferSize() {
     return buckConfig.getInteger(STAMPEDE_SECTION, SOURCE_FILE_MULTI_FETCH_MAX_BUFFER_SIZE);
   }
 
@@ -244,14 +299,29 @@ public class DistBuildConfig {
         .orElse(BUILD_MODE_DEFAULT_VALUE);
   }
 
+  /** @return Total number of minions to be used in this build */
   public int getNumberOfMinions() {
     return buckConfig
         .getInteger(STAMPEDE_SECTION, NUMBER_OF_MINIONS)
         .orElse(NUMBER_OF_MINIONS_DEFAULT_VALUE);
   }
 
+  /**
+   * @return Number of standard spec minions to be used in mixed environment build. Default is total
+   *     number of minions - 1.
+   */
+  public int getNumberOfLowSpecMinions() {
+    return buckConfig
+        .getInteger(STAMPEDE_SECTION, NUMBER_OF_LOW_SPEC_MINIONS)
+        .orElse(getNumberOfMinions() - 1);
+  }
+
   public Optional<String> getMinionQueue() {
     return buckConfig.getValue(STAMPEDE_SECTION, MINION_QUEUE);
+  }
+
+  public Optional<String> getLowSpecMinionQueue() {
+    return buckConfig.getValue(STAMPEDE_SECTION, LOW_SPEC_MINION_QUEUE);
   }
 
   public String getRepository() {
@@ -312,20 +382,18 @@ public class DistBuildConfig {
   }
 
   /**
-   * If true, local Stampede client will wait for remote build of rule to complete before building
-   * locally. If false, it will go ahead building locally if remote build of rule hasn't started
-   * yet.
+   * This returns the mode that the local will have, either wait for remote build, run at the same
+   * time or fire up the remote build and shut down local client.
    *
-   * @return
+   * @return the mode.
    */
-  public boolean shouldAlwaysWaitForRemoteBuildBeforeProceedingLocally() {
-    return buckConfig.getBooleanValue(
-        STAMPEDE_SECTION,
-        ALWAYS_WAIT_FOR_REMOTE_BUILD_BEFORE_PROCEEDING_LOCALLY,
-        DEFAULT_ALWAYS_WAIT_FOR_REMOTE_BUILD_BEFORE_PROCEEDING_LOCALLY);
+  public DistLocalBuildMode getLocalBuildMode() {
+    return buckConfig
+        .getEnum(STAMPEDE_SECTION, LOCAL_MODE, DistLocalBuildMode.class)
+        .orElse(DEFAULT_LOCAL_MODE);
   }
 
-  public long getHearbeatServiceRateMillis() {
+  public long getHeartbeatServiceRateMillis() {
     return buckConfig
         .getLong(STAMPEDE_SECTION, HEARTBEAT_SERVICE_INTERVAL_MILLIS)
         .orElse(DEFAULT_HEARTBEAT_SERVICE_INTERVAL_MILLIS);
@@ -343,6 +411,12 @@ public class DistBuildConfig {
         .orElse(DEFAULT_MAX_MINION_SILENCE_MILLIS);
   }
 
+  public int getMaxConsecutiveSlowDeadMinionChecks() {
+    return buckConfig
+        .getInteger(STAMPEDE_SECTION, MAX_CONSECUTIVE_SLOW_DEAD_MINION_CHECKS)
+        .orElse(DEFAULT_MAX_CONSECUTIVE_SLOW_DEAD_MINION_CHECKS);
+  }
+
   public int getFrontendRequestMaxRetries() {
     return buckConfig
         .getInteger(STAMPEDE_SECTION, FRONTEND_REQUEST_MAX_RETRIES)
@@ -355,6 +429,18 @@ public class DistBuildConfig {
         .orElse(DEFAULT_FRONTEND_REQUEST_RETRY_INTERVAL_MILLIS);
   }
 
+  public int getBuildSlaveRequestMaxRetries() {
+    return buckConfig
+        .getInteger(STAMPEDE_SECTION, BUILD_SLAVE_REQUEST_MAX_RETRIES)
+        .orElse(DEFAULT_BUILD_SLAVE_REQUEST_MAX_RETRIES);
+  }
+
+  public long getBuildSlaveRequestRetryIntervalMillis() {
+    return buckConfig
+        .getLong(STAMPEDE_SECTION, BUILD_SLAVE_REQUEST_RETRY_INTERVAL_MILLIS)
+        .orElse(DEFAULT_BUILD_SLAVE_REQUEST_RETRY_INTERVAL_MILLIS);
+  }
+
   public int getControllerMaxThreadCount() {
     return buckConfig
         .getInteger(STAMPEDE_SECTION, CONTROLLER_MAX_THREAD_COUNT)
@@ -365,24 +451,6 @@ public class DistBuildConfig {
     return buckConfig
         .getInteger(STAMPEDE_SECTION, MOST_BUILD_RULES_FINISHED_PERCENTAGE_THRESHOLD)
         .orElse(DEFAULT_MOST_BUILD_RULES_FINISHED_PERCENTAGE_THRESHOLD);
-  }
-
-  /** @return Ratio of available build capacity that should be used by coordinator */
-  public double getCoordinatorBuildCapacityRatio() {
-    Optional<String> configValue =
-        buckConfig.getValue(STAMPEDE_SECTION, COORDINATOR_BUILD_CAPACITY_RATIO);
-    return configValue.isPresent()
-        ? Double.valueOf(configValue.get())
-        : DEFAULT_COORDINATOR_BUILD_CAPACITY_RATIO;
-  }
-
-  /** @return Ratio of available build capacity that should be used by minions */
-  public double getMinionBuildCapacityRatio() {
-    Optional<String> configValue =
-        buckConfig.getValue(STAMPEDE_SECTION, MINION_BUILD_CAPACITY_RATIO);
-    return configValue.isPresent()
-        ? Double.valueOf(configValue.get())
-        : DEFAULT_MINION_BUILD_CAPACITY_RATIO;
   }
 
   /**
@@ -408,15 +476,84 @@ public class DistBuildConfig {
   }
 
   /** Whether a non-distributed build should be automatically turned into a distributed one. */
-  public boolean shouldUseDistributedBuild() {
-    return buckConfig.getBooleanValue(
-            STAMPEDE_SECTION, AUTO_STAMPEDE_BUILD_ENABLED, DEFAULT_AUTO_STAMPEDE_BUILD_ENABLED)
-        && buckConfig.getBooleanValue(
+  public boolean shouldUseDistributedBuild(
+      BuildId buildId, String username, List<String> commandArguments) {
+    if (isAutoStampedeBlacklistedUser(username)) {
+      return false; // Blacklisted users never get auto Stampede builds
+    }
+
+    if (DistBuildUtil.doTargetsMatchProjectWhitelist(
+        commandArguments, getAutoStampedeProjectWhitelist(), buckConfig)) {
+      // Builds of enabled projects always get auto Stampede builds
+      LOG.info("Running auto Stampede build as targets matched project whitelist");
+      return true;
+    }
+
+    // All other users get builds depending on in they are in an experiment control group,
+    // and the current experiment setting resolves to true.
+    boolean userInAutoStampedeControlGroup =
+        buckConfig.getBooleanValue(
             EXPERIMENTS_SECTION, STAMPEDE_BETA_TEST, DEFAULT_STAMPEDE_BETA_TEST);
+    if (!userInAutoStampedeControlGroup) {
+      return false;
+    }
+
+    AutoStampedeMode enabled =
+        buckConfig
+            .getEnum(STAMPEDE_SECTION, AUTO_STAMPEDE_EXPERIMENTS_ENABLED, AutoStampedeMode.class)
+            .orElse(AutoStampedeMode.DEFAULT)
+            .resolveExperiment(buildId);
+
+    LOG.info("Should use distributed build: %s", enabled);
+    return enabled.equals(AutoStampedeMode.TRUE);
+  }
+
+  /** @return The hardware category for this minion (when running in minion mode). */
+  public MinionType getMinionType() {
+    String minionTypeStr =
+        buckConfig.getValue(STAMPEDE_SECTION, MINION_TYPE).orElse(DEFAULT_MINION_TYPE);
+
+    return MinionType.valueOf(minionTypeStr);
+  }
+
+  /** @return The hardware scheduling environment to be used for this distributed build */
+  public SchedulingEnvironmentType getSchedulingEnvironmentType() {
+    String environmentTypeStr =
+        buckConfig.getValue(STAMPEDE_SECTION, ENVIRONMENT_TYPE).orElse(DEFAULT_ENVIRONMENT_TYPE);
+
+    return SchedulingEnvironmentType.valueOf(environmentTypeStr);
   }
 
   public Optional<String> getAutoDistributedBuildMessage() {
     return buckConfig.getValue(STAMPEDE_SECTION, AUTO_STAMPEDE_BUILD_MESSAGE);
+  }
+
+  public int getCacheSynchronizationSafetyMarginMillis() {
+    return buckConfig
+        .getInteger(STAMPEDE_SECTION, CACHE_SYNCHRONIZATION_SAFETY_MARGIN_MILLIS)
+        .orElse(DEFAULT_CACHE_SYNCHRONIZATION_SAFETY_MARGIN_MILLIS);
+  }
+
+  public boolean shouldBuildSelectedTargetsLocally() {
+    return buckConfig.getBooleanValue(
+        STAMPEDE_SECTION, BUILD_SELECTED_TARGETS_LOCALLY, DEFAULT_BUILD_SELECTED_TARGETS_LOCALLY);
+  }
+
+  /** @return Size of maximum builds running on the same build slave */
+  public int getStackSize() {
+    return buckConfig.getInteger(STAMPEDE_SECTION, STACK_SIZE).orElse(STACK_SIZE_DEFAULT_VALUE);
+  }
+
+  /** @return Http server port the build slave is listening to on localhost */
+  public int getBuildSlaveHttpPort() {
+    return buckConfig
+        .getInteger(STAMPEDE_SECTION, SLAVE_SERVER_HTTP_PORT)
+        .orElse(SLAVE_SERVER_HTTP_PORT_DEFAULT_VALUE);
+  }
+
+  public boolean isGreedyStackingEnabled() {
+    return buckConfig.getBooleanValue(
+        STAMPEDE_SECTION, ENABLE_GREEDY_STACKING, DEFAULT_ENABLE_GREEDY_STACKING);
   }
 
   public OkHttpClient createOkHttpClient() {
@@ -425,5 +562,42 @@ public class DistBuildConfig {
         .readTimeout(getFrontendRequestTimeoutMillis(), TimeUnit.MILLISECONDS)
         .writeTimeout(getFrontendRequestTimeoutMillis(), TimeUnit.MILLISECONDS)
         .build();
+  }
+
+  public MinionRequirements getMinionRequirements() {
+    int totalMinions = getNumberOfMinions();
+    int lowSpecMinions = getNumberOfLowSpecMinions();
+
+    if (totalMinions <= 0 && lowSpecMinions <= totalMinions) {
+      LOG.info("No specific minion requirements. Using empty specification.");
+      return new MinionRequirements();
+    }
+
+    return DistBuildUtil.createMinionRequirements(
+        getBuildMode(), getSchedulingEnvironmentType(), totalMinions, lowSpecMinions);
+  }
+
+  /** @return ImmutableSet of all projects that are white-listed for auto Stampede builds */
+  public ImmutableSet<String> getAutoStampedeProjectWhitelist() {
+    Optional<ImmutableList<String>> optionalListWithoutComments =
+        buckConfig.getOptionalListWithoutComments(
+            STAMPEDE_SECTION, AUTO_STAMPEDE_PROJECT_WHITELIST);
+
+    return optionalListWithoutComments.isPresent()
+        ? ImmutableSet.copyOf(optionalListWithoutComments.get())
+        : ImmutableSet.of();
+  }
+
+  /** Checks if the given user is black-listed for auto Stampede builds */
+  public boolean isAutoStampedeBlacklistedUser(String user) {
+    Optional<ImmutableList<String>> optionalBlackListUsers =
+        buckConfig.getOptionalListWithoutComments(STAMPEDE_SECTION, AUTO_STAMPEDE_USER_BLACKLIST);
+
+    return optionalBlackListUsers.isPresent() && optionalBlackListUsers.get().contains(user);
+  }
+
+  public boolean isReleasingMinionsEarlyEnabled() {
+    return buckConfig.getBooleanValue(
+        STAMPEDE_SECTION, ENABLE_RELEASING_MINIONS_EARLY, DEFAULT_ENABLE_RELEASING_MINIONS_EARLY);
   }
 }

@@ -19,15 +19,16 @@ import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntimeType;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.CommandTool;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
@@ -39,18 +40,21 @@ import java.nio.file.Paths;
 
 public class NdkLibraryBuilder
     extends AbstractNodeBuilder<
-        NdkLibraryDescriptionArg.Builder, NdkLibraryDescriptionArg, NdkLibraryDescription,
+        NdkLibraryDescriptionArg.Builder,
+        NdkLibraryDescriptionArg,
+        NdkLibraryDescription,
         NdkLibrary> {
 
   private static final NdkCxxPlatform DEFAULT_NDK_PLATFORM =
       NdkCxxPlatform.builder()
           .setCxxPlatform(CxxPlatformUtils.DEFAULT_PLATFORM)
           .setCxxRuntime(NdkCxxRuntime.GNUSTL)
+          .setCxxRuntimeType(NdkCxxRuntimeType.DYNAMIC)
           .setCxxSharedRuntimePath(Paths.get("runtime"))
           .setObjdump(new CommandTool.Builder().addArg("objdump").build())
           .build();
 
-  private static final ImmutableMap<TargetCpuType, NdkCxxPlatform> NDK_PLATFORMS =
+  public static final ImmutableMap<TargetCpuType, NdkCxxPlatform> NDK_PLATFORMS =
       ImmutableMap.<TargetCpuType, NdkCxxPlatform>builder()
           .put(TargetCpuType.ARM, DEFAULT_NDK_PLATFORM)
           .put(TargetCpuType.ARMV7, DEFAULT_NDK_PLATFORM)
@@ -62,22 +66,17 @@ public class NdkLibraryBuilder
   }
 
   public NdkLibraryBuilder(BuildTarget target, ProjectFilesystem filesystem) {
-    super(
-        new NdkLibraryDescription(createToolchainProvider()) {
-          @Override
-          protected ImmutableSortedSet<SourcePath> findSources(
-              ProjectFilesystem filesystem, Path buildRulePath) {
-            return ImmutableSortedSet.of(
-                PathSourcePath.of(filesystem, buildRulePath.resolve("Android.mk")));
-          }
-        },
-        target,
-        filesystem);
+    this(target, filesystem, createToolchainProviderForNdkLibrary());
   }
 
   public NdkLibraryBuilder(BuildTarget target, ToolchainProvider toolchainProvider) {
+    this(target, new FakeProjectFilesystem(), toolchainProvider);
+  }
+
+  public NdkLibraryBuilder(
+      BuildTarget target, ProjectFilesystem filesystem, ToolchainProvider toolchainProvider) {
     super(
-        new NdkLibraryDescription(toolchainProvider) {
+        new NdkLibraryDescription() {
           @Override
           protected ImmutableSortedSet<SourcePath> findSources(
               ProjectFilesystem filesystem, Path buildRulePath) {
@@ -86,19 +85,19 @@ public class NdkLibraryBuilder
           }
         },
         target,
-        new FakeProjectFilesystem());
+        filesystem,
+        toolchainProvider,
+        null);
   }
 
-  private static ToolchainProvider createToolchainProvider() {
-    ToolchainProvider toolchainProvider =
-        new ToolchainProviderBuilder()
-            .withToolchain(
-                NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.of(NDK_PLATFORMS))
-            .withToolchain(
-                AndroidNdk.DEFAULT_NAME,
-                AndroidNdk.of("12b", Paths.get("/android/ndk"), new ExecutableFinder()))
-            .build();
-    return toolchainProvider;
+  public static ToolchainProvider createToolchainProviderForNdkLibrary() {
+    return new ToolchainProviderBuilder()
+        .withToolchain(
+            NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.of(NDK_PLATFORMS))
+        .withToolchain(
+            AndroidNdk.DEFAULT_NAME,
+            AndroidNdk.of("12b", Paths.get("/android/ndk"), false, new ExecutableFinder()))
+        .build();
   }
 
   public NdkLibraryBuilder addDep(BuildTarget target) {

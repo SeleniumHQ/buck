@@ -18,10 +18,10 @@ package com.facebook.buck.shell;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.sandbox.NoSandboxExecutionStrategy;
@@ -122,6 +122,11 @@ public class GenruleBuilder
 
   public GenruleBuilder setCacheable(@Nullable Boolean isCacheable) {
     getArgForPopulating().setCacheable(Optional.ofNullable(isCacheable));
+    return this;
+  }
+
+  public GenruleBuilder setNoRemote(@Nullable Boolean noRemote) {
+    getArgForPopulating().setNoRemote(Optional.ofNullable(noRemote));
     return this;
   }
 

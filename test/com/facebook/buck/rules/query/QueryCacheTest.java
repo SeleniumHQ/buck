@@ -21,24 +21,23 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.AndroidLibraryBuilder;
+import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.jvm.java.JavaBinaryRuleBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableSet;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
@@ -101,13 +100,11 @@ public class QueryCacheTest {
             JavaLibraryBuilder.createBuilder(targetG).addDep(targetE).build(),
             JavaLibraryBuilder.createBuilder(targetH).build());
 
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
 
     GraphEnhancementQueryEnvironment env =
         new GraphEnhancementQueryEnvironment(
-            Optional.of(resolver),
+            Optional.of(graphBuilder),
             Optional.of(targetGraph),
             TYPE_COERCER_FACTORY,
             TestCellPathResolver.get(new FakeProjectFilesystem()),
@@ -167,13 +164,11 @@ public class QueryCacheTest {
             JavaLibraryBuilder.createBuilder(targetA).build(),
             JavaLibraryBuilder.createBuilder(targetB).build());
 
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
 
     GraphEnhancementQueryEnvironment fooEnv =
         new GraphEnhancementQueryEnvironment(
-            Optional.of(resolver),
+            Optional.of(graphBuilder),
             Optional.of(targetGraph),
             TYPE_COERCER_FACTORY,
             TestCellPathResolver.get(new FakeProjectFilesystem()),
@@ -182,7 +177,7 @@ public class QueryCacheTest {
 
     GraphEnhancementQueryEnvironment barEnv =
         new GraphEnhancementQueryEnvironment(
-            Optional.of(resolver),
+            Optional.of(graphBuilder),
             Optional.of(targetGraph),
             TYPE_COERCER_FACTORY,
             TestCellPathResolver.get(new FakeProjectFilesystem()),

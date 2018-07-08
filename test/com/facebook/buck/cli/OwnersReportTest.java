@@ -16,35 +16,37 @@
 
 package com.facebook.buck.cli;
 
-import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
+import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.event.BuckEventBusForTests;
-import com.facebook.buck.event.listener.BroadcastEventListener;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildFileTree;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.FilesystemBackedBuildFileTree;
+import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.KnownBuildRuleTypesProvider;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TargetNodeFactory;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -54,7 +56,6 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -67,12 +68,12 @@ import java.util.function.Function;
 import org.immutables.value.Value;
 import org.junit.Before;
 import org.junit.Test;
-import org.kohsuke.args4j.CmdLineException;
 
 /** Reports targets that own a specified list of files. */
 public class OwnersReportTest {
 
-  public static class FakeRuleDescription implements Description<FakeRuleDescriptionArg> {
+  public static class FakeRuleDescription
+      implements DescriptionWithTargetGraph<FakeRuleDescriptionArg> {
 
     @Override
     public Class<FakeRuleDescriptionArg> getConstructorArgType() {
@@ -81,7 +82,7 @@ public class OwnersReportTest {
 
     @Override
     public BuildRule createBuildRule(
-        BuildRuleCreationContext context,
+        BuildRuleCreationContextWithTargetGraph context,
         BuildTarget buildTarget,
         BuildRuleParams params,
         FakeRuleDescriptionArg args) {
@@ -104,7 +105,7 @@ public class OwnersReportTest {
             .build();
     try {
       return new TargetNodeFactory(new DefaultTypeCoercerFactory())
-          .create(
+          .createFromObject(
               Hashing.sha1().hashString(buildTarget.getFullyQualifiedName(), UTF_8),
               description,
               arg,
@@ -127,8 +128,7 @@ public class OwnersReportTest {
   }
 
   @Test
-  public void verifyPathsThatAreNotFilesAreCorrectlyReported()
-      throws CmdLineException, IOException, InterruptedException {
+  public void verifyPathsThatAreNotFilesAreCorrectlyReported() throws IOException {
     filesystem.mkdirs(filesystem.getPath("java/somefolder/badfolder"));
     filesystem.mkdirs(filesystem.getPath("com/test/subtest"));
 
@@ -147,8 +147,7 @@ public class OwnersReportTest {
   }
 
   @Test
-  public void verifyMissingFilesAreCorrectlyReported()
-      throws CmdLineException, IOException, InterruptedException {
+  public void verifyMissingFilesAreCorrectlyReported() {
     // Inputs that should be treated as missing files
     String input = "java/somefolder/badfolder/somefile.java";
 
@@ -164,8 +163,7 @@ public class OwnersReportTest {
   }
 
   @Test
-  public void verifyInputsWithoutOwnersAreCorrectlyReported()
-      throws CmdLineException, IOException, InterruptedException {
+  public void verifyInputsWithoutOwnersAreCorrectlyReported() throws IOException {
     // Inputs that should be treated as existing files
     String input = "java/somefolder/badfolder/somefile.java";
     Path inputPath = filesystem.getPath(input);
@@ -186,8 +184,7 @@ public class OwnersReportTest {
   }
 
   @Test
-  public void verifyInputsAgainstRulesThatListDirectoryInputs()
-      throws IOException, InterruptedException {
+  public void verifyInputsAgainstRulesThatListDirectoryInputs() throws IOException {
     // Inputs that should be treated as existing files
     String input = "java/somefolder/badfolder/somefile.java";
     Path inputPath = filesystem.getPath(input);
@@ -211,8 +208,7 @@ public class OwnersReportTest {
 
   /** Verify that owners are correctly detected: - one owner, multiple inputs */
   @Test
-  public void verifyInputsWithOneOwnerAreCorrectlyReported()
-      throws CmdLineException, IOException, InterruptedException {
+  public void verifyInputsWithOneOwnerAreCorrectlyReported() throws IOException {
 
     ImmutableList<String> inputs =
         ImmutableList.of("java/somefolder/badfolder/somefile.java", "java/somefolder/perfect.java");
@@ -243,8 +239,7 @@ public class OwnersReportTest {
 
   /** Verify that owners are correctly detected: - inputs that belong to multiple targets */
   @Test
-  public void verifyInputsWithMultipleOwnersAreCorrectlyReported()
-      throws CmdLineException, IOException, InterruptedException {
+  public void verifyInputsWithMultipleOwnersAreCorrectlyReported() throws IOException {
     String input = "java/somefolder/badfolder/somefile.java";
     Path inputPath = filesystem.getPath(input);
 
@@ -271,8 +266,7 @@ public class OwnersReportTest {
   }
 
   @Test
-  public void verifyThatRequestedFilesThatDoNotExistOnDiskAreReported()
-      throws IOException, InterruptedException {
+  public void verifyThatRequestedFilesThatDoNotExistOnDiskAreReported() {
     String input = "java/some_file";
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
@@ -297,13 +291,13 @@ public class OwnersReportTest {
                 BuckPluginManagerFactory.createPluginManager(),
                 new TestSandboxExecutionStrategyFactory()));
     TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory();
-    return new Parser(
-        new BroadcastEventListener(),
+    return new DefaultParser(
         cell.getBuckConfig().getView(ParserConfig.class),
         coercerFactory,
         new ConstructorArgMarshaller(coercerFactory),
         knownBuildRuleTypesProvider,
-        new ExecutableFinder());
+        new ExecutableFinder(),
+        new TargetSpecResolver());
   }
 
   private ImmutableMap<Cell, BuildFileTree> getBuildFileTrees(Cell rootCell) {

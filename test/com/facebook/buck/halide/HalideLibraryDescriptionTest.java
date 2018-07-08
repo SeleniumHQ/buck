@@ -23,6 +23,19 @@ import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.SourceWithFlags;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.Archive;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxSymlinkTreeHeaders;
@@ -31,27 +44,13 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourceWithFlags;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -81,10 +80,8 @@ public class HalideLibraryDescriptionTest {
     HalideLibraryBuilder libBuilder = new HalideLibraryBuilder(libTarget);
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(compilerBuilder.build(), libBuilder.build());
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    HalideLibrary lib = (HalideLibrary) libBuilder.build(resolver, filesystem, targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
+    HalideLibrary lib = (HalideLibrary) libBuilder.build(graphBuilder, filesystem, targetGraph);
 
     // Check that the library rule has the correct preprocessor input.
     CxxPlatform cxxPlatform = CxxPlatformUtils.DEFAULT_PLATFORM;
@@ -96,7 +93,8 @@ public class HalideLibraryDescriptionTest {
         HalideCompile.headerOutputPath(
             flavoredLibTarget, lib.getProjectFilesystem(), Optional.empty());
     CxxSymlinkTreeHeaders publicHeaders =
-        (CxxSymlinkTreeHeaders) lib.getCxxPreprocessorInput(cxxPlatform).getIncludes().get(0);
+        (CxxSymlinkTreeHeaders)
+            lib.getCxxPreprocessorInput(cxxPlatform, graphBuilder).getIncludes().get(0);
     assertThat(
         publicHeaders.getIncludeType(), Matchers.equalTo(CxxPreprocessables.IncludeType.SYSTEM));
     assertThat(
@@ -108,11 +106,12 @@ public class HalideLibraryDescriptionTest {
 
     // Check that the library rule has the correct native linkable input.
     NativeLinkableInput input =
-        lib.getNativeLinkableInput(cxxPlatform, Linker.LinkableDepType.STATIC);
+        lib.getNativeLinkableInput(cxxPlatform, Linker.LinkableDepType.STATIC, graphBuilder);
     BuildRule buildRule =
         FluentIterable.from(input.getArgs())
             .transformAndConcat(
-                arg -> BuildableSupport.getDepsCollection(arg, new SourcePathRuleFinder(resolver)))
+                arg ->
+                    BuildableSupport.getDepsCollection(arg, new SourcePathRuleFinder(graphBuilder)))
             .get(0);
     assertThat(buildRule, is(instanceOf(Archive.class)));
   }
@@ -126,29 +125,26 @@ public class HalideLibraryDescriptionTest {
     // methods.
     HalideLibraryBuilder halideLibraryBuilder = new HalideLibraryBuilder(target);
     TargetGraph targetGraph1 = TargetGraphFactory.newInstance(halideLibraryBuilder.build());
-    BuildRuleResolver resolver1 =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph1, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder1 = new TestActionGraphBuilder(targetGraph1);
     HalideLibrary halideLibrary =
-        (HalideLibrary) halideLibraryBuilder.build(resolver1, filesystem, targetGraph1);
+        (HalideLibrary) halideLibraryBuilder.build(graphBuilder1, filesystem, targetGraph1);
     assertThat(
         halideLibrary
             .getNativeLinkableInput(
-                CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC)
+                CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, graphBuilder1)
             .getArgs(),
         not(Matchers.empty()));
 
     // Now, verify we get nothing when the supported platform regex excludes our platform.
     halideLibraryBuilder.setSupportedPlatformsRegex(Pattern.compile("nothing"));
     TargetGraph targetGraph2 = TargetGraphFactory.newInstance(halideLibraryBuilder.build());
-    BuildRuleResolver resolver2 =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph2, new DefaultTargetNodeToBuildRuleTransformer());
-    halideLibrary = (HalideLibrary) halideLibraryBuilder.build(resolver2, filesystem, targetGraph2);
+    ActionGraphBuilder graphBuilder2 = new TestActionGraphBuilder(targetGraph2);
+    halideLibrary =
+        (HalideLibrary) halideLibraryBuilder.build(graphBuilder2, filesystem, targetGraph2);
     assertThat(
         halideLibrary
             .getNativeLinkableInput(
-                CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC)
+                CxxPlatformUtils.DEFAULT_PLATFORM, Linker.LinkableDepType.STATIC, graphBuilder2)
             .getArgs(),
         Matchers.empty());
   }
@@ -173,12 +169,11 @@ public class HalideLibraryDescriptionTest {
 
     // First, make sure the compile step doesn't include the extra flags.
     TargetGraph targetGraph = TargetGraphFactory.newInstance(compileBuilder.build());
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
-    HalideCompile compile = (HalideCompile) compileBuilder.build(resolver, filesystem, targetGraph);
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    HalideCompile compile =
+        (HalideCompile) compileBuilder.build(graphBuilder, filesystem, targetGraph);
 
     ImmutableList<Step> buildSteps =
         compile.getBuildSteps(
@@ -191,10 +186,8 @@ public class HalideLibraryDescriptionTest {
     // Next verify that the shell command picks up on the extra compiler flags.
     compileBuilder.setCompilerInvocationFlags(extraCompilerFlags);
     targetGraph = TargetGraphFactory.newInstance(compileBuilder.build());
-    resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    compile = (HalideCompile) compileBuilder.build(resolver, filesystem, targetGraph);
+    graphBuilder = new TestActionGraphBuilder(targetGraph);
+    compile = (HalideCompile) compileBuilder.build(graphBuilder, filesystem, targetGraph);
 
     buildSteps =
         compile.getBuildSteps(
@@ -220,12 +213,11 @@ public class HalideLibraryDescriptionTest {
     // First, make sure the compile step passes the rulename "default-halide-name"
     // for the function output name.
     TargetGraph targetGraph = TargetGraphFactory.newInstance(compileBuilder.build());
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
-    HalideCompile compile = (HalideCompile) compileBuilder.build(resolver, filesystem, targetGraph);
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    HalideCompile compile =
+        (HalideCompile) compileBuilder.build(graphBuilder, filesystem, targetGraph);
 
     ImmutableList<Step> buildSteps =
         compile.getBuildSteps(
@@ -239,10 +231,8 @@ public class HalideLibraryDescriptionTest {
     String overrideName = "override-halide-name";
     compileBuilder.setFunctionNameOverride(overrideName);
     targetGraph = TargetGraphFactory.newInstance(compileBuilder.build());
-    resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    compile = (HalideCompile) compileBuilder.build(resolver, filesystem, targetGraph);
+    graphBuilder = new TestActionGraphBuilder(targetGraph);
+    compile = (HalideCompile) compileBuilder.build(graphBuilder, filesystem, targetGraph);
 
     buildSteps =
         compile.getBuildSteps(

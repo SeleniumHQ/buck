@@ -29,7 +29,7 @@ def write_contents_to_file(path, contents):
 def makedirs(path):
     try:
         os.makedirs(path)
-    except OSError, e:
+    except OSError as e:
         # Potentially the case that multiple processes are running in parallel
         # (e.g. a series of linters running buck query without buckd), so we
         # should just swallow the error.
@@ -55,6 +55,9 @@ class BuckProject:
 
         self.buckd_dir = os.path.join(root, ".buckd")
         self.buckd_version_file = os.path.join(self.buckd_dir, "buckd.version")
+        self.buckd_pid_file = os.path.join(self.buckd_dir, "pid")
+        self.buckd_stdout = os.path.join(self.buckd_dir, "stdout")
+        self.buckd_stderr = os.path.join(self.buckd_dir, "stderr")
 
         buck_javaargs_path = os.path.join(self.root, ".buckjavaargs")
         self.buck_javaargs = get_file_contents_if_exists(buck_javaargs_path)
@@ -82,6 +85,20 @@ class BuckProject:
     def get_running_buckd_version(self):
         return get_file_contents_if_exists(self.buckd_version_file)
 
+    def get_running_buckd_pid(self):
+        try:
+            return int(get_file_contents_if_exists(self.buckd_pid_file))
+        except ValueError:
+            return None
+        except TypeError:
+            return None
+
+    def get_buckd_stdout(self):
+        return self.buckd_stdout
+
+    def get_buckd_stderr(self):
+        return self.buckd_stderr
+
     def get_buck_out_log_dir(self):
         return self._buck_out_log
 
@@ -101,6 +118,9 @@ class BuckProject:
 
     def save_buckd_version(self, version):
         write_contents_to_file(self.buckd_version_file, version)
+
+    def save_buckd_pid(self, pid):
+        write_contents_to_file(self.buckd_pid_file, str(pid))
 
     @staticmethod
     def from_current_dir():

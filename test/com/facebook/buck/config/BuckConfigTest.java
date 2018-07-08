@@ -24,6 +24,7 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.file.MorePathsForTests;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
@@ -32,7 +33,7 @@ import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Joiner;
@@ -46,7 +47,6 @@ import java.io.StringReader;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Optional;
-import org.easymock.EasyMock;
 import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
@@ -104,20 +104,16 @@ public class BuckConfigTest {
   }
 
   @Test
-  public void testConstructorThrowsForMalformedBuildTarget()
-      throws InterruptedException, IOException {
+  public void testGetAliasesThrowsForMalformedBuildTarget() throws IOException {
     Reader reader = new StringReader(Joiner.on('\n').join("[alias]", "fb4a   = :fb4a"));
-    ProjectFilesystem projectFilesystem = EasyMock.createMock(ProjectFilesystem.class);
-    EasyMock.replay(projectFilesystem);
-
+    BuckConfig buckConfig =
+        BuckConfigTestUtils.createWithDefaultFilesystem(temporaryFolder, reader);
     try {
-      BuckConfigTestUtils.createWithDefaultFilesystem(temporaryFolder, reader);
+      buckConfig.getAliases();
       fail("Should have thrown HumanReadableException.");
     } catch (HumanReadableException e) {
       assertEquals("Path in :fb4a must start with //", e.getHumanReadableErrorMessage());
     }
-
-    EasyMock.verify(projectFilesystem);
   }
 
   @Test
@@ -274,8 +270,10 @@ public class BuckConfigTest {
     Reader reader =
         new StringReader(
             Joiner.on('\n').join("[alias]", "foo = //java/com/example:foo", "bar = food"));
+    BuckConfig buckConfig =
+        BuckConfigTestUtils.createWithDefaultFilesystem(temporaryFolder, reader);
     try {
-      BuckConfigTestUtils.createWithDefaultFilesystem(temporaryFolder, reader);
+      buckConfig.getAliases();
       fail("Should have thrown HumanReadableException.");
     } catch (HumanReadableException e) {
       assertEquals("No alias for: food.", e.getHumanReadableErrorMessage());
@@ -655,12 +653,32 @@ public class BuckConfigTest {
   }
 
   @Test
-  public void testGetMap() throws InterruptedException, IOException {
+  public void testGetMap() throws IOException {
     Reader reader =
         new StringReader(Joiner.on('\n').join("[section]", "args_map = key0=>val0,key1=>val1"));
     BuckConfig config = BuckConfigTestUtils.createWithDefaultFilesystem(temporaryFolder, reader);
 
     assertEquals(
         ImmutableMap.of("key0", "val0", "key1", "val1"), config.getMap("section", "args_map"));
+  }
+
+  @Test
+  public void testGetMapComplex() throws IOException {
+    Reader reader =
+        new StringReader(
+            Joiner.on('\n').join("[section]", "args_map = key0 => \"val0,val1\", key1 => val2"));
+    BuckConfig config = BuckConfigTestUtils.createWithDefaultFilesystem(temporaryFolder, reader);
+    assertEquals(
+        ImmutableMap.of("key0", "val0,val1", "key1", "val2"),
+        config.getConfig().getMap("section", "args_map"));
+    assertEquals(
+        ImmutableMap.of("key0", "val0,val1", "key1", "val2"),
+        config
+            .getConfig()
+            .getMap(
+                "section",
+                "args_map",
+                Config.DEFAULT_PAIR_SEPARATOR,
+                Config.DEFAULT_KEY_VALUE_SEPARATOR));
   }
 }

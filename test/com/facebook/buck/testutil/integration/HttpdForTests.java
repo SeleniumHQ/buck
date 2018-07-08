@@ -36,7 +36,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
-import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.eclipse.jetty.http.HttpMethod;
@@ -106,13 +105,13 @@ public class HttpdForTests implements AutoCloseable {
   public URI getRootUri() {
     try {
       return getUri("/");
-    } catch (SocketException | URISyntaxException e) {
+    } catch (URISyntaxException e) {
       // Should never happen
       throw new RuntimeException(e);
     }
   }
 
-  public URI getUri(String path) throws URISyntaxException, SocketException {
+  public URI getUri(String path) throws URISyntaxException {
     assertTrue(
         "Server must be running before retrieving a URI, otherwise the resulting URI may "
             + "not have an appropriate port",
@@ -198,7 +197,7 @@ public class HttpdForTests implements AutoCloseable {
         Request request,
         HttpServletRequest httpServletRequest,
         HttpServletResponse httpServletResponse)
-        throws IOException, ServletException {
+        throws IOException {
       // Use an unusual charset.
       httpServletResponse.getOutputStream().write(content.getBytes(UTF_16));
       request.setHandled(true);
@@ -214,12 +213,11 @@ public class HttpdForTests implements AutoCloseable {
         String target,
         Request request,
         HttpServletRequest httpServletRequest,
-        HttpServletResponse httpServletResponse)
-        throws IOException, ServletException {
+        HttpServletResponse httpServletResponse) {
       if (!HttpMethod.PUT.is(request.getMethod())) {
         return;
       }
-      putRequestsPaths.add(request.getUri().toString());
+      putRequestsPaths.add(request.getHttpURI().getPath());
       request.setHandled(true);
     }
 
@@ -271,17 +269,17 @@ public class HttpdForTests implements AutoCloseable {
         Request request,
         HttpServletRequest httpServletRequest,
         HttpServletResponse httpServletResponse)
-        throws IOException, ServletException {
+        throws IOException {
       synchronized (this) {
-        requestedPaths.add(request.getUri().getPath());
+        requestedPaths.add(request.getHttpURI().getPath());
       }
-      if (!contentMap.containsKey(request.getUri().getPath())) {
+      if (!contentMap.containsKey(request.getHttpURI().getPath())) {
         httpServletResponse.setStatus(404);
         request.setHandled(true);
         return;
       }
       httpServletResponse.setStatus(200);
-      httpServletResponse.getOutputStream().write(contentMap.get(request.getUri().getPath()));
+      httpServletResponse.getOutputStream().write(contentMap.get(request.getHttpURI().getPath()));
       request.setHandled(true);
     }
 

@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * This class tracks start and stop timestamp for build rules processed by stamepede minions.
@@ -37,9 +38,9 @@ public class DistBuildTraceTracker {
   private Map<String, ArrayList<RuleTrace>> rulesByMinionId = new HashMap<>();
   private Map<String, Long> jobStartedEpochMillisByJobId = new HashMap<>();
   private Map<String, String> nextBuildRuleInWorkUnitByRule = new HashMap<>();
+  private Optional<DistributableBuildGraph> buildGraph = Optional.empty();
 
   private final Clock clock;
-
   private final StampedeId stampedeId;
 
   public DistBuildTraceTracker(StampedeId stampedeId) {
@@ -51,18 +52,20 @@ public class DistBuildTraceTracker {
     this.clock = clock;
   }
 
+  public void setBuildGraph(DistributableBuildGraph graph) {
+    this.buildGraph = Optional.of(graph);
+  }
+
   private void minionGotWork(List<WorkUnit> workUnits, long now) {
     for (WorkUnit workUnit : workUnits) {
       for (String buildTarget : workUnit.buildTargets) {
-        Long prev = jobStartedEpochMillisByJobId.put(buildTarget, now);
-        Preconditions.checkState(prev == null, "must not override previous entries");
+        jobStartedEpochMillisByJobId.put(buildTarget, now);
       }
 
       for (int i = 1; i < workUnit.buildTargets.size(); i++) {
         String buildTarget = workUnit.buildTargets.get(i);
         String prevBuildTarget = workUnit.buildTargets.get(i - 1);
-        String prev = nextBuildRuleInWorkUnitByRule.put(prevBuildTarget, buildTarget);
-        Preconditions.checkState(prev == null, "must not override previous entries");
+        nextBuildRuleInWorkUnitByRule.put(prevBuildTarget, buildTarget);
       }
     }
   }
@@ -81,6 +84,11 @@ public class DistBuildTraceTracker {
       if (nextRule != null) {
         jobStartedEpochMillisByJobId.put(nextRule, now);
       }
+      // TODO(shivanker): There's a small bug here. In an unlikely case, 2 nodes of the same work
+      // unit could be reported finished in the same request. For such a scenario, this code will
+      // mark the first rule in the unit to have taken up all the time, and the rest of the rules
+      // in the work unit will appear to have finished in zero time. The code complexity added to
+      // solve this bug does not quite justify the importance of solving it IMHO.
     }
   }
 
@@ -91,7 +99,7 @@ public class DistBuildTraceTracker {
     minionGotWork(newWorkUnits, now);
   }
 
-  public DistBuildTrace snapshot() {
-    return new DistBuildTrace(stampedeId, new HashMap<>(rulesByMinionId));
+  public DistBuildTrace generateTrace() {
+    return new DistBuildTrace(stampedeId, new HashMap<>(rulesByMinionId), buildGraph);
   }
 }

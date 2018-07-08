@@ -19,15 +19,14 @@ package com.facebook.buck.event.listener;
 import com.facebook.buck.artifact_cache.ArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.CacheResultType;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
+import com.facebook.buck.core.build.event.BuildRuleEvent;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.BuildRuleKeys;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleEvent;
-import com.facebook.buck.rules.BuildRuleKeys;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.ThrowingPrintWriter;
 import com.google.common.eventbus.Subscribe;
@@ -125,10 +124,14 @@ public class RuleKeyLoggerListener implements BuckEventListener {
   }
 
   @Override
-  public void outputTrace(BuildId buildId) throws InterruptedException {
+  public void close() {
     submitFlushLogLines();
     outputExecutor.shutdown();
-    outputExecutor.awaitTermination(1, TimeUnit.HOURS);
+    try {
+      outputExecutor.awaitTermination(1, TimeUnit.HOURS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
   }
 
   public Path getLogFilePath() {

@@ -15,8 +15,8 @@
  */
 package com.facebook.buck.distributed.build_client;
 
+import com.facebook.buck.core.build.distributed.synchronization.RemoteBuildRuleCompletionNotifier;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.RemoteBuildRuleCompletionNotifier;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -78,6 +78,18 @@ public class BuildRuleEventManager {
     allBuildRulesFinishedEventReceived = true;
   }
 
+  /**
+   * Records the receipt of a BuildRuleUnlocked event. As we do not expect remote machines taking
+   * part in the build to be uploading artifacts for the rule, we signal completion immediately to
+   * unlock the rule and allow local client to progress with the build.
+   *
+   * @param buildTarget
+   */
+  public void recordBuildRuleUnlockedEvent(String buildTarget) {
+    LOG.debug(String.format("Received BUILD_RULE_UNLOCKED_EVENT for [%s].", buildTarget));
+    remoteBuildRuleCompletionNotifier.signalCompletionOfBuildRule(buildTarget);
+  }
+
   /** @return true if ALL_BUILD_RULES_FINISHED_EVENT received. */
   public synchronized boolean allBuildRulesFinishedEventReceived() {
     return allBuildRulesFinishedEventReceived;
@@ -85,7 +97,7 @@ public class BuildRuleEventManager {
 
   public synchronized void mostBuildRulesFinishedEventReceived() {
     LOG.info("Received MOST_BUILD_RULES_FINISHED_EVENT");
-    remoteBuildRuleCompletionNotifier.signalMostBuildRulesFinished();
+    remoteBuildRuleCompletionNotifier.signalMostBuildRulesFinished(/*success*/ true);
   }
 
   /**
@@ -98,8 +110,10 @@ public class BuildRuleEventManager {
           "flushAllPendingBuildRuleFinishedEvents(..) called without first receiving ALL_BUILD_RULES_FINISHED_EVENT");
     }
 
-    if (pendingBuildRuleFinishedEvent.size() == 0) {
-      return;
+    synchronized (this) {
+      if (pendingBuildRuleFinishedEvent.size() == 0) {
+        return;
+      }
     }
 
     List<TimestampedBuildRuleFinishedEvent> eventsToPublish = Lists.newArrayList();
@@ -133,8 +147,10 @@ public class BuildRuleEventManager {
    * Publishes results of pending BuildRuleFinishedEvent that have already synchronized with cache.
    */
   public void publishCacheSynchronizedBuildRuleFinishedEvents() {
-    if (pendingBuildRuleFinishedEvent.size() == 0) {
-      return;
+    synchronized (this) {
+      if (pendingBuildRuleFinishedEvent.size() == 0) {
+        return;
+      }
     }
 
     List<TimestampedBuildRuleFinishedEvent> eventsToPublish = Lists.newArrayList();
@@ -153,6 +169,7 @@ public class BuildRuleEventManager {
     Thread.sleep(millis);
   }
 
+  @GuardedBy("this")
   private void findAllCacheSynchronizedBuildRules(
       List<TimestampedBuildRuleFinishedEvent> eventsToPublish) {
     long currentTimeMillis = clock.currentTimeMillis();

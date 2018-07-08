@@ -16,10 +16,10 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.rules.KnownBuildRuleTypes;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.io.PrintStream;

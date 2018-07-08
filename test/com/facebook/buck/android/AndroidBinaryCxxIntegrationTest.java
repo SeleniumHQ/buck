@@ -90,12 +90,26 @@ public class AndroidBinaryCxxIntegrationTest extends AbiCompilationModeTest {
             workspace.getPath(
                 BuildTargets.getGenPath(
                     filesystem, BuildTargetFactory.newInstance(target), "%s.apk")));
-    zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
-    zipInspector.assertFileExists("lib/armeabi/libgnustl_shared.so");
     zipInspector.assertFileExists("lib/armeabi-v7a/libnative_cxx_lib.so");
     zipInspector.assertFileExists("lib/armeabi-v7a/libgnustl_shared.so");
     zipInspector.assertFileExists("lib/x86/libnative_cxx_lib.so");
     zipInspector.assertFileExists("lib/x86/libgnustl_shared.so");
+  }
+
+  @Test
+  public void testCxxLibraryDepStaticRuntime() throws IOException {
+    String target = "//apps/sample:app_cxx_lib_dep";
+    workspace.runBuckCommand("build", "-c", "ndk.cxx_runtime_type=static", target).assertSuccess();
+
+    ZipInspector zipInspector =
+        new ZipInspector(
+            workspace.getPath(
+                BuildTargets.getGenPath(
+                    filesystem, BuildTargetFactory.newInstance(target), "%s.apk")));
+    zipInspector.assertFileExists("lib/armeabi-v7a/libnative_cxx_lib.so");
+    zipInspector.assertFileDoesNotExist("lib/armeabi-v7a/libgnustl_shared.so");
+    zipInspector.assertFileExists("lib/x86/libnative_cxx_lib.so");
+    zipInspector.assertFileDoesNotExist("lib/x86/libgnustl_shared.so");
   }
 
   @Test
@@ -108,8 +122,6 @@ public class AndroidBinaryCxxIntegrationTest extends AbiCompilationModeTest {
             workspace.getPath(
                 BuildTargets.getGenPath(
                     filesystem, BuildTargetFactory.newInstance(target), "%s.apk")));
-    zipInspector.assertFileDoesNotExist("lib/armeabi/libnative_cxx_lib.so");
-    zipInspector.assertFileExists("lib/armeabi/libgnustl_shared.so");
     zipInspector.assertFileDoesNotExist("lib/armeabi-v7a/libnative_cxx_lib.so");
     zipInspector.assertFileExists("lib/armeabi-v7a/libgnustl_shared.so");
     zipInspector.assertFileDoesNotExist("lib/x86/libnative_cxx_lib.so");
@@ -131,8 +143,6 @@ public class AndroidBinaryCxxIntegrationTest extends AbiCompilationModeTest {
             workspace.getPath(
                 BuildTargets.getGenPath(
                     filesystem, BuildTargetFactory.newInstance(target), "%s.apk")));
-    zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
-    zipInspector.assertFileExists("lib/armeabi/libc++_shared.so");
     zipInspector.assertFileExists("lib/armeabi-v7a/libnative_cxx_lib.so");
     zipInspector.assertFileExists("lib/armeabi-v7a/libc++_shared.so");
     zipInspector.assertFileExists("lib/x86/libnative_cxx_lib.so");
@@ -149,7 +159,9 @@ public class AndroidBinaryCxxIntegrationTest extends AbiCompilationModeTest {
             workspace.getPath(
                 BuildTargets.getGenPath(
                     filesystem, BuildTargetFactory.newInstance(target), "%s.apk")));
-    zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
+    if (AssumeAndroidPlatform.isArmAvailable()) {
+      zipInspector.assertFileExists("lib/armeabi/libnative_cxx_lib.so");
+    }
     zipInspector.assertFileExists("lib/armeabi-v7a/libnative_cxx_lib.so");
     zipInspector.assertFileExists("lib/x86/libnative_cxx_lib.so");
   }
@@ -164,7 +176,6 @@ public class AndroidBinaryCxxIntegrationTest extends AbiCompilationModeTest {
             workspace.getPath(
                 BuildTargets.getGenPath(
                     filesystem, BuildTargetFactory.newInstance(target), "%s.apk")));
-    zipInspector.assertFileDoesNotExist("lib/armeabi/libgnustl_shared.so");
     zipInspector.assertFileDoesNotExist("lib/armeabi-v7a/libgnustl_shared.so");
     zipInspector.assertFileDoesNotExist("lib/x86/libgnustl_shared.so");
   }
@@ -211,5 +222,14 @@ public class AndroidBinaryCxxIntegrationTest extends AbiCompilationModeTest {
     zipInspector.assertFileDoesNotExist("lib/armeabi/libgnustl_shared.so");
     zipInspector.assertFileExists("lib/x86/libnative_cxx_x86-only.so");
     zipInspector.assertFileExists("lib/x86/libgnustl_shared.so");
+  }
+
+  @Test
+  public void testCxxLibraryDepWithUnifiedHeaders() throws IOException {
+    AssumeAndroidPlatform.assumeUnifiedHeadersAvailable();
+
+    String target = "//apps/sample:app_cxx_lib_dep";
+    workspace.addBuckConfigLocalOption("nkd", "use_unified_headers", "true");
+    workspace.runBuckCommand("build", target).assertSuccess();
   }
 }

@@ -18,8 +18,8 @@ package com.facebook.buck.testutil;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-import com.facebook.buck.io.file.MoreFiles;
-import com.facebook.buck.model.BuckVersion;
+import com.facebook.buck.io.file.MostFiles;
+import com.facebook.buck.rules.keys.config.impl.BuckVersion;
 import com.facebook.buck.util.BuckConstant;
 import com.facebook.buck.util.environment.Platform;
 import com.fasterxml.jackson.annotation.JsonValue;
@@ -47,12 +47,14 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.spi.FileSystemProvider;
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
 
 /**
  * {@link AbstractWorkspace} is a directory that contains a Buck project, complete with build files.
@@ -134,15 +136,19 @@ public abstract class AbstractWorkspace {
   }
 
   private void saveBuckConfigLocal() throws IOException {
+    writeContentsToPath(convertToBuckConfig(localConfigs), ".buckconfig.local");
+  }
+
+  protected static String convertToBuckConfig(Map<String, Map<String, String>> configs) {
     StringBuilder contents = new StringBuilder();
-    for (Map.Entry<String, Map<String, String>> section : localConfigs.entrySet()) {
+    for (Map.Entry<String, Map<String, String>> section : configs.entrySet()) {
       contents.append("[").append(section.getKey()).append("]\n\n");
       for (Map.Entry<String, String> option : section.getValue().entrySet()) {
         contents.append(option.getKey()).append(" = ").append(option.getValue()).append("\n");
       }
       contents.append("\n");
     }
-    writeContentsToPath(contents.toString(), ".buckconfig.local");
+    return contents.toString();
   }
 
   /**
@@ -156,6 +162,25 @@ public abstract class AbstractWorkspace {
   public void addBuckConfigLocalOption(String section, String key, String value)
       throws IOException {
     getBuckConfigLocalSection(section).put(key, value);
+    saveBuckConfigLocal();
+  }
+
+  /**
+   * Overrides buckconfig options with the given values in a map of {section: {key: value}}
+   *
+   * @throws IOException when saving the new BuckConfigLocal has an issue
+   */
+  public void addBuckConfigLocalOptions(Map<String, Map<String, String>> localConfigs)
+      throws IOException {
+    if (localConfigs.isEmpty()) {
+      // avoid saving if there's nothing in the map
+      return;
+    }
+    for (Map.Entry<String, Map<String, String>> section : localConfigs.entrySet()) {
+      for (Map.Entry<String, String> option : section.getValue().entrySet()) {
+        getBuckConfigLocalSection(section.getKey()).put(option.getKey(), option.getValue());
+      }
+    }
     saveBuckConfigLocal();
   }
 
@@ -188,12 +213,11 @@ public abstract class AbstractWorkspace {
     }
   }
 
-  private void ensureNoLocalBuckConfig() throws IOException {
-    if (Files.exists(getPath(".buckconfig.local"))) {
+  private void ensureNoLocalBuckConfig(Path templatePath) throws IOException {
+    if (Files.exists(templatePath.resolve(".buckconfig.local"))) {
       throw new IllegalStateException(
           "Found a .buckconfig.local in the Workspace template, which is illegal."
-              + "  Use addBuckConfigLocalOption instead."
-              + "  This can also happen if workspace.setUp() is called twice.");
+              + "  Use addBuckConfigLocalOption instead.");
     }
   }
 
@@ -273,21 +297,34 @@ public abstract class AbstractWorkspace {
       return;
     }
     Path outputPath = templatePath.relativize(optionalOutputPath.get());
+    Path targetPath = destPath.resolve(outputPath.toString());
 
     try (InputStream inStream = provider.newInputStream(contentPath);
-        FileOutputStream outStream =
-            new FileOutputStream(destPath.resolve(outputPath.toString()).toString())) {
+        FileOutputStream outStream = new FileOutputStream(targetPath.toString())) {
       byte[] buffer = new byte[inStream.available()];
       inStream.read(buffer);
       outStream.write(buffer);
     }
+    if (Platform.detect() == Platform.WINDOWS) {
+      return;
+    }
+    // require that certain files are executable.
+    // the jar process removes any granularity around this, so we give everything the permission
+    Set<PosixFilePermission> targetPermissions = Files.getPosixFilePermissions(targetPath);
+    targetPermissions.add(PosixFilePermission.OWNER_EXECUTE);
+    targetPermissions.add(PosixFilePermission.GROUP_EXECUTE);
+    targetPermissions.add(PosixFilePermission.OTHERS_EXECUTE);
+    Files.setPosixFilePermissions(targetPath, targetPermissions);
+  }
+
+  private void preAddTemplateActions(Path templatePath) throws IOException {
+    ensureNoLocalBuckConfig(templatePath);
   }
 
   private void postAddTemplateActions() throws IOException {
     if (!firstTemplateAdded) {
       firstTemplateAdded = true;
       stampBuckVersion();
-      ensureNoLocalBuckConfig();
       addDefaultLocalBuckConfigs();
       ensureWatchmanConfig();
     }
@@ -298,8 +335,9 @@ public abstract class AbstractWorkspace {
    * in the process. Files whose names end in {@code .expected} will not be copied.
    */
   public void addTemplateToWorkspace(Path templatePath) throws IOException {
+    preAddTemplateActions(templatePath);
     // renames those with FIXTURE_SUFFIX, removes those with EXPECTED_SUFFIX
-    MoreFiles.copyRecursively(
+    MostFiles.copyRecursively(
         templatePath, destPath, (Path path) -> copyFilePath(path).orElse(null));
 
     if (Platform.detect() == Platform.WINDOWS) {
@@ -330,7 +368,7 @@ public abstract class AbstractWorkspace {
                   Files.copy(linkToFile, path, StandardCopyOption.REPLACE_EXISTING);
                 } else if (Files.isDirectory(linkToFile)) {
                   Files.delete(path);
-                  MoreFiles.copyRecursively(linkToFile, path);
+                  MostFiles.copyRecursively(linkToFile, path);
                 }
               }
               return FileVisitResult.CONTINUE;
@@ -375,7 +413,8 @@ public abstract class AbstractWorkspace {
     URI jarURI = URI.create(jarSplit[0]);
     FileSystem testDataFS = getOrCreateJarFileSystem(jarURI);
     FileSystemProvider provider = testDataFS.provider();
-    Path templatePath = testDataFS.getPath(jarSplit[1].toString(), templateName);
+    Path templatePath = testDataFS.getPath(jarSplit[1], templateName);
+    preAddTemplateActions(templatePath);
 
     copyTemplateToWorkspace(provider, templatePath);
     postAddTemplateActions();
@@ -515,7 +554,7 @@ public abstract class AbstractWorkspace {
    * @throws IOException
    */
   public void copyRecursively(Path source, Path pathRelativeToWorkspaceRoot) throws IOException {
-    MoreFiles.copyRecursively(source, destPath.resolve(pathRelativeToWorkspaceRoot));
+    MostFiles.copyRecursively(source, destPath.resolve(pathRelativeToWorkspaceRoot));
   }
 
   /**

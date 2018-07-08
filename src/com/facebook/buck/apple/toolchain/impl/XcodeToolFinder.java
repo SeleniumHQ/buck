@@ -16,6 +16,8 @@
 
 package com.facebook.buck.apple.toolchain.impl;
 
+import com.facebook.buck.apple.AppleConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.file.FileFinder;
 import com.facebook.buck.util.RichStream;
@@ -38,9 +40,11 @@ import javax.annotation.Nonnull;
 
 public final class XcodeToolFinder {
   private final Platform platform;
+  private final AppleConfig appleConfig;
 
-  public XcodeToolFinder() {
+  public XcodeToolFinder(AppleConfig appleConfig) {
     this.platform = Platform.detect();
+    this.appleConfig = appleConfig;
   }
 
   private final LoadingCache<Path, ImmutableSet<Path>> directoryContentsCache =
@@ -58,10 +62,21 @@ public final class XcodeToolFinder {
               });
 
   public Optional<Path> getToolPath(ImmutableList<Path> searchPath, String toolName) {
+    Optional<Path> toolPath = appleConfig.getXcodeToolReplacement(toolName);
+    if (toolPath.isPresent()) {
+      if (ExecutableFinder.isExecutable(toolPath.get())) {
+        return toolPath;
+      } else {
+        throw new HumanReadableException(
+            "Could not find executable at %s. apple.%s_replacement must point to valid executable",
+            toolPath.get(), toolName);
+      }
+    }
+
     return FileFinder.getOptionalFile(
         FileFinder.combine(
             ImmutableSet.of(),
-            toolName,
+            appleConfig.getXcodeToolName(toolName),
             ExecutableFinder.getExecutableSuffixes(platform, ImmutableMap.of())),
         searchPath,
         (path) -> {

@@ -6,9 +6,9 @@ java_library(
     ],
     visibility = ["PUBLIC"],
     deps = [
+        "//src/com/facebook/buck/core/rules/impl:impl",
+        "//src/com/facebook/buck/core/sourcepath/resolver:resolver",
         "//src/com/facebook/buck/model:model",
-        "//src/com/facebook/buck/rules:build_rule",
-        "//src/com/facebook/buck/rules:source_path",
         "//src/com/facebook/buck/util:util",
         "//src/com/facebook/buck/util/unarchive:unarchive",
         "//third-party/java/guava:guava",
@@ -23,7 +23,8 @@ java_library(
         "JavaPackageFinder.java",
     ],
     visibility = [
-        "//src/com/facebook/buck/rules:build_context",
+        "//src/com/facebook/buck/core/build/context:context",
+        "//src/com/facebook/buck/rules/modern/builders/...",
         "//src/com/facebook/buck/step:step",
     ],
     deps = ["//src/com/facebook/buck/model:model"],

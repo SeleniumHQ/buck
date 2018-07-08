@@ -16,33 +16,38 @@
 
 package com.facebook.buck.skylark.function;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.hamcrest.core.IsEqual.equalTo;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.skylark.SkylarkFilesystem;
-import com.facebook.buck.skylark.io.impl.SimpleGlobber;
+import com.facebook.buck.skylark.io.impl.NativeGlobber;
 import com.facebook.buck.skylark.packages.PackageContext;
-import com.facebook.buck.skylark.packages.PackageFactory;
+import com.facebook.buck.skylark.parser.context.ParseContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
+import com.google.devtools.build.lib.cmdline.PackageIdentifier;
+import com.google.devtools.build.lib.cmdline.RepositoryName;
 import com.google.devtools.build.lib.events.Event;
+import com.google.devtools.build.lib.events.EventCollector;
 import com.google.devtools.build.lib.events.EventHandler;
 import com.google.devtools.build.lib.events.EventKind;
-import com.google.devtools.build.lib.events.Location;
-import com.google.devtools.build.lib.events.PrintingEventHandler;
-import com.google.devtools.build.lib.syntax.BazelLibrary;
+import com.google.devtools.build.lib.packages.BazelLibrary;
 import com.google.devtools.build.lib.syntax.BuildFileAST;
 import com.google.devtools.build.lib.syntax.Environment;
+import com.google.devtools.build.lib.syntax.FuncallExpression;
 import com.google.devtools.build.lib.syntax.Mutability;
 import com.google.devtools.build.lib.syntax.ParserInputSource;
 import com.google.devtools.build.lib.syntax.SkylarkList;
 import com.google.devtools.build.lib.vfs.FileSystemUtils;
 import com.google.devtools.build.lib.vfs.Path;
+import com.google.devtools.build.lib.vfs.PathFragment;
 import java.io.IOException;
 import java.util.EnumSet;
-import javax.annotation.Nullable;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -50,14 +55,14 @@ import org.junit.Test;
 public class GlobTest {
 
   private Path root;
-  private PrintingEventHandler eventHandler;
+  private EventCollector eventHandler;
 
   @Before
   public void setUp() throws InterruptedException {
     ProjectFilesystem projectFilesystem = FakeProjectFilesystem.createRealTempFilesystem();
     SkylarkFilesystem fileSystem = SkylarkFilesystem.using(projectFilesystem);
     root = fileSystem.getPath(projectFilesystem.getRootPath().toString());
-    eventHandler = new PrintingEventHandler(EnumSet.allOf(EventKind.class));
+    eventHandler = new EventCollector(EnumSet.allOf(EventKind.class));
   }
 
   @Test
@@ -129,39 +134,21 @@ public class GlobTest {
   }
 
   @Test
-  public void testGlobBadPathsFailsWithNiceError() throws Exception {
-    FileSystemUtils.createDirectoryAndParents(root.getChild("some_dir"));
+  public void emptyIncludeListIsReportedAsAWarning() throws Exception {
     Path buildFile = root.getChild("BUCK");
-    FileSystemUtils.writeContentAsLatin1(buildFile, "txts = glob(['non_existent'])");
-
-    SingleCapturingEventHandler handler = new SingleCapturingEventHandler();
-
-    try (Mutability mutability = Mutability.create("BUCK")) {
-      Pair<Boolean, Environment> result = evaluate(buildFile, mutability, handler);
-      Assert.assertFalse(result.getFirst());
-    }
-
-    Event event = handler.getLastEvent();
-    Location loc = event.getLocation();
-    Assert.assertNotNull(loc);
-
-    Assert.assertEquals(1, loc.getStartLine().intValue());
-    Assert.assertEquals(7, loc.getStartOffset());
-    Assert.assertTrue(event.getMessage().matches("Cannot find .*non_existent"));
-  }
-
-  private class SingleCapturingEventHandler implements EventHandler {
-    @Nullable private Event lastEvent;
-
-    @Override
-    public void handle(Event event) {
-      lastEvent = event;
-    }
-
-    @Nullable
-    public Event getLastEvent() {
-      return lastEvent;
-    }
+    FileSystemUtils.writeContentAsLatin1(buildFile, "txts = glob([])");
+    assertThat(
+        assertEvaluate(buildFile).lookup("txts"),
+        equalTo(SkylarkList.createImmutable(ImmutableList.of())));
+    Event event = Iterables.getOnlyElement(eventHandler);
+    assertThat(event.getKind(), is(EventKind.WARNING));
+    assertThat(event.getLocation(), notNullValue());
+    assertThat(
+        event.getMessage(),
+        is(
+            "glob's 'include' attribute is empty. "
+                + "Such calls are expensive and unnecessary. "
+                + "Please use an empty list ([]) instead."));
   }
 
   private Environment assertEvaluate(Path buildFile) throws IOException, InterruptedException {
@@ -192,10 +179,16 @@ public class GlobTest {
             .setGlobals(BazelLibrary.GLOBALS)
             .useDefaultSemantics()
             .build();
-    env.setupDynamic(
-        PackageFactory.PACKAGE_CONTEXT,
-        PackageContext.builder().setGlobber(SimpleGlobber.create(root)).build());
-    env.setup("glob", Glob.create());
+    new ParseContext(
+            PackageContext.builder()
+                .setGlobber(NativeGlobber.create(root))
+                .setPackageIdentifier(
+                    PackageIdentifier.create(RepositoryName.DEFAULT, PathFragment.create("pkg")))
+                .setEventHandler(eventHandler)
+                .build())
+        .setup(env);
+    env.setup(
+        "glob", FuncallExpression.getBuiltinCallable(SkylarkNativeModule.NATIVE_MODULE, "glob"));
     return new Pair<>(buildFileAst.exec(env, eventHandler), env);
   }
 }

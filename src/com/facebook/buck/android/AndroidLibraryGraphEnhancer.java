@@ -16,6 +16,13 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.java.AnnotationProcessingParams;
@@ -23,13 +30,6 @@ import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.DependencyMode;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Preconditions;
@@ -89,10 +89,10 @@ public class AndroidLibraryGraphEnhancer {
   }
 
   public Optional<DummyRDotJava> getBuildableForAndroidResources(
-      BuildRuleResolver ruleResolver, boolean createBuildableIfEmptyDeps) {
+      ActionGraphBuilder graphBuilder, boolean createBuildableIfEmptyDeps) {
     // Check if it exists first, since deciding whether to actually create it requires some
     // computation.
-    Optional<BuildRule> previouslyCreated = ruleResolver.getRuleOptional(dummyRDotJavaBuildTarget);
+    Optional<BuildRule> previouslyCreated = graphBuilder.getRuleOptional(dummyRDotJavaBuildTarget);
     if (previouslyCreated.isPresent()) {
       return previouslyCreated.map(input -> (DummyRDotJava) input);
     }
@@ -122,10 +122,10 @@ public class AndroidLibraryGraphEnhancer {
     }
 
     BuildRule dummyRDotJava =
-        ruleResolver.computeIfAbsent(
+        graphBuilder.computeIfAbsent(
             dummyRDotJavaBuildTarget,
             ignored -> {
-              SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+              SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
               JavacToJarStepFactory compileToJarStepFactory =
                   new JavacToJarStepFactory(

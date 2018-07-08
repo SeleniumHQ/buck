@@ -18,12 +18,12 @@ package com.facebook.buck.android;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -226,8 +226,10 @@ public class AndroidAarIntegrationTest {
     zipInspector.assertFileExists("classes.jar");
     zipInspector.assertFileExists("R.txt");
     zipInspector.assertFileExists("res/");
-    zipInspector.assertFileExists("jni/armeabi/libdep.so");
-    zipInspector.assertFileExists("jni/armeabi/libnative.so");
+    if (AssumeAndroidPlatform.isArmAvailable()) {
+      zipInspector.assertFileExists("jni/armeabi/libdep.so");
+      zipInspector.assertFileExists("jni/armeabi/libnative.so");
+    }
     zipInspector.assertFileExists("jni/armeabi-v7a/libdep.so");
     zipInspector.assertFileExists("jni/armeabi-v7a/libnative.so");
     zipInspector.assertFileExists("jni/x86/libdep.so");
@@ -254,10 +256,37 @@ public class AndroidAarIntegrationTest {
     zipInspector.assertFileExists("classes.jar");
     zipInspector.assertFileExists("R.txt");
     zipInspector.assertFileExists("res/");
-    zipInspector.assertFileExists("assets/lib/armeabi/libfoo.so");
     zipInspector.assertFileExists("assets/lib/armeabi-v7a/libfoo.so");
     zipInspector.assertFileExists("assets/lib/x86/libfoo.so");
+    zipInspector.assertFileExists("jni/armeabi-v7a/libbar.so");
+    zipInspector.assertFileExists("jni/x86/libbar.so");
+  }
+
+  @Test
+  public void testNativeLibraryDependentWithNDKPrior17() throws IOException {
+    AssumeAndroidPlatform.assumeNdkIsAvailable();
+    AssumeAndroidPlatform.assumeArmIsAvailable();
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "android_aar_native_deps/ndk_deps", tmp);
+    workspace.setKnownBuildRuleTypesFactoryFactory(DefaultKnownBuildRuleTypesFactory::of);
+    workspace.setUp();
+    String target = "//:app-16";
+    workspace.runBuckBuild(target).assertSuccess();
+
+    Path aar =
+        workspace.getPath(
+            BuildTargets.getGenPath(
+                filesystem, BuildTargetFactory.newInstance(target), AndroidAar.AAR_FORMAT));
+    ZipInspector zipInspector = new ZipInspector(aar);
+    zipInspector.assertFileExists("AndroidManifest.xml");
+    zipInspector.assertFileExists("classes.jar");
+    zipInspector.assertFileExists("R.txt");
+    zipInspector.assertFileExists("res/");
+    zipInspector.assertFileExists("assets/lib/armeabi/libfoo.so");
     zipInspector.assertFileExists("jni/armeabi/libbar.so");
+    zipInspector.assertFileExists("assets/lib/armeabi-v7a/libfoo.so");
+    zipInspector.assertFileExists("assets/lib/x86/libfoo.so");
     zipInspector.assertFileExists("jni/armeabi-v7a/libbar.so");
     zipInspector.assertFileExists("jni/x86/libbar.so");
   }

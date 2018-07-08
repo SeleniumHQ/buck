@@ -32,16 +32,16 @@ import static org.junit.Assume.assumeTrue;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.DirArtifactCacheTestUtil;
 import com.facebook.buck.artifact_cache.TestArtifactCaches;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.json.HasJsonField;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.testutil.JsonMatcher;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -51,8 +51,8 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.base.Strings;
@@ -163,7 +163,7 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
         DirArtifactCacheTestUtil.getPathForRuleKey(
             dirCache, new RuleKey(ruleKey.asHashCode()), Optional.empty());
     FileSystem zipFs = FileSystems.newFileSystem(artifactZip, /* loader */ null);
-    Path outputInZip = zipFs.getPath("/" + outputPath.toString());
+    Path outputInZip = zipFs.getPath("/" + outputPath);
     new ZipOutputStream(Files.newOutputStream(outputInZip, StandardOpenOption.TRUNCATE_EXISTING))
         .close();
     zipFs.close();
@@ -629,18 +629,18 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
     Path bizClassUsageFilePath =
         BuildTargets.getGenPath(filesystem, bizTarget, "lib__%s__output/used-classes.json");
 
-    final List<String> lines = Files.readAllLines(workspace.getPath(bizClassUsageFilePath), UTF_8);
+    List<String> lines = Files.readAllLines(workspace.getPath(bizClassUsageFilePath), UTF_8);
 
     assertEquals("Expected just one line of JSON", 1, lines.size());
 
-    final String utilJarPath;
+    String utilJarPath;
     if (compileAgainstAbis.equals(TRUE)) {
       utilJarPath =
           MorePaths.pathWithPlatformSeparators("buck-out/gen/util#class-abi/util-abi.jar");
     } else {
       utilJarPath = MorePaths.pathWithPlatformSeparators("buck-out/gen/lib__util__output/util.jar");
     }
-    final String utilClassPath = MorePaths.pathWithPlatformSeparators("com/example/Util.class");
+    String utilClassPath = MorePaths.pathWithPlatformSeparators("com/example/Util.class");
 
     JsonNode jsonNode = ObjectMappers.READER.readTree(lines.get(0));
     assertThat(
@@ -660,25 +660,25 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
     BuildTarget bizTarget = BuildTargetFactory.newInstance("//:biz");
     workspace.runBuckBuild(bizTarget.getFullyQualifiedName()).assertSuccess();
 
-    final BuckBuildLog cleanBuildLog = workspace.getBuildLog();
+    BuckBuildLog cleanBuildLog = workspace.getBuildLog();
     cleanBuildLog.assertTargetBuiltLocally("away_cell//util:util");
     cleanBuildLog.assertTargetBuiltLocally("//:biz");
 
     // Edit the file not used by the local target and assert we get a dep file hit
     workspace.replaceFileContents(
-        crossCellRoot.resolve("util/MoreUtil.java").toString(), "//public_method", "");
+        crossCellRoot.resolve("util/MoreUtil.java").toString(), "// public_method", "");
     workspace.runBuckBuild(bizTarget.getFullyQualifiedName()).assertSuccess();
 
-    final BuckBuildLog depFileHitLog = workspace.getBuildLog();
+    BuckBuildLog depFileHitLog = workspace.getBuildLog();
     depFileHitLog.assertTargetBuiltLocally("away_cell//util:util");
     depFileHitLog.assertTargetHadMatchingDepfileRuleKey("//:biz");
 
     // Now edit the file not used by the local target and assert we don't get a false cache hit
     workspace.replaceFileContents(
-        crossCellRoot.resolve("util/Util.java").toString(), "//public_method", "");
+        crossCellRoot.resolve("util/Util.java").toString(), "// public_method", "");
     workspace.runBuckBuild(bizTarget.getFullyQualifiedName()).assertSuccess();
 
-    final BuckBuildLog depFileMissLog = workspace.getBuildLog();
+    BuckBuildLog depFileMissLog = workspace.getBuildLog();
     depFileMissLog.assertTargetBuiltLocally("away_cell//util:util");
     depFileMissLog.assertTargetBuiltLocally("//:biz");
   }
@@ -696,9 +696,9 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
     Path bizClassUsageFilePath =
         BuildTargets.getGenPath(filesystem, bizTarget, "lib__%s__output/used-classes.json");
 
-    final String usedClasses = getContents(workspace.getPath(bizClassUsageFilePath));
+    String usedClasses = getContents(workspace.getPath(bizClassUsageFilePath));
 
-    final String utilJarPath;
+    String utilJarPath;
     if (compileAgainstAbis.equals(TRUE)) {
       utilJarPath =
           MorePaths.pathWithPlatformSeparators(
@@ -708,9 +708,9 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
           MorePaths.pathWithPlatformSeparators(
               "/away_cell/buck-out/gen/util/lib__util__output/util.jar");
     }
-    final String utilClassPath = MorePaths.pathWithPlatformSeparators("com/example/Util.class");
+    String utilClassPath = MorePaths.pathWithPlatformSeparators("com/example/Util.class");
 
-    final JsonMatcher expectedOutputMatcher =
+    JsonMatcher expectedOutputMatcher =
         new JsonMatcher(String.format("{ \"%s\": [ \"%s\" ] }", utilJarPath, utilClassPath));
     assertThat(usedClasses, expectedOutputMatcher);
   }
@@ -1029,6 +1029,54 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
             "    When building rule //:main."));
   }
 
+  @Test
+  public void testExportedProvidedDepsPropagated() throws IOException {
+    setUpProjectWorkspaceForScenario("exported_provided_deps");
+
+    ProcessResult buildResult =
+        workspace.runBuckCommand("build", "//:lib_with_implicit_dep_on_provided_lib");
+    buildResult.assertSuccess();
+
+    workspace.verify();
+  }
+
+  @Test
+  public void testExportedProvidedDepsPropagatedThroughExportedDeps() throws IOException {
+    setUpProjectWorkspaceForScenario("exported_provided_deps");
+
+    ProcessResult buildResult =
+        workspace.runBuckCommand(
+            "build", "//:lib_with_implicit_dep_on_provided_lib_through_exported_deps");
+    buildResult.assertSuccess();
+
+    workspace.verify();
+  }
+
+  @Test
+  public void testExportedProvidedDepsPropagatedThroughProvidedDeps() throws IOException {
+    setUpProjectWorkspaceForScenario("exported_provided_deps");
+
+    ProcessResult buildResult =
+        workspace.runBuckCommand(
+            "build", "//:lib_with_implicit_dep_on_provided_lib_through_provided_deps");
+    buildResult.assertSuccess();
+
+    workspace.verify();
+  }
+
+  @Test
+  public void testExportedProvidedDepsPropagatedThroughExportedDepsOfAnotherLibrary()
+      throws IOException {
+    setUpProjectWorkspaceForScenario("exported_provided_deps");
+
+    ProcessResult buildResult =
+        workspace.runBuckCommand(
+            "build", "//:lib_with_implicit_dep_on_provided_lib_through_exported_library_deps");
+    buildResult.assertSuccess();
+
+    workspace.verify();
+  }
+
   /** Asserts that the specified file exists and returns its contents. */
   private String getContents(Path relativePathToFile) throws IOException {
     Path file = workspace.getPath(relativePathToFile);
@@ -1039,7 +1087,7 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
   }
 
   private ImmutableList<Path> getAllFilesInPath(Path path) throws IOException {
-    final List<Path> allFiles = new ArrayList<>();
+    List<Path> allFiles = new ArrayList<>();
     Files.walkFileTree(
         path,
         ImmutableSet.of(),

@@ -16,10 +16,10 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.ProcessExecutor;
@@ -98,6 +98,7 @@ public class JUnitStep extends ShellStep {
     ImmutableMap.Builder<String, String> env = ImmutableMap.builder();
     env.putAll(this.env);
     env.putAll(nativeLibsEnvironment);
+    env.putAll(junitJvmArgs.getEnvironment());
     return env.build();
   }
 
@@ -111,7 +112,7 @@ public class JUnitStep extends ShellStep {
   }
 
   @Override
-  protected Optional<Consumer<Process>> getTimeoutHandler(final ExecutionContext context) {
+  protected Optional<Consumer<Process>> getTimeoutHandler(ExecutionContext context) {
     return Optional.of(
         process -> {
           Optional<Long> pid = Optional.empty();

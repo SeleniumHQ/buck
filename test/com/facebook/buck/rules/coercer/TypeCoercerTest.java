@@ -18,6 +18,7 @@ package com.facebook.buck.rules.coercer;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -25,15 +26,15 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.SourceWithFlags;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourceWithFlags;
-import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.util.types.Pair;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -52,6 +53,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import org.hamcrest.Matcher;
 import org.hamcrest.Matchers;
@@ -96,8 +98,7 @@ public class TypeCoercerTest {
   }
 
   @Test
-  public void coercingSortedSetsShouldThrowOnDuplicates()
-      throws CoerceFailedException, NoSuchFieldException {
+  public void coercingSortedSetsShouldThrowOnDuplicates() throws NoSuchFieldException {
     Type type = TestFields.class.getField("sortedSetOfStrings").getGenericType();
     TypeCoercer<?> coercer = typeCoercerFactory.typeCoercerForType(type);
 
@@ -170,7 +171,7 @@ public class TypeCoercerTest {
         (TypeCoercer<ImmutableMap<String, ImmutableList<String>>>)
             typeCoercerFactory.typeCoercerForType(type);
 
-    final ImmutableMap<String, ImmutableList<String>> input =
+    ImmutableMap<String, ImmutableList<String>> input =
         ImmutableMap.of(
             "foo", ImmutableList.of("//foo:bar", "//foo:baz"),
             "bar", ImmutableList.of(":bar", "//foo:foo"));
@@ -286,7 +287,7 @@ public class TypeCoercerTest {
         (TypeCoercer<Either<String, List<String>>>) typeCoercerFactory.typeCoercerForType(type);
 
     TestTraversal traversal = new TestTraversal();
-    Either<String, List<String>> input = Either.ofRight((List<String>) ImmutableList.of("foo"));
+    Either<String, List<String>> input = Either.ofRight(ImmutableList.of("foo"));
     coercer.traverse(cellRoots, input, traversal);
     assertThat(
         traversal.getObjects(),
@@ -299,7 +300,7 @@ public class TypeCoercerTest {
     Either<String, List<String>> input2 = Either.ofLeft("foo");
     coercer.traverse(cellRoots, input2, traversal);
     assertThat(traversal.getObjects(), hasSize(1));
-    assertThat(traversal.getObjects().get(0), sameInstance((Object) "foo"));
+    assertThat(traversal.getObjects().get(0), sameInstance("foo"));
   }
 
   static class TestTraversal implements TypeCoercer.Traversal {
@@ -418,19 +419,77 @@ public class TypeCoercerTest {
 
     ImmutableList<?> input =
         ImmutableList.of(
-            ImmutableList.of(0.0, "//some:build-target"),
-            ImmutableList.of(0.9, "//other/build:target"),
-            ImmutableList.of(1.0, "//:target", "some/path.py"));
+            ImmutableList.of(0, "//some:build-target"),
+            ImmutableList.of(90, "//other/build:target"),
+            ImmutableList.of(100, "//:target", "some/path.py"));
     Object result = coercer.coerce(cellRoots, filesystem, Paths.get(""), input);
     ImmutableList<NeededCoverageSpec> expectedResult =
         ImmutableList.of(
             NeededCoverageSpec.of(
-                0.0f, BuildTargetFactory.newInstance("//some:build-target"), Optional.empty()),
+                0, BuildTargetFactory.newInstance("//some:build-target"), Optional.empty()),
             NeededCoverageSpec.of(
-                0.9f, BuildTargetFactory.newInstance("//other/build:target"), Optional.empty()),
+                90, BuildTargetFactory.newInstance("//other/build:target"), Optional.empty()),
             NeededCoverageSpec.of(
-                1.0f, BuildTargetFactory.newInstance("//:target"), Optional.of("some/path.py")));
+                100, BuildTargetFactory.newInstance("//:target"), Optional.of("some/path.py")));
     assertEquals(expectedResult, result);
+  }
+
+  @Test
+  public void invalidCoverageResultsInError() throws NoSuchFieldException {
+    Type type = TestFields.class.getField("listOfNeededCoverageSpecs").getGenericType();
+    TypeCoercer<?> coercer = typeCoercerFactory.typeCoercerForType(type);
+
+    try {
+      coercer.coerce(
+          cellRoots,
+          filesystem,
+          Paths.get(""),
+          ImmutableList.of(ImmutableList.of(-5, "//some:build-target")));
+      fail(String.format("%d should not be convertable to a spec", -5));
+    } catch (CoerceFailedException e) {
+      assertThat(
+          e.getMessage(),
+          Matchers.endsWith("the needed coverage ratio should be in range [0, 100]"));
+    }
+
+    try {
+      coercer.coerce(
+          cellRoots,
+          filesystem,
+          Paths.get(""),
+          ImmutableList.of(ImmutableList.of(101, "//some:build-target")));
+      fail(String.format("%d should not be convertable to a spec", 101));
+    } catch (CoerceFailedException e) {
+      assertThat(
+          e.getMessage(),
+          Matchers.endsWith("the needed coverage ratio should be in range [0, 100]"));
+    }
+
+    try {
+      coercer.coerce(
+          cellRoots,
+          filesystem,
+          Paths.get(""),
+          ImmutableList.of(ImmutableList.of(50.5f, "//some:build-target")));
+      fail(String.format("%f should not be convertable to a spec", 50.5f));
+    } catch (CoerceFailedException e) {
+      assertThat(
+          e.getMessage(),
+          Matchers.endsWith("the needed coverage ratio should be an integral number"));
+    }
+
+    try {
+      coercer.coerce(
+          cellRoots,
+          filesystem,
+          Paths.get(""),
+          ImmutableList.of(ImmutableList.of(0.3f, "//some:build-target")));
+      fail(String.format("%f should not be convertable to a spec", 0.3f));
+    } catch (CoerceFailedException e) {
+      assertThat(
+          e.getMessage(),
+          Matchers.endsWith("the needed coverage ratio should be an integral number"));
+    }
   }
 
   @Test
@@ -670,6 +729,11 @@ public class TypeCoercerTest {
     coercer.coerce(cellRoots, filesystem, Paths.get(""), map);
   }
 
+  @Test
+  public void optionalIntCoercerIsRegistered() {
+    assertThat(typeCoercerFactory.typeCoercerForType(OptionalInt.class), notNullValue());
+  }
+
   @BuckStyleImmutable
   @Value.Immutable
   interface AbstractSomeImmutable {
@@ -741,7 +805,7 @@ public class TypeCoercerTest {
     public ImmutableList<NeededCoverageSpec> listOfNeededCoverageSpecs;
   }
 
-  private static enum TestEnum {
+  private enum TestEnum {
     RED,
     PURPLE,
     yellow,

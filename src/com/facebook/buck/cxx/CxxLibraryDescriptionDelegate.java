@@ -16,13 +16,14 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.args.Arg;
 import com.google.common.collect.ImmutableList;
 import java.util.Optional;
@@ -40,7 +41,7 @@ public interface CxxLibraryDescriptionDelegate {
    * public input.
    */
   Optional<CxxPreprocessorInput> getPreprocessorInput(
-      BuildTarget target, BuildRuleResolver resolver, CxxPlatform platform);
+      BuildTarget target, ActionGraphBuilder graphBuilder, CxxPlatform platform);
 
   /**
    * Defines an additional preprocessor input for the private interface exposed by a target. The
@@ -48,34 +49,38 @@ public interface CxxLibraryDescriptionDelegate {
    * private input.
    */
   Optional<CxxPreprocessorInput> getPrivatePreprocessorInput(
-      BuildTarget target, BuildRuleResolver resolver, CxxPlatform platform);
+      BuildTarget target, ActionGraphBuilder graphBuilder, CxxPlatform platform);
 
   /**
    * Defines an additional private {@link HeaderSymlinkTree} that will be used when compiling the
    * the library.
    */
   Optional<HeaderSymlinkTree> getPrivateHeaderSymlinkTree(
-      BuildTarget buildTarget, BuildRuleResolver ruleResolver, CxxPlatform cxxPlatform);
+      BuildTarget buildTarget, ActionGraphBuilder graphBuilder, CxxPlatform cxxPlatform);
 
   /**
    * Defines the paths to object files (i.e., .o files) that will be combined into the final product
    * of {@link com.facebook.buck.cxx.CxxLibraryDescription}. If the paths depend on build rules, you
-   * must use {@link com.facebook.buck.rules.ExplicitBuildTargetSourcePath} to make sure the build
-   * rule deps are correctly set up.
+   * must use {@link ExplicitBuildTargetSourcePath} to make sure the build rule deps are correctly
+   * set up.
    */
   Optional<ImmutableList<SourcePath>> getObjectFilePaths(
-      BuildTarget target, BuildRuleResolver resolver, CxxPlatform platform);
+      BuildTarget target, ActionGraphBuilder graphBuilder, CxxPlatform platform);
 
   /**
    * Provides the ability for the plugin to provide additional {@link NativeLinkable}s that will be
    * exported.
    */
   Optional<ImmutableList<NativeLinkable>> getNativeLinkableExportedDeps(
-      BuildTarget target, BuildRuleResolver resolver, CxxPlatform platform);
+      BuildTarget target, ActionGraphBuilder graphBuilder, CxxPlatform platform);
 
   /** Provides the ability to inject additional exported linker flags. */
   ImmutableList<Arg> getAdditionalExportedLinkerFlags(
-      BuildTarget target, BuildRuleResolver resolver, CxxPlatform cxxPlatform);
+      BuildTarget target, ActionGraphBuilder graphBuilder, CxxPlatform cxxPlatform);
+
+  /** Provides the ability to inject additional post exported linker flags. */
+  ImmutableList<Arg> getAdditionalPostExportedLinkerFlags(
+      BuildTarget target, ActionGraphBuilder graphBuilder, CxxPlatform cxxPlatform);
 
   /**
    * Specifies whether a library artifact (e.g., libName.a) should be produced. For example,
@@ -85,7 +90,7 @@ public interface CxxLibraryDescriptionDelegate {
    */
   boolean getShouldProduceLibraryArtifact(
       BuildTarget target,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole);

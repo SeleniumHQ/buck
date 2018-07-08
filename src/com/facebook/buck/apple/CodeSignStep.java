@@ -18,10 +18,10 @@ package com.facebook.buck.apple;
 
 import com.dd.plist.NSDictionary;
 import com.facebook.buck.apple.toolchain.CodeSignIdentity;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -33,6 +33,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Set;
@@ -51,6 +52,7 @@ class CodeSignStep implements Step {
   private final Optional<Path> dryRunResultsPath;
   private final ProjectFilesystem filesystem;
   private final ImmutableList<String> codesignFlags;
+  private final Duration codesignTimeout;
 
   public CodeSignStep(
       ProjectFilesystem filesystem,
@@ -61,7 +63,8 @@ class CodeSignStep implements Step {
       Tool codesign,
       Optional<Tool> codesignAllocatePath,
       Optional<Path> dryRunResultsPath,
-      ImmutableList<String> codesignFlags) {
+      ImmutableList<String> codesignFlags,
+      Duration codesignTimeout) {
     this.filesystem = filesystem;
     this.resolver = resolver;
     this.pathToSign = pathToSign;
@@ -71,6 +74,7 @@ class CodeSignStep implements Step {
     this.codesignAllocatePath = codesignAllocatePath;
     this.dryRunResultsPath = dryRunResultsPath;
     this.codesignFlags = codesignFlags;
+    this.codesignTimeout = codesignTimeout;
   }
 
   @Override
@@ -117,7 +121,7 @@ class CodeSignStep implements Step {
             processExecutorParams,
             options,
             /* stdin */ Optional.empty(),
-            /* timeOutMs */ Optional.of((long) 300000),
+            /* timeOutMs */ Optional.of(codesignTimeout.toMillis()),
             /* timeOutHandler */ Optional.empty());
 
     if (result.isTimedOut()) {

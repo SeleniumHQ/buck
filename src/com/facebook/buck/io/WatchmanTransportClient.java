@@ -47,7 +47,7 @@ class WatchmanTransportClient implements WatchmanClient, AutoCloseable {
   private final BserSerializer bserSerializer;
   private final BserDeserializer bserDeserializer;
 
-  boolean disabledWarningShown = false;
+  private boolean disabledWarningShown = false;
 
   public WatchmanTransportClient(Console console, Clock clock, Transport transport) {
     this.listeningExecutorService = listeningDecorator(newSingleThreadExecutor("Watchman"));
@@ -64,8 +64,8 @@ class WatchmanTransportClient implements WatchmanClient, AutoCloseable {
     return queryListWithTimeout(timeoutNanos, ImmutableList.copyOf(query));
   }
 
-  private Optional<Map<String, Object>> queryListWithTimeout(
-      long timeoutNanos, final List<Object> query) throws IOException, InterruptedException {
+  private Optional<Map<String, Object>> queryListWithTimeout(long timeoutNanos, List<Object> query)
+      throws IOException, InterruptedException {
     ListenableFuture<Optional<Map<String, Object>>> future =
         listeningExecutorService.submit(() -> sendWatchmanQuery(query));
     try {

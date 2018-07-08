@@ -19,9 +19,6 @@ package com.facebook.buck.android;
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.ANDROID_JAVAC_OPTIONS;
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVAC;
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_CONFIG;
-import static org.easymock.EasyMock.createStrictMock;
-import static org.easymock.EasyMock.replay;
-import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
@@ -36,38 +33,37 @@ import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaClassHashes;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.FakeJavac;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.jvm.java.Keystore;
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.jvm.java.JavacFactoryHelper;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.AbstractPathSourcePath;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestBuildRuleParams;
-import com.facebook.buck.rules.TestCellPathResolver;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -81,13 +77,14 @@ import com.google.common.util.concurrent.MoreExecutors;
 import java.nio.file.Paths;
 import java.util.EnumSet;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.hamcrest.Matchers;
 import org.junit.Test;
 
 public class AndroidBinaryGraphEnhancerTest {
 
   @Test
-  public void testCreateDepsForPreDexing() throws Exception {
+  public void testCreateDepsForPreDexing() {
     // Create three Java rules, :dep1, :dep2, and :lib. :lib depends on :dep1 and :dep2.
     BuildTarget javaDep1BuildTarget = BuildTargetFactory.newInstance("//java/com/example:dep1");
     TargetNode<?, ?> javaDep1Node =
@@ -111,14 +108,12 @@ public class AndroidBinaryGraphEnhancerTest {
 
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(javaDep1Node, javaDep2Node, javaLibNode);
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
-    BuildRule javaDep1 = ruleResolver.requireRule(javaDep1BuildTarget);
-    BuildRule javaDep2 = ruleResolver.requireRule(javaDep2BuildTarget);
-    BuildRule javaLib = ruleResolver.requireRule(javaLibBuildTarget);
+    BuildRule javaDep1 = graphBuilder.requireRule(javaDep1BuildTarget);
+    BuildRule javaDep2 = graphBuilder.requireRule(javaDep2BuildTarget);
+    BuildRule javaLib = graphBuilder.requireRule(javaLibBuildTarget);
 
     // Assume we are enhancing an android_binary rule whose only dep
     // is //java/com/example:lib, and that //java/com/example:dep2 is in its no_dx list.
@@ -141,8 +136,8 @@ public class AndroidBinaryGraphEnhancerTest {
             filesystem,
             TestAndroidPlatformTargetFactory.create(),
             originalParams,
-            ruleResolver,
-            AndroidBinary.AaptMode.AAPT1,
+            graphBuilder,
+            AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.DISABLED,
             FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
@@ -150,9 +145,10 @@ public class AndroidBinaryGraphEnhancerTest {
             Optional.empty(),
             /* locales */ ImmutableSet.of(),
             /* localizedStringFileName */ null,
-            Optional.of(createStrictMock(AbstractPathSourcePath.class)),
+            Optional.of(PathSourcePath.of(filesystem, Paths.get("AndroidManifest.xml"))),
             Optional.empty(),
-            AndroidBinary.PackageType.DEBUG,
+            Optional.empty(),
+            PackageType.DEBUG,
             /* cpuFilters */ ImmutableSet.of(),
             /* shouldBuildStringSourceMap */ false,
             /* shouldPreDex */ true,
@@ -162,13 +158,15 @@ public class AndroidBinaryGraphEnhancerTest {
             /* skipCrunchPngs */ false,
             /* includesVectorDrawables */ false,
             /* noAutoVersionResources */ false,
+            /* noVersionTransitionsResources */ false,
+            /* noAutoAddOverlayResources */ false,
             DEFAULT_JAVA_CONFIG,
-            DEFAULT_JAVAC,
+            JavacFactoryHelper.createJavacFactory(DEFAULT_JAVA_CONFIG),
             ANDROID_JAVAC_OPTIONS,
             EnumSet.noneOf(ExopackageMode.class),
             /* buildConfigValues */ BuildConfigFields.of(),
             /* buildConfigValuesFile */ Optional.empty(),
-            /* xzCompressionLevel */ Optional.empty(),
+            /* xzCompressionLevel */ OptionalInt.empty(),
             /* trimResourceIds */ false,
             /* keepResourcePattern */ Optional.empty(),
             false,
@@ -177,7 +175,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* nativeLibraryMergeCodeGenerator */ Optional.empty(),
             /* nativeLibraryProguardConfigGenerator */ Optional.empty(),
             Optional.empty(),
-            AndroidBinary.RelinkerMode.DISABLED,
+            RelinkerMode.DISABLED,
             ImmutableList.of(),
             MoreExecutors.newDirectExecutorService(),
             /* manifestEntries */ ManifestEntries.empty(),
@@ -197,14 +195,15 @@ public class AndroidBinaryGraphEnhancerTest {
             filesystem,
             TestAndroidPlatformTargetFactory.create(),
             ruleFinder,
-            ruleResolver,
+            graphBuilder,
             /* manifest */ FakeSourcePath.of("java/src/com/facebook/base/AndroidManifest.xml"),
+            ImmutableList.of(),
             new IdentityResourcesProvider(ImmutableList.of()),
             ImmutableList.of(),
             /* skipCrunchPngs */ false,
             /* includesVectorDrawables */ false,
             /* manifestEntries */ ManifestEntries.empty());
-    ruleResolver.addToIndex(aaptPackageResources);
+    graphBuilder.addToIndex(aaptPackageResources);
 
     AndroidPackageableCollection collection =
         new AndroidPackageableCollector(
@@ -225,7 +224,7 @@ public class AndroidBinaryGraphEnhancerTest {
     BuildTarget fakeUberRDotJavaCompileTarget =
         BuildTargetFactory.newInstance("//fake:uber_r_dot_java#compile");
     JavaLibrary fakeUberRDotJavaCompile =
-        JavaLibraryBuilder.createBuilder(fakeUberRDotJavaCompileTarget).build(ruleResolver);
+        JavaLibraryBuilder.createBuilder(fakeUberRDotJavaCompileTarget).build(graphBuilder);
     BuildTarget fakeUberRDotJavaDexTarget =
         BuildTargetFactory.newInstance("//fake:uber_r_dot_java#dex");
     DexProducedFromJavaLibrary fakeUberRDotJavaDex =
@@ -235,13 +234,13 @@ public class AndroidBinaryGraphEnhancerTest {
             TestAndroidPlatformTargetFactory.create(),
             TestBuildRuleParams.create(),
             fakeUberRDotJavaCompile);
-    ruleResolver.addToIndex(fakeUberRDotJavaDex);
+    graphBuilder.addToIndex(fakeUberRDotJavaDex);
 
     BuildRule preDexMergeRule =
         graphEnhancer.createPreDexMergeRule(preDexedLibraries, fakeUberRDotJavaDex);
     BuildTarget dexMergeTarget =
         BuildTargetFactory.newInstance("//java/com/example:apk#dex,dex_merge");
-    BuildRule dexMergeRule = ruleResolver.getRule(dexMergeTarget);
+    BuildRule dexMergeRule = graphBuilder.getRule(dexMergeTarget);
 
     assertEquals(dexMergeRule, preDexMergeRule);
 
@@ -265,14 +264,12 @@ public class AndroidBinaryGraphEnhancerTest {
   }
 
   @Test
-  public void testAllBuildablesExceptPreDexRule() throws Exception {
+  public void testAllBuildablesExceptPreDexRule() {
     // Create an android_build_config() as a dependency of the android_binary().
     BuildTarget buildConfigBuildTarget = BuildTargetFactory.newInstance("//java/com/example:cfg");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
     BuildRuleParams buildConfigParams = TestBuildRuleParams.create();
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     AndroidBuildConfigJavaLibrary buildConfigJavaLibrary =
         AndroidBuildConfigDescription.createBuildRule(
             buildConfigBuildTarget,
@@ -284,7 +281,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* useConstantExpressions */ false,
             DEFAULT_JAVAC,
             ANDROID_JAVAC_OPTIONS,
-            ruleResolver);
+            graphBuilder);
 
     BuildTarget apkTarget = BuildTargetFactory.newInstance("//java/com/example:apk");
     BuildRuleParams originalParams =
@@ -292,7 +289,6 @@ public class AndroidBinaryGraphEnhancerTest {
             .withDeclaredDeps(ImmutableSortedSet.of(buildConfigJavaLibrary));
 
     // set it up.
-    Keystore keystore = createStrictMock(Keystore.class);
     AndroidBinaryGraphEnhancer graphEnhancer =
         new AndroidBinaryGraphEnhancer(
             new ToolchainProviderBuilder()
@@ -305,8 +301,8 @@ public class AndroidBinaryGraphEnhancerTest {
             projectFilesystem,
             TestAndroidPlatformTargetFactory.create(),
             originalParams,
-            ruleResolver,
-            AndroidBinary.AaptMode.AAPT1,
+            graphBuilder,
+            AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS,
             FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
@@ -316,7 +312,8 @@ public class AndroidBinaryGraphEnhancerTest {
             /* localizedStringFileName */ null,
             Optional.of(FakeSourcePath.of("AndroidManifest.xml")),
             Optional.empty(),
-            AndroidBinary.PackageType.DEBUG,
+            Optional.empty(),
+            PackageType.DEBUG,
             /* cpuFilters */ ImmutableSet.of(),
             /* shouldBuildStringSourceMap */ false,
             /* shouldPreDex */ false,
@@ -326,13 +323,15 @@ public class AndroidBinaryGraphEnhancerTest {
             /* skipCrunchPngs */ false,
             /* includesVectorDrawables */ false,
             /* noAutoVersionResources */ false,
+            /* noVersionTransitionsResources */ false,
+            /* noAutoAddOverlayResources */ false,
             DEFAULT_JAVA_CONFIG,
-            DEFAULT_JAVAC,
+            JavacFactoryHelper.createJavacFactory(DEFAULT_JAVA_CONFIG),
             ANDROID_JAVAC_OPTIONS,
             EnumSet.of(ExopackageMode.SECONDARY_DEX),
             /* buildConfigValues */ BuildConfigFields.of(),
             /* buildConfigValuesFiles */ Optional.empty(),
-            /* xzCompressionLevel */ Optional.empty(),
+            /* xzCompressionLevel */ OptionalInt.empty(),
             /* trimResourceIds */ false,
             /* keepResourcePattern */ Optional.empty(),
             false,
@@ -341,7 +340,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* nativeLibraryMergeCodeGenerator */ Optional.empty(),
             /* nativeLibraryProguardConfigGenerator */ Optional.empty(),
             Optional.empty(),
-            AndroidBinary.RelinkerMode.DISABLED,
+            RelinkerMode.DISABLED,
             ImmutableList.of(),
             MoreExecutors.newDirectExecutorService(),
             /* manifestEntries */ ManifestEntries.empty(),
@@ -352,13 +351,12 @@ public class AndroidBinaryGraphEnhancerTest {
             Optional.empty(),
             defaultNonPredexedArgs(),
             ImmutableSortedSet.of());
-    replay(keystore);
     AndroidGraphEnhancementResult result = graphEnhancer.createAdditionalBuildables();
 
     // Verify that android_build_config() was processed correctly.
     Flavor flavor = InternalFlavor.of("buildconfig_com_example_buck");
-    final SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     BuildTarget enhancedBuildConfigTarget = apkTarget.withAppendedFlavors(flavor);
     assertEquals(
         "The only classpath entry to dex should be the one from the AndroidBuildConfigJavaLibrary"
@@ -371,7 +369,7 @@ public class AndroidBinaryGraphEnhancerTest {
             .stream()
             .map(pathResolver::getRelativePath)
             .collect(ImmutableSet.toImmutableSet()));
-    BuildRule enhancedBuildConfigRule = ruleResolver.getRule(enhancedBuildConfigTarget);
+    BuildRule enhancedBuildConfigRule = graphBuilder.getRule(enhancedBuildConfigTarget);
     assertTrue(enhancedBuildConfigRule instanceof AndroidBuildConfigJavaLibrary);
     AndroidBuildConfigJavaLibrary enhancedBuildConfigJavaLibrary =
         (AndroidBuildConfigJavaLibrary) enhancedBuildConfigRule;
@@ -387,15 +385,15 @@ public class AndroidBinaryGraphEnhancerTest {
                 BuildConfigFields.Field.of("int", "EXOPACKAGE_FLAGS", "1"))),
         androidBuildConfig.getBuildConfigFields());
 
-    BuildRule resourcesFilterRule = findRuleOfType(ruleResolver, ResourcesFilter.class);
+    BuildRule resourcesFilterRule = findRuleOfType(graphBuilder, ResourcesFilter.class);
 
-    BuildRule aaptPackageResourcesRule = findRuleOfType(ruleResolver, AaptPackageResources.class);
+    BuildRule aaptPackageResourcesRule = findRuleOfType(graphBuilder, AaptPackageResources.class);
     MoreAsserts.assertDepends(
         "AaptPackageResources must depend on ResourcesFilter",
         aaptPackageResourcesRule,
         resourcesFilterRule);
 
-    BuildRule packageStringAssetsRule = findRuleOfType(ruleResolver, PackageStringAssets.class);
+    BuildRule packageStringAssetsRule = findRuleOfType(graphBuilder, PackageStringAssets.class);
     MoreAsserts.assertDepends(
         "PackageStringAssets must depend on ResourcesFilter",
         packageStringAssetsRule,
@@ -403,12 +401,10 @@ public class AndroidBinaryGraphEnhancerTest {
 
     assertFalse(result.getPreDexMerge().isPresent());
     assertTrue(result.getPackageStringAssets().isPresent());
-
-    verify(keystore);
   }
 
   @Test
-  public void testResourceRulesBecomeDepsOfAaptPackageResources() throws Exception {
+  public void testResourceRulesBecomeDepsOfAaptPackageResources() {
     TargetNode<?, ?> resourceNode =
         AndroidResourceBuilder.createBuilder(BuildTargetFactory.newInstance("//:resource"))
             .setRDotJavaPackage("package")
@@ -416,12 +412,10 @@ public class AndroidBinaryGraphEnhancerTest {
             .build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(resourceNode);
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
 
     AndroidResource resource =
-        (AndroidResource) ruleResolver.requireRule(resourceNode.getBuildTarget());
+        (AndroidResource) graphBuilder.requireRule(resourceNode.getBuildTarget());
 
     // set it up.
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
@@ -440,8 +434,8 @@ public class AndroidBinaryGraphEnhancerTest {
             projectFilesystem,
             TestAndroidPlatformTargetFactory.create(),
             originalParams,
-            ruleResolver,
-            AndroidBinary.AaptMode.AAPT1,
+            graphBuilder,
+            AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS,
             FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
@@ -451,7 +445,8 @@ public class AndroidBinaryGraphEnhancerTest {
             /* localizedStringFileName */ null,
             Optional.of(FakeSourcePath.of("AndroidManifest.xml")),
             Optional.empty(),
-            AndroidBinary.PackageType.DEBUG,
+            Optional.empty(),
+            PackageType.DEBUG,
             /* cpuFilters */ ImmutableSet.of(),
             /* shouldBuildStringSourceMap */ false,
             /* shouldPreDex */ false,
@@ -461,13 +456,15 @@ public class AndroidBinaryGraphEnhancerTest {
             /* skipCrunchPngs */ false,
             /* includesVectorDrawables */ false,
             /* noAutoVersionResources */ false,
+            /* noVersionTransitionsResources */ false,
+            /* noAutoAddOverlayResources */ false,
             DEFAULT_JAVA_CONFIG,
-            DEFAULT_JAVAC,
+            JavacFactoryHelper.createJavacFactory(DEFAULT_JAVA_CONFIG),
             ANDROID_JAVAC_OPTIONS,
             EnumSet.of(ExopackageMode.SECONDARY_DEX),
             /* buildConfigValues */ BuildConfigFields.of(),
             /* buildConfigValuesFiles */ Optional.empty(),
-            /* xzCompressionLevel */ Optional.empty(),
+            /* xzCompressionLevel */ OptionalInt.empty(),
             /* trimResourceIds */ false,
             /* keepResourcePattern */ Optional.empty(),
             false,
@@ -476,7 +473,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* nativeLibraryMergeCodeGenerator */ Optional.empty(),
             /* nativeLibraryProguardConfigGenerator */ Optional.empty(),
             Optional.empty(),
-            AndroidBinary.RelinkerMode.DISABLED,
+            RelinkerMode.DISABLED,
             ImmutableList.of(),
             MoreExecutors.newDirectExecutorService(),
             /* manifestEntries */ ManifestEntries.empty(),
@@ -489,16 +486,14 @@ public class AndroidBinaryGraphEnhancerTest {
             ImmutableSortedSet.of());
     graphEnhancer.createAdditionalBuildables();
 
-    BuildRule aaptPackageResourcesRule = findRuleOfType(ruleResolver, AaptPackageResources.class);
+    BuildRule aaptPackageResourcesRule = findRuleOfType(graphBuilder, AaptPackageResources.class);
     MoreAsserts.assertDepends(
         "AaptPackageResources must depend on resource rules", aaptPackageResourcesRule, resource);
   }
 
   @Test
   public void testPackageStringsDependsOnResourcesFilter() throws Exception {
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
     // set it up.
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
@@ -516,8 +511,8 @@ public class AndroidBinaryGraphEnhancerTest {
             projectFilesystem,
             TestAndroidPlatformTargetFactory.create(),
             originalParams,
-            ruleResolver,
-            AndroidBinary.AaptMode.AAPT1,
+            graphBuilder,
+            AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS,
             FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
@@ -527,7 +522,8 @@ public class AndroidBinaryGraphEnhancerTest {
             /* localizedStringFileName */ null,
             Optional.of(FakeSourcePath.of("AndroidManifest.xml")),
             Optional.empty(),
-            AndroidBinary.PackageType.DEBUG,
+            Optional.empty(),
+            PackageType.DEBUG,
             /* cpuFilters */ ImmutableSet.of(),
             /* shouldBuildStringSourceMap */ false,
             /* shouldPreDex */ false,
@@ -537,13 +533,15 @@ public class AndroidBinaryGraphEnhancerTest {
             /* skipCrunchPngs */ false,
             /* includesVectorDrawables */ false,
             /* noAutoVersionResources */ false,
+            /* noVersionTransitionsResources */ false,
+            /* noAutoAddOverlayResources */ false,
             DEFAULT_JAVA_CONFIG,
-            DEFAULT_JAVAC,
+            JavacFactoryHelper.createJavacFactory(DEFAULT_JAVA_CONFIG),
             ANDROID_JAVAC_OPTIONS,
             EnumSet.of(ExopackageMode.SECONDARY_DEX),
             /* buildConfigValues */ BuildConfigFields.of(),
             /* buildConfigValuesFiles */ Optional.empty(),
-            /* xzCompressionLevel */ Optional.empty(),
+            /* xzCompressionLevel */ OptionalInt.empty(),
             /* trimResourceIds */ false,
             /* keepResourcePattern */ Optional.empty(),
             false,
@@ -552,7 +550,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* nativeLibraryMergeCodeGenerator */ Optional.empty(),
             /* nativeLibraryProguardConfigGenerator */ Optional.empty(),
             Optional.empty(),
-            AndroidBinary.RelinkerMode.DISABLED,
+            RelinkerMode.DISABLED,
             ImmutableList.of(),
             MoreExecutors.newDirectExecutorService(),
             /* manifestEntries */ ManifestEntries.empty(),
@@ -565,9 +563,9 @@ public class AndroidBinaryGraphEnhancerTest {
             ImmutableSortedSet.of());
     graphEnhancer.createAdditionalBuildables();
 
-    ResourcesFilter resourcesFilter = findRuleOfType(ruleResolver, ResourcesFilter.class);
+    ResourcesFilter resourcesFilter = findRuleOfType(graphBuilder, ResourcesFilter.class);
     PackageStringAssets packageStringAssetsRule =
-        findRuleOfType(ruleResolver, PackageStringAssets.class);
+        findRuleOfType(graphBuilder, PackageStringAssets.class);
     MoreAsserts.assertDepends(
         "PackageStringAssets must depend on AaptPackageResources",
         packageStringAssetsRule,
@@ -576,19 +574,17 @@ public class AndroidBinaryGraphEnhancerTest {
 
   @Test
   public void testResourceRulesDependOnRulesBehindResourceSourcePaths() throws Exception {
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
     FakeBuildRule resourcesDep =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             new FakeBuildRule(BuildTargetFactory.newInstance("//:resource_dep")));
     resourcesDep.setOutputFile("foo");
 
     BuildTarget resourceTarget = BuildTargetFactory.newInstance("//:resources");
     AndroidResource resource =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             new AndroidResource(
                 resourceTarget,
                 new FakeProjectFilesystem(),
@@ -621,8 +617,8 @@ public class AndroidBinaryGraphEnhancerTest {
             projectFilesystem,
             TestAndroidPlatformTargetFactory.create(),
             originalParams,
-            ruleResolver,
-            AndroidBinary.AaptMode.AAPT1,
+            graphBuilder,
+            AaptMode.AAPT1,
             ResourcesFilter.ResourceCompressionMode.ENABLED_WITH_STRINGS_AS_ASSETS,
             FilterResourcesSteps.ResourceFilter.EMPTY_FILTER,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
@@ -632,7 +628,8 @@ public class AndroidBinaryGraphEnhancerTest {
             /* localizedStringFileName */ null,
             Optional.of(FakeSourcePath.of("AndroidManifest.xml")),
             Optional.empty(),
-            AndroidBinary.PackageType.DEBUG,
+            Optional.empty(),
+            PackageType.DEBUG,
             /* cpuFilters */ ImmutableSet.of(),
             /* shouldBuildStringSourceMap */ false,
             /* shouldPreDex */ false,
@@ -642,13 +639,15 @@ public class AndroidBinaryGraphEnhancerTest {
             /* skipCrunchPngs */ false,
             /* includesVectorDrawables */ false,
             /* noAutoVersionResources */ false,
+            /* noVersionTransitionsResources */ false,
+            /* noAutoAddOverlayResources */ false,
             DEFAULT_JAVA_CONFIG,
-            DEFAULT_JAVAC,
+            JavacFactoryHelper.createJavacFactory(DEFAULT_JAVA_CONFIG),
             ANDROID_JAVAC_OPTIONS,
             EnumSet.of(ExopackageMode.SECONDARY_DEX),
             /* buildConfigValues */ BuildConfigFields.of(),
             /* buildConfigValuesFiles */ Optional.empty(),
-            /* xzCompressionLevel */ Optional.empty(),
+            /* xzCompressionLevel */ OptionalInt.empty(),
             /* trimResourceIds */ false,
             /* keepResourcePattern */ Optional.empty(),
             false,
@@ -657,7 +656,7 @@ public class AndroidBinaryGraphEnhancerTest {
             /* nativeLibraryMergeCodeGenerator */ Optional.empty(),
             /* nativeLibraryProguardConfigGenerator */ Optional.empty(),
             Optional.empty(),
-            AndroidBinary.RelinkerMode.DISABLED,
+            RelinkerMode.DISABLED,
             ImmutableList.of(),
             MoreExecutors.newDirectExecutorService(),
             /* manifestEntries */ ManifestEntries.empty(),
@@ -670,7 +669,7 @@ public class AndroidBinaryGraphEnhancerTest {
             ImmutableSortedSet.of());
     graphEnhancer.createAdditionalBuildables();
 
-    ResourcesFilter resourcesFilter = findRuleOfType(ruleResolver, ResourcesFilter.class);
+    ResourcesFilter resourcesFilter = findRuleOfType(graphBuilder, ResourcesFilter.class);
     MoreAsserts.assertDepends(
         "ResourcesFilter must depend on rules behind resources source paths",
         resourcesFilter,
@@ -694,8 +693,8 @@ public class AndroidBinaryGraphEnhancerTest {
   }
 
   private <T extends BuildRule> T findRuleOfType(
-      BuildRuleResolver ruleResolver, Class<T> ruleClass) {
-    for (BuildRule rule : ruleResolver.getBuildRules()) {
+      ActionGraphBuilder graphBuilder, Class<T> ruleClass) {
+    for (BuildRule rule : graphBuilder.getBuildRules()) {
       if (ruleClass.isAssignableFrom(rule.getClass())) {
         return ruleClass.cast(rule);
       }

@@ -20,25 +20,24 @@ import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
 import java.io.IOException;
-import org.easymock.EasyMockSupport;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-public class RunCommandIntegrationTest extends EasyMockSupport {
+public class RunCommandIntegrationTest {
 
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
   @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Test
-  public void testRunCommandWithNoArguments() throws IOException, InterruptedException {
+  public void testRunCommandWithNoArguments() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "run-command", temporaryFolder);
     workspace.setUp();
@@ -51,7 +50,7 @@ public class RunCommandIntegrationTest extends EasyMockSupport {
   }
 
   @Test
-  public void testRunCommandWithNonExistentDirectory() throws IOException, InterruptedException {
+  public void testRunCommandWithNonExistentDirectory() throws IOException {
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage("//does/not/exist:exist references non-existent directory does/not/exist");
     ProjectWorkspace workspace =
@@ -62,7 +61,7 @@ public class RunCommandIntegrationTest extends EasyMockSupport {
   }
 
   @Test
-  public void testRunCommandWithNonExistentTarget() throws IOException, InterruptedException {
+  public void testRunCommandWithNonExistentTarget() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "run-command", temporaryFolder);
     workspace.setUp();

@@ -23,9 +23,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 
 import com.facebook.buck.android.FakeAndroidBuckConfig;
-import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
@@ -434,6 +434,26 @@ public class AndroidNdkResolverTest {
     resolver.getNdkOrThrow();
   }
 
+  @Test
+  public void testUnsupportedVersionNotUsed() throws IOException {
+    Path expectedPath =
+        createTmpNdkVersions(
+            NDK_POST_R11_VERSION_FILENAME,
+            "ndk-dir-r11",
+            "Pkg.Desc = Android NDK\nPkg.Revision = 11.2",
+            "ndk-dir-r16",
+            "Pkg.Desc = Android NDK\nPkg.Revision = 16.1.4479499",
+            "ndk-dir-r17",
+            "Pkg.Desc = Android NDK\nPkg.Revision = 17.1.4828580")[1];
+    AndroidNdkResolver resolver =
+        new AndroidNdkResolver(
+            tmpDir.getRoot().getFileSystem(),
+            ImmutableMap.of("ANDROID_NDK_REPOSITORY", tmpDir.getRoot().toString()),
+            AndroidNdkHelper.DEFAULT_CONFIG);
+
+    assertEquals(expectedPath, resolver.getNdkOrThrow());
+  }
+
   private Path[] createTmpNdkVersions(String filename, String... directoryNamesAndVersionStrings)
       throws IOException {
     Path[] ret = new Path[directoryNamesAndVersionStrings.length / 2];
@@ -442,7 +462,7 @@ public class AndroidNdkResolverTest {
       String version = directoryNamesAndVersionStrings[(i * 2) + 1];
       ret[i] = tmpDir.newFolder(folderName);
       Path releaseFile = tmpDir.newFile(folderName + "/" + filename);
-      MoreFiles.writeLinesToFile(ImmutableList.of(version), releaseFile);
+      MostFiles.writeLinesToFile(ImmutableList.of(version), releaseFile);
     }
     return ret;
   }

@@ -16,8 +16,8 @@
 
 package com.facebook.buck.config;
 
+import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.ConfigBuilder;
@@ -48,6 +48,7 @@ public class FakeBuckConfig {
     private RawConfig sections = RawConfig.of();
     private Architecture architecture = Architecture.detect();
     private Platform platform = Platform.detect();
+    private int numThreads = -1;
 
     public Builder setArchitecture(Architecture architecture) {
       this.architecture = architecture;

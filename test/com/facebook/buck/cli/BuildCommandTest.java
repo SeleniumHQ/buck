@@ -16,32 +16,30 @@
 
 package com.facebook.buck.cli;
 
-import static com.facebook.buck.rules.BuildRuleSuccessType.BUILT_LOCALLY;
-import static com.facebook.buck.rules.BuildRuleSuccessType.FETCHED_FROM_CACHE;
+import static com.facebook.buck.core.build.engine.BuildRuleSuccessType.BUILT_LOCALLY;
+import static com.facebook.buck.core.build.engine.BuildRuleSuccessType.FETCHED_FROM_CACHE;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.command.BuildExecutionResult;
 import com.facebook.buck.command.BuildReport;
+import com.facebook.buck.core.build.engine.BuildResult;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildResult;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.Console;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.Verbosity;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
@@ -57,23 +55,21 @@ public class BuildCommandTest {
 
   @Before
   public void setUp() {
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    resolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    resolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
 
     LinkedHashMap<BuildRule, Optional<BuildResult>> ruleToResult = new LinkedHashMap<>();
 
     FakeBuildRule rule1 = new FakeBuildRule(BuildTargetFactory.newInstance("//fake:rule1"));
     rule1.setOutputFile("buck-out/gen/fake/rule1.txt");
-    ruleResolver.addToIndex(rule1);
+    graphBuilder.addToIndex(rule1);
     ruleToResult.put(
         rule1, Optional.of(BuildResult.success(rule1, BUILT_LOCALLY, CacheResult.miss())));
 
     BuildRule rule2 = new FakeBuildRule(BuildTargetFactory.newInstance("//fake:rule2"));
     BuildResult rule2Failure = BuildResult.failure(rule2, new RuntimeException("some"));
     ruleToResult.put(rule2, Optional.of(rule2Failure));
-    ruleResolver.addToIndex(rule2);
+    graphBuilder.addToIndex(rule2);
 
     BuildRule rule3 = new FakeBuildRule(BuildTargetFactory.newInstance("//fake:rule3"));
     ruleToResult.put(
@@ -81,11 +77,11 @@ public class BuildCommandTest {
         Optional.of(
             BuildResult.success(
                 rule3, FETCHED_FROM_CACHE, CacheResult.hit("dir", ArtifactCacheMode.dir))));
-    ruleResolver.addToIndex(rule3);
+    graphBuilder.addToIndex(rule3);
 
     BuildRule rule4 = new FakeBuildRule(BuildTargetFactory.newInstance("//fake:rule4"));
     ruleToResult.put(rule4, Optional.empty());
-    ruleResolver.addToIndex(rule4);
+    graphBuilder.addToIndex(rule4);
 
     buildExecutionResult =
         BuildExecutionResult.builder()

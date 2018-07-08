@@ -21,25 +21,25 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildRules;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.test.rule.TestRule;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestRule;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
@@ -54,7 +54,6 @@ import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
@@ -92,18 +91,18 @@ public class CxxTestDescriptionTest {
   }
 
   private void addSandbox(
-      BuildRuleResolver resolver, ProjectFilesystem filesystem, BuildTarget libTarget)
+      ActionGraphBuilder graphBuilder, ProjectFilesystem filesystem, BuildTarget libTarget)
       throws NoSuchBuildTargetException {
     BuildTarget target =
         libTarget.withAppendedFlavors(CxxLibraryDescription.Type.SANDBOX_TREE.getFlavor());
-    createTestBuilder(target.toString()).build(resolver, filesystem);
+    createTestBuilder(target.toString()).build(graphBuilder, filesystem);
   }
 
-  private void addFramework(BuildRuleResolver resolver, ProjectFilesystem filesystem)
+  private void addFramework(ActionGraphBuilder graphBuilder, ProjectFilesystem filesystem)
       throws NoSuchBuildTargetException {
     GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:framework_rule"))
         .setOut("out")
-        .build(resolver, filesystem);
+        .build(graphBuilder, filesystem);
   }
 
   private CxxTestBuilder createTestBuilder() throws NoSuchBuildTargetException {
@@ -147,22 +146,25 @@ public class CxxTestDescriptionTest {
   }
 
   @Test
-  public void environmentIsPropagated() throws Exception {
+  public void environmentIsPropagated() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
-    addFramework(resolver, filesystem);
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    addFramework(graphBuilder, filesystem);
     BuildRule someRule =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:some_rule"))
             .setOut("someRule")
-            .build(resolver);
+            .build(graphBuilder);
     CxxTestBuilder builder =
-        createTestBuilder().setEnv(ImmutableMap.of("TEST", "value $(location //:some_rule)"));
-    addSandbox(resolver, filesystem, builder.getTarget());
-    CxxTest cxxTest = builder.build(resolver);
+        createTestBuilder()
+            .setEnv(
+                ImmutableMap.of(
+                    "TEST",
+                    StringWithMacrosUtils.format(
+                        "value %s", LocationMacro.of(someRule.getBuildTarget()))));
+    addSandbox(graphBuilder, filesystem, builder.getTarget());
+    CxxTest cxxTest = builder.build(graphBuilder);
     TestRunningOptions options =
         TestRunningOptions.builder().setTestSelectorList(TestSelectorList.empty()).build();
     ImmutableList<Step> steps =
@@ -184,22 +186,24 @@ public class CxxTestDescriptionTest {
   }
 
   @Test
-  public void testArgsArePropagated() throws Exception {
+  public void testArgsArePropagated() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
-    addFramework(resolver, filesystem);
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    addFramework(graphBuilder, filesystem);
     BuildRule someRule =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:some_rule"))
             .setOut("someRule")
-            .build(resolver);
+            .build(graphBuilder);
     CxxTestBuilder builder =
-        createTestBuilder().setArgs(ImmutableList.of("value $(location //:some_rule)"));
-    addSandbox(resolver, filesystem, builder.getTarget());
-    CxxTest cxxTest = builder.build(resolver);
+        createTestBuilder()
+            .setArgs(
+                ImmutableList.of(
+                    StringWithMacrosUtils.format(
+                        "value %s", LocationMacro.of(someRule.getBuildTarget()))));
+    addSandbox(graphBuilder, filesystem, builder.getTarget());
+    CxxTest cxxTest = builder.build(graphBuilder);
     TestRunningOptions testOptions =
         TestRunningOptions.builder()
             .setShufflingTests(false)
@@ -221,73 +225,68 @@ public class CxxTestDescriptionTest {
   }
 
   @Test
-  public void runTestSeparately() throws Exception {
+  public void runTestSeparately() {
     for (CxxTestType framework : CxxTestType.values()) {
       ProjectFilesystem filesystem = new FakeProjectFilesystem();
-      BuildRuleResolver resolver =
-          new SingleThreadedBuildRuleResolver(
-              TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-      addFramework(resolver, filesystem);
+      ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+      addFramework(graphBuilder, filesystem);
       CxxTestBuilder builder =
           createTestBuilder()
               .setRunTestSeparately(true)
               .setUseDefaultTestMain(true)
               .setFramework(framework);
-      addSandbox(resolver, filesystem, builder.getTarget());
-      CxxTest cxxTest = builder.build(resolver);
+      addSandbox(graphBuilder, filesystem, builder.getTarget());
+      CxxTest cxxTest = builder.build(graphBuilder);
       assertTrue(cxxTest.runTestSeparately());
     }
   }
 
   @Test
-  public void runtimeDepOnDeps() throws Exception {
+  public void runtimeDepOnDeps() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildTarget cxxBinaryTarget = BuildTargetFactory.newInstance("//:dep");
     BuildTarget cxxLibraryTarget = BuildTargetFactory.newInstance("//:lib");
     CxxBinaryBuilder cxxBinaryBuilder = new CxxBinaryBuilder(cxxBinaryTarget);
     CxxLibraryBuilder cxxLibraryBuilder =
         new CxxLibraryBuilder(cxxLibraryTarget).setDeps(ImmutableSortedSet.of(cxxBinaryTarget));
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraphFactory.newInstance(cxxLibraryBuilder.build(), cxxBinaryBuilder.build()),
-            new DefaultTargetNodeToBuildRuleTransformer());
-    addFramework(resolver, filesystem);
-    BuildRule cxxBinary = cxxBinaryBuilder.build(resolver, filesystem);
-    cxxLibraryBuilder.build(resolver, filesystem);
+    ActionGraphBuilder graphBuilder =
+        new TestActionGraphBuilder(
+            TargetGraphFactory.newInstance(cxxLibraryBuilder.build(), cxxBinaryBuilder.build()));
+    addFramework(graphBuilder, filesystem);
+    BuildRule cxxBinary = cxxBinaryBuilder.build(graphBuilder, filesystem);
+    cxxLibraryBuilder.build(graphBuilder, filesystem);
     CxxTestBuilder cxxTestBuilder =
         createTestBuilder().setDeps(ImmutableSortedSet.of(cxxLibraryTarget));
-    addSandbox(resolver, filesystem, cxxTestBuilder.getTarget());
-    CxxTest cxxTest = cxxTestBuilder.build(resolver, filesystem);
+    addSandbox(graphBuilder, filesystem, cxxTestBuilder.getTarget());
+    CxxTest cxxTest = cxxTestBuilder.build(graphBuilder, filesystem);
     assertThat(
-        BuildRules.getTransitiveRuntimeDeps(cxxTest, resolver),
+        BuildRules.getTransitiveRuntimeDeps(cxxTest, graphBuilder),
         hasItem(cxxBinary.getBuildTarget()));
   }
 
   @Test
-  public void locationMacro() throws Exception {
+  public void locationMacro() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     Genrule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
-            .build(resolver);
+            .build(graphBuilder);
     CxxTestBuilder builder =
         createTestBuilder()
             .setLinkerFlags(
                 ImmutableList.of(
                     StringWithMacrosUtils.format(
                         "--linker-script=%s", LocationMacro.of(dep.getBuildTarget()))));
-    addFramework(resolver, filesystem);
-    addSandbox(resolver, filesystem, builder.getTarget());
+    addFramework(graphBuilder, filesystem);
+    addSandbox(graphBuilder, filesystem, builder.getTarget());
     assertThat(builder.build().getExtraDeps(), hasItem(dep.getBuildTarget()));
-    CxxTest test = builder.build(resolver);
+    CxxTest test = builder.build(graphBuilder);
     CxxLink binary =
         (CxxLink)
-            resolver.getRule(
+            graphBuilder.getRule(
                 CxxDescriptionEnhancer.createCxxLinkTarget(
                     test.getBuildTarget(), Optional.empty()));
     assertThat(
@@ -298,15 +297,13 @@ public class CxxTestDescriptionTest {
 
   @Test
   public void linkerFlagsLocationMacro() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     Genrule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
-            .build(resolver);
+            .build(graphBuilder);
     CxxTestBuilder builder =
         createTestBuilder("//:rule")
             .setLinkerFlags(
@@ -315,12 +312,12 @@ public class CxxTestDescriptionTest {
                         "--linker-script=%s", LocationMacro.of(dep.getBuildTarget()))));
     assertThat(builder.build().getExtraDeps(), hasItem(dep.getBuildTarget()));
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    addFramework(resolver, filesystem);
-    addSandbox(resolver, filesystem, builder.getTarget());
-    CxxTest test = builder.build(resolver);
+    addFramework(graphBuilder, filesystem);
+    addSandbox(graphBuilder, filesystem, builder.getTarget());
+    CxxTest test = builder.build(graphBuilder);
     CxxLink binary =
         (CxxLink)
-            resolver.getRule(
+            graphBuilder.getRule(
                 CxxDescriptionEnhancer.createCxxLinkTarget(
                     test.getBuildTarget(), Optional.empty()));
     assertThat(binary, Matchers.instanceOf(CxxLink.class));
@@ -331,17 +328,15 @@ public class CxxTestDescriptionTest {
   }
 
   @Test
-  public void platformLinkerFlagsLocationMacroWithMatch() throws Exception {
+  public void platformLinkerFlagsLocationMacroWithMatch() {
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     Genrule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
-            .build(resolver);
+            .build(graphBuilder);
     CxxTestBuilder builder =
         createTestBuilder()
             .setPlatformLinkerFlags(
@@ -354,13 +349,13 @@ public class CxxTestDescriptionTest {
                             StringWithMacrosUtils.format(
                                 "--linker-script=%s", LocationMacro.of(dep.getBuildTarget()))))
                     .build());
-    addFramework(resolver, filesystem);
-    addSandbox(resolver, filesystem, builder.getTarget());
+    addFramework(graphBuilder, filesystem);
+    addSandbox(graphBuilder, filesystem, builder.getTarget());
     assertThat(builder.build().getExtraDeps(), hasItem(dep.getBuildTarget()));
-    CxxTest test = builder.build(resolver);
+    CxxTest test = builder.build(graphBuilder);
     CxxLink binary =
         (CxxLink)
-            resolver.getRule(
+            graphBuilder.getRule(
                 CxxDescriptionEnhancer.createCxxLinkTarget(
                     test.getBuildTarget(), Optional.empty()));
     assertThat(
@@ -370,18 +365,16 @@ public class CxxTestDescriptionTest {
   }
 
   @Test
-  public void platformLinkerFlagsLocationMacroWithoutMatch() throws Exception {
+  public void platformLinkerFlagsLocationMacroWithoutMatch() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     Genrule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
-            .build(resolver);
-    addFramework(resolver, filesystem);
+            .build(graphBuilder);
+    addFramework(graphBuilder, filesystem);
     CxxTestBuilder builder =
         createTestBuilder()
             .setPlatformLinkerFlags(
@@ -393,11 +386,11 @@ public class CxxTestDescriptionTest {
                                 "--linker-script=%s", LocationMacro.of(dep.getBuildTarget()))))
                     .build());
     assertThat(builder.build().getExtraDeps(), hasItem(dep.getBuildTarget()));
-    addSandbox(resolver, filesystem, builder.getTarget());
-    CxxTest test = builder.build(resolver);
+    addSandbox(graphBuilder, filesystem, builder.getTarget());
+    CxxTest test = builder.build(graphBuilder);
     CxxLink binary =
         (CxxLink)
-            resolver.getRule(
+            graphBuilder.getRule(
                 CxxDescriptionEnhancer.createCxxLinkTarget(
                     test.getBuildTarget(), Optional.empty()));
     assertThat(
@@ -414,25 +407,21 @@ public class CxxTestDescriptionTest {
     filesystem.touch(resource);
     for (CxxTestType framework : CxxTestType.values()) {
       // Create a test rule without resources attached.
-      BuildRuleResolver resolver =
-          new SingleThreadedBuildRuleResolver(
-              TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-      addFramework(resolver, filesystem);
+      ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+      addFramework(graphBuilder, filesystem);
       CxxTestBuilder builder = createTestBuilder().setFramework(framework);
-      addSandbox(resolver, filesystem, builder.getTarget());
-      CxxTest cxxTestWithoutResources = builder.build(resolver, filesystem);
-      RuleKey ruleKeyWithoutResource = getRuleKey(resolver, cxxTestWithoutResources);
+      addSandbox(graphBuilder, filesystem, builder.getTarget());
+      CxxTest cxxTestWithoutResources = builder.build(graphBuilder, filesystem);
+      RuleKey ruleKeyWithoutResource = getRuleKey(graphBuilder, cxxTestWithoutResources);
 
       // Create a rule with a resource attached.
-      resolver =
-          new SingleThreadedBuildRuleResolver(
-              TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-      addFramework(resolver, filesystem);
+      graphBuilder = new TestActionGraphBuilder();
+      addFramework(graphBuilder, filesystem);
       builder =
           createTestBuilder().setFramework(framework).setResources(ImmutableSortedSet.of(resource));
-      addSandbox(resolver, filesystem, builder.getTarget());
-      CxxTest cxxTestWithResources = builder.build(resolver, filesystem);
-      RuleKey ruleKeyWithResource = getRuleKey(resolver, cxxTestWithResources);
+      addSandbox(graphBuilder, filesystem, builder.getTarget());
+      CxxTest cxxTestWithResources = builder.build(graphBuilder, filesystem);
+      RuleKey ruleKeyWithResource = getRuleKey(graphBuilder, cxxTestWithResources);
 
       // Verify that their rule keys are different.
       assertThat(ruleKeyWithoutResource, Matchers.not(Matchers.equalTo(ruleKeyWithResource)));

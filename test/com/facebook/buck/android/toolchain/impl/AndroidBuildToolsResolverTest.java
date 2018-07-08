@@ -23,8 +23,8 @@ import com.facebook.buck.android.AndroidBuckConfig;
 import com.facebook.buck.android.FakeAndroidBuckConfig;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import java.io.File;
 import java.io.IOException;
@@ -173,7 +173,7 @@ public class AndroidBuildToolsResolverTest {
     resolver.getBuildToolsPath();
   }
 
-  private void createBuildToolsVersions(Path sdkDir, String... directoryNames) throws IOException {
+  private void createBuildToolsVersions(Path sdkDir, String... directoryNames) {
     for (int i = 0; i < directoryNames.length; i++) {
       File folder = sdkDir.resolve(directoryNames[i]).toFile();
       assertThat(folder.mkdirs(), Matchers.is(true));

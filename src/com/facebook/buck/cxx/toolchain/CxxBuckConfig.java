@@ -17,27 +17,28 @@
 package com.facebook.buck.cxx.toolchain;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.UserFlavor;
+import com.facebook.buck.core.rules.schedule.RuleScheduleInfo;
+import com.facebook.buck.core.rules.type.BuildRuleType;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
+import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
+import com.facebook.buck.core.toolchain.toolprovider.impl.BinaryBuildRuleToolProvider;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.linker.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.model.UserFlavor;
-import com.facebook.buck.rules.BinaryBuildRuleToolProvider;
-import com.facebook.buck.rules.BuildRuleType;
-import com.facebook.buck.rules.HashedFileTool;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleScheduleInfo;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.Tool;
-import com.facebook.buck.rules.ToolProvider;
 import com.facebook.buck.rules.tool.config.ToolConfig;
 import com.facebook.buck.util.environment.Platform;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -67,6 +68,7 @@ public class CxxBuckConfig {
   private static final String HEADERS_SYMLINKS_ENABLED = "headers_symlinks_enabled";
   private static final String LINK_WEIGHT = "link_weight";
   private static final String CACHE_LINKS = "cache_links";
+  private static final String CACHE_BINARIES = "cache_binaries";
   private static final String PCH_ENABLED = "pch_enabled";
   private static final String SANDBOX_SOURCES = "sandbox_sources";
   private static final String ARCHIVE_CONTENTS = "archive_contents";
@@ -77,9 +79,14 @@ public class CxxBuckConfig {
       "default_reexport_all_header_dependencies";
   private static final String SHLIB_INTERFACES = "shlib_interfaces";
   private static final String SHARED_LIBRARY_INTERFACES = "shared_library_interfaces";
-  private static final String ENABLE_DEPRECATED_PREBUILT_CXX_LIBRARY_API =
-      "enable_deprecated_prebuilt_cxx_library_api";
+  private static final String INDEPENDENT_SHLIB_INTERFACES = "independent_shlib_interfaces";
+  private static final String INDEPENDENT_SHLIB_INTERFACE_LDFLAGS =
+      "independent_shlib_interface_ldflags";
   private static final String DECLARED_PLATFORMS = "declared_platforms";
+  private static final String SHARED_LIBRARY_EXT = "shared_library_extension";
+  private static final String CONFLICTING_HEADER_BASENAME_WHITELIST =
+      "conflicting_header_basename_whitelist";
+  private static final String HEADER_MODE = "header_mode";
 
   private static final String ASFLAGS = "asflags";
   private static final String ASPPFLAGS = "asppflags";
@@ -394,6 +401,10 @@ public class CxxBuckConfig {
     return delegate.getBooleanValue(cxxSection, CACHE_LINKS, true);
   }
 
+  public boolean shouldCacheBinaries() {
+    return delegate.getBooleanValue(cxxSection, CACHE_BINARIES, false);
+  }
+
   public boolean isPCHEnabled() {
     return delegate.getBooleanValue(cxxSection, PCH_ENABLED, true);
   }
@@ -477,8 +488,20 @@ public class CxxBuckConfig {
     return SharedLibraryInterfaceParams.Type.DISABLED;
   }
 
-  public boolean isDeprecatedPrebuiltCxxLibraryApiEnabled() {
-    return delegate.getBooleanValue(cxxSection, ENABLE_DEPRECATED_PREBUILT_CXX_LIBRARY_API, false);
+  /**
+   * @return additional flags to pass to the linker when linking independent shared library
+   *     interfaces.
+   */
+  public Optional<ImmutableList<String>> getIndependentShlibInterfacesLdflags() {
+    return getFlags(INDEPENDENT_SHLIB_INTERFACE_LDFLAGS);
+  }
+
+  /**
+   * @return whether to generate a rule's shared library interface directly from it's object files,
+   *     to avoid having to wait for it's shared library to build.
+   */
+  public boolean isIndependentSharedLibraryInterfaces() {
+    return delegate.getBooleanValue(cxxSection, INDEPENDENT_SHLIB_INTERFACES, false);
   }
 
   /** @return the list of flavors that buck will consider valid when building the target graph. */
@@ -488,6 +511,21 @@ public class CxxBuckConfig {
         .stream()
         .map(s -> UserFlavor.of(s, String.format("Declared platform: %s", s)))
         .collect(ImmutableSet.toImmutableSet());
+  }
+
+  /** @return the extension to use for shared libraries (e.g. ".so"). */
+  public Optional<String> getSharedLibraryExtension() {
+    return delegate.getValue(cxxSection, SHARED_LIBRARY_EXT);
+  }
+
+  public ImmutableSortedSet<String> getConflictingHeaderBasenameWhitelist() {
+    return ImmutableSortedSet.copyOf(
+        delegate.getListWithoutComments(cxxSection, CONFLICTING_HEADER_BASENAME_WHITELIST));
+  }
+
+  /** @return the configured C/C++ header mode. */
+  public Optional<HeaderMode> getHeaderMode() {
+    return delegate.getEnum(cxxSection, HEADER_MODE, HeaderMode.class);
   }
 
   public BuckConfig getDelegate() {

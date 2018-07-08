@@ -16,14 +16,17 @@
 
 package com.facebook.buck.skylark.function;
 
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.skylark.SkylarkFilesystem;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
+import com.facebook.buck.skylark.io.impl.NativeGlobber;
+import com.facebook.buck.skylark.parser.BuckGlobals;
+import com.facebook.buck.skylark.parser.RuleFunctionFactory;
 import com.facebook.buck.skylark.parser.SkylarkProjectBuildFileParser;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Architecture;
@@ -64,7 +67,7 @@ public class HostInfoTest {
     // Assert that all keys are false except the one specified by {@code trueKey}
 
     Info topLevelStruct = struct.getValue(topLevel, Info.class);
-    for (String key : topLevelStruct.getKeys()) {
+    for (String key : topLevelStruct.getFieldNames()) {
       if (key.equals(trueKey)) {
         continue;
       }
@@ -202,7 +205,7 @@ public class HostInfoTest {
     Info realHostArch = realHostInfo.getValue("arch", Info.class);
     String trueOsKey =
         realHostOs
-            .getKeys()
+            .getFieldNames()
             .stream()
             .filter(
                 k -> {
@@ -217,7 +220,7 @@ public class HostInfoTest {
 
     String trueArchKey =
         realHostArch
-            .getKeys()
+            .getFieldNames()
             .stream()
             .filter(
                 k -> {
@@ -255,12 +258,12 @@ public class HostInfoTest {
     Files.write(fs.resolve("file.bzl"), macroFile.getBytes(Charsets.UTF_8));
 
     SkylarkProjectBuildFileParser parser = createParser(cell.getFilesystem(), eventHandler);
-    parser.getAll(fs.resolve("BUCK"), new AtomicLong());
+    parser.getBuildFileManifest(fs.resolve("BUCK"), new AtomicLong());
   }
 
   private SkylarkProjectBuildFileParser createParser(
       ProjectFilesystem filesystem, EventHandler eventHandler) {
-    return SkylarkProjectBuildFileParser.using(
+    ProjectBuildFileParserOptions options =
         ProjectBuildFileParserOptions.builder()
             .setProjectRoot(filesystem.getRootPath())
             .setAllowEmptyGlobs(ParserConfig.DEFAULT_ALLOW_EMPTY_GLOBS)
@@ -268,10 +271,19 @@ public class HostInfoTest {
             .setBuildFileName("BUCK")
             .setBuildFileImportWhitelist(ImmutableList.of())
             .setPythonInterpreter("skylark")
-            .build(),
+            .build();
+    RuleFunctionFactory ruleFunctionFactory =
+        new RuleFunctionFactory(new DefaultTypeCoercerFactory());
+    return SkylarkProjectBuildFileParser.using(
+        options,
         BuckEventBusForTests.newInstance(),
         SkylarkFilesystem.using(filesystem),
-        new DefaultTypeCoercerFactory(),
-        eventHandler);
+        BuckGlobals.builder()
+            .setDescriptions(options.getDescriptions())
+            .setDisableImplicitNativeRules(options.getDisableImplicitNativeRules())
+            .setRuleFunctionFactory(ruleFunctionFactory)
+            .build(),
+        eventHandler,
+        NativeGlobber::create);
   }
 }

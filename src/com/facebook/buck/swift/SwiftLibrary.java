@@ -19,6 +19,17 @@ package com.facebook.buck.swift;
 import static com.facebook.buck.swift.SwiftLibraryDescription.SWIFT_COMPANION_FLAVOR;
 import static com.facebook.buck.swift.SwiftLibraryDescription.SWIFT_COMPILE_FLAVOR;
 
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
+import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.CxxBridgingHeaders;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxHeadersDir;
@@ -26,28 +37,18 @@ import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorDep;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
+import com.facebook.buck.cxx.TransitiveCxxPreprocessorInputCache;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
 import com.facebook.buck.util.RichStream;
-import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -64,11 +65,10 @@ import java.util.stream.StreamSupport;
 class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
     implements HasRuntimeDeps, NativeLinkable, CxxPreprocessorDep {
 
-  private final LoadingCache<CxxPlatform, ImmutableMap<BuildTarget, CxxPreprocessorInput>>
-      transitiveCxxPreprocessorInputCache =
-          CxxPreprocessables.getTransitiveCxxPreprocessorInputCache(this);
+  private final TransitiveCxxPreprocessorInputCache transitiveCxxPreprocessorInputCache =
+      new TransitiveCxxPreprocessorInputCache(this);
 
-  private final BuildRuleResolver ruleResolver;
+  private final ActionGraphBuilder graphBuilder;
 
   private final Collection<? extends BuildRule> exportedDeps;
   private final Optional<SourcePath> bridgingHeader;
@@ -82,7 +82,7 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       Collection<? extends BuildRule> exportedDeps,
       FlavorDomain<SwiftPlatform> swiftPlatformFlavorDomain,
       Optional<SourcePath> bridgingHeader,
@@ -91,7 +91,7 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       Optional<Pattern> supportedPlatformsRegex,
       Linkage linkage) {
     super(buildTarget, projectFilesystem, params);
-    this.ruleResolver = ruleResolver;
+    this.graphBuilder = graphBuilder;
     this.exportedDeps = exportedDeps;
     this.bridgingHeader = bridgingHeader;
     this.frameworks = frameworks;
@@ -107,7 +107,7 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Iterable<NativeLinkable> getNativeLinkableDeps() {
+  public Iterable<NativeLinkable> getNativeLinkableDeps(BuildRuleResolver ruleResolver) {
     // TODO(beng, markwang): Use pseudo targets to represent the Swift
     // runtime library's linker args here so NativeLinkables can
     // deduplicate the linker flags on the build target (which would be the same for
@@ -118,7 +118,8 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps() {
+  public Iterable<? extends NativeLinkable> getNativeLinkableExportedDeps(
+      BuildRuleResolver ruleResolver) {
     throw new RuntimeException(
         "SwiftLibrary does not support getting linkable exported deps "
             + "without a specific platform.");
@@ -126,7 +127,7 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Iterable<? extends NativeLinkable> getNativeLinkableExportedDepsForPlatform(
-      CxxPlatform cxxPlatform) {
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableList.of();
     }
@@ -143,7 +144,8 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions) {
+      ImmutableSet<LanguageExtensions> languageExtensions,
+      ActionGraphBuilder graphBuilder) {
     SwiftCompile rule = requireSwiftCompileRule(cxxPlatform.getFlavor());
     NativeLinkableInput.Builder inputBuilder = NativeLinkableInput.builder();
     inputBuilder
@@ -151,7 +153,7 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
         .addAllFrameworks(frameworks)
         .addAllLibraries(libraries);
     boolean isDynamic;
-    Linkage preferredLinkage = getPreferredLinkage(cxxPlatform);
+    Linkage preferredLinkage = getPreferredLinkage(cxxPlatform, graphBuilder);
     switch (preferredLinkage) {
       case STATIC:
         isDynamic = false;
@@ -178,7 +180,8 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public ImmutableMap<String, SourcePath> getSharedLibraries(CxxPlatform cxxPlatform) {
+  public ImmutableMap<String, SourcePath> getSharedLibraries(
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     if (!isPlatformSupported(cxxPlatform)) {
       return ImmutableMap.of();
     }
@@ -202,7 +205,7 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
     // Find the correct rule. Since the SwiftCompile rules are generated by buck itself, any
     // failures in finding the rule is a buck internal error.
-    BuildRule rule = ruleResolver.requireRule(requiredBuildTarget);
+    BuildRule rule = graphBuilder.requireRule(requiredBuildTarget);
     try {
       return (SwiftCompile) rule;
     } catch (ClassCastException e) {
@@ -221,7 +224,7 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
             .withoutFlavors(SWIFT_COMPANION_FLAVOR)
             .withAppendedFlavors(CxxDescriptionEnhancer.SHARED_FLAVOR)
             .withAppendedFlavors(flavors);
-    BuildRule rule = ruleResolver.requireRule(requiredBuildTarget);
+    BuildRule rule = graphBuilder.requireRule(requiredBuildTarget);
     if (!(rule instanceof CxxLink)) {
       throw new RuntimeException(
           String.format("Could not find CxxLink with target %s", requiredBuildTarget));
@@ -230,7 +233,8 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public NativeLinkable.Linkage getPreferredLinkage(CxxPlatform cxxPlatform) {
+  public NativeLinkable.Linkage getPreferredLinkage(
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     // don't create dylib for swift companion target.
     if (getBuildTarget().getFlavors().contains(SWIFT_COMPANION_FLAVOR)) {
       return Linkage.STATIC;
@@ -251,7 +255,8 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(CxxPlatform cxxPlatform) {
+  public Iterable<CxxPreprocessorDep> getCxxPreprocessorDeps(
+      CxxPlatform cxxPlatform, BuildRuleResolver ruleResolver) {
     return getBuildDeps()
         .stream()
         .filter(CxxPreprocessorDep.class::isInstance)
@@ -260,7 +265,8 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public CxxPreprocessorInput getCxxPreprocessorInput(CxxPlatform cxxPlatform) {
+  public CxxPreprocessorInput getCxxPreprocessorInput(
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     if (!isPlatformSupported(cxxPlatform)) {
       return CxxPreprocessorInput.of();
     }
@@ -278,11 +284,11 @@ class SwiftLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public ImmutableMap<BuildTarget, CxxPreprocessorInput> getTransitiveCxxPreprocessorInput(
-      CxxPlatform cxxPlatform) {
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     if (getBuildTarget().getFlavors().contains(SWIFT_COMPANION_FLAVOR)) {
-      return ImmutableMap.of(getBuildTarget(), getCxxPreprocessorInput(cxxPlatform));
+      return ImmutableMap.of(getBuildTarget(), getCxxPreprocessorInput(cxxPlatform, graphBuilder));
     } else {
-      return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform);
+      return transitiveCxxPreprocessorInputCache.getUnchecked(cxxPlatform, graphBuilder);
     }
   }
 }

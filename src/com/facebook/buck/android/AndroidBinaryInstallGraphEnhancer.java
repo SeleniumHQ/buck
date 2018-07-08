@@ -18,15 +18,15 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.exopackage.ExopackageInfo;
 import com.facebook.buck.android.exopackage.ExopackagePathAndHash;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.NoopBuildRule;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.NoopBuildRule;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -47,30 +47,29 @@ class AndroidBinaryInstallGraphEnhancer {
 
   private ProjectFilesystem projectFilesystem;
   private BuildTarget buildTarget;
-  private AndroidBinary androidBinary;
+  private HasInstallableApk androidBinary;
   private AndroidInstallConfig androidInstallConfig;
 
   AndroidBinaryInstallGraphEnhancer(
       AndroidInstallConfig androidInstallConfig,
       ProjectFilesystem projectFilesystem,
       BuildTarget buildTarget,
-      AndroidBinary androidBinary) {
+      HasInstallableApk androidBinary) {
     this.projectFilesystem = projectFilesystem;
     this.buildTarget = buildTarget.withFlavors(INSTALL_FLAVOR);
     this.androidBinary = androidBinary;
     this.androidInstallConfig = androidInstallConfig;
   }
 
-  public void enhance(BuildRuleResolver resolver) {
-    if (androidInstallConfig.getConcurrentInstallEnabled(
-        Optional.ofNullable(resolver.getEventBus()))) {
+  public void enhance(ActionGraphBuilder graphBuilder) {
+    if (androidInstallConfig.getConcurrentInstallEnabled(Optional.empty())) {
       if (exopackageEnabled()) {
-        enhanceForConcurrentExopackageInstall(resolver);
+        enhanceForConcurrentExopackageInstall(graphBuilder);
       } else {
-        enhanceForConcurrentInstall(resolver);
+        enhanceForConcurrentInstall(graphBuilder);
       }
     } else {
-      enhanceForLegacyInstall(resolver);
+      enhanceForLegacyInstall(graphBuilder);
     }
   }
 
@@ -78,14 +77,14 @@ class AndroidBinaryInstallGraphEnhancer {
     return androidBinary.getApkInfo().getExopackageInfo().isPresent();
   }
 
-  private void enhanceForConcurrentExopackageInstall(BuildRuleResolver resolver) {
+  private void enhanceForConcurrentExopackageInstall(ActionGraphBuilder graphBuilder) {
     ApkInfo apkInfo = androidBinary.getApkInfo();
     Preconditions.checkState(apkInfo.getExopackageInfo().isPresent());
 
     ExopackageDeviceDirectoryLister directoryLister =
         new ExopackageDeviceDirectoryLister(
             buildTarget.withFlavors(DIRECTORY_LISTING_FLAVOR), projectFilesystem);
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     ExopackageInfo exopackageInfo = apkInfo.getExopackageInfo().get();
     ImmutableList.Builder<BuildRule> finisherDeps = ImmutableList.builder();
     if (exopackageInfo.getDexInfo().isPresent()
@@ -105,7 +104,7 @@ class AndroidBinaryInstallGraphEnhancer {
               directoryLister.getSourcePathToOutput(),
               apkInfo.getManifestPath(),
               filteredExopackageInfo);
-      resolver.addToIndex(fileInstaller);
+      graphBuilder.addToIndex(fileInstaller);
       finisherDeps.add(fileInstaller);
     }
     if (exopackageInfo.getResourcesInfo().isPresent()) {
@@ -115,7 +114,7 @@ class AndroidBinaryInstallGraphEnhancer {
               ruleFinder,
               apkInfo.getManifestPath(),
               directoryLister.getSourcePathToOutput());
-      resourceInstallRules.forEach(resolver::addToIndex);
+      resourceInstallRules.forEach(graphBuilder::addToIndex);
       finisherDeps.addAll(resourceInstallRules);
     }
 
@@ -128,8 +127,8 @@ class AndroidBinaryInstallGraphEnhancer {
             directoryLister,
             finisherDeps.build());
 
-    resolver.addToIndex(directoryLister);
-    resolver.addToIndex(apkInstaller);
+    graphBuilder.addToIndex(directoryLister);
+    graphBuilder.addToIndex(apkInstaller);
   }
 
   private List<BuildRule> createResourceInstallRules(
@@ -168,13 +167,13 @@ class AndroidBinaryInstallGraphEnhancer {
     return installers;
   }
 
-  private void enhanceForConcurrentInstall(BuildRuleResolver resolver) {
-    resolver.addToIndex(
+  private void enhanceForConcurrentInstall(ActionGraphBuilder graphBuilder) {
+    graphBuilder.addToIndex(
         new AndroidBinaryNonExoInstaller(buildTarget, projectFilesystem, androidBinary));
   }
 
-  private void enhanceForLegacyInstall(BuildRuleResolver resolver) {
-    resolver.addToIndex(
+  private void enhanceForLegacyInstall(ActionGraphBuilder graphBuilder) {
+    graphBuilder.addToIndex(
         new NoopBuildRule(buildTarget, projectFilesystem) {
           @Override
           public SortedSet<BuildRule> getBuildDeps() {

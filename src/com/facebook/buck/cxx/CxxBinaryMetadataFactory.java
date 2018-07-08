@@ -16,9 +16,9 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleResolver;
 import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
@@ -33,9 +33,9 @@ public class CxxBinaryMetadataFactory {
 
   public <U> Optional<U> createMetadata(
       BuildTarget buildTarget,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       ImmutableSortedSet<BuildTarget> deps,
-      final Class<U> metadataClass) {
+      Class<U> metadataClass) {
     if (!metadataClass.isAssignableFrom(CxxCompilationDatabaseDependencies.class)
         || !buildTarget.getFlavors().contains(CxxCompilationDatabase.COMPILATION_DATABASE)) {
       return Optional.empty();
@@ -45,7 +45,7 @@ public class CxxBinaryMetadataFactory {
             toolchainProvider
                 .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class)
                 .getCxxPlatforms(),
-            resolver,
+            graphBuilder,
             deps)
         .map(metadataClass::cast);
   }

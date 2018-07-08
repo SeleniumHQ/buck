@@ -16,6 +16,12 @@
 
 package com.facebook.buck.ide.intellij;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.ide.intellij.aggregation.DefaultAggregationModuleFactory;
 import com.facebook.buck.ide.intellij.lang.android.AndroidManifestParser;
 import com.facebook.buck.ide.intellij.lang.java.ParsingJavaPackageFinder;
@@ -25,14 +31,9 @@ import com.facebook.buck.ide.intellij.model.IjProjectConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaFileParser;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraphAndTargets;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
+import java.util.Optional;
 
 /** Top-level class for IntelliJ project generation. */
 public class IjProject {
@@ -40,27 +41,29 @@ public class IjProject {
   private final TargetGraphAndTargets targetGraphAndTargets;
   private final JavaPackageFinder javaPackageFinder;
   private final JavaFileParser javaFileParser;
-  private final BuildRuleResolver buildRuleResolver;
+  private final ActionGraphBuilder graphBuilder;
   private final SourcePathResolver sourcePathResolver;
   private final SourcePathRuleFinder ruleFinder;
   private final ProjectFilesystem projectFilesystem;
   private final IjProjectConfig projectConfig;
+  private final IJProjectCleaner cleaner;
 
   public IjProject(
       TargetGraphAndTargets targetGraphAndTargets,
       JavaPackageFinder javaPackageFinder,
       JavaFileParser javaFileParser,
-      BuildRuleResolver buildRuleResolver,
+      ActionGraphBuilder graphBuilder,
       ProjectFilesystem projectFilesystem,
       IjProjectConfig projectConfig) {
     this.targetGraphAndTargets = targetGraphAndTargets;
     this.javaPackageFinder = javaPackageFinder;
     this.javaFileParser = javaFileParser;
-    this.buildRuleResolver = buildRuleResolver;
-    this.ruleFinder = new SourcePathRuleFinder(buildRuleResolver);
+    this.graphBuilder = graphBuilder;
+    this.ruleFinder = new SourcePathRuleFinder(graphBuilder);
     this.sourcePathResolver = DefaultSourcePathResolver.from(this.ruleFinder);
     this.projectFilesystem = projectFilesystem;
     this.projectConfig = projectConfig;
+    cleaner = new IJProjectCleaner(projectFilesystem);
   }
 
   /**
@@ -71,22 +74,47 @@ public class IjProject {
    * @throws IOException
    */
   public ImmutableSet<BuildTarget> write() throws IOException {
+    final ImmutableSet<BuildTarget> buildTargets = performWriteOrUpdate(false);
+    clean();
+    return buildTargets;
+  }
+
+  /**
+   * Write a subset of the project to disk, specified by the targets passed on the command line.
+   * Does not perform a clean of the project space after updating.
+   *
+   * @return set of {@link BuildTarget}s which should be built in to allow indexing
+   * @throws IOException
+   */
+  public ImmutableSet<BuildTarget> update() throws IOException {
+    return performWriteOrUpdate(true);
+  }
+
+  /**
+   * Perform the write to disk.
+   *
+   * @param updateOnly whether to write all modules in the graph to disk, or only the ones which
+   *     correspond to the listed targets
+   * @return set of {@link BuildTarget}s which should be built in order for the project to index
+   *     correctly.
+   * @throws IOException
+   */
+  private ImmutableSet<BuildTarget> performWriteOrUpdate(boolean updateOnly) throws IOException {
     final ImmutableSet.Builder<BuildTarget> requiredBuildTargets = ImmutableSet.builder();
     IjLibraryFactory libraryFactory =
         new DefaultIjLibraryFactory(
             new DefaultIjLibraryFactoryResolver(
                 projectFilesystem,
                 sourcePathResolver,
-                buildRuleResolver,
+                graphBuilder,
                 ruleFinder,
-                requiredBuildTargets));
+                requiredBuildTargets),
+            Optional.of(
+                new ParsingJavaPackageFinder.PackagePathResolver(
+                    javaFileParser, projectFilesystem)));
     IjModuleFactoryResolver moduleFactoryResolver =
         new DefaultIjModuleFactoryResolver(
-            buildRuleResolver,
-            sourcePathResolver,
-            ruleFinder,
-            projectFilesystem,
-            requiredBuildTargets);
+            graphBuilder, sourcePathResolver, ruleFinder, projectFilesystem, requiredBuildTargets);
     SupportedTargetTypeRegistry typeRegistry =
         new SupportedTargetTypeRegistry(
             projectFilesystem, moduleFactoryResolver, projectConfig, javaPackageFinder);
@@ -112,28 +140,36 @@ public class IjProject {
             projectFilesystem,
             projectConfig,
             androidManifestParser);
+    IntellijModulesListParser modulesParser = new IntellijModulesListParser();
     IjProjectWriter writer =
-        new IjProjectWriter(templateDataPreparer, projectConfig, projectFilesystem);
+        new IjProjectWriter(templateDataPreparer, projectConfig, projectFilesystem, modulesParser);
 
-    IJProjectCleaner cleaner = new IJProjectCleaner(projectFilesystem);
-
-    writer.write(cleaner);
-
+    if (updateOnly) {
+      writer.update(cleaner, targetGraphAndTargets);
+    } else {
+      writer.write(cleaner);
+    }
     PregeneratedCodeWriter pregeneratedCodeWriter =
         new PregeneratedCodeWriter(
             templateDataPreparer, projectConfig, projectFilesystem, androidManifestParser);
     pregeneratedCodeWriter.write(cleaner);
-
-    cleaner.clean(
-        projectConfig.getBuckConfig(),
-        projectConfig.getProjectPaths().getLibrariesDir(),
-        projectConfig.isCleanerEnabled(),
-        projectConfig.isRemovingUnusedLibrariesEnabled());
 
     if (projectConfig.getGeneratedFilesListFilename().isPresent()) {
       cleaner.writeFilesToKeepToFile(projectConfig.getGeneratedFilesListFilename().get());
     }
 
     return requiredBuildTargets.build();
+  }
+
+  /**
+   * Run the cleaner after a successful call to write(). This removes stale project files from
+   * previous runs.
+   */
+  private void clean() throws IOException {
+    cleaner.clean(
+        projectConfig.getBuckConfig(),
+        projectConfig.getProjectPaths().getLibrariesDir(),
+        projectConfig.isCleanerEnabled(),
+        projectConfig.isRemovingUnusedLibrariesEnabled());
   }
 }

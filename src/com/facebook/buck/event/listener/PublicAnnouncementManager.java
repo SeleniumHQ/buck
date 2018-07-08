@@ -16,6 +16,7 @@
 
 package com.facebook.buck.event.listener;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.distributed.FrontendService;
 import com.facebook.buck.distributed.thrift.Announcement;
 import com.facebook.buck.distributed.thrift.AnnouncementRequest;
@@ -27,7 +28,6 @@ import com.facebook.buck.log.Logger;
 import com.facebook.buck.slb.ClientSideSlb;
 import com.facebook.buck.slb.LoadBalancedService;
 import com.facebook.buck.slb.ThriftOverHttpServiceConfig;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.network.RemoteLogBuckConfig;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.annotations.VisibleForTesting;
@@ -50,7 +50,7 @@ public class PublicAnnouncementManager {
           + "**- Sticky Public Announcements -**\n"
           + "**-------------------------------**";
 
-  @VisibleForTesting static final String ANNOUNCEMENT_TEMPLATE = "\n** %s %s";
+  @VisibleForTesting static final String ANNOUNCEMENT_TEMPLATE = "\n** %s Remediation: %s";
 
   private Clock clock;
   private BuckEventBus eventBus;
@@ -63,7 +63,7 @@ public class PublicAnnouncementManager {
       Clock clock,
       BuckEventBus eventBus,
       AbstractConsoleEventBusListener consoleEventBusListener,
-      final String repository,
+      String repository,
       RemoteLogBuckConfig logConfig,
       ListeningExecutorService service) {
     this.clock = clock;
@@ -75,7 +75,7 @@ public class PublicAnnouncementManager {
   }
 
   public void getAndPostAnnouncements() {
-    final ListenableFuture<ImmutableList<Announcement>> message =
+    ListenableFuture<ImmutableList<Announcement>> message =
         service.submit(
             () -> {
               Optional<ClientSideSlb> slb =
@@ -118,8 +118,9 @@ public class PublicAnnouncementManager {
                     announcement.concat(
                         String.format(
                             ANNOUNCEMENT_TEMPLATE,
-                            entry.getErrorMessage(),
-                            entry.getSolutionMessage()));
+                            consoleEventBusListener.ansi.asErrorText(entry.getErrorMessage()),
+                            consoleEventBusListener.ansi.asInformationText(
+                                entry.getSolutionMessage())));
               }
               consoleEventBusListener.setPublicAnnouncements(eventBus, Optional.of(announcement));
             }

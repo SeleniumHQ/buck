@@ -16,9 +16,9 @@
 
 package com.facebook.buck.config;
 
+import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.rules.DefaultCellPathResolver;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.ConfigBuilder;
@@ -32,7 +32,7 @@ public class BuckConfigTestUtils {
   private BuckConfigTestUtils() {}
 
   public static BuckConfig createWithDefaultFilesystem(
-      TemporaryPaths temporaryFolder, Reader reader) throws InterruptedException, IOException {
+      TemporaryPaths temporaryFolder, Reader reader) throws IOException {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(temporaryFolder.getRoot());
     return createFromReader(

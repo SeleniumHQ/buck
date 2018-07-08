@@ -16,6 +16,10 @@
 
 package com.facebook.buck.httpserver;
 
+import com.facebook.buck.core.build.event.BuildEvent;
+import com.facebook.buck.core.test.event.IndividualTestEvent;
+import com.facebook.buck.core.test.event.TestRunEvent;
+import com.facebook.buck.distributed.DistBuildCreatedEvent;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.CompilerErrorEvent;
 import com.facebook.buck.event.ConsoleEvent;
@@ -23,11 +27,7 @@ import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.event.ProgressEvent;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.event.listener.CacheRateStatsKeeper;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.parser.ParseEvent;
-import com.facebook.buck.rules.BuildEvent;
-import com.facebook.buck.rules.IndividualTestEvent;
-import com.facebook.buck.rules.TestRunEvent;
 import com.google.common.eventbus.Subscribe;
 
 /**
@@ -38,12 +38,9 @@ import com.google.common.eventbus.Subscribe;
 public class WebServerBuckEventListener implements BuckEventListener {
   private final StreamingWebSocketServlet streamingWebSocketServlet;
 
-  WebServerBuckEventListener(final WebServer webServer) {
+  WebServerBuckEventListener(WebServer webServer) {
     this.streamingWebSocketServlet = webServer.getStreamingWebSocketServlet();
   }
-
-  @Override
-  public void outputTrace(BuildId buildId) {}
 
   @Subscribe
   public void parseStarted(ParseEvent.Started started) {
@@ -129,6 +126,11 @@ public class WebServerBuckEventListener implements BuckEventListener {
 
   @Subscribe
   public void projectGenerationFinished(ProjectGenerationEvent.Finished event) {
+    streamingWebSocketServlet.tellClients(event);
+  }
+
+  @Subscribe
+  public void distBuildCreated(DistBuildCreatedEvent event) {
     streamingWebSocketServlet.tellClients(event);
   }
 }

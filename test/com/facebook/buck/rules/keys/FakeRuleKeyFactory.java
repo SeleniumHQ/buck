@@ -16,16 +16,15 @@
 
 package com.facebook.buck.rules.keys;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import java.io.IOException;
 
 public class FakeRuleKeyFactory
     implements RuleKeyFactoryWithDiagnostics<RuleKey>, DependencyFileRuleKeyFactory {
@@ -53,14 +52,13 @@ public class FakeRuleKeyFactory
 
   @Override
   public RuleKeyAndInputs build(
-      SupportsDependencyFileRuleKey rule, ImmutableList<DependencyFileEntry> inputs)
-      throws IOException {
-    return RuleKeyAndInputs.of(build(rule), ImmutableSet.<SourcePath>of());
+      SupportsDependencyFileRuleKey rule, ImmutableList<DependencyFileEntry> inputs) {
+    return RuleKeyAndInputs.of(build(rule), ImmutableSet.of());
   }
 
   @Override
   public RuleKeyAndInputs buildManifestKey(SupportsDependencyFileRuleKey rule) {
-    return RuleKeyAndInputs.of(build(rule), ImmutableSet.<SourcePath>of());
+    return RuleKeyAndInputs.of(build(rule), ImmutableSet.of());
   }
 
   @Override

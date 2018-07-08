@@ -17,9 +17,11 @@
 package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
-import com.facebook.buck.rules.RuleKey;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Functions;
 import com.google.common.collect.ImmutableList;
@@ -35,6 +37,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /**
  * MultiArtifactCache encapsulates a set of ArtifactCache instances such that fetch() succeeds if
@@ -63,7 +66,8 @@ public class MultiArtifactCache implements ArtifactCache {
    * artifact to one or more of the other encapsulated ArtifactCaches as a side effect.
    */
   @Override
-  public ListenableFuture<CacheResult> fetchAsync(RuleKey ruleKey, LazyPath output) {
+  public ListenableFuture<CacheResult> fetchAsync(
+      @Nullable BuildTarget target, RuleKey ruleKey, LazyPath output) {
     ListenableFuture<CacheResult> cacheResult = Futures.immediateFuture(CacheResult.miss());
     // This is the list of higher-priority caches that we should write the artifact to.
     ImmutableList.Builder<ArtifactCache> cachesToFill = ImmutableList.builder();
@@ -78,7 +82,7 @@ public class MultiArtifactCache implements ArtifactCache {
                 if (artifactCache.getCacheReadMode().isWritable()) {
                   cachesToFill.add(artifactCache);
                 }
-                return artifactCache.fetchAsync(ruleKey, output);
+                return artifactCache.fetchAsync(target, ruleKey, output);
               },
               MoreExecutors.directExecutor());
     }
@@ -118,13 +122,37 @@ public class MultiArtifactCache implements ArtifactCache {
     }
 
     // Aggregate future to ensure all store operations have completed.
-    return Futures.transform(Futures.allAsList(storeFutures), Functions.<Void>constant(null));
+    return Futures.transform(Futures.allAsList(storeFutures), Functions.constant(null));
   }
 
   /** Store the artifact to all encapsulated ArtifactCaches. */
   @Override
   public ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output) {
     return storeToCaches(writableArtifactCaches, info, output);
+  }
+
+  @Override
+  public ListenableFuture<Void> store(ImmutableList<Pair<ArtifactInfo, BorrowablePath>> artifacts) {
+    if (writableArtifactCaches.size() != 1) {
+      ImmutableList.Builder<Pair<ArtifactInfo, BorrowablePath>> artifactTemporaryPaths =
+          ImmutableList.builderWithExpectedSize(artifacts.size());
+      for (int i = 0; i < artifacts.size(); i++) {
+        artifactTemporaryPaths.add(
+            new Pair<>(
+                artifacts.get(i).getFirst(),
+                BorrowablePath.notBorrowablePath(artifacts.get(i).getSecond().getPath())));
+      }
+      artifacts = artifactTemporaryPaths.build();
+    }
+
+    List<ListenableFuture<Void>> storeFutures =
+        Lists.newArrayListWithExpectedSize(writableArtifactCaches.size());
+    for (ArtifactCache artifactCache : writableArtifactCaches) {
+      storeFutures.add(artifactCache.store(artifacts));
+    }
+
+    // Aggregate future to ensure all store operations have completed.
+    return Futures.transform(Futures.allAsList(storeFutures), Functions.constant(null));
   }
 
   @Override

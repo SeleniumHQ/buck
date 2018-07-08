@@ -21,15 +21,22 @@ import static org.easymock.EasyMock.createStrictMock;
 import static org.easymock.EasyMock.expectLastCall;
 import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
+import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.modern.HasCustomInputsLogic;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.modern.Buildable;
+import com.facebook.buck.rules.modern.CustomFieldInputs;
+import com.facebook.buck.util.function.ThrowingConsumer;
 import com.google.common.collect.ImmutableList;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import org.junit.Test;
 
@@ -38,7 +45,7 @@ public class InputsVisitorTest extends AbstractValueVisitorTest {
 
   private void apply(Buildable value) {
     replay(inputsConsumer);
-    DefaultClassInfoFactory.forInstance(value).getInputs(value, inputsConsumer);
+    DefaultClassInfoFactory.forInstance(value).visit(value, new InputsVisitor(inputsConsumer));
     verify(inputsConsumer);
   }
 
@@ -70,6 +77,82 @@ public class InputsVisitorTest extends AbstractValueVisitorTest {
     apply(new WithAddsToRuleKey());
   }
 
+  @Override
+  @Test
+  public void pattern() throws Exception {
+    apply(new WithPattern());
+  }
+
+  @Override
+  @Test
+  public void anEnum() throws Exception {
+    apply(new WithEnum());
+  }
+
+  @Override
+  @Test
+  public void nonHashableSourcePathContainer() throws Exception {
+    WithNonHashableSourcePathContainer value = new WithNonHashableSourcePathContainer();
+    inputsConsumer.accept(value.container.getSourcePath());
+    apply(value);
+  }
+
+  @Override
+  @Test
+  public void sortedMap() throws Exception {
+    inputsConsumer.accept(anyObject());
+    expectLastCall().times(2);
+    apply(new WithSortedMap());
+  }
+
+  @Override
+  @Test
+  public void supplier() throws Exception {
+    inputsConsumer.accept(anyObject());
+    apply(new WithSupplier());
+  }
+
+  @Override
+  @Test
+  public void nullable() throws Exception {
+    inputsConsumer.accept(anyObject());
+    apply(new WithNullable());
+  }
+
+  @Override
+  @Test
+  public void either() throws Exception {
+    inputsConsumer.accept(anyObject());
+    apply(new WithEither());
+  }
+
+  @Override
+  @Test
+  public void excluded() throws Exception {
+    apply(new WithExcluded());
+  }
+
+  @Override
+  @Test
+  public void immutables() throws Exception {
+    inputsConsumer.accept(anyObject());
+    expectLastCall().times(4);
+    apply(new WithImmutables());
+  }
+
+  @Override
+  @Test
+  public void stringified() throws Exception {
+    apply(new WithStringified());
+  }
+
+  @Override
+  @Test
+  public void wildcards() throws Exception {
+    inputsConsumer.accept(anyObject());
+    apply(new WithWildcards());
+  }
+
   static class WithSourcePathList implements FakeBuildable {
     @AddToRuleKey private final ImmutableList<SourcePath> inputs;
 
@@ -95,6 +178,12 @@ public class InputsVisitorTest extends AbstractValueVisitorTest {
     apply(new WithOptional());
   }
 
+  @Test
+  @Override
+  public void optionalInt() {
+    apply(new WithOptionalInt());
+  }
+
   @Override
   @Test
   public void simple() {
@@ -104,7 +193,7 @@ public class InputsVisitorTest extends AbstractValueVisitorTest {
   @Override
   @Test
   public void superClass() {
-    apply(new Derived());
+    apply(new TwiceDerived());
   }
 
   @Override
@@ -126,5 +215,72 @@ public class InputsVisitorTest extends AbstractValueVisitorTest {
   @Override
   public void buildTarget() {
     apply(new WithBuildTarget());
+  }
+
+  private static final PathSourcePath otherPath = FakeSourcePath.of("some.path");;
+
+  private static class HasCustomInputs implements AddsToRuleKey, HasCustomInputsLogic {
+    @AddToRuleKey
+    private final SourcePath sourcePath = DefaultBuildTargetSourcePath.of(someBuildTarget);
+
+    @Override
+    public <E extends Exception> void computeInputs(ThrowingConsumer<SourcePath, E> consumer)
+        throws E {
+      consumer.accept(otherPath);
+    }
+  }
+
+  private static class WithCustomInputs implements AddsToRuleKey {
+    @AddToRuleKey private final HasCustomInputs hasCustomInputs = new HasCustomInputs();
+  }
+
+  @Test
+  public void customDeps() {
+    WithCustomInputs withCustomInputs = new WithCustomInputs();
+    ImmutableList.Builder<SourcePath> inputsBuilder = ImmutableList.builder();
+    DefaultClassInfoFactory.forInstance(withCustomInputs)
+        .visit(withCustomInputs, new InputsVisitor(inputsBuilder::add));
+    assertEquals(inputsBuilder.build(), ImmutableList.of(otherPath));
+  }
+
+  @Test
+  public void customFieldBehavior() {
+    WithCustomFieldBehavior withCustomFieldBehavior = new WithCustomFieldBehavior();
+    InjectableInputsBehavior.function =
+        (string, consumer) -> {
+          assertEquals("value", string);
+          consumer.accept(otherPath);
+        };
+
+    ImmutableList.Builder<SourcePath> inputsBuilder = ImmutableList.builder();
+    DefaultClassInfoFactory.forInstance(withCustomFieldBehavior)
+        .visit(withCustomFieldBehavior, new InputsVisitor(inputsBuilder::add));
+    assertEquals(ImmutableList.of(otherPath), inputsBuilder.build());
+  }
+
+  private static class WithCustomFieldBehavior implements AddsToRuleKey {
+    @CustomFieldBehavior(IgnoredForInputsBehavior.class)
+    @AddToRuleKey
+    private final SourcePath sourcePath = DefaultBuildTargetSourcePath.of(someBuildTarget);
+
+    @CustomFieldBehavior(InjectableInputsBehavior.class)
+    @AddToRuleKey
+    private final String value = "value";
+  }
+
+  private static class IgnoredForInputsBehavior implements CustomFieldInputs<SourcePath> {
+    @Override
+    public void getInputs(SourcePath value, Consumer<SourcePath> consumer) {
+      // ignored for inputs.
+    }
+  }
+
+  private static class InjectableInputsBehavior implements CustomFieldInputs<String> {
+    private static BiConsumer<String, Consumer<SourcePath>> function = (s, c) -> {};
+
+    @Override
+    public void getInputs(String value, Consumer<SourcePath> consumer) {
+      function.accept(value, consumer);
+    }
   }
 }

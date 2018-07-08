@@ -25,35 +25,33 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.SourceWithFlags;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxInferEnhancer;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.Flavored;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.Description;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourceWithFlags;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -105,7 +103,7 @@ public class MultiarchFileTest {
   public String name;
 
   @Parameterized.Parameter(1)
-  public Description<?> description;
+  public DescriptionWithTargetGraph<?> description;
 
   @Parameterized.Parameter(2)
   public NodeBuilderFactory nodeBuilderFactory;
@@ -126,19 +124,19 @@ public class MultiarchFileTest {
 
   @SuppressWarnings({"unchecked"})
   @Test
-  public void descriptionWithMultiplePlatformArgsShouldGenerateMultiarchFile() throws Exception {
+  public void descriptionWithMultiplePlatformArgsShouldGenerateMultiarchFile() {
     BuildTarget target =
         BuildTargetFactory.newInstance("//foo:thing#iphoneos-i386,iphoneos-x86_64");
     BuildTarget sandboxTarget =
         BuildTargetFactory.newInstance("//foo:thing#iphoneos-i386,iphoneos-x86_64,sandbox");
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraphFactory.newInstance(new AppleLibraryBuilder(sandboxTarget).build()),
-            new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder =
+        new TestActionGraphBuilder(
+            TargetGraphFactory.newInstance(new AppleLibraryBuilder(sandboxTarget).build()));
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildRule multiarchRule = nodeBuilderFactory.getNodeBuilder(target).build(resolver, filesystem);
+    BuildRule multiarchRule =
+        nodeBuilderFactory.getNodeBuilder(target).build(graphBuilder, filesystem);
 
     assertThat(multiarchRule, instanceOf(MultiarchFile.class));
 
@@ -163,15 +161,13 @@ public class MultiarchFileTest {
 
   @Test
   public void descriptionWithMultipleDifferentSdksShouldFail() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     HumanReadableException exception = null;
     try {
       nodeBuilderFactory
           .getNodeBuilder(
               BuildTargetFactory.newInstance("//foo:xctest#iphoneos-i386,macosx-x86_64"))
-          .build(resolver);
+          .build(graphBuilder);
     } catch (HumanReadableException e) {
       exception = e;
     }
@@ -184,9 +180,7 @@ public class MultiarchFileTest {
 
   @Test
   public void ruleWithSpecialBuildActionShouldFail() throws Exception {
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     HumanReadableException exception = null;
     Iterable<Flavor> forbiddenFlavors =
         ImmutableList.<Flavor>builder()
@@ -199,8 +193,8 @@ public class MultiarchFileTest {
         nodeBuilderFactory
             .getNodeBuilder(
                 BuildTargetFactory.newInstance(
-                    "//foo:xctest#" + "iphoneos-i386,iphoneos-x86_64," + flavor.toString()))
-            .build(resolver);
+                    "//foo:xctest#" + "iphoneos-i386,iphoneos-x86_64," + flavor))
+            .build(graphBuilder);
       } catch (HumanReadableException e) {
         exception = e;
       }

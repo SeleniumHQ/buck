@@ -16,7 +16,7 @@
 
 package com.facebook.buck.util.zip;
 
-import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -363,7 +363,7 @@ public class JarBuilder {
     }
 
     @Override
-    public Stream<JarEntrySupplier> stream() throws IOException {
+    public Stream<JarEntrySupplier> stream() {
       return Stream.of(supplier);
     }
 

@@ -21,20 +21,18 @@ import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.artifact_cache.NoopArtifactCache.NoopArtifactCacheFactory;
 import com.facebook.buck.cli.output.PrintStreamPathOutputPresenter;
 import com.facebook.buck.cli.parameter_extractors.ProjectGeneratorParameters;
-import com.facebook.buck.cli.parameter_extractors.ProjectViewParameters;
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.ide.intellij.IjProjectBuckConfig;
 import com.facebook.buck.ide.intellij.IjProjectCommandHelper;
 import com.facebook.buck.ide.intellij.aggregation.AggregationMode;
 import com.facebook.buck.ide.intellij.model.IjProjectConfig;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.ForwardingProcessListener;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.Verbosity;
@@ -78,173 +76,149 @@ public class ProjectCommand extends BuildCommand {
   private static final boolean DEFAULT_READ_ONLY_VALUE = false;
 
   @Option(
-    name = "--combined-project",
-    usage = "Generate an xcode project of a target and its dependencies."
-  )
+      name = "--combined-project",
+      usage = "Generate an xcode project of a target and its dependencies.")
   private boolean combinedProject;
 
   @Option(
-    name = "--build-with-buck",
-    usage = "Use Buck to build the generated project instead of delegating the build to the IDE."
-  )
+      name = "--build-with-buck",
+      usage = "Use Buck to build the generated project instead of delegating the build to the IDE.")
   boolean buildWithBuck;
 
   @Option(name = "--process-annotations", usage = "Enable annotation processing")
   private boolean processAnnotations;
 
   @Option(
-    name = "--without-tests",
-    usage = "When generating a project slice, exclude tests that test the code in that slice"
-  )
+      name = "--without-tests",
+      usage = "When generating a project slice, exclude tests that test the code in that slice")
   private boolean withoutTests = false;
 
   @Option(
-    name = "--with-tests",
-    usage = "When generating a project slice, generate with all the tests"
-  )
+      name = "--with-tests",
+      usage = "When generating a project slice, generate with all the tests")
   private boolean withTests = false;
 
   @Option(
-    name = "--without-dependencies-tests",
-    usage =
-        "When generating a project slice, includes tests that test code in main target, "
-            + "but exclude tests that test dependencies"
-  )
+      name = "--without-dependencies-tests",
+      usage =
+          "When generating a project slice, includes tests that test code in main target, "
+              + "but exclude tests that test dependencies")
   private boolean withoutDependenciesTests = false;
 
   @Option(
-    name = "--ide",
-    usage =
-        "The type of IDE for which to generate a project. You may specify it in the "
-            + ".buckconfig file. Please refer to https://buckbuild.com/concept/buckconfig.html#project"
-  )
+      name = "--ide",
+      usage =
+          "The type of IDE for which to generate a project. You may specify it in the "
+              + ".buckconfig file. Please refer to https://buckbuild.com/concept/buckconfig.html#project")
   @Nullable
   private Ide ide = null;
 
   @Option(
-    name = "--read-only",
-    usage =
-        "If true, generate project files read-only. Defaults to '"
-            + DEFAULT_READ_ONLY_VALUE
-            + "' if not specified in .buckconfig. (Only "
-            + "applies to generated Xcode projects.)"
-  )
+      name = "--read-only",
+      usage =
+          "If true, generate project files read-only. Defaults to '"
+              + DEFAULT_READ_ONLY_VALUE
+              + "' if not specified in .buckconfig. (Only "
+              + "applies to generated Xcode projects.)")
   private boolean readOnly = DEFAULT_READ_ONLY_VALUE;
 
   @Option(
-    name = "--dry-run",
-    usage =
-        "Instead of actually generating the project, only print out the targets that "
-            + "would be included."
-  )
+      name = "--dry-run",
+      usage =
+          "Instead of actually generating the project, only print out the targets that "
+              + "would be included.")
   private boolean dryRun = false;
 
   @Option(
-    name = "--intellij-aggregation-mode",
-    handler = AggregationModeOptionHandler.class,
-    usage =
-        "Changes how modules are aggregated. Valid options are 'none' (no aggregation), "
-            + "'shallow' (Minimum of 3 directory levels deep), 'auto' (based on project size), or an "
-            + "integer to specify the minimum directory depth modules should be aggregated to (e.g."
-            + "specifying 3 would aggrgate modules to a/b/c from lower levels where possible). "
-            + "Defaults to 'auto' if not specified in .buckconfig."
-  )
+      name = "--intellij-aggregation-mode",
+      handler = AggregationModeOptionHandler.class,
+      usage =
+          "Changes how modules are aggregated. Valid options are 'none' (no aggregation), "
+              + "'shallow' (Minimum of 3 directory levels deep), 'auto' (based on project size), or an "
+              + "integer to specify the minimum directory depth modules should be aggregated to (e.g."
+              + "specifying 3 would aggrgate modules to a/b/c from lower levels where possible). "
+              + "Defaults to 'auto' if not specified in .buckconfig.")
   @Nullable
   private AggregationMode intellijAggregationMode = null;
 
   @Option(
-    name = "--run-ij-cleaner",
-    usage =
-        "After generating an IntelliJ project using --experimental-ij-generation, start a "
-            + "cleaner which removes any .iml files which weren't generated as part of the project."
-  )
+      name = "--run-ij-cleaner",
+      usage =
+          "After generating an IntelliJ project using --experimental-ij-generation, start a "
+              + "cleaner which removes any .iml files which weren't generated as part of the project.")
   private boolean runIjCleaner = false;
 
   @Option(
-    name = "--remove-unused-ij-libraries",
-    usage =
-        "After generating an IntelliJ project remove all IntelliJ libraries that are not "
-            + "used in the project."
-  )
+      name = "--remove-unused-ij-libraries",
+      usage =
+          "After generating an IntelliJ project remove all IntelliJ libraries that are not "
+              + "used in the project.")
   private boolean removeUnusedLibraries = false;
 
   @Option(
-    name = "--exclude-artifacts",
-    usage =
-        "Don't include references to the artifacts created by compiling a target in "
-            + "the module representing that target."
-  )
+      name = "--exclude-artifacts",
+      usage =
+          "Don't include references to the artifacts created by compiling a target in "
+              + "the module representing that target.")
   private boolean excludeArtifacts = false;
 
   @Option(
-    name = "--skip-build",
-    usage = "Don't try to build any of the targets for the generated project."
-  )
+      name = "--skip-build",
+      usage = "Don't try to build any of the targets for the generated project.")
   private boolean skipBuild = false;
 
   @Option(name = "--build", usage = "Also build all the targets in the project.")
   private boolean build = true;
 
   @Option(
-    name = "--focus",
-    usage =
-        "Space separated list of build target full qualified names that should be part of "
-            + "focused project. "
-            + "For example, //Libs/CommonLibs:BaseLib //Libs/ImportantLib:ImportantLib"
-  )
+      name = "--focus",
+      usage =
+          "Space separated list of build target full qualified names that should be part of "
+              + "focused project. "
+              + "For example, //Libs/CommonLibs:BaseLib //Libs/ImportantLib:ImportantLib")
   @Nullable
   private String modulesToFocusOn = null;
 
   @Option(
-    name = "--intellij-project-root",
-    usage =
-        "Generate an Intellij project at specified folder.  Buck targets under this folder "
-            + "are considered modules, and targets outside this folder are considered libraries."
-  )
+      name = "--intellij-project-root",
+      usage =
+          "Generate an Intellij project at specified folder.  Buck targets under this folder "
+              + "are considered modules, and targets outside this folder are considered libraries.")
   @Nonnull
   private String projectRoot = "";
 
   @Option(
-    name = "--intellij-include-transitive-dependencies",
-    usage = "Include transitive dependencies as RUNTIME library for Intellij project."
-  )
+      name = "--intellij-include-transitive-dependencies",
+      usage = "Include transitive dependencies as RUNTIME library for Intellij project.")
   @Nonnull
   private boolean includeTransitiveDependencies = false;
 
   @Option(
-    name = "--intellij-module-group-name",
-    usage = "Specify Intellij module group name when grouping modules into a module group."
-  )
+      name = "--intellij-module-group-name",
+      usage = "Specify Intellij module group name when grouping modules into a module group.")
   private String moduleGroupName = null;
 
   @Option(
-    name = "--file-with-list-of-generated-files",
-    usage =
-        "If present, forces command to save the list of generated file names to a provided"
-            + " file"
-  )
+      name = "--file-with-list-of-generated-files",
+      usage =
+          "If present, forces command to save the list of generated file names to a provided"
+              + " file")
   @Nullable
   private String generatedFilesListFilename = null;
 
   @Option(
-    name = "--view",
-    usage =
-        "Deprecated: this feature will be removed in future versions, see "
-            + "https://github.com/facebook/buck/issues/1567."
-            + "\n"
-            + "Option that builds a Project View which is a directory containing symlinks to a single"
-            + " project's code and resources. This directory looks a lot like a standard IntelliJ "
-            + "project with all resources under /res, but what's really important is that it "
-            + "generates a single IntelliJ module, so that editing is much faster than when you "
-            + "use 'plain' `buck project`.\n"
-            + "\n"
-            + "This option specifies the path to the Project View directory."
-  )
-  @Nullable
-  private String projectView = null;
+      name = "--update",
+      usage =
+          "Instead of generating a whole project, only regenerate the module files for the "
+              + "given targets, possibly updating the top-level modules list.")
+  private boolean updateOnly = false;
 
   private Optional<String> getPathToPreProcessScript(BuckConfig buckConfig) {
     return buckConfig.getValue("project", "pre_process");
+  }
+
+  private Optional<String> getPathToPostProcessScript(BuckConfig buckConfig) {
+    return buckConfig.getValue("project", "post_process");
   }
 
   private Optional<Ide> getIdeFromBuckConfig(BuckConfig buckConfig) {
@@ -261,7 +235,7 @@ public class ProjectCommand extends BuildCommand {
   @Override
   public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
-    final Ide projectIde =
+    Ide projectIde =
         (ide == null) ? getIdeFromBuckConfig(params.getBuckConfig()).orElse(null) : ide;
 
     if (projectIde == null) {
@@ -296,8 +270,8 @@ public class ProjectCommand extends BuildCommand {
                     includeTransitiveDependencies,
                     skipBuild || !build);
 
-            ProjectViewParameters projectViewParameters =
-                new ProjectViewParametersImplementation(params);
+            ProjectGeneratorParameters projectGeneratorParameters =
+                new ProjectGeneratorParametersImplementation(params);
             IjProjectCommandHelper projectCommandHelper =
                 new IjProjectCommandHelper(
                     params.getBuckEventBus(),
@@ -313,7 +287,7 @@ public class ProjectCommand extends BuildCommand {
                     (buildTargets, disableCaching) ->
                         runBuild(params, buildTargets, disableCaching),
                     arguments -> parseArgumentsAsTargetNodeSpecs(params.getBuckConfig(), arguments),
-                    projectViewParameters);
+                    projectGeneratorParameters);
             result = projectCommandHelper.parseTargetsAndRunProjectGenerator(getArguments());
             break;
           case XCODE:
@@ -337,12 +311,10 @@ public class ProjectCommand extends BuildCommand {
                     params.getEnvironment(),
                     params.getExecutors().get(ExecutorPool.PROJECT),
                     getArguments(),
-                    appleCxxPlatformsProvider
-                        .getAppleCxxPlatforms()
-                        .getFlavors()
-                        .stream()
-                        .map(Flavor::toString)
-                        .collect(ImmutableSet.toImmutableSet()),
+                    appleCxxPlatformsProvider.getAppleCxxPlatforms().getFlavors(),
+                    // .stream()
+                    // .map(Flavor::toString)
+                    // .collect(ImmutableSet.toImmutableSet()),
                     getEnableParserProfiling(),
                     withTests,
                     withoutTests,
@@ -369,7 +341,10 @@ public class ProjectCommand extends BuildCommand {
             // unreachable
             throw new IllegalStateException("'ide' should always be of type 'INTELLIJ' or 'XCODE'");
         }
-
+        rc = runPostprocessScriptIfNeeded(params, projectIde);
+        if (rc != 0) {
+          return ExitCode.map(rc);
+        }
       } finally {
         params.getBuckEventBus().post(ProjectGenerationEvent.finished());
       }
@@ -402,12 +377,23 @@ public class ProjectCommand extends BuildCommand {
 
   private int runPreprocessScriptIfNeeded(CommandRunnerParams params, Ide projectIde)
       throws IOException, InterruptedException {
-    Optional<String> pathToPreProcessScript = getPathToPreProcessScript(params.getBuckConfig());
-    if (!pathToPreProcessScript.isPresent()) {
+    Optional<String> script = getPathToPreProcessScript(params.getBuckConfig());
+    return runScriptIfNeeded(script, params, projectIde);
+  }
+
+  private int runPostprocessScriptIfNeeded(CommandRunnerParams params, Ide projectIde)
+      throws IOException, InterruptedException {
+    Optional<String> script = getPathToPostProcessScript(params.getBuckConfig());
+    return runScriptIfNeeded(script, params, projectIde);
+  }
+
+  private int runScriptIfNeeded(
+      Optional<String> optionalPathToScript, CommandRunnerParams params, Ide projectIde)
+      throws IOException, InterruptedException {
+    if (!optionalPathToScript.isPresent()) {
       return 0;
     }
-
-    String pathToScript = pathToPreProcessScript.get();
+    String pathToScript = optionalPathToScript.get();
     if (!Paths.get(pathToScript).isAbsolute()) {
       pathToScript =
           params
@@ -426,7 +412,7 @@ public class ProjectCommand extends BuildCommand {
                 ImmutableMap.<String, String>builder()
                     .putAll(params.getEnvironment())
                     .put("BUCK_PROJECT_TARGETS", Joiner.on(" ").join(getArguments()))
-                    .put("BUCK_PROJECT_TYPE", detectBuckProjectType(projectIde))
+                    .put("BUCK_PROJECT_TYPE", projectIde.toString().toLowerCase())
                     .build())
             .setDirectory(params.getCell().getFilesystem().getRootPath())
             .build();
@@ -444,13 +430,6 @@ public class ProjectCommand extends BuildCommand {
       processExecutor.destroyProcess(process, /* force */ false);
       processExecutor.waitForProcess(process);
     }
-  }
-
-  private String detectBuckProjectType(Ide projectIde) {
-    if (projectIde == Ide.INTELLIJ && projectView != null) {
-      return "intellij-view";
-    }
-    return projectIde.toString().toLowerCase();
   }
 
   @Override
@@ -512,27 +491,13 @@ public class ProjectCommand extends BuildCommand {
     }
 
     @Override
+    public boolean isUpdateOnly() {
+      return updateOnly;
+    }
+
+    @Override
     public Verbosity getVerbosity() {
       return getConsole().getVerbosity();
-    }
-  }
-
-  private class ProjectViewParametersImplementation extends ProjectGeneratorParametersImplementation
-      implements ProjectViewParameters {
-
-    private ProjectViewParametersImplementation(CommandRunnerParams parameters) {
-      super(parameters);
-    }
-
-    @Override
-    public boolean hasViewPath() {
-      return projectView != null && !projectView.trim().isEmpty(); // --view '' is possible
-    }
-
-    @Override
-    @Nullable
-    public String getViewPath() {
-      return projectView;
     }
   }
 }

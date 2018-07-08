@@ -16,19 +16,19 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.Escaper;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.worker.WorkerJobParams;
 import com.facebook.buck.worker.WorkerJobResult;
-import com.facebook.buck.worker.WorkerProcess;
 import com.facebook.buck.worker.WorkerProcessPool;
+import com.facebook.buck.worker.WorkerProcessPool.BorrowedWorkerProcess;
 import com.facebook.buck.worker.WorkerProcessPoolFactory;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
@@ -72,47 +72,40 @@ public class WorkerShellStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(final ExecutionContext context)
+  public StepExecutionResult execute(ExecutionContext context)
       throws IOException, InterruptedException {
-    WorkerProcessPool pool = null;
-    WorkerProcess process = null;
-    try {
-      // Use the process's startup command as the key.
-      WorkerJobParams paramsToUse = getWorkerJobParamsToUse(context.getPlatform());
-      pool = factory.getWorkerProcessPool(context, paramsToUse.getWorkerProcessParams());
-      process = pool.borrowWorkerProcess();
-      WorkerJobResult result = process.submitAndWaitForJob(getExpandedJobArgs(context));
-      pool.returnWorkerProcess(process);
-      process = null; // to avoid finally below
+    // Use the process's startup command as the key.
+    WorkerJobParams paramsToUse = getWorkerJobParamsToUse(context.getPlatform());
+    WorkerProcessPool pool =
+        factory.getWorkerProcessPool(context, paramsToUse.getWorkerProcessParams());
+    WorkerJobResult result;
+    try (BorrowedWorkerProcess process = pool.borrowWorkerProcess()) {
+      result = process.submitAndWaitForJob(getExpandedJobArgs(context));
+    }
 
-      Verbosity verbosity = context.getVerbosity();
-      boolean showStdout =
-          result.getStdout().isPresent()
-              && !result.getStdout().get().isEmpty()
-              && verbosity.shouldPrintOutput();
-      boolean showStderr =
-          result.getStderr().isPresent()
-              && !result.getStderr().get().isEmpty()
-              && verbosity.shouldPrintStandardInformation();
-      if (showStdout) {
-        context.postEvent(ConsoleEvent.info("%s", result.getStdout().get()));
-      }
-      if (showStderr) {
-        if (result.getExitCode() == 0) {
-          context.postEvent(ConsoleEvent.warning("%s", result.getStderr().get()));
-        } else {
-          context.postEvent(ConsoleEvent.severe("%s", result.getStderr().get()));
-        }
-      }
-      if (showStdout || showStderr) {
-        context.postEvent(ConsoleEvent.info("    When building rule %s:", buildTarget));
-      }
-      return StepExecutionResult.of(result.getExitCode());
-    } finally {
-      if (pool != null && process != null) {
-        pool.destroyWorkerProcess(process);
+    Verbosity verbosity = context.getVerbosity();
+    boolean showStdout =
+        result.getStdout().isPresent()
+            && !result.getStdout().get().isEmpty()
+            && verbosity.shouldPrintOutput();
+    boolean showStderr =
+        result.getStderr().isPresent()
+            && !result.getStderr().get().isEmpty()
+            && verbosity.shouldPrintStandardInformation();
+    if (showStdout) {
+      context.postEvent(ConsoleEvent.info("%s", result.getStdout().get()));
+    }
+    if (showStderr) {
+      if (result.getExitCode() == 0) {
+        context.postEvent(ConsoleEvent.warning("%s", result.getStderr().get()));
+      } else {
+        context.postEvent(ConsoleEvent.severe("%s", result.getStderr().get()));
       }
     }
+    if (showStdout || showStderr) {
+      context.postEvent(ConsoleEvent.info("    When building rule %s:", buildTarget));
+    }
+    return StepExecutionResult.of(result.getExitCode());
   }
 
   @VisibleForTesting

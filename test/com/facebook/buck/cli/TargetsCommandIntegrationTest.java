@@ -29,6 +29,7 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.log.thrift.rulekeys.FullRuleKey;
 import com.facebook.buck.testutil.ProcessResult;
@@ -36,9 +37,8 @@ import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ThriftRuleKeyDeserializer;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
@@ -135,12 +135,12 @@ public class TargetsCommandIntegrationTest {
   }
 
   @Test
-  public void testOutputWithoutTarget() throws IOException {
+  public void testOutputWithRepoGlob() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "output_path", tmp);
     workspace.setUp();
 
-    ProcessResult result = workspace.runBuckCommand("targets", "--show-output");
+    ProcessResult result = workspace.runBuckCommand("targets", "--show-output", "...");
     result.assertSuccess();
     assertEquals(
         "//:another-test "
@@ -161,12 +161,12 @@ public class TargetsCommandIntegrationTest {
   }
 
   @Test
-  public void testRuleKeyWithoutTarget() throws IOException {
+  public void testRuleKeyWithRepoGlob() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "output_path", tmp);
     workspace.setUp();
 
-    ProcessResult result = workspace.runBuckCommand("targets", "--show-rulekey");
+    ProcessResult result = workspace.runBuckCommand("targets", "--show-rulekey", "...");
     result.assertSuccess();
     assertThat(
         result.getStdout().trim(),
@@ -231,12 +231,12 @@ public class TargetsCommandIntegrationTest {
   }
 
   @Test
-  public void testTargetHashWithoutTarget() throws IOException {
+  public void testTargetHashWithRepoGlob() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "output_path", tmp);
     workspace.setUp();
 
-    ProcessResult result = workspace.runBuckCommand("targets", "--show-target-hash");
+    ProcessResult result = workspace.runBuckCommand("targets", "--show-target-hash", "...");
     result.assertSuccess();
     parseAndVerifyTargetsAndHashes(
         result.getStdout(), "//:another-test", "//:java_lib", "//:plugin", "//:test");
@@ -334,7 +334,7 @@ public class TargetsCommandIntegrationTest {
     workspace.setUp();
 
     ProcessResult result =
-        workspace.runBuckCommand("targets", "--show-target-hash", "--detect-test-changes");
+        workspace.runBuckCommand("targets", "...", "--show-target-hash", "--detect-test-changes");
     result.assertSuccess();
     parseAndVerifyTargetsAndHashes(
         result.getStdout(),
@@ -408,7 +408,7 @@ public class TargetsCommandIntegrationTest {
     workspace.setUp();
 
     ProcessResult result =
-        workspace.runBuckCommand("targets", "--show-target-hash", "--detect-test-changes");
+        workspace.runBuckCommand("targets", "--show-target-hash", "--detect-test-changes", "...");
     result.assertSuccess();
     List<String> hashes =
         parseAndVerifyTargetsAndHashes(
@@ -422,7 +422,7 @@ public class TargetsCommandIntegrationTest {
     String fileName = "test/Test.m";
     Files.write(workspace.getPath(fileName), "// This is not a test\n".getBytes(UTF_8));
     ProcessResult result2 =
-        workspace.runBuckCommand("targets", "--show-target-hash", "--detect-test-changes");
+        workspace.runBuckCommand("targets", "...", "--show-target-hash", "--detect-test-changes");
     result2.assertSuccess();
     List<String> hashesAfterModification =
         parseAndVerifyTargetsAndHashes(
@@ -565,7 +565,7 @@ public class TargetsCommandIntegrationTest {
     JsonNode observed =
         ObjectMappers.READER.readTree(ObjectMappers.createParser(result.getStdout()));
 
-    System.out.println(observed.toString());
+    System.out.println(observed);
 
     String expectedJson = workspace.getFileContents("output_path_json.js");
     JsonNode expected =
@@ -629,7 +629,7 @@ public class TargetsCommandIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "xcode_workspace_with_tests", tmp);
     workspace.setUp();
 
-    ProcessResult result = workspace.runBuckCommand("targets");
+    ProcessResult result = workspace.runBuckCommand("targets", "...");
     result.assertSuccess();
     assertEquals(
         ImmutableSet.of(
@@ -643,7 +643,7 @@ public class TargetsCommandIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "output_path", tmp);
     workspace.setUp();
 
-    ProcessResult result = workspace.runBuckCommand("targets", "--json", "--show-output");
+    ProcessResult result = workspace.runBuckCommand("targets", "--json", "--show-output", "...");
     result.assertSuccess();
 
     // Parse the observed JSON.
@@ -665,7 +665,13 @@ public class TargetsCommandIntegrationTest {
 
     ProcessResult result =
         workspace.runBuckCommand(
-            "targets", "--json", "--show-output", "--output-attributes", "buck.outputPath", "name");
+            "targets",
+            "--json",
+            "--show-output",
+            "...",
+            "--output-attributes",
+            "buck.outputPath",
+            "name");
     result.assertSuccess();
 
     // Parse the observed JSON.
@@ -690,7 +696,7 @@ public class TargetsCommandIntegrationTest {
 
     ProcessResult result =
         workspace.runBuckCommand(
-            "targets", "--json", "--show-output", "--output-attributes", "srcs");
+            "targets", "--json", "--show-output", "...", "--output-attributes", "srcs");
     result.assertSuccess();
 
     assertThat(result.getStdout(), equalTo("[\n{\n  \"srcs\" : [ \"Foo.java\" ]\n}\n]\n"));
@@ -821,5 +827,36 @@ public class TargetsCommandIntegrationTest {
     assertEquals(
         foundNonTransitiveTargetsAndHashes.get("//bar:main"),
         foundTransitiveTargetsAndHashes.get("//bar:main"));
+  }
+
+  @Test
+  public void printsBothOutputAndFiltersType() throws IOException, InterruptedException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "output_path_and_type", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand("targets", "--show-output", "//:", "--type", "export_file");
+    result.assertSuccess();
+
+    String expected =
+        String.format(
+            "//:exported.txt %s\n",
+            workspace.getBuckPaths().getGenDir().resolve("exported.txt").resolve("exported.txt"));
+    assertEquals(expected, result.getStdout());
+  }
+
+  @Test
+  public void failsIfNoTargetsProvided() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "output_path_and_type", tmp);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("targets", "--show-output");
+    result.assertExitCode(null, ExitCode.COMMANDLINE_ERROR);
+    assertThat(
+        result.getStderr(),
+        Matchers.containsString(
+            "Must specify at least one build target pattern. See https://buckbuild.com/concept/build_target_pattern.html"));
   }
 }

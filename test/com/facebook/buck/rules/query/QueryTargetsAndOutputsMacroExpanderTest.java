@@ -19,24 +19,23 @@ package com.facebook.buck.rules.query;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.model.macros.MacroMatchResult;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.rules.macros.QueryTargetsAndOutputsMacroExpander;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.HashMapWithStats;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -57,7 +56,7 @@ public class QueryTargetsAndOutputsMacroExpanderTest {
 
   private QueryTargetsAndOutputsMacroExpander expander;
   private ProjectFilesystem filesystem;
-  private BuildRuleResolver ruleResolver;
+  private ActionGraphBuilder graphBuilder;
   private CellPathResolver cellNames;
   private BuildRule rule;
   private BuildRule dep;
@@ -87,12 +86,10 @@ public class QueryTargetsAndOutputsMacroExpanderTest {
             .build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(depNode, ruleNode);
-    ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    graphBuilder = new TestActionGraphBuilder(targetGraph, filesystem);
 
-    dep = ruleResolver.requireRule(depNode.getBuildTarget());
-    rule = ruleResolver.requireRule(ruleNode.getBuildTarget());
+    dep = graphBuilder.requireRule(depNode.getBuildTarget());
+    rule = graphBuilder.requireRule(ruleNode.getBuildTarget());
   }
 
   @Test
@@ -141,7 +138,7 @@ public class QueryTargetsAndOutputsMacroExpanderTest {
         handler.extractBuildTimeDeps(
             dep.getBuildTarget(),
             cellNames,
-            ruleResolver,
+            graphBuilder,
             "$(query_targets_and_outputs 'classpath(//exciting:target)')",
             cache));
     // Cache should be populated at this point
@@ -168,7 +165,7 @@ public class QueryTargetsAndOutputsMacroExpanderTest {
   private void assertExpandsTo(String input, BuildRule rule, String expected)
       throws MacroException {
 
-    String results = handler.expand(rule.getBuildTarget(), cellNames, ruleResolver, input, cache);
+    String results = handler.expand(rule.getBuildTarget(), cellNames, graphBuilder, input, cache);
 
     assertEquals(expected, results);
   }

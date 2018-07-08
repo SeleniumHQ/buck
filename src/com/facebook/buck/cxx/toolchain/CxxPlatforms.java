@@ -16,15 +16,15 @@
 
 package com.facebook.buck.cxx.toolchain;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.Tool;
-import com.facebook.buck.rules.ToolProvider;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -62,6 +62,7 @@ public class CxxPlatforms {
               Optional.of(
                   ElfSharedLibraryInterfaceParams.of(
                       config.getObjcopy().get(),
+                      config.getIndependentShlibInterfacesLdflags().orElse(ImmutableList.of()),
                       type == SharedLibraryInterfaceParams.Type.DEFINED_ONLY));
           break;
           // $CASES-OMITTED$
@@ -74,7 +75,7 @@ public class CxxPlatforms {
   public static CxxPlatform build(
       Flavor flavor,
       Platform platform,
-      final CxxBuckConfig config,
+      CxxBuckConfig config,
       CompilerProvider as,
       PreprocessorProvider aspp,
       CompilerProvider cc,
@@ -84,9 +85,9 @@ public class CxxPlatforms {
       LinkerProvider ld,
       Iterable<String> ldFlags,
       Tool strip,
-      final ArchiverProvider ar,
-      final Optional<ToolProvider> ranlib,
-      final SymbolNameTool nm,
+      ArchiverProvider ar,
+      Optional<ToolProvider> ranlib,
+      SymbolNameTool nm,
       ImmutableList<String> asflags,
       ImmutableList<String> asppflags,
       ImmutableList<String> cflags,
@@ -121,7 +122,8 @@ public class CxxPlatforms {
         .setAr(config.getArchiverProvider(platform).orElse(ar))
         .setRanlib(config.getRanlib().isPresent() ? config.getRanlib() : ranlib)
         .setStrip(config.getStrip().orElse(strip))
-        .setSharedLibraryExtension(sharedLibraryExtension)
+        .setSharedLibraryExtension(
+            config.getSharedLibraryExtension().orElse(sharedLibraryExtension))
         .setSharedLibraryVersionedExtensionFormat(sharedLibraryVersionedExtensionFormat)
         .setStaticLibraryExtension(staticLibraryExtension)
         .setObjectFileExtension(objectFileExtension)
@@ -132,7 +134,9 @@ public class CxxPlatforms {
         .setHeaderVerification(headerVerification)
         .setPublicHeadersSymlinksEnabled(config.getPublicHeadersSymlinksEnabled())
         .setPrivateHeadersSymlinksEnabled(config.getPrivateHeadersSymlinksEnabled())
-        .setPicTypeForSharedLinking(picTypeForSharedLinking);
+        .setPicTypeForSharedLinking(picTypeForSharedLinking)
+        .setConflictingHeaderBasenameWhitelist(config.getConflictingHeaderBasenameWhitelist())
+        .setHeaderMode(config.getHeaderMode());
 
     builder.setSymbolNameTool(
         new LazyDelegatingSymbolNameTool(

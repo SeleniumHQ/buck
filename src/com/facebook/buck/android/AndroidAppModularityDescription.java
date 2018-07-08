@@ -17,15 +17,15 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasDeclaredDeps;
-import com.facebook.buck.rules.Hint;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.description.arg.Hint;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Map;
@@ -33,7 +33,7 @@ import java.util.Optional;
 import org.immutables.value.Value;
 
 public class AndroidAppModularityDescription
-    implements Description<AndroidAppModularityDescriptionArg> {
+    implements DescriptionWithTargetGraph<AndroidAppModularityDescriptionArg> {
 
   @Override
   public Class<AndroidAppModularityDescriptionArg> getConstructorArgType() {
@@ -42,17 +42,20 @@ public class AndroidAppModularityDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       AndroidAppModularityDescriptionArg args) {
     APKModuleGraph apkModuleGraph =
         new APKModuleGraph(
-            Optional.of(args.getApplicationModuleConfigs()), context.getTargetGraph(), buildTarget);
+            Optional.of(args.getApplicationModuleConfigs()),
+            args.getApplicationModuleDependencies(),
+            context.getTargetGraph(),
+            buildTarget);
 
     AndroidAppModularityGraphEnhancer graphEnhancer =
         new AndroidAppModularityGraphEnhancer(
-            buildTarget, params, context.getBuildRuleResolver(), args.getNoDx(), apkModuleGraph);
+            buildTarget, params, context.getActionGraphBuilder(), args.getNoDx(), apkModuleGraph);
 
     AndroidAppModularityGraphEnhancementResult result = graphEnhancer.createAdditionalBuildables();
 
@@ -69,6 +72,8 @@ public class AndroidAppModularityDescription
       extends CommonDescriptionArg, HasDeclaredDeps {
 
     Map<String, List<BuildTarget>> getApplicationModuleConfigs();
+
+    Optional<Map<String, List<String>>> getApplicationModuleDependencies();
 
     @Hint(isDep = false)
     ImmutableSet<BuildTarget> getNoDx();

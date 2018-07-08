@@ -16,8 +16,8 @@
 
 package com.facebook.buck.io;
 
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
 import java.nio.file.Path;
 import org.immutables.value.Value;
 
@@ -25,7 +25,7 @@ import org.immutables.value.Value;
  * A path which is relative to the build cell root, i.e. the top-level cell in which the build was
  * invoked.
  *
- * <p>See {@link com.facebook.buck.rules.BuildContext#getBuildCellRootPath}.
+ * <p>See {@link com.facebook.buck.core.build.context.BuildContext#getBuildCellRootPath}.
  */
 @BuckStyleTuple
 @Value.Immutable

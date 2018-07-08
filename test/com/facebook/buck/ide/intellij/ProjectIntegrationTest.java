@@ -19,17 +19,22 @@ package com.facebook.buck.ide.intellij;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.xml.XmlDomParser;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import java.io.File;
 import java.io.IOException;
 import org.hamcrest.Matchers;
+import org.junit.Assume;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.w3c.dom.Node;
@@ -37,6 +42,12 @@ import org.w3c.dom.Node;
 public class ProjectIntegrationTest {
 
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
+
+  @Before
+  public void setUp() throws Exception {
+    // These tests consistently fail on Windows due to path separator issues.
+    Assume.assumeFalse(Platform.detect() == Platform.WINDOWS);
+  }
 
   @Test
   public void testAndroidLibraryProject() throws InterruptedException, IOException {
@@ -277,6 +288,11 @@ public class ProjectIntegrationTest {
   }
 
   @Test
+  public void testProjectWithPrebuiltJarExportedDeps() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("project_with_prebuilt_exported_deps", "//a:a");
+  }
+
+  @Test
   public void testProjectWithProjectRoot() throws InterruptedException, IOException {
     runBuckProjectAndVerify(
         "project_with_project_root",
@@ -286,6 +302,43 @@ public class ProjectIntegrationTest {
         "--intellij-module-group-name",
         "",
         "//project1/lib:lib");
+  }
+
+  // This test is identical to testProjectWithProjectRoot, except
+  // one of the dependencies follows the proper source root structure.
+  // This should cause the corresponding file under .idea/libraries/
+  // to create SOURCES entries for IntelliJ.
+  @Test
+  public void testProjectWithSourceRoot() throws InterruptedException, IOException {
+    runBuckProjectAndVerify(
+        "project_with_source_root",
+        "--intellij-project-root",
+        "project1",
+        "--intellij-include-transitive-dependencies",
+        "--intellij-module-group-name",
+        "",
+        "//project1/lib:lib");
+  }
+
+  // This test is identical to testProjectWithSourceRoot, except
+  // .buckconfig is missing the 'enable_raw_sources_for_libraries' option.
+  // Not including this option should cause source roots to not be included
+  // in the library XML files.
+  @Test
+  public void testProjectWithSourceRootExcluded() throws InterruptedException, IOException {
+    runBuckProjectAndVerify(
+        "project_with_source_root_excluded",
+        "--intellij-project-root",
+        "project1",
+        "--intellij-include-transitive-dependencies",
+        "--intellij-module-group-name",
+        "",
+        "//project1/lib:lib");
+  }
+
+  @Test
+  public void testProjectWithBinaryInputs() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("project_with_binary_inputs");
   }
 
   @Test
@@ -335,16 +388,69 @@ public class ProjectIntegrationTest {
   }
 
   @Test
+  public void testBuckModuleRegenerateSubproject() throws Exception {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+                this, "incrementalProject", temporaryFolder.newFolder())
+            .setUp();
+    final String extraModuleFilePath = "modules/extra/modules_extra.iml";
+    final File extraModuleFile = workspace.getPath(extraModuleFilePath).toFile();
+    workspace
+        .runBuckCommand("project", "--intellij-aggregation-mode=none", "//modules/tip:tip")
+        .assertSuccess();
+    assertFalse(extraModuleFile.exists());
+    final String modulesBefore = workspace.getFileContents(".idea/modules.xml");
+    final String fileXPath =
+        String.format(
+            "/project/component/modules/module[contains(@filepath,'%s')]", extraModuleFilePath);
+    assertThat(XmlDomParser.parse(modulesBefore), Matchers.not(Matchers.hasXPath(fileXPath)));
+
+    // Run regenerate on the new modules
+    workspace
+        .runBuckCommand(
+            "project", "--intellij-aggregation-mode=none", "--update", "//modules/extra:extra")
+        .assertSuccess();
+    assertTrue(extraModuleFile.exists());
+    final String modulesAfter = workspace.getFileContents(".idea/modules.xml");
+    assertThat(XmlDomParser.parse(modulesAfter), Matchers.hasXPath(fileXPath));
+    workspace.verify();
+  }
+
+  @Test
+  public void testBuckModuleRegenerateSubprojectNoOp() throws InterruptedException, IOException {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+                this, "incrementalProject", temporaryFolder.newFolder())
+            .setUp();
+    workspace
+        .runBuckCommand(
+            "project",
+            "--intellij-aggregation-mode=none",
+            "//modules/tip:tip",
+            "//modules/extra:extra")
+        .assertSuccess();
+    workspace.verify();
+    // Run regenerate, should be a no-op relative to previous
+    workspace
+        .runBuckCommand(
+            "project", "--intellij-aggregation-mode=none", "--update", "//modules/extra:extra")
+        .assertSuccess();
+    workspace.verify();
+  }
+
+  @Test
   public void testCrossCellIntelliJProject() throws Exception {
     AssumeAndroidPlatform.assumeSdkIsAvailable();
 
     ProjectWorkspace primary =
-        TestDataHelper.createProjectWorkspaceForScenario(
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
             this, "inter-cell/primary", temporaryFolder.newFolder());
     primary.setUp();
 
     ProjectWorkspace secondary =
-        TestDataHelper.createProjectWorkspaceForScenario(
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
             this, "inter-cell/secondary", temporaryFolder.newFolder());
     secondary.setUp();
 
@@ -366,9 +472,9 @@ public class ProjectIntegrationTest {
             target);
     result.assertSuccess();
 
-    final String libImlPath = ".idea/libraries/secondary__java_com_crosscell_crosscell.xml";
+    String libImlPath = ".idea/libraries/secondary__java_com_crosscell_crosscell.xml";
     Node doc = XmlDomParser.parse(primary.getFileContents(libImlPath));
-    final String urlXpath = "/component/library/CLASSES/root/@url";
+    String urlXpath = "/component/library/CLASSES/root/@url";
     // Assert that the library URL is inside the project root
     assertThat(
         doc,

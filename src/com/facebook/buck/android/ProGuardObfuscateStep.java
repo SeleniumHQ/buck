@@ -17,11 +17,11 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildableContext;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -46,6 +46,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 
@@ -85,7 +86,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
       Optional<String> proguardAgentPath,
       Set<Path> customProguardConfigs,
       SdkProguardType sdkProguardConfig,
-      Optional<Integer> optimizationPasses,
+      OptionalInt optimizationPasses,
       Optional<List<String>> proguardJvmArgs,
       Map<Path, Path> inputAndOutputEntries,
       Set<Path> additionalLibraryJarsForProguard,
@@ -281,7 +282,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
     private final Map<Path, Path> inputAndOutputEntries;
     private final ImmutableSet<Path> additionalLibraryJarsForProguard;
     private final SdkProguardType sdkProguardConfig;
-    private final Optional<Integer> optimizationPasses;
+    private final OptionalInt optimizationPasses;
     private final Path proguardDirectory;
     private final Path pathToProGuardCommandLineArgsFile;
 
@@ -300,7 +301,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
         AndroidPlatformTarget androidPlatformTarget,
         Set<Path> customProguardConfigs,
         SdkProguardType sdkProguardConfig,
-        Optional<Integer> optimizationPasses,
+        OptionalInt optimizationPasses,
         Map<Path, Path> inputAndOutputEntries,
         Set<Path> additionalLibraryJarsForProguard,
         Path proguardDirectory,
@@ -341,7 +342,7 @@ public final class ProGuardObfuscateStep extends ShellStep {
         case OPTIMIZED:
           args.add("-include").add(androidPlatformTarget.getOptimizedProguardConfig().toString());
           if (optimizationPasses.isPresent()) {
-            args.add("-optimizationpasses").add(optimizationPasses.get().toString());
+            args.add("-optimizationpasses").add(String.valueOf(optimizationPasses.getAsInt()));
           }
           break;
         case DEFAULT:

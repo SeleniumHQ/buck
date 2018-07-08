@@ -20,6 +20,11 @@ import static com.facebook.buck.parser.ParserConfig.DEFAULT_BUILD_FILE_NAME;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
+import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesFactory;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.ConsoleEvent;
@@ -28,20 +33,15 @@ import com.facebook.buck.json.PythonDslProjectBuildFileParser;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.KnownBuildRuleTypes;
-import com.facebook.buck.rules.KnownBuildRuleTypesFactory;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.FakeProcess;
 import com.facebook.buck.util.FakeProcessExecutor;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -139,7 +139,7 @@ public class PythonDslProjectBuildFileParserTest {
     TestProjectBuildFileParserFactory buildFileParserFactory =
         new TestProjectBuildFileParserFactory(cell.getRoot(), knownBuildRuleTypes);
     BuckEventBus buckEventBus = BuckEventBusForTests.newInstance(FakeClock.doNotCare());
-    final List<ConsoleEvent> consoleEvents = new ArrayList<>();
+    List<ConsoleEvent> consoleEvents = new ArrayList<>();
     class EventListener {
       @Subscribe
       public void onConsoleEvent(ConsoleEvent consoleEvent) {
@@ -152,7 +152,7 @@ public class PythonDslProjectBuildFileParserTest {
         buildFileParserFactory.createNoopParserThatAlwaysReturnsSuccessAndPrintsToStderr(
             buckEventBus)) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getAllRulesAndMetaRules(Paths.get("foo"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo"), new AtomicLong());
     }
     assertThat(consoleEvents.get(1).getMessage(), Matchers.containsString("| Don't Panic!"));
   }
@@ -166,8 +166,8 @@ public class PythonDslProjectBuildFileParserTest {
     TestProjectBuildFileParserFactory buildFileParserFactory =
         new TestProjectBuildFileParserFactory(cell.getRoot(), knownBuildRuleTypes);
     BuckEventBus buckEventBus = BuckEventBusForTests.newInstance(FakeClock.doNotCare());
-    final List<ConsoleEvent> consoleEvents = new ArrayList<>();
-    final List<WatchmanDiagnosticEvent> watchmanDiagnosticEvents = new ArrayList<>();
+    List<ConsoleEvent> consoleEvents = new ArrayList<>();
+    List<WatchmanDiagnosticEvent> watchmanDiagnosticEvents = new ArrayList<>();
     class EventListener {
       @Subscribe
       public void on(ConsoleEvent consoleEvent) {
@@ -185,7 +185,7 @@ public class PythonDslProjectBuildFileParserTest {
         buildFileParserFactory.createNoopParserThatAlwaysReturnsSuccessWithWarning(
             buckEventBus, "This is a warning", "parser")) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getAllRulesAndMetaRules(Paths.get("foo"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo"), new AtomicLong());
     }
     assertThat(
         consoleEvents,
@@ -206,7 +206,7 @@ public class PythonDslProjectBuildFileParserTest {
     TestProjectBuildFileParserFactory buildFileParserFactory =
         new TestProjectBuildFileParserFactory(cell.getRoot(), knownBuildRuleTypes);
     BuckEventBus buckEventBus = BuckEventBusForTests.newInstance(FakeClock.doNotCare());
-    final List<WatchmanDiagnosticEvent> watchmanDiagnosticEvents = new ArrayList<>();
+    List<WatchmanDiagnosticEvent> watchmanDiagnosticEvents = new ArrayList<>();
     class EventListener {
       @Subscribe
       public void on(WatchmanDiagnosticEvent consoleEvent) {
@@ -219,7 +219,7 @@ public class PythonDslProjectBuildFileParserTest {
         buildFileParserFactory.createNoopParserThatAlwaysReturnsSuccessWithWarning(
             buckEventBus, "This is a watchman warning", "watchman")) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getAllRulesAndMetaRules(Paths.get("foo"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo"), new AtomicLong());
     }
     assertThat(
         watchmanDiagnosticEvents,
@@ -236,7 +236,7 @@ public class PythonDslProjectBuildFileParserTest {
     TestProjectBuildFileParserFactory buildFileParserFactory =
         new TestProjectBuildFileParserFactory(cell.getRoot(), knownBuildRuleTypes);
     BuckEventBus buckEventBus = BuckEventBusForTests.newInstance(FakeClock.doNotCare());
-    final List<ConsoleEvent> consoleEvents = new ArrayList<>();
+    List<ConsoleEvent> consoleEvents = new ArrayList<>();
     class EventListener {
       @Subscribe
       public void onConsoleEvent(ConsoleEvent consoleEvent) {
@@ -249,7 +249,7 @@ public class PythonDslProjectBuildFileParserTest {
         buildFileParserFactory.createNoopParserThatAlwaysReturnsSuccessWithError(
             buckEventBus, "This is an error", "parser")) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getAllRulesAndMetaRules(Paths.get("foo"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo"), new AtomicLong());
     }
     assertThat(
         consoleEvents,
@@ -294,7 +294,7 @@ public class PythonDslProjectBuildFileParserTest {
                             "text", "java_test(name=*@!&#(!@&*()\n")))
                 .build())) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getAllRulesAndMetaRules(Paths.get("foo/BUCK"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo/BUCK"), new AtomicLong());
     }
   }
 
@@ -333,7 +333,7 @@ public class PythonDslProjectBuildFileParserTest {
                             "text", "java_test(name=*@!&#(!@&*()\n")))
                 .build())) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getAllRulesAndMetaRules(Paths.get("foo/BUCK"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo/BUCK"), new AtomicLong());
     }
   }
 
@@ -346,7 +346,7 @@ public class PythonDslProjectBuildFileParserTest {
     TestProjectBuildFileParserFactory buildFileParserFactory =
         new TestProjectBuildFileParserFactory(cell.getRoot(), knownBuildRuleTypes);
     BuckEventBus buckEventBus = BuckEventBusForTests.newInstance(FakeClock.doNotCare());
-    final List<ConsoleEvent> consoleEvents = new ArrayList<>();
+    List<ConsoleEvent> consoleEvents = new ArrayList<>();
     class EventListener {
       @Subscribe
       public void onConsoleEvent(ConsoleEvent consoleEvent) {
@@ -390,7 +390,7 @@ public class PythonDslProjectBuildFileParserTest {
                             "text", "some_helper_method(name=*@!&#(!@&*()\n")))
                 .build())) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getAllRulesAndMetaRules(Paths.get("foo/BUCK"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo/BUCK"), new AtomicLong());
     }
   }
 
@@ -442,7 +442,7 @@ public class PythonDslProjectBuildFileParserTest {
                             "text", "lets_divide_by_zero()\n")))
                 .build())) {
       buildFileParser.initIfNeeded();
-      buildFileParser.getAllRulesAndMetaRules(Paths.get("foo/BUCK"), new AtomicLong());
+      buildFileParser.getBuildFileManifest(Paths.get("foo/BUCK"), new AtomicLong());
     }
   }
 
@@ -476,7 +476,10 @@ public class PythonDslProjectBuildFileParserTest {
           new FakeProcessExecutor(
               params ->
                   fakeProcessWithJsonOutput(
-                      0, ImmutableList.of(), Optional.empty(), Optional.empty()),
+                      0,
+                      ImmutableList.of("__includes", "__configs", "__env"),
+                      Optional.empty(),
+                      Optional.empty()),
               new TestConsole()),
           BuckEventBusForTests.newInstance());
     }
@@ -494,7 +497,7 @@ public class PythonDslProjectBuildFileParserTest {
     }
 
     public PythonDslProjectBuildFileParser createNoopParserThatAlwaysReturnsSuccessWithWarning(
-        BuckEventBus buckEventBus, final String warning, final String source) {
+        BuckEventBus buckEventBus, String warning, String source) {
       return new TestPythonDslProjectBuildFileParser(
           "fake-python",
           new FakeProcessExecutor(
@@ -512,7 +515,7 @@ public class PythonDslProjectBuildFileParserTest {
     }
 
     public PythonDslProjectBuildFileParser createNoopParserThatAlwaysReturnsSuccessWithError(
-        BuckEventBus buckEventBus, final String error, final String source) {
+        BuckEventBus buckEventBus, String error, String source) {
       return new TestPythonDslProjectBuildFileParser(
           "fake-python",
           new FakeProcessExecutor(
@@ -531,9 +534,9 @@ public class PythonDslProjectBuildFileParserTest {
 
     public PythonDslProjectBuildFileParser createNoopParserThatAlwaysReturnsErrorWithException(
         BuckEventBus buckEventBus,
-        final String error,
-        final String source,
-        final ImmutableMap<String, Object> exception) {
+        String error,
+        String source,
+        ImmutableMap<String, Object> exception) {
       return new TestPythonDslProjectBuildFileParser(
           "fake-python",
           new FakeProcessExecutor(

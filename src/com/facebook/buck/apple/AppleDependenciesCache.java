@@ -16,12 +16,13 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableSortedSet;
+import java.util.Optional;
 
 public class AppleDependenciesCache {
   private class CacheItem {
@@ -57,7 +58,11 @@ public class AppleDependenciesCache {
                       ImmutableSortedSet.Builder<TargetNode<?, ?>> exportedDepsBuilder =
                           ImmutableSortedSet.naturalOrder();
                       AppleBuildRules.addDirectAndExportedDeps(
-                          projectGraph, node, defaultDepsBuilder, exportedDepsBuilder);
+                          projectGraph,
+                          node,
+                          defaultDepsBuilder,
+                          exportedDepsBuilder,
+                          Optional.empty());
                       return new CacheItem(defaultDepsBuilder.build(), exportedDepsBuilder.build());
                     }));
   }

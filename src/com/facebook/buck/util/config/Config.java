@@ -16,11 +16,11 @@
 
 package com.facebook.buck.util.config;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.model.macros.MacroException;
 import com.facebook.buck.model.macros.MacroFinder;
 import com.facebook.buck.model.macros.MacroReplacer;
 import com.facebook.buck.model.macros.StringMacroCombiner;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.Optionals;
 import com.google.common.base.Joiner;
@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Stack;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
@@ -51,7 +52,8 @@ import java.util.regex.Pattern;
  */
 public class Config {
   /** Used in a string representation of a map; separates pairs of value */
-  public static final String DEFAULT_PAIR_SEPARATOR = ",";
+  public static final char DEFAULT_PAIR_SEPARATOR = ',';
+
   /** Used in a string representation of a map; separates keys from values */
   public static final String DEFAULT_KEY_VALUE_SEPARATOR = "=>";
 
@@ -81,12 +83,12 @@ public class Config {
 
   // Some `.buckconfig`s embed genrule macros which break with recent changes to support the config
   // macro.  So, add special expanders to preserve these until they get fixed.
-  private static MacroReplacer<String> getMacroPreserver(final String name) {
+  private static MacroReplacer<String> getMacroPreserver(String name) {
     return input -> String.format("$(%s %s)", name, Joiner.on(' ').join(input.getMacroInput()));
   }
 
   /** @return the input after recursively expanding any config references. */
-  private String expand(String input, final Stack<String> expandStack) {
+  private String expand(String input, Stack<String> expandStack) {
     MacroReplacer<String> macroReplacer =
         inputs -> {
           if (inputs.getMacroInput().size() != 1) {
@@ -242,9 +244,9 @@ public class Config {
     return value.isPresent() ? Optional.of(Long.valueOf(value.get())) : Optional.empty();
   }
 
-  public Optional<Integer> getInteger(String sectionName, String propertyName) {
+  public OptionalInt getInteger(String sectionName, String propertyName) {
     Optional<String> value = getValue(sectionName, propertyName);
-    return value.isPresent() ? Optional.of(Integer.valueOf(value.get())) : Optional.empty();
+    return value.isPresent() ? OptionalInt.of(Integer.parseInt(value.get())) : OptionalInt.empty();
   }
 
   public Optional<Float> getFloat(String sectionName, String propertyName) {
@@ -324,36 +326,25 @@ public class Config {
    *
    * @param section Config file section name
    * @param field Config file value name
-   * @param pairSeparator String that separates pairs of keys and values
+   * @param pairSeparatorChar Character that separates pairs of keys and values
    * @param keyValueSeparator String that separates keys and values
    * @return An {@link ImmutableMap}
    */
   public ImmutableMap<String, String> getMap(
-      String section, String field, String pairSeparator, String keyValueSeparator) {
-    return getMap(getValue(section, field), pairSeparator, keyValueSeparator);
-  }
-
-  /**
-   * Convert an {@code Optional<String>} representation of a map to a binary {@code
-   * ImmutableMap<String, String>}
-   *
-   * @param value An {@code Optional<String>}, such as you might get from {@link #getValue(String,
-   *     String)}
-   * @param pairSeparator String that separates pairs of keys and values
-   * @param keyValueSeparator String that separates keys and values
-   * @return An {@link ImmutableMap}
-   */
-  public static ImmutableMap<String, String> getMap(
-      Optional<String> value, String pairSeparator, String keyValueSeparator) {
-    if (value.isPresent()) {
-      return ImmutableMap.copyOf(
-          Splitter.on(pairSeparator)
-              .omitEmptyStrings()
-              .withKeyValueSeparator(Splitter.on(keyValueSeparator).trimResults())
-              .split(value.get()));
-    } else {
-      return ImmutableMap.of();
-    }
+      String section, String field, char pairSeparatorChar, String keyValueSeparator) {
+    return getListWithoutComments(section, field, pairSeparatorChar)
+        .stream()
+        .map(kvp -> Splitter.on(keyValueSeparator).trimResults().splitToList(kvp))
+        .map(
+            kvp -> {
+              if (kvp.size() != 2) {
+                throw new HumanReadableException(
+                    ".buckconfig %s.%s: Got value %s which should have a key and value, separated by %s",
+                    section, field, getValue(section, field), keyValueSeparator);
+              }
+              return kvp;
+            })
+        .collect(ImmutableMap.toImmutableMap(kvp -> kvp.get(0), kvp -> kvp.get(1)));
   }
 
   /**
@@ -366,18 +357,6 @@ public class Config {
    */
   public ImmutableMap<String, String> getMap(String section, String field) {
     return getMap(section, field, DEFAULT_PAIR_SEPARATOR, DEFAULT_KEY_VALUE_SEPARATOR);
-  }
-
-  /**
-   * Convert a {@code Optional<String>} representation of a map to a binary {@code
-   * ImmutableMap<String, String>}, using default separators
-   *
-   * @param value An {@code Optional<String>}, such as you might get from {@link #getValue(String,
-   *     String)}
-   * @return An {@link ImmutableMap}
-   */
-  public static ImmutableMap<String, String> getMap(Optional<String> value) {
-    return getMap(value, DEFAULT_PAIR_SEPARATOR, DEFAULT_KEY_VALUE_SEPARATOR);
   }
 
   @Override
@@ -409,7 +388,7 @@ public class Config {
       for (String field : fields) {
         String leftValue = leftFields.get(field);
         String rightValue = rightFields.get(field);
-        if (leftValue == null || rightValue == null || !leftValue.equals(rightValue)) {
+        if (leftValue == null || !leftValue.equals(rightValue)) {
           return false;
         }
       }

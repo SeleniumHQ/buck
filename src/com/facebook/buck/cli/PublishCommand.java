@@ -21,15 +21,15 @@ import static com.facebook.buck.jvm.core.JavaLibrary.SRC_JAR;
 import static com.facebook.buck.jvm.java.Javadoc.DOC_JAR;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.jvm.java.MavenPublishable;
 import com.facebook.buck.maven.Publisher;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.parser.BuildTargetSpec;
 import com.facebook.buck.parser.TargetNodeSpec;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.google.common.base.Joiner;
@@ -37,16 +37,16 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import org.eclipse.aether.artifact.Artifact;
-import org.eclipse.aether.deployment.DeployResult;
-import org.eclipse.aether.deployment.DeploymentException;
-import org.kohsuke.args4j.Option;
 import java.io.IOException;
 import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import javax.annotation.Nullable;
+import org.eclipse.aether.artifact.Artifact;
+import org.eclipse.aether.deployment.DeployResult;
+import org.eclipse.aether.deployment.DeploymentException;
+import org.kohsuke.args4j.Option;
 
 public class PublishCommand extends BuildCommand {
   public static final String REMOTE_REPO_LONG_ARG = "--remote-repo";
@@ -58,25 +58,24 @@ public class PublishCommand extends BuildCommand {
   public static final String TO_MAVEN_CENTRAL_LONG_ARG = "--to-maven-central";
   public static final String DRY_RUN_LONG_ARG = "--dry-run";
 
+  private static final String PUBLISH_GEN_PATH = "publish";
+
   @Option(
-    name = REMOTE_REPO_LONG_ARG,
-    aliases = REMOTE_REPO_SHORT_ARG,
-    usage = "A url of the remote repository to publish artifact(s) to"
-  )
+      name = REMOTE_REPO_LONG_ARG,
+      aliases = REMOTE_REPO_SHORT_ARG,
+      usage = "A url of the remote repository to publish artifact(s) to")
   @Nullable
   private URL remoteRepo = null;
 
   @Option(
-    name = TO_MAVEN_CENTRAL_LONG_ARG,
-    usage = "Same as \"" + REMOTE_REPO_LONG_ARG + " " + Publisher.MAVEN_CENTRAL_URL + "\""
-  )
+      name = TO_MAVEN_CENTRAL_LONG_ARG,
+      usage = "Same as \"" + REMOTE_REPO_LONG_ARG + " " + Publisher.MAVEN_CENTRAL_URL + "\"")
   private boolean toMavenCentral = false;
 
   @Option(
-    name = INCLUDE_SOURCE_LONG_ARG,
-    aliases = INCLUDE_SOURCE_SHORT_ARG,
-    usage = "Publish source code as well"
-  )
+      name = INCLUDE_SOURCE_LONG_ARG,
+      aliases = INCLUDE_SOURCE_SHORT_ARG,
+      usage = "Publish source code as well")
   private boolean includeSource = false;
 
   @Option(
@@ -89,18 +88,16 @@ public class PublishCommand extends BuildCommand {
   private boolean dryRun = false;
 
   @Option(
-    name = "--username",
-    aliases = "-u",
-    usage = "User name to use to authenticate with the server"
-  )
+      name = "--username",
+      aliases = "-u",
+      usage = "User name to use to authenticate with the server")
   @Nullable
   private String username = null;
 
   @Option(
-    name = "--password",
-    aliases = "-p",
-    usage = "Password to use to authenticate with the server"
-  )
+      name = "--password",
+      aliases = "-p",
+      usage = "Password to use to authenticate with the server")
   @Nullable
   private String password = null;
 
@@ -114,6 +111,16 @@ public class PublishCommand extends BuildCommand {
       throws IOException, InterruptedException {
 
     // Input validation
+    if (remoteRepo != null && toMavenCentral) {
+      throw new CommandLineException(
+          "please specify only a single remote repository to publish to.\n"
+              + "Use "
+              + REMOTE_REPO_LONG_ARG
+              + " <URL> or "
+              + TO_MAVEN_CENTRAL_LONG_ARG
+              + " but not both.");
+    }
+
     if (remoteRepo == null && !toMavenCentral) {
       throw new CommandLineException(
           "please specify a remote repository to publish to.\n"
@@ -124,22 +131,33 @@ public class PublishCommand extends BuildCommand {
     }
 
     // Build the specified target(s).
-    ExitCode exitCode = super.runWithoutHelp(params);
+
+    assertArguments(params);
+
+    BuildRunResult buildRunResult;
+    try (CommandThreadManager pool =
+        new CommandThreadManager("Publish", getConcurrencyLimit(params.getBuckConfig()))) {
+      buildRunResult = super.run(params, pool, ImmutableSet.of());
+    }
+
+    ExitCode exitCode = buildRunResult.getExitCode();
     if (exitCode != ExitCode.SUCCESS) {
       return exitCode;
     }
 
     // Publish starting with the given targets.
-    return publishTargets(getBuildTargets(), params) ? ExitCode.SUCCESS : ExitCode.RUN_ERROR;
+    return publishTargets(buildRunResult.getBuildTargets(), params)
+        ? ExitCode.SUCCESS
+        : ExitCode.RUN_ERROR;
   }
 
   private boolean publishTargets(
-      ImmutableList<BuildTarget> buildTargets, CommandRunnerParams params)
+      ImmutableSet<BuildTarget> buildTargets, CommandRunnerParams params)
       throws InterruptedException {
     ImmutableSet.Builder<MavenPublishable> publishables = ImmutableSet.builder();
     boolean success = true;
     for (BuildTarget buildTarget : buildTargets) {
-      BuildRule buildRule = getBuild().getRuleResolver().requireRule(buildTarget);
+      BuildRule buildRule = getBuild().getGraphBuilder().requireRule(buildTarget);
       Preconditions.checkNotNull(buildRule);
 
       if (!(buildRule instanceof MavenPublishable)) {
@@ -148,7 +166,7 @@ public class PublishCommand extends BuildCommand {
             .post(
                 ConsoleEvent.severe(
                     "Cannot publish rule of type %s", buildRule.getClass().getName()));
-        success &= false;
+        success = false;
         continue;
       }
 
@@ -160,16 +178,19 @@ public class PublishCommand extends BuildCommand {
                 ConsoleEvent.severe(
                     "No maven coordinates specified for %s",
                     buildTarget.getUnflavoredBuildTarget().getFullyQualifiedName()));
-        success &= false;
+        success = false;
         continue;
       }
       publishables.add(publishable);
     }
 
+    // Assume validation passed.
+    URL repoUrl = toMavenCentral ? Publisher.MAVEN_CENTRAL : Preconditions.checkNotNull(remoteRepo);
+
     Publisher publisher =
         new Publisher(
-            params.getCell().getFilesystem().getRootPath(),
-            Optional.ofNullable(remoteRepo),
+            params.getCell().getFilesystem().getBuckPaths().getTmpDir().resolve(PUBLISH_GEN_PATH),
+            repoUrl,
             Optional.ofNullable(username),
             Optional.ofNullable(password),
             Optional.ofNullable(pgpPassphrase),
@@ -179,7 +200,7 @@ public class PublishCommand extends BuildCommand {
       ImmutableSet<DeployResult> deployResults =
           publisher.publish(
               DefaultSourcePathResolver.from(
-                  new SourcePathRuleFinder(getBuild().getRuleResolver())),
+                  new SourcePathRuleFinder(getBuild().getGraphBuilder())),
               publishables.build());
       for (DeployResult deployResult : deployResults) {
         printArtifactsInformation(params, deployResult);
@@ -206,7 +227,7 @@ public class PublishCommand extends BuildCommand {
   }
 
   private static String artifactToString(Artifact artifact) {
-    return artifact.toString() + " < " + artifact.getFile();
+    return artifact + " < " + artifact.getFile();
   }
 
   @Override

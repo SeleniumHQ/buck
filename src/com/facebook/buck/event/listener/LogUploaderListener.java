@@ -16,10 +16,10 @@
 
 package com.facebook.buck.event.listener;
 
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.chrome_trace.ChromeTraceBuckConfig;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.trace.uploader.launcher.UploaderLauncher;
 import com.facebook.buck.util.trace.uploader.types.CompressionType;
@@ -35,17 +35,19 @@ public class LogUploaderListener implements BuckEventListener {
   private Optional<ExitCode> commandExitCode = Optional.empty();
   private final Path logFilePath;
   private final Path logDirectoryPath;
+  private final BuildId buildId;
 
   public LogUploaderListener(
-      ChromeTraceBuckConfig config, Path logFilePath, Path logDirectoryPath) {
+      ChromeTraceBuckConfig config, Path logFilePath, Path logDirectoryPath, BuildId buildId) {
     this.config = config;
     this.logFilePath = logFilePath;
     this.logDirectoryPath = logDirectoryPath;
+    this.buildId = buildId;
   }
 
   @Override
-  public synchronized void outputTrace(BuildId buildId) {
-    uploadLogIfConfigured(buildId);
+  public synchronized void close() {
+    uploadLogIfConfigured();
   }
 
   @Subscribe
@@ -58,7 +60,7 @@ public class LogUploaderListener implements BuckEventListener {
     commandExitCode = Optional.of(interrupted.getExitCode());
   }
 
-  private void uploadLogIfConfigured(BuildId buildId) {
+  private void uploadLogIfConfigured() {
     Optional<URI> traceUploadUri = config.getTraceUploadUri();
     if (!traceUploadUri.isPresent()
         || !config.getLogUploadMode().shouldUploadLogs(commandExitCode)) {

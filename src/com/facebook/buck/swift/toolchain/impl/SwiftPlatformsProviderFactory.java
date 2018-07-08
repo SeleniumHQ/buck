@@ -18,8 +18,8 @@ package com.facebook.buck.swift.toolchain.impl;
 
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
 import com.facebook.buck.swift.toolchain.SwiftPlatformsProvider;
 import com.facebook.buck.toolchain.ToolchainCreationContext;
@@ -53,9 +53,7 @@ public class SwiftPlatformsProviderFactory implements ToolchainFactory<SwiftPlat
           .getSwiftPlatform()
           .ifPresent(swiftPlatform -> swiftPlatforms.put(flavor, swiftPlatform));
     }
-    FlavorDomain<SwiftPlatform> swiftPlatformDomain =
-        new FlavorDomain<>("Swift Platform", swiftPlatforms.build());
 
-    return swiftPlatformDomain;
+    return new FlavorDomain<>("Swift Platform", swiftPlatforms.build());
   }
 }

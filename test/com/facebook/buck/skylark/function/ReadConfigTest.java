@@ -21,14 +21,16 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.skylark.SkylarkFilesystem;
-import com.facebook.buck.skylark.io.impl.SimpleGlobber;
+import com.facebook.buck.skylark.io.impl.NativeGlobber;
 import com.facebook.buck.skylark.packages.PackageContext;
-import com.facebook.buck.skylark.packages.PackageFactory;
+import com.facebook.buck.skylark.parser.context.ParseContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableMap;
+import com.google.devtools.build.lib.cmdline.PackageIdentifier;
+import com.google.devtools.build.lib.cmdline.RepositoryName;
 import com.google.devtools.build.lib.events.EventKind;
 import com.google.devtools.build.lib.events.PrintingEventHandler;
-import com.google.devtools.build.lib.syntax.BazelLibrary;
+import com.google.devtools.build.lib.packages.BazelLibrary;
 import com.google.devtools.build.lib.syntax.BuildFileAST;
 import com.google.devtools.build.lib.syntax.Environment;
 import com.google.devtools.build.lib.syntax.Mutability;
@@ -36,6 +38,7 @@ import com.google.devtools.build.lib.syntax.ParserInputSource;
 import com.google.devtools.build.lib.syntax.Runtime;
 import com.google.devtools.build.lib.vfs.FileSystemUtils;
 import com.google.devtools.build.lib.vfs.Path;
+import com.google.devtools.build.lib.vfs.PathFragment;
 import java.io.IOException;
 import java.util.EnumSet;
 import org.junit.Assert;
@@ -99,12 +102,16 @@ public class ReadConfigTest {
             .setGlobals(BazelLibrary.GLOBALS)
             .useDefaultSemantics()
             .build();
-    env.setupDynamic(
-        PackageFactory.PACKAGE_CONTEXT,
-        PackageContext.builder()
-            .setGlobber(SimpleGlobber.create(root))
-            .setRawConfig(rawConfig)
-            .build());
+    ParseContext parseContext =
+        new ParseContext(
+            PackageContext.builder()
+                .setGlobber(NativeGlobber.create(root))
+                .setRawConfig(rawConfig)
+                .setPackageIdentifier(
+                    PackageIdentifier.create(RepositoryName.DEFAULT, PathFragment.create("pkg")))
+                .setEventHandler(eventHandler)
+                .build());
+    parseContext.setup(env);
     env.setup("read_config", ReadConfig.create());
     boolean exec = buildFileAst.exec(env, eventHandler);
     if (!exec) {

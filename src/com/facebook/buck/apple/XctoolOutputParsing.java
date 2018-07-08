@@ -21,7 +21,7 @@ import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestStatusMessage;
 import com.facebook.buck.test.result.type.ResultType;
 import com.facebook.buck.util.LenientBooleanJsonDeserializer;
-import com.facebook.buck.util.ObjectMappers;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.MappingIterator;
@@ -172,7 +172,7 @@ class XctoolOutputParsing {
       return;
     }
     Object event = object.get("event");
-    if (event == null || !(event instanceof String)) {
+    if (!(event instanceof String)) {
       LOG.warn("Couldn't parse event field from xctool event: %s", object);
       return;
     }

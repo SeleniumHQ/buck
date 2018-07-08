@@ -18,13 +18,13 @@ package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.apple.xcode.xcodeproj.PBXReference;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.Optionals;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.base.Preconditions;
 import com.google.common.io.Files;
 import java.nio.file.Path;
@@ -50,10 +50,11 @@ abstract class AbstractFrameworkPath implements Comparable<AbstractFrameworkPath
   }
 
   @Value.Parameter
+  @AddToRuleKey
   protected abstract Type getType();
 
   @Value.Parameter
-  @AddToRuleKey(stringify = true)
+  @AddToRuleKey
   public abstract Optional<SourceTreePath> getSourceTreePath();
 
   @Value.Parameter

@@ -16,8 +16,7 @@
 
 package com.facebook.buck.distributed;
 
-import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
-import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildStatusResponse;
 import com.facebook.buck.distributed.thrift.FrontendRequest;
@@ -25,7 +24,6 @@ import com.facebook.buck.distributed.thrift.FrontendRequestType;
 import com.facebook.buck.distributed.thrift.FrontendResponse;
 import com.facebook.buck.distributed.thrift.ReportCoordinatorAliveResponse;
 import com.facebook.buck.distributed.thrift.SetFinalBuildStatusResponse;
-import com.facebook.buck.rules.Cell;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.FakeFrontendHttpServer;
@@ -47,9 +45,9 @@ public class DistBuildIntegrationTest {
 
   private void runSimpleDistBuildScenario(String scenario, String targetToBuild)
       throws IOException {
-    final Path sourceFolderPath = temporaryFolder.newFolder("source");
+    Path sourceFolderPath = temporaryFolder.newFolder("source");
     Path stateFilePath = temporaryFolder.getRoot().resolve("state_dump.bin");
-    final Path destinationFolderPath = temporaryFolder.newFolder("destination");
+    Path destinationFolderPath = temporaryFolder.newFolder("destination");
 
     ProjectWorkspace sourceWorkspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, scenario, sourceFolderPath);
@@ -64,7 +62,7 @@ public class DistBuildIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "empty", destinationFolderPath);
     destinationWorkspace.setUp();
 
-    runDistBuildWithFakeFrontend(
+    FrontendServer.runDistBuildWithFakeFrontend(
             destinationWorkspace,
             "--build-state-file",
             stateFilePath.toString(),
@@ -79,42 +77,6 @@ public class DistBuildIntegrationTest {
   }
 
   @Test
-  public void canBuildAppleBundles() throws Exception {
-    final Path sourceFolderPath = temporaryFolder.newFolder("source");
-    final Path destinationFolderPath = temporaryFolder.newFolder("destination");
-    final Path stateFilePath = temporaryFolder.getRoot().resolve("state_dump.bin");
-
-    Assume.assumeTrue(Platform.detect() == Platform.MACOS);
-    Assume.assumeTrue(
-        AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
-
-    String scenario = "apple_bundle";
-    ProjectWorkspace sourceWorkspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, scenario, sourceFolderPath);
-    sourceWorkspace.setUp();
-
-    sourceWorkspace
-        .runBuckBuild(
-            "//:DemoApp#iphonesimulator-x86_64,no-debug",
-            "--distributed",
-            "--build-state-file",
-            stateFilePath.toString())
-        .assertSuccess();
-
-    ProjectWorkspace destinationWorkspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "empty", destinationFolderPath);
-    destinationWorkspace.setUp();
-
-    runDistBuildWithFakeFrontend(
-            destinationWorkspace,
-            "--build-state-file",
-            stateFilePath.toString(),
-            "--buildslave-run-id",
-            "i_am_slave_with_run_id_42")
-        .assertSuccess();
-  }
-
-  @Test
   public void canBuildJumpingIntoSecondaryCellAndBackToMainCell() throws Exception {
     testCrossCell("multi_cell_out_and_back");
   }
@@ -125,9 +87,9 @@ public class DistBuildIntegrationTest {
   }
 
   private void testCrossCell(String scenario) throws Exception {
-    final Path sourceFolderPath = temporaryFolder.newFolder("source");
-    final Path destinationFolderPath = temporaryFolder.newFolder("destination");
-    final Path stateFilePath = temporaryFolder.getRoot().resolve("state_dump.bin");
+    Path sourceFolderPath = temporaryFolder.newFolder("source");
+    Path destinationFolderPath = temporaryFolder.newFolder("destination");
+    Path stateFilePath = temporaryFolder.getRoot().resolve("state_dump.bin");
 
     ProjectWorkspace mainCellWorkspace = setupCell(scenario, "main_cell", sourceFolderPath);
     setupCell(scenario, "secondary_cell", sourceFolderPath);
@@ -144,7 +106,7 @@ public class DistBuildIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "empty", destinationFolderPath);
     destinationWorkspace.setUp();
 
-    runDistBuildWithFakeFrontend(
+    FrontendServer.runDistBuildWithFakeFrontend(
             destinationWorkspace,
             "--build-state-file",
             stateFilePath.toString(),
@@ -155,9 +117,9 @@ public class DistBuildIntegrationTest {
 
   @Test
   public void canBuildCrossCellWithSymlinksAndAbsPathTools() throws Exception {
-    final Path sourceFolderPath = temporaryFolder.newFolder("source");
-    final Path destinationFolderPath = temporaryFolder.newFolder("destination");
-    final String scenario = "multi_cell_java_target";
+    Path sourceFolderPath = temporaryFolder.newFolder("source");
+    Path destinationFolderPath = temporaryFolder.newFolder("destination");
+    String scenario = "multi_cell_java_target";
     Path stateFilePath = temporaryFolder.getRoot().resolve("state_dump.bin");
 
     ProjectWorkspace mainCellWorkspace = setupCell(scenario, "main_cell", sourceFolderPath);
@@ -177,7 +139,7 @@ public class DistBuildIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "empty", destinationFolderPath);
     destinationWorkspace.setUp();
 
-    runDistBuildWithFakeFrontend(
+    FrontendServer.runDistBuildWithFakeFrontend(
             destinationWorkspace,
             "--build-state-file",
             stateFilePath.toString(),
@@ -211,27 +173,25 @@ public class DistBuildIntegrationTest {
       throws IOException {
     Path cellPath = outputDir.resolve(cellSubDir);
     ProjectWorkspace sourceWorkspace =
-        TestDataHelper.createProjectWorkspaceForScenario(
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
             this, scenario + "/" + cellSubDir, cellPath);
     sourceWorkspace.setUp();
     return sourceWorkspace;
   }
 
-  private static ProcessResult runDistBuildWithFakeFrontend(
-      ProjectWorkspace workspace, String... args) throws IOException {
-    List<String> argsList = Lists.newArrayList(args);
-    try (Server frontendServer = new Server()) {
-      argsList.add(frontendServer.getStampedeConfigArg());
-      argsList.add(frontendServer.getPingEndpointConfigArg());
-      return workspace.runBuckDistBuildRun(argsList.toArray(new String[0]));
-    }
-  }
+  public static class FrontendServer extends FakeFrontendHttpServer {
 
-  private static class Server extends FakeFrontendHttpServer {
-
-    public Server() throws IOException {
-      super();
+    public static ProcessResult runDistBuildWithFakeFrontend(
+        ProjectWorkspace workspace, String... args) throws IOException {
+      List<String> argsList = Lists.newArrayList(args);
+      try (FrontendServer frontendServer = new FrontendServer()) {
+        argsList.add(frontendServer.getStampedeConfigArg());
+        argsList.add(frontendServer.getPingEndpointConfigArg());
+        return workspace.runBuckDistBuildRun(argsList.toArray(new String[0]));
+      }
     }
+
+    private FrontendServer() throws IOException {}
 
     @Override
     public FrontendResponse handleRequest(FrontendRequest request) {

@@ -16,6 +16,10 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.core.model.actiongraph.ActionGraph;
+import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
+import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.graph.DirectedAcyclicGraph;
 import com.facebook.buck.graph.Dot;
@@ -23,11 +27,6 @@ import com.facebook.buck.graph.MutableDirectedGraph;
 import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.ActionGraph;
-import com.facebook.buck.rules.ActionGraphAndResolver;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.TargetGraphAndBuildTargets;
-import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
@@ -38,7 +37,6 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ForkJoinPool;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
 
@@ -55,9 +53,7 @@ public class AuditActionGraphCommand extends AbstractCommand {
   public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
     try (CommandThreadManager pool =
-            new CommandThreadManager("Audit", getConcurrencyLimit(params.getBuckConfig()));
-        CloseableMemoizedSupplier<ForkJoinPool, RuntimeException> poolSupplier =
-            getForkJoinPoolSupplier(params.getBuckConfig())) {
+        new CommandThreadManager("Audit", getConcurrencyLimit(params.getBuckConfig())); ) {
       // Create the target graph.
       TargetGraphAndBuildTargets unversionedTargetGraphAndBuildTargets =
           params
@@ -75,21 +71,22 @@ public class AuditActionGraphCommand extends AbstractCommand {
               : unversionedTargetGraphAndBuildTargets;
 
       // Create the action graph.
-      ActionGraphAndResolver actionGraphAndResolver =
+      ActionGraphAndBuilder actionGraphAndBuilder =
           params
               .getActionGraphCache()
               .getActionGraph(
                   params.getBuckEventBus(),
                   targetGraphAndBuildTargets.getTargetGraph(),
+                  params.getCell().getCellProvider(),
                   params.getBuckConfig(),
                   params.getRuleKeyConfiguration(),
-                  poolSupplier);
+                  params.getPoolSupplier());
 
       // Dump the action graph.
       if (generateDotOutput) {
-        dumpAsDot(actionGraphAndResolver.getActionGraph(), params.getConsole().getStdOut());
+        dumpAsDot(actionGraphAndBuilder.getActionGraph(), params.getConsole().getStdOut());
       } else {
-        dumpAsJson(actionGraphAndResolver.getActionGraph(), params.getConsole().getStdOut());
+        dumpAsJson(actionGraphAndBuilder.getActionGraph(), params.getConsole().getStdOut());
       }
     } catch (BuildFileParseException | VersionException e) {
       // The exception should be logged with stack trace instead of only emitting the error.

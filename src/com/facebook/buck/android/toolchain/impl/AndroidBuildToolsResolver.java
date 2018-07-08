@@ -18,8 +18,8 @@ package com.facebook.buck.android.toolchain.impl;
 
 import com.facebook.buck.android.AndroidBuckConfig;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.util.Escaper;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.VersionStringComparator;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
@@ -63,7 +63,7 @@ public class AndroidBuildToolsResolver {
   }
 
   private Optional<Path> findBuildTools(Path sdkPath) {
-    final Path toolsDir = sdkPath.resolve("build-tools");
+    Path toolsDir = sdkPath.resolve("build-tools");
 
     if (toolsDir.toFile().isDirectory()) {
       // In older versions of the ADT that have been upgraded via the SDK manager, the build-tools
@@ -110,7 +110,7 @@ public class AndroidBuildToolsResolver {
       }
 
       // We aren't looking for a specific version, so we pick the newest version
-      final VersionStringComparator comparator = new VersionStringComparator();
+      VersionStringComparator comparator = new VersionStringComparator();
       File newestBuildDir = null;
       String newestBuildDirVersion = null;
       for (File directory : directories) {

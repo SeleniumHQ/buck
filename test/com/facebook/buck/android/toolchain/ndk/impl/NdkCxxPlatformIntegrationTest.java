@@ -28,11 +28,11 @@ import static org.junit.Assume.assumeTrue;
 import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.android.toolchain.ndk.NdkCompilerType;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -58,8 +58,13 @@ public class NdkCxxPlatformIntegrationTest {
 
   @Parameterized.Parameters(name = "{0},{1},{2}")
   public static Collection<Object[]> data() {
+    ImmutableList.Builder<String> architectures = ImmutableList.builder();
+    if (AssumeAndroidPlatform.isArmAvailable()) {
+      architectures.add("arm");
+    }
+    architectures.add("armv7", "arm64", "x86", "x86_64");
     List<Object[]> data = new ArrayList<>();
-    for (String arch : ImmutableList.of("arm", "armv7", "arm64", "x86", "x86_64")) {
+    for (String arch : architectures.build()) {
       data.add(new Object[] {NdkCompilerType.GCC, NdkCxxRuntime.GNUSTL, arch});
       // We don't support 64-bit clang yet.
       if (!arch.equals("arm64") && !arch.equals("x86_64")) {
@@ -81,23 +86,29 @@ public class NdkCxxPlatformIntegrationTest {
   @Rule public TemporaryPaths tmp = new TemporaryPaths("ndk-test", true);
   @Rule public TemporaryPaths tmp_long_pwd = new TemporaryPaths("ndk-test-long-pwd", true);
 
+  private String architectures;
+
   private ProjectWorkspace setupWorkspace(String name, TemporaryPaths tmp) throws IOException {
     ProjectWorkspace workspace = TestDataHelper.createProjectWorkspaceForScenario(this, name, tmp);
     workspace.setUp();
+
     workspace.writeContentsToPath(
         String.format(
             "[ndk]\n"
                 + "  compiler = %s\n"
                 + "  gcc_version = 4.9\n"
                 + "  cxx_runtime = %s\n"
-                + "  cpu_abis = arm, armv7, arm64, x86, x86_64\n"
+                + "  cpu_abis = "
+                + architectures
+                + "\n"
                 + "  app_platform = android-21\n",
-            compiler, cxxRuntime),
+            compiler,
+            cxxRuntime),
         ".buckconfig");
     return workspace;
   }
 
-  private Path getNdkRoot() throws InterruptedException {
+  private Path getNdkRoot() {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(Paths.get(".").toAbsolutePath());
     Path ndkDir = AndroidNdkHelper.detectAndroidNdk(projectFilesystem).get().getNdkRootPath();
@@ -108,6 +119,11 @@ public class NdkCxxPlatformIntegrationTest {
   @Before
   public void setUp() throws InterruptedException {
     AssumeAndroidPlatform.assumeNdkIsAvailable();
+    if (AssumeAndroidPlatform.isArmAvailable()) {
+      architectures = "arm, armv7, arm64, x86, x86_64";
+    } else {
+      architectures = "armv7, arm64, x86, x86_64";
+    }
   }
 
   @Test
@@ -139,7 +155,7 @@ public class NdkCxxPlatformIntegrationTest {
     workspace.getBuildLog().assertTargetBuiltLocally(linkTarget.toString());
 
     // Change the app platform and verify that our rulekey has changed.
-    workspace.writeContentsToPath("[ndk]\n  app_platform = android-12", ".buckconfig");
+    workspace.writeContentsToPath("[ndk]\n  app_platform = android-17", ".buckconfig");
     workspace.runBuckCommand("build", target.toString()).assertSuccess();
     workspace.getBuildLog().assertTargetBuiltLocally(linkTarget.toString());
   }
@@ -149,7 +165,9 @@ public class NdkCxxPlatformIntegrationTest {
       throws InterruptedException, IOException {
     String buckConfig =
         "[ndk]\n"
-            + "  cpu_abis = arm, armv7, arm64, x86, x86_64\n"
+            + "  cpu_abis = "
+            + architectures
+            + "\n"
             + "  gcc_version = 4.9\n"
             + "  app_platform = android-21\n";
 

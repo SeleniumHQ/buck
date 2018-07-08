@@ -17,20 +17,19 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.Cell;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.NamedTemporaryFile;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.ProcessExecutorParams;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.StringWriter;
-import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -47,25 +46,28 @@ class BuildPrehook implements AutoCloseable {
   private Cell cell;
   private BuckConfig buckConfig;
   private ImmutableMap<String, String> environment;
+  private final Iterable<String> arguments;
   @Nullable ListeningProcessExecutor.LaunchedProcess process;
   @Nullable private NamedTemporaryFile tempFile;
+  @Nullable private NamedTemporaryFile argumentsFile;
 
-  public BuildPrehook(
+  BuildPrehook(
       ListeningProcessExecutor processExecutor,
       Cell cell,
       BuckEventBus eventBus,
       BuckConfig buckConfig,
-      ImmutableMap<String, String> environment)
-      throws IOException {
+      ImmutableMap<String, String> environment,
+      Iterable<String> arguments) {
     this.processExecutor = processExecutor;
     this.cell = cell;
     this.eventBus = eventBus;
     this.buckConfig = buckConfig;
     this.environment = environment;
+    this.arguments = arguments;
   }
 
   /** Start the build prehook script. */
-  public synchronized void startPrehookScript() throws IOException, InterruptedException {
+  synchronized void startPrehookScript() throws IOException {
     Optional<String> pathToPrehookScript = buckConfig.getPathToBuildPrehookScript();
     if (!pathToPrehookScript.isPresent()) {
       return;
@@ -80,6 +82,8 @@ class BuildPrehook implements AutoCloseable {
     ImmutableMap.Builder<String, String> environmentBuilder =
         ImmutableMap.<String, String>builder().putAll(environment);
     writeJsonBuckconfigFile();
+    NamedTemporaryFile argumentsJsonFile = createArgumentsJsonFile(arguments);
+    argumentsFile = argumentsJsonFile;
     Preconditions.checkState(tempFile != null);
     environmentBuilder.put("BUCKCONFIG_FILE", tempFile.get().toString());
     environmentBuilder.put("BUCK_ROOT", cell.getRoot().toString());
@@ -88,6 +92,7 @@ class BuildPrehook implements AutoCloseable {
         cell.getRoot()
             .resolve(cell.getFilesystem().getBuckPaths().getConfiguredBuckOut())
             .toString());
+    environmentBuilder.put("BUCK_BUILD_ARGUMENTS_FILE", argumentsJsonFile.get().toString());
 
     ProcessExecutorParams processExecutorParams =
         ProcessExecutorParams.builder()
@@ -99,6 +104,15 @@ class BuildPrehook implements AutoCloseable {
     ListeningProcessExecutor.ProcessListener processListener = createProcessListener(prehookStderr);
     LOG.debug("Starting build pre-hook script %s", pathToScript);
     process = processExecutor.launchProcess(processExecutorParams, processListener);
+  }
+
+  private static NamedTemporaryFile createArgumentsJsonFile(Iterable<String> arguments)
+      throws IOException {
+    StringWriter stringWriter = new StringWriter();
+    ObjectMappers.WRITER.withDefaultPrettyPrinter().writeValue(stringWriter, arguments);
+    NamedTemporaryFile argumentsFile = new NamedTemporaryFile("arguments_", ".json");
+    Files.write(argumentsFile.get(), stringWriter.toString().getBytes(StandardCharsets.UTF_8));
+    return argumentsFile;
   }
 
   private ListeningProcessExecutor.ProcessListener createProcessListener(
@@ -132,12 +146,10 @@ class BuildPrehook implements AutoCloseable {
       @Override
       public void onExit(int exitCode) {
         LOG.debug("Finished build pre-hook script with error %s", exitCode);
-        try {
-          String stderrOutput = new String(prehookStderr.toByteArray(), "UTF-8");
-          LOG.debug("Build pre-hook script output:\n%s", stderrOutput);
+        String stderrOutput = new String(prehookStderr.toByteArray(), StandardCharsets.UTF_8);
+        LOG.debug("Build pre-hook script output:\n%s", stderrOutput);
+        if (!stderrOutput.isEmpty()) {
           eventBus.post(ConsoleEvent.warning(stderrOutput));
-        } catch (UnsupportedEncodingException e) {
-          LOG.error("The build pre-hook script output unsupported encoding");
         }
         // TODO(t23755518): Interrupt build when the script returns an exit code != 0.
       }
@@ -150,13 +162,17 @@ class BuildPrehook implements AutoCloseable {
         buckConfig.getConfig().getRawConfig().getValues();
     StringWriter stringWriter = new StringWriter();
     ObjectMappers.WRITER.withDefaultPrettyPrinter().writeValue(stringWriter, values);
-    tempFile = new NamedTemporaryFile("buckconfig_", ".json");
-    Files.write(tempFile.get(), stringWriter.toString().getBytes(StandardCharsets.UTF_8));
+    try {
+      tempFile = new NamedTemporaryFile("buckconfig_", ".json");
+      Files.write(tempFile.get(), stringWriter.toString().getBytes(StandardCharsets.UTF_8));
+    } catch (IOException e) {
+      LOG.warn("Build pre-hook failed to write build info");
+    }
   }
 
   /** Kill the build prehook script. */
   @Override
-  public synchronized void close() throws InterruptedException, IOException {
+  public synchronized void close() throws IOException {
     if (process == null) {
       return;
     }
@@ -164,6 +180,9 @@ class BuildPrehook implements AutoCloseable {
     // Removes the temporary file.
     if (tempFile != null) {
       tempFile.close();
+    }
+    if (argumentsFile != null) {
+      argumentsFile.close();
     }
   }
 }

@@ -16,13 +16,13 @@
 
 package com.facebook.buck.step.fs;
 
+import com.facebook.buck.core.util.immutables.BuckStyleStep;
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
-import com.facebook.buck.util.immutables.BuckStyleStep;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -54,7 +54,7 @@ abstract class AbstractRmStep implements Step {
         context.getBuildCellRootPath().resolve(getPath().getPathRelativeToBuildCellRoot());
     if (isRecursive()) {
       // Delete a folder recursively
-      MoreFiles.deleteRecursivelyIfExists(absolutePath);
+      MostFiles.deleteRecursivelyIfExists(absolutePath);
     } else {
       // Delete a single file
       Files.deleteIfExists(absolutePath);

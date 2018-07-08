@@ -15,6 +15,9 @@
  */
 package com.facebook.buck.ide.intellij.lang.java;
 
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.ide.intellij.BaseIjModuleRule;
 import com.facebook.buck.ide.intellij.ModuleBuildContext;
 import com.facebook.buck.ide.intellij.model.IjModuleFactoryResolver;
@@ -24,9 +27,6 @@ import com.facebook.buck.ide.intellij.model.folders.IjResourceFolderType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaTestDescription;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.TargetNode;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -47,7 +47,7 @@ public class JavaTestModuleRule extends BaseIjModuleRule<JavaTestDescription.Cor
   }
 
   @Override
-  public Class<? extends Description<?>> getDescriptionClass() {
+  public Class<? extends DescriptionWithTargetGraph<?>> getDescriptionClass() {
     return JavaTestDescription.class;
   }
 

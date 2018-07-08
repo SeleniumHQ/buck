@@ -16,9 +16,23 @@
 
 package com.facebook.buck.rules;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.InternalFlavor;
+import com.facebook.buck.model.ImmutableBuildTarget;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
@@ -33,20 +47,18 @@ import org.junit.Test;
 
 public class BuildableSupportTest {
   @Test
-  public void testDeriveDepsFromAddsToRuleKeys() throws Exception {
-    BuildTarget target = BuildTarget.of(Paths.get("some"), "//some", "name");
+  public void testDeriveDepsFromAddsToRuleKeys() {
+    BuildTarget target = ImmutableBuildTarget.of(Paths.get("some"), "//some", "name");
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildRule rule1 = makeRule(target, filesystem, "rule1");
     BuildRule rule2 = makeRule(target, filesystem, "rule2");
     BuildRule rule3 = makeRule(target, filesystem, "rule3");
     BuildRule rule4 = makeRule(target, filesystem, "rule4");
     BuildRule rule5 = makeRule(target, filesystem, "rule5");
     ImmutableSet<BuildRule> rules = ImmutableSet.of(rule1, rule2, rule3, rule4, rule5);
-    rules.forEach(ruleResolver::addToIndex);
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    rules.forEach(graphBuilder::addToIndex);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
     AddsToRuleKey rule =
         new AddsToRuleKey() {
@@ -70,7 +82,7 @@ public class BuildableSupportTest {
   }
 
   @Test
-  public void testDeriveInputsFromAddsToRuleKeys() throws Exception {
+  public void testDeriveInputsFromAddsToRuleKeys() {
     PathSourcePath path1 = FakeSourcePath.of("path1");
     PathSourcePath path2 = FakeSourcePath.of("path2");
     PathSourcePath path3 = FakeSourcePath.of("path3");
@@ -93,8 +105,7 @@ public class BuildableSupportTest {
         BuildableSupport.deriveInputs(rule).collect(ImmutableSet.toImmutableSet()));
   }
 
-  private BuildRule makeRule(
-      BuildTarget target, ProjectFilesystem filesystem, final String flavor) {
+  private BuildRule makeRule(BuildTarget target, ProjectFilesystem filesystem, String flavor) {
     return new AbstractBuildRule(
         target.withAppendedFlavors(InternalFlavor.of(flavor)), filesystem) {
       @Override

@@ -16,14 +16,14 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.NoopBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
 import org.immutables.value.Value;
@@ -32,7 +32,8 @@ import org.immutables.value.Value;
  * Description for an apple_asset_catalog rule, which identifies an asset catalog for an iOS or Mac
  * OS X library or binary.
  */
-public class AppleAssetCatalogDescription implements Description<AppleAssetCatalogDescriptionArg> {
+public class AppleAssetCatalogDescription
+    implements DescriptionWithTargetGraph<AppleAssetCatalogDescriptionArg> {
 
   @Override
   public Class<AppleAssetCatalogDescriptionArg> getConstructorArgType() {
@@ -41,7 +42,7 @@ public class AppleAssetCatalogDescription implements Description<AppleAssetCatal
 
   @Override
   public NoopBuildRuleWithDeclaredAndExtraDeps createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       AppleAssetCatalogDescriptionArg args) {

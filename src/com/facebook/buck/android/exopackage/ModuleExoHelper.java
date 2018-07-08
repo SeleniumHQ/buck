@@ -17,8 +17,8 @@
 package com.facebook.buck.android.exopackage;
 
 import com.facebook.buck.android.exopackage.ExopackageInfo.DexInfo;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMap.Builder;
@@ -42,7 +42,7 @@ public class ModuleExoHelper {
   private final List<ExopackageInfo.DexInfo> dexInfoForModules;
 
   /**
-   * @param pathResolver a resolver for finding the output SourcePaths on disk
+   * @param pathResolver a SourcePathResolver for finding the output SourcePaths on disk
    * @param projectFilesystem the filesystem owning buck-out
    * @param dexInfoForModules a list of metadata/dex-output-dirs for the modules that we want to
    *     exo-install
@@ -75,7 +75,7 @@ public class ModuleExoHelper {
    *     a mapping back to the module name where they came from
    */
   public ImmutableMap<Path, String> getMetadataToInstall() throws Exception {
-    final Builder<Path, String> builder = ImmutableMap.builder();
+    Builder<Path, String> builder = ImmutableMap.builder();
     for (DexInfo info : dexInfoForModules) {
       Path metadataFile = pathResolver.getAbsolutePath(info.getMetadata());
       if (!Files.exists(metadataFile)) {
@@ -83,11 +83,11 @@ public class ModuleExoHelper {
       }
       Path dirname = metadataFile.getParent().getFileName();
       String onDeviceName = String.format("%s.metadata", dirname);
-      final String metadataContents = new String(Files.readAllBytes(metadataFile));
+      String metadataContents = new String(Files.readAllBytes(metadataFile));
       builder.put(MODULAR_DEX_DIR.resolve(onDeviceName), metadataContents);
     }
     // Top level metadata.txt containing the list of jars
-    final String fileListing =
+    String fileListing =
         getFilesToInstall()
             .entrySet()
             .stream()
@@ -110,7 +110,7 @@ public class ModuleExoHelper {
   private ImmutableMap<String, Path> getRequiredDexFiles() throws IOException {
     ImmutableMap.Builder<String, Path> builder = ImmutableMap.builder();
     for (DexInfo dexInfo : dexInfoForModules) {
-      final Path metadataFile = pathResolver.getAbsolutePath(dexInfo.getMetadata());
+      Path metadataFile = pathResolver.getAbsolutePath(dexInfo.getMetadata());
       if (!Files.exists(metadataFile)) {
         continue;
       }

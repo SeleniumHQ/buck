@@ -21,11 +21,11 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -59,7 +59,7 @@ public class ProGuardConfigTest {
   }
 
   @Test(expected = HumanReadableException.class)
-  public void whenProGuardJarNotFound() throws IOException {
+  public void whenProGuardJarNotFound() {
     Path proGuardJar = Paths.get("proguard.jar");
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 
@@ -78,7 +78,7 @@ public class ProGuardConfigTest {
   }
 
   @Test
-  public void whenProGuardMaxHeapSizeOverrideUsed() throws IOException {
+  public void whenProGuardMaxHeapSizeOverrideUsed() {
     String proGuardMaxHeapSize = "1234M";
     FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
 

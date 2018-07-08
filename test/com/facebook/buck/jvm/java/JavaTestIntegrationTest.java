@@ -45,7 +45,7 @@ public class JavaTestIntegrationTest {
   @Test
   public void shouldNotCompileIfDependsOnCompilerClasspath() throws IOException {
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "missing_test_deps", temp, true);
+        TestDataHelper.createProjectWorkspaceForScenario(this, "missing_test_deps", temp);
     workspace.setUp();
 
     ProcessResult result = workspace.runBuckCommand("build", "//:no-jsr-305");
@@ -58,7 +58,7 @@ public class JavaTestIntegrationTest {
   @Test
   public void shouldRefuseToRunJUnitTestsIfHamcrestNotOnClasspath() throws IOException {
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "missing_test_deps", temp, true);
+        TestDataHelper.createProjectWorkspaceForScenario(this, "missing_test_deps", temp);
     workspace.setUp();
 
     ProcessResult result = workspace.runBuckCommand("test", "//:no-hamcrest");
@@ -76,7 +76,7 @@ public class JavaTestIntegrationTest {
   @Test
   public void shouldRefuseToRunJUnitTestsIfJUnitNotOnClasspath() throws IOException {
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "missing_test_deps", temp, true);
+        TestDataHelper.createProjectWorkspaceForScenario(this, "missing_test_deps", temp);
     workspace.setUp();
 
     ProcessResult result = workspace.runBuckCommand("test", "//:no-junit");
@@ -94,7 +94,7 @@ public class JavaTestIntegrationTest {
   @Test
   public void shouldRefuseToRunTestNgTestsIfTestNgNotOnClasspath() throws IOException {
     ProjectWorkspace workspace =
-        TestDataHelper.createProjectWorkspaceForScenario(this, "missing_test_deps", temp, true);
+        TestDataHelper.createProjectWorkspaceForScenario(this, "missing_test_deps", temp);
     workspace.setUp();
 
     ProcessResult result = workspace.runBuckCommand("test", "//:no-testng");
@@ -243,8 +243,8 @@ public class JavaTestIntegrationTest {
     result1.assertSuccess();
 
     workspace.replaceFileContents("BUCK", "\"//:jlib-native\",  #delete-1", "");
-    workspace.replaceFileContents("JTestWithoutPernicious.java", "@Test//getValue", "");
-    workspace.replaceFileContents("JTestWithoutPernicious.java", "//@Test//noTestLib", "@Test");
+    workspace.replaceFileContents("JTestWithoutPernicious.java", "@Test // getValue", "");
+    workspace.replaceFileContents("JTestWithoutPernicious.java", "// @Test//noTestLib", "@Test");
 
     ProcessResult result2 =
         workspace.runBuckCommand("test", "//:jtest-pernicious", "//:jtest-symlink");
@@ -262,7 +262,7 @@ public class JavaTestIntegrationTest {
 
   @Test
   public void testClasspath() throws IOException {
-    final ProjectWorkspace workspace =
+    ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "test_rule_classpath", temp);
     workspace.setUp();
     ProcessResult result = workspace.runBuckCommand("audit", "classpath", "//:top");

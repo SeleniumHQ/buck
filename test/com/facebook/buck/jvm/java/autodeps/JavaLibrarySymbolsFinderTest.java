@@ -23,21 +23,21 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.JavaFileParser;
 import com.facebook.buck.jvm.java.JavacOptions;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.PathSourcePath;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -66,7 +66,7 @@ public class JavaLibrarySymbolsFinderTest {
           JavacOptions.builder().setSourceLevel("7").setTargetLevel("7").build());
 
   @Test
-  public void extractSymbolsFromSrcs() throws InterruptedException, IOException {
+  public void extractSymbolsFromSrcs() throws IOException {
     TestDataHelper.createProjectWorkspaceForScenario(this, "java_library_symbols_finder", tmp)
         .setUp();
     ProjectFilesystem projectFilesystem =
@@ -92,17 +92,17 @@ public class JavaLibrarySymbolsFinderTest {
 
   @Test
   @SuppressWarnings("PMD.PrematureDeclaration")
-  public void onlyNonGeneratedSrcsShouldAffectRuleKey() throws InterruptedException, IOException {
+  public void onlyNonGeneratedSrcsShouldAffectRuleKey() throws IOException {
     TestDataHelper.createProjectWorkspaceForScenario(this, "java_library_symbols_finder", tmp)
         .setUp();
-    final ProjectFilesystem projectFilesystem =
+    ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
 
     Function<String, SourcePath> convert =
         src -> PathSourcePath.of(projectFilesystem, Paths.get(src));
     SourcePath example1 = convert.apply("Example1.java");
     SourcePath example2 = convert.apply("Example2.java");
-    final BuildTarget fakeBuildTarget = BuildTargetFactory.newInstance("//foo:GenEx.java");
+    BuildTarget fakeBuildTarget = BuildTargetFactory.newInstance("//foo:GenEx.java");
     SourcePath generated = DefaultBuildTargetSourcePath.of(fakeBuildTarget);
 
     JavaLibrarySymbolsFinder example1Finder =
@@ -114,8 +114,8 @@ public class JavaLibrarySymbolsFinderTest {
 
     // Mock out calls to a SourcePathResolver so we can create a legitimate
     // DefaultRuleKeyFactory.
-    final SourcePathRuleFinder ruleFinder = createMock(SourcePathRuleFinder.class);
-    final SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+    SourcePathRuleFinder ruleFinder = createMock(SourcePathRuleFinder.class);
+    SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     expect(ruleFinder.getRule(anyObject(SourcePath.class)))
         .andAnswer(
             () -> {
@@ -129,12 +129,12 @@ public class JavaLibrarySymbolsFinderTest {
         .anyTimes();
 
     // Calculates the RuleKey for a JavaSymbolsRule with the specified JavaLibrarySymbolsFinder.
-    final FileHashCache fileHashCache =
+    FileHashCache fileHashCache =
         new StackedFileHashCache(
             ImmutableList.of(
                 DefaultFileHashCache.createDefaultFileHashCache(
                     projectFilesystem, FileHashCacheMode.DEFAULT)));
-    final DefaultRuleKeyFactory ruleKeyFactory =
+    DefaultRuleKeyFactory ruleKeyFactory =
         new TestDefaultRuleKeyFactory(fileHashCache, pathResolver, ruleFinder);
     Function<JavaLibrarySymbolsFinder, RuleKey> createRuleKey =
         finder -> {

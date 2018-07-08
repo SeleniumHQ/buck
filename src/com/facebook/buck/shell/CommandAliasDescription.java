@@ -16,22 +16,22 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.Description;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.AbstractMacroExpanderWithoutPrecomputedWork;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.environment.Platform;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
@@ -39,7 +39,8 @@ import java.util.Map;
 import java.util.Optional;
 import org.immutables.value.Value;
 
-public class CommandAliasDescription implements Description<CommandAliasDescriptionArg> {
+public class CommandAliasDescription
+    implements DescriptionWithTargetGraph<CommandAliasDescriptionArg> {
 
   private final ImmutableList<AbstractMacroExpanderWithoutPrecomputedWork<? extends Macro>>
       MACRO_EXPANDERS = ImmutableList.of(new LocationMacroExpander());
@@ -56,7 +57,7 @@ public class CommandAliasDescription implements Description<CommandAliasDescript
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       CommandAliasDescriptionArg args) {
@@ -69,23 +70,22 @@ public class CommandAliasDescription implements Description<CommandAliasDescript
     ImmutableList.Builder<Arg> toolArgs = ImmutableList.builder();
     ImmutableSortedMap.Builder<String, Arg> toolEnv = ImmutableSortedMap.naturalOrder();
 
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     StringWithMacrosConverter macrosConverter =
-        StringWithMacrosConverter.of(
-            buildTarget, context.getCellPathResolver(), resolver, MACRO_EXPANDERS);
+        StringWithMacrosConverter.of(buildTarget, context.getCellPathResolver(), MACRO_EXPANDERS);
 
     for (StringWithMacros x : args.getArgs()) {
-      toolArgs.add(macrosConverter.convert(x));
+      toolArgs.add(macrosConverter.convert(x, graphBuilder));
     }
 
     for (Map.Entry<String, StringWithMacros> x : args.getEnv().entrySet()) {
-      toolEnv.put(x.getKey(), macrosConverter.convert(x.getValue()));
+      toolEnv.put(x.getKey(), macrosConverter.convert(x.getValue(), graphBuilder));
     }
 
-    Optional<BuildRule> exe = args.getExe().map(resolver::getRule);
+    Optional<BuildRule> exe = args.getExe().map(graphBuilder::getRule);
     ImmutableSortedMap.Builder<Platform, BuildRule> platformExe = ImmutableSortedMap.naturalOrder();
     for (Map.Entry<Platform, BuildTarget> entry : args.getPlatformExe().entrySet()) {
-      platformExe.put(entry.getKey(), resolver.getRule(entry.getValue()));
+      platformExe.put(entry.getKey(), graphBuilder.getRule(entry.getValue()));
     }
 
     return new CommandAlias(

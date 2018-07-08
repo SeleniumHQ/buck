@@ -1,6 +1,7 @@
+import argparse
 import errno
-import os
 import json
+import os
 import sys
 import time
 
@@ -8,14 +9,30 @@ import buck_version
 
 
 def main(argv):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--release-version", help="The buck release version")
+    parser.add_argument(
+        "--release-timestamp", help="The unix timestamp when the release happened"
+    )
+    args = parser.parse_args(argv[1:])
+    if bool(args.release_version) != bool(args.release_timestamp):
+        print(
+            "--release-version and --release-timestamp must either both be "
+            "set, or neither can be set"
+        )
+        sys.exit(1)
 
     # Locate the root of the buck repo.  We'll need to be there to
     # generate the buck version UID.
     path = os.getcwd()
-    while not os.path.exists(os.path.join(path, '.buckconfig')):
+    while not os.path.exists(os.path.join(path, ".buckconfig")):
         path = os.path.dirname(path)
 
-    if os.path.exists(os.path.join(path, '.git')):
+    if args.release_version:
+        version = args.release_version
+        timestamp = args.release_timestamp
+        dirty = False
+    elif os.path.exists(os.path.join(path, ".git")):
         # Attempt to create a "clean" version, but fall back to a "dirty"
         # one if need be.
         version = buck_version.get_clean_buck_version(path)
@@ -29,23 +46,24 @@ def main(argv):
         # We're building outside a git repo. Check for the special
         # .buckrelease file created by the release process.
         try:
-            with open(os.path.join(path, '.buckrelease')) as f:
+            with open(os.path.join(path, ".buckrelease")) as f:
                 timestamp = int(os.fstat(f.fileno()).st_mtime)
                 version = f.read().strip()
         except IOError as e:
             if e.errno == errno.ENOENT:
                 # No .buckrelease file. Do the best that we can.
-                version = '(unknown version)'
+                version = "(unknown version)"
                 timestamp = int(time.time())
             else:
                 raise e
         dirty = False
 
     json.dump(
-        {'version': version, 'timestamp': timestamp, 'is_dirty': dirty},
+        {"version": version, "timestamp": timestamp, "is_dirty": dirty},
         sys.stdout,
         sort_keys=True,
-        indent=2)
+        indent=2,
+    )
 
 
 sys.exit(main(sys.argv))

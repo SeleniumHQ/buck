@@ -16,10 +16,9 @@
 
 package com.facebook.buck.io.filesystem.impl;
 
-import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.io.file.MoreFiles;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.file.MorePosixFilePermissions;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.file.PathListing;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.CopySourceMode;
@@ -91,8 +90,6 @@ import javax.annotation.Nullable;
 /** An injectable service for interacting with the filesystem relative to the project root. */
 public class DefaultProjectFilesystem implements ProjectFilesystem {
 
-  private final boolean windowsSymlinks;
-
   private static final Path EDEN_MAGIC_PATH_ELEMENT = Paths.get(".eden");
 
   private final Path projectRoot;
@@ -105,6 +102,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   private final Supplier<Path> tmpDir;
 
   private final ProjectFilesystemDelegate delegate;
+  private final WindowsFS winFSInstance;
 
   // Defaults to false, and so paths should be valid.
   @VisibleForTesting protected boolean ignoreValidityOfPaths;
@@ -119,28 +117,35 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
 
   @VisibleForTesting
   protected DefaultProjectFilesystem(
-      Path root, ProjectFilesystemDelegate projectFilesystemDelegate) {
+      Path root,
+      ProjectFilesystemDelegate projectFilesystemDelegate,
+      @Nullable WindowsFS winFSInstance) {
     this(
         root.getFileSystem(),
         root,
         ImmutableSet.of(),
         BuckPaths.createDefaultBuckPaths(root),
         projectFilesystemDelegate,
-        false);
+        winFSInstance);
   }
 
   public DefaultProjectFilesystem(
       FileSystem vfs,
-      final Path root,
+      Path root,
       ImmutableSet<PathOrGlobMatcher> blackListedPaths,
       BuckPaths buckPaths,
       ProjectFilesystemDelegate delegate,
-      boolean windowsSymlinks) {
+      @Nullable WindowsFS winFSInstance) {
     if (shouldVerifyConstructorArguments()) {
       Preconditions.checkArgument(Files.isDirectory(root), "%s must be a directory", root);
       Preconditions.checkState(vfs.equals(root.getFileSystem()));
-      Preconditions.checkArgument(root.isAbsolute());
+      Preconditions.checkArgument(root.isAbsolute(), "Expected absolute path. Got <%s>.", root);
     }
+
+    if (Platform.detect() == Platform.WINDOWS) {
+      Preconditions.checkNotNull(winFSInstance);
+    }
+
     this.projectRoot = MorePaths.normalize(root);
     this.delegate = delegate;
     this.ignoreValidityOfPaths = false;
@@ -190,7 +195,8 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
               }
               return relativeTmpDir;
             });
-    this.windowsSymlinks = windowsSymlinks;
+
+    this.winFSInstance = winFSInstance;
   }
 
   public static Path getCacheDir(Path root, Optional<String> value, BuckPaths buckPaths) {
@@ -216,15 +222,6 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   @Override
   public ImmutableMap<String, ? extends Object> getDelegateDetails() {
     return delegate.getDetailsForLogging();
-  }
-
-  /**
-   * Hook for virtual filesystems to materialise virtual files as Buck will need to be able to read
-   * them past this point.
-   */
-  @Override
-  public void ensureConcreteFilesExist(BuckEventBus eventBus) {
-    delegate.ensureConcreteFilesExist(eventBus);
   }
 
   /**
@@ -301,11 +298,6 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
       return file;
     }
 
-    // TODO(mbolin): Eliminate this temporary exemption for symbolic links.
-    if (isSymLink(file)) {
-      return file;
-    }
-
     throw new RuntimeException(
         String.format("Not an ordinary file: '%s'.", pathRelativeToProjectRoot));
   }
@@ -378,8 +370,8 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
    * project root.
    */
   @Override
-  public void walkRelativeFileTree(
-      Path pathRelativeToProjectRoot, final FileVisitor<Path> fileVisitor) throws IOException {
+  public void walkRelativeFileTree(Path pathRelativeToProjectRoot, FileVisitor<Path> fileVisitor)
+      throws IOException {
     walkRelativeFileTree(pathRelativeToProjectRoot, fileVisitor, true);
   }
 
@@ -398,7 +390,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   public void walkRelativeFileTree(
       Path pathRelativeToProjectRoot,
       EnumSet<FileVisitOption> visitOptions,
-      final FileVisitor<Path> fileVisitor)
+      FileVisitor<Path> fileVisitor)
       throws IOException {
     walkRelativeFileTree(pathRelativeToProjectRoot, visitOptions, fileVisitor, true);
   }
@@ -482,10 +474,10 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   @Override
   public ImmutableSet<Path> getFilesUnderPath(
       Path pathRelativeToProjectRoot,
-      final Predicate<Path> predicate,
+      Predicate<Path> predicate,
       EnumSet<FileVisitOption> visitOptions)
       throws IOException {
-    final ImmutableSet.Builder<Path> paths = ImmutableSet.builder();
+    ImmutableSet.Builder<Path> paths = ImmutableSet.builder();
     walkRelativeFileTree(
         pathRelativeToProjectRoot,
         visitOptions,
@@ -561,7 +553,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
    */
   @Override
   public void deleteRecursivelyIfExists(Path pathRelativeToProjectRoot) throws IOException {
-    MoreFiles.deleteRecursivelyIfExists(resolve(pathRelativeToProjectRoot));
+    MostFiles.deleteRecursivelyIfExists(resolve(pathRelativeToProjectRoot));
   }
 
   /**
@@ -802,10 +794,10 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
         Files.copy(resolve(source), resolve(target), StandardCopyOption.REPLACE_EXISTING);
         break;
       case DIRECTORY_CONTENTS_ONLY:
-        MoreFiles.copyRecursively(resolve(source), resolve(target));
+        MostFiles.copyRecursively(resolve(source), resolve(target));
         break;
       case DIRECTORY_AND_CONTENTS:
-        MoreFiles.copyRecursively(resolve(source), resolve(target.resolve(source.getFileName())));
+        MostFiles.copyRecursively(resolve(source), resolve(target.resolve(source.getFileName())));
         break;
     }
   }
@@ -829,24 +821,11 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   public void createSymLink(Path symLink, Path realFile, boolean force) throws IOException {
     symLink = resolve(symLink);
     if (force) {
-      MoreFiles.deleteRecursivelyIfExists(symLink);
+      MostFiles.deleteRecursivelyIfExists(symLink);
     }
     if (Platform.detect() == Platform.WINDOWS) {
-      if (windowsSymlinks) {
-        // Windows symlinks are not enabled by default, so symlinks on windows are created
-        // only when they are explicitly enabled
-        realFile = MorePaths.normalize(symLink.getParent().resolve(realFile));
-        WindowsFS.createSymbolicLink(symLink, realFile, isDirectory(realFile));
-      } else {
-        // otherwise, creating hardlinks
-        if (isDirectory(realFile)) {
-          // Hardlinks are only for files - so, copying folders
-          MoreFiles.copyRecursively(realFile, symLink);
-        } else {
-          realFile = MorePaths.normalize(symLink.getParent().resolve(realFile));
-          Files.createLink(symLink, realFile);
-        }
-      }
+      realFile = MorePaths.normalize(symLink.getParent().resolve(realFile));
+      winFSInstance.createSymbolicLink(symLink, realFile, isDirectory(realFile));
     } else {
       Files.createSymbolicLink(symLink, realFile);
     }
@@ -899,7 +878,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
     }
 
     if (isDirectory(path)) {
-      mode |= MoreFiles.S_IFDIR;
+      mode |= MostFiles.S_IFDIR;
 
       if (Files.isReadable(path)) {
         mode |= MorePosixFilePermissions.toMode(EnumSet.of(PosixFilePermission.OWNER_EXECUTE));
@@ -907,7 +886,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
         mode |= MorePosixFilePermissions.toMode(EnumSet.of(PosixFilePermission.OTHERS_EXECUTE));
       }
     } else if (isFile(path)) {
-      mode |= MoreFiles.S_IFREG;
+      mode |= MostFiles.S_IFREG;
     }
 
     // Propagate any additional permissions
@@ -932,11 +911,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
       return false;
     }
 
-    if (!Objects.equals(blackListedPaths, that.blackListedPaths)) {
-      return false;
-    }
-
-    return true;
+    return Objects.equals(blackListedPaths, that.blackListedPaths);
   }
 
   @Override
@@ -1026,7 +1001,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
     private final Path root;
     private final boolean followLinks;
     private final boolean skipIgnored;
-    private ArrayDeque<DirWalkState> state;
+    private final ArrayDeque<DirWalkState> state;
 
     FileTreeWalker(
         Path root,

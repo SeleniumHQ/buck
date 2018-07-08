@@ -22,10 +22,12 @@ import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.not;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.AppleBinaryBuilder;
 import com.facebook.buck.apple.AppleBundleBuilder;
@@ -34,14 +36,26 @@ import com.facebook.buck.apple.AppleConfig;
 import com.facebook.buck.apple.AppleLibraryBuilder;
 import com.facebook.buck.apple.AppleLibraryDescriptionArg;
 import com.facebook.buck.apple.AppleTestBuilder;
+import com.facebook.buck.apple.SchemeActionType;
 import com.facebook.buck.apple.XcodeWorkspaceConfigBuilder;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescription;
 import com.facebook.buck.apple.XcodeWorkspaceConfigDescriptionArg;
 import com.facebook.buck.apple.xcode.XCScheme;
+import com.facebook.buck.apple.xcode.XCScheme.AdditionalActions;
+import com.facebook.buck.apple.xcode.XCScheme.SchemePrePostAction;
 import com.facebook.buck.config.ActionGraphParallelizationMode;
 import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.config.IncrementalActionGraphMode;
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
@@ -50,26 +64,19 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.halide.HalideBuckConfig;
 import com.facebook.buck.halide.HalideLibraryBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.ActionGraphCache;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SourceWithFlags;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
-import com.facebook.buck.rules.TestCellBuilder;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.shell.GenruleDescriptionArg;
 import com.facebook.buck.swift.SwiftBuckConfig;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.util.CloseableMemoizedSupplier;
+import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.IncrementingFakeClock;
 import com.facebook.buck.util.types.Either;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -113,6 +120,7 @@ public class WorkspaceAndProjectGeneratorTest {
 
   @Before
   public void setUp() throws InterruptedException, IOException {
+    assumeTrue(Platform.detect() == Platform.MACOS);
     rootCell = (new TestCellBuilder()).build();
     ProjectFilesystem projectFilesystem = rootCell.getFilesystem();
     BuckConfig fakeBuckConfig = FakeBuckConfig.builder().build();
@@ -240,16 +248,17 @@ public class WorkspaceAndProjectGeneratorTest {
             targetGraph,
             workspaceNode.getConstructorArg(),
             workspaceNode.getBuildTarget(),
-            ImmutableSet.of(
-                ProjectGenerator.Option.INCLUDE_TESTS,
-                ProjectGenerator.Option.INCLUDE_DEPENDENCIES_TESTS),
+            ProjectGeneratorOptions.builder()
+                .setShouldIncludeTests(true)
+                .setShouldIncludeDependenciesTests(true)
+                .build(),
             false /* combinedProject */,
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
             ImmutableSet.of(),
             "BUCK",
-            getBuildRuleResolverForNodeFunction(targetGraph),
+            getActionGraphBuilderForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
             TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
@@ -296,16 +305,17 @@ public class WorkspaceAndProjectGeneratorTest {
             targetGraph,
             workspaceNode.getConstructorArg(),
             workspaceNode.getBuildTarget(),
-            ImmutableSet.of(
-                ProjectGenerator.Option.INCLUDE_TESTS,
-                ProjectGenerator.Option.INCLUDE_DEPENDENCIES_TESTS),
+            ProjectGeneratorOptions.builder()
+                .setShouldIncludeTests(true)
+                .setShouldIncludeDependenciesTests(true)
+                .build(),
             true /* combinedProject */,
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
             ImmutableSet.of(),
             "BUCK",
-            getBuildRuleResolverForNodeFunction(targetGraph),
+            getActionGraphBuilderForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
             TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
@@ -347,14 +357,14 @@ public class WorkspaceAndProjectGeneratorTest {
             targetGraph,
             workspaceNode.getConstructorArg(),
             workspaceNode.getBuildTarget(),
-            ImmutableSet.of(),
+            ProjectGeneratorOptions.builder().build(),
             false /* combinedProject */,
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
             ImmutableSet.of(),
             "BUCK",
-            getBuildRuleResolverForNodeFunction(targetGraph),
+            getActionGraphBuilderForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
             TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
@@ -395,14 +405,14 @@ public class WorkspaceAndProjectGeneratorTest {
             targetGraph,
             workspaceNode.getConstructorArg(),
             workspaceNode.getBuildTarget(),
-            ImmutableSet.of(ProjectGenerator.Option.INCLUDE_TESTS),
+            ProjectGeneratorOptions.builder().setShouldIncludeTests(true).build(),
             false /* combinedProject */,
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
             ImmutableSet.of(),
             "BUCK",
-            getBuildRuleResolverForNodeFunction(targetGraph),
+            getActionGraphBuilderForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
             TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
@@ -463,14 +473,14 @@ public class WorkspaceAndProjectGeneratorTest {
             targetGraph,
             workspaceNode.getConstructorArg(),
             workspaceNode.getBuildTarget(),
-            ImmutableSet.of(),
+            ProjectGeneratorOptions.builder().build(),
             false /* combinedProject */,
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
             ImmutableSet.of(),
             "BUCK",
-            getBuildRuleResolverForNodeFunction(targetGraph),
+            getActionGraphBuilderForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
             TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
@@ -512,14 +522,14 @@ public class WorkspaceAndProjectGeneratorTest {
             targetGraph,
             workspaceNode.getConstructorArg(),
             workspaceNode.getBuildTarget(),
-            ImmutableSet.of(),
+            ProjectGeneratorOptions.builder().build(),
             true /* combinedProject */,
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
             ImmutableSet.of(),
             "BUCK",
-            getBuildRuleResolverForNodeFunction(targetGraph),
+            getActionGraphBuilderForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
             TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
@@ -662,16 +672,17 @@ public class WorkspaceAndProjectGeneratorTest {
             targetGraph,
             workspaceWithExtraSchemeNode.getConstructorArg(),
             workspaceWithExtraSchemeNode.getBuildTarget(),
-            ImmutableSet.of(
-                ProjectGenerator.Option.INCLUDE_TESTS,
-                ProjectGenerator.Option.INCLUDE_DEPENDENCIES_TESTS),
+            ProjectGeneratorOptions.builder()
+                .setShouldIncludeTests(true)
+                .setShouldIncludeDependenciesTests(true)
+                .build(),
             false /* combinedProject */,
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
             ImmutableSet.of(),
             "BUCK",
-            getBuildRuleResolverForNodeFunction(targetGraph),
+            getActionGraphBuilderForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
             TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
@@ -736,15 +747,16 @@ public class WorkspaceAndProjectGeneratorTest {
         withNameAndBuildingFor("FooBin", equalTo(XCScheme.BuildActionEntry.BuildFor.DEFAULT)));
     assertThat(
         fooSchemeBuildAction.getBuildActionEntries().get(3),
-        withNameAndBuildingFor("BazLib", equalTo(XCScheme.BuildActionEntry.BuildFor.TEST_ONLY)));
+        withNameAndBuildingFor(
+            "FooBinTest", equalTo(XCScheme.BuildActionEntry.BuildFor.TEST_ONLY)));
     assertThat(
         fooSchemeBuildAction.getBuildActionEntries().get(4),
-        withNameAndBuildingFor(
-            "FooLibTest", equalTo(XCScheme.BuildActionEntry.BuildFor.TEST_ONLY)));
+        withNameAndBuildingFor("BazLib", equalTo(XCScheme.BuildActionEntry.BuildFor.TEST_ONLY)));
+
     assertThat(
         fooSchemeBuildAction.getBuildActionEntries().get(5),
         withNameAndBuildingFor(
-            "FooBinTest", equalTo(XCScheme.BuildActionEntry.BuildFor.TEST_ONLY)));
+            "FooLibTest", equalTo(XCScheme.BuildActionEntry.BuildFor.TEST_ONLY)));
   }
 
   @Test
@@ -782,16 +794,17 @@ public class WorkspaceAndProjectGeneratorTest {
             targetGraph,
             workspaceNode.getConstructorArg(),
             workspaceNode.getBuildTarget(),
-            ImmutableSet.of(
-                ProjectGenerator.Option.INCLUDE_TESTS,
-                ProjectGenerator.Option.INCLUDE_DEPENDENCIES_TESTS),
+            ProjectGeneratorOptions.builder()
+                .setShouldIncludeTests(true)
+                .setShouldIncludeDependenciesTests(true)
+                .build(),
             false /* combinedProject */,
             FocusedModuleTargetMatcher.noFocus(),
             false /* parallelizeBuild */,
             DEFAULT_PLATFORM,
             ImmutableSet.of(),
             "BUCK",
-            getBuildRuleResolverForNodeFunction(targetGraph),
+            getActionGraphBuilderForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
             TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
@@ -857,16 +870,17 @@ public class WorkspaceAndProjectGeneratorTest {
             targetGraph,
             workspaceNode.getConstructorArg(),
             workspaceNode.getBuildTarget(),
-            ImmutableSet.of(
-                ProjectGenerator.Option.INCLUDE_TESTS,
-                ProjectGenerator.Option.INCLUDE_DEPENDENCIES_TESTS),
+            ProjectGeneratorOptions.builder()
+                .setShouldIncludeTests(true)
+                .setShouldIncludeDependenciesTests(true)
+                .build(),
             false /* combinedProject */,
             FocusedModuleTargetMatcher.noFocus(),
             true /* parallelizeBuild */,
             DEFAULT_PLATFORM,
             ImmutableSet.of(),
             "BUCK",
-            getBuildRuleResolverForNodeFunction(targetGraph),
+            getActionGraphBuilderForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
             TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
@@ -912,16 +926,17 @@ public class WorkspaceAndProjectGeneratorTest {
             targetGraph,
             workspaceNode.getConstructorArg(),
             workspaceNode.getBuildTarget(),
-            ImmutableSet.of(
-                ProjectGenerator.Option.INCLUDE_TESTS,
-                ProjectGenerator.Option.INCLUDE_DEPENDENCIES_TESTS),
+            ProjectGeneratorOptions.builder()
+                .setShouldIncludeTests(true)
+                .setShouldIncludeDependenciesTests(true)
+                .build(),
             false /* combinedProject */,
             FocusedModuleTargetMatcher.noFocus(),
             true /* parallelizeBuild */,
             DEFAULT_PLATFORM,
             ImmutableSet.of(),
             "BUCK",
-            getBuildRuleResolverForNodeFunction(targetGraph),
+            getActionGraphBuilderForNodeFunction(targetGraph),
             getFakeBuckEventBus(),
             TestRuleKeyConfigurationFactory.create(),
             halideBuckConfig,
@@ -937,6 +952,73 @@ public class WorkspaceAndProjectGeneratorTest {
     assertThat(launchAction.getRunnablePath().get(), Matchers.equalTo("/some.app"));
     assertThat(
         launchAction.getLaunchStyle(), Matchers.equalTo(XCScheme.LaunchAction.LaunchStyle.WAIT));
+  }
+
+  @Test
+  public void customPrePostActions() throws IOException, InterruptedException {
+    BuildTarget fooLibTarget =
+        BuildTargetFactory.newInstance(rootCell.getRoot(), "//foo", "FooLib");
+    TargetNode<AppleLibraryDescriptionArg, ?> fooLib =
+        AppleLibraryBuilder.createBuilder(fooLibTarget).build();
+
+    ImmutableMap<SchemeActionType, ImmutableMap<XCScheme.AdditionalActions, ImmutableList<String>>>
+        schemeActions =
+            ImmutableMap.of(
+                SchemeActionType.BUILD,
+                ImmutableMap.of(
+                    AdditionalActions.PRE_SCHEME_ACTIONS, ImmutableList.of("echo yeha")),
+                SchemeActionType.LAUNCH,
+                ImmutableMap.of(
+                    AdditionalActions.POST_SCHEME_ACTIONS, ImmutableList.of("echo takeoff")));
+    TargetNode<XcodeWorkspaceConfigDescriptionArg, ?> workspaceNode =
+        XcodeWorkspaceConfigBuilder.createBuilder(
+                BuildTargetFactory.newInstance(rootCell.getRoot(), "//foo", "workspace"))
+            .setWorkspaceName(Optional.of("workspace"))
+            .setSrcTarget(Optional.of(fooLibTarget))
+            .setAdditionalSchemeActions(Optional.of(schemeActions))
+            .build();
+
+    TargetGraph targetGraph = TargetGraphFactory.newInstance(fooLib, workspaceNode);
+
+    WorkspaceAndProjectGenerator generator =
+        new WorkspaceAndProjectGenerator(
+            rootCell,
+            targetGraph,
+            workspaceNode.getConstructorArg(),
+            workspaceNode.getBuildTarget(),
+            ProjectGeneratorOptions.builder()
+                .setShouldIncludeTests(true)
+                .setShouldIncludeDependenciesTests(true)
+                .build(),
+            false /* combinedProject */,
+            FocusedModuleTargetMatcher.noFocus(),
+            true /* parallelizeBuild */,
+            DEFAULT_PLATFORM,
+            ImmutableSet.of(),
+            "BUCK",
+            getActionGraphBuilderForNodeFunction(targetGraph),
+            getFakeBuckEventBus(),
+            TestRuleKeyConfigurationFactory.create(),
+            halideBuckConfig,
+            cxxBuckConfig,
+            appleConfig,
+            swiftBuckConfig);
+    Map<Path, ProjectGenerator> projectGenerators = new HashMap<>();
+    generator.generateWorkspaceAndDependentProjects(
+        projectGenerators, MoreExecutors.newDirectExecutorService());
+
+    XCScheme mainScheme = generator.getSchemeGenerators().get("workspace").getOutputScheme().get();
+    XCScheme.BuildAction buildAction = mainScheme.getBuildAction().get();
+
+    ImmutableList<SchemePrePostAction> preBuild = buildAction.getPreActions().get();
+    assertEquals(preBuild.size(), 1);
+    assertFalse(buildAction.getPostActions().isPresent());
+    assertEquals(preBuild.iterator().next().getCommand(), "echo yeha");
+
+    XCScheme.LaunchAction launchAction = mainScheme.getLaunchAction().get();
+    ImmutableList<XCScheme.SchemePrePostAction> postLaunch = launchAction.getPostActions().get();
+    assertEquals(postLaunch.size(), 1);
+    assertFalse(launchAction.getPreActions().isPresent());
   }
 
   private Matcher<XCScheme.BuildActionEntry> buildActionEntryWithName(String name) {
@@ -963,22 +1045,22 @@ public class WorkspaceAndProjectGeneratorTest {
         });
   }
 
-  private Function<TargetNode<?, ?>, BuildRuleResolver> getBuildRuleResolverForNodeFunction(
-      final TargetGraph targetGraph) {
+  private Function<TargetNode<?, ?>, ActionGraphBuilder> getActionGraphBuilderForNodeFunction(
+      TargetGraph targetGraph) {
     return input ->
-        new ActionGraphCache(1, 1)
+        new ActionGraphCache(1)
             .getFreshActionGraph(
                 BuckEventBusForTests.newInstance(),
                 targetGraph.getSubgraph(ImmutableSet.of(input)),
+                new TestCellBuilder().build().getCellProvider(),
                 ActionGraphParallelizationMode.DISABLED,
                 false,
-                IncrementalActionGraphMode.DISABLED,
                 CloseableMemoizedSupplier.of(
                     () -> {
                       throw new IllegalStateException(
                           "should not use parallel executor for single threaded action graph construction in test");
                     },
                     ignored -> {}))
-            .getResolver();
+            .getActionGraphBuilder();
   }
 }

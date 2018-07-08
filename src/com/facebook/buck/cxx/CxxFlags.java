@@ -16,8 +16,12 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.rules.RuleKeyObjectSink;
+import com.facebook.buck.cxx.toolchain.DebugPathSanitizer;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacros;
@@ -112,6 +116,8 @@ public class CxxFlags {
       ImmutableList<StringWithMacros> flags,
       PatternMatchedCollection<ImmutableList<StringWithMacros>> platformFlags,
       ImmutableMap<CxxSource.Type, ImmutableList<StringWithMacros>> languageFlags,
+      ImmutableMap<CxxSource.Type, PatternMatchedCollection<ImmutableList<StringWithMacros>>>
+          languagePlatformFlags,
       CxxPlatform platform) {
 
     ImmutableListMultimap.Builder<CxxSource.Type, StringWithMacros> langFlags =
@@ -131,6 +137,12 @@ public class CxxFlags {
           entry.getValue().stream().map(s -> s.mapStrings(translateMacrosFn))::iterator);
     }
 
+    for (ImmutableMap.Entry<
+            CxxSource.Type, PatternMatchedCollection<ImmutableList<StringWithMacros>>>
+        entry : languagePlatformFlags.entrySet()) {
+      langFlags.putAll(entry.getKey(), getFlags(ImmutableList.of(), entry.getValue(), platform));
+    }
+
     return langFlags.build();
   }
 
@@ -138,21 +150,27 @@ public class CxxFlags {
   public static class TranslateMacrosAppendableFunction
       implements RuleKeyAppendableFunction<String, String> {
 
+    @CustomFieldBehavior(DefaultFieldSerialization.class)
     private final ImmutableSortedMap<String, String> flagMacros;
-    private final CxxPlatform cxxPlatform;
+
+    @AddToRuleKey private final DebugPathSanitizer compilerDebugPathSanitizer;
 
     public TranslateMacrosAppendableFunction(
         ImmutableSortedMap<String, String> flagMacros, CxxPlatform cxxPlatform) {
+      this(flagMacros, cxxPlatform.getCompilerDebugPathSanitizer());
+    }
+
+    public TranslateMacrosAppendableFunction(
+        ImmutableSortedMap<String, String> flagMacros, DebugPathSanitizer pathSanitizer) {
       this.flagMacros = flagMacros;
-      this.cxxPlatform = cxxPlatform;
+      this.compilerDebugPathSanitizer = pathSanitizer;
     }
 
     @Override
     public void appendToRuleKey(RuleKeyObjectSink sink) {
       SortedMap<String, String> sanitizedMap =
           Maps.transformValues(
-              flagMacros,
-              cxxPlatform.getCompilerDebugPathSanitizer().sanitize(Optional.empty())::apply);
+              flagMacros, compilerDebugPathSanitizer.sanitize(Optional.empty())::apply);
       sink.setReflectively("flagMacros", sanitizedMap);
     }
 

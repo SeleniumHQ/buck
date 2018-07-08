@@ -16,7 +16,6 @@
 
 package com.facebook.buck.io.filesystem;
 
-import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableMap;
@@ -55,12 +54,6 @@ public interface ProjectFilesystem {
    *     must be {@link String}, {@code int}, or {@code boolean}.
    */
   ImmutableMap<String, ? extends Object> getDelegateDetails();
-
-  /**
-   * Hook for virtual filesystems to materialise virtual files as Buck will need to be able to read
-   * them past this point.
-   */
-  void ensureConcreteFilesExist(BuckEventBus eventBus);
 
   /**
    * @return the specified {@code path} resolved against {@link #getRootPath()} to an absolute path.
@@ -125,7 +118,7 @@ public interface ProjectFilesystem {
    * Similar to {@link #walkFileTree(Path, FileVisitor)} except this takes in a path relative to the
    * project root.
    */
-  void walkRelativeFileTree(Path pathRelativeToProjectRoot, final FileVisitor<Path> fileVisitor)
+  void walkRelativeFileTree(Path pathRelativeToProjectRoot, FileVisitor<Path> fileVisitor)
       throws IOException;
 
   /**
@@ -140,7 +133,7 @@ public interface ProjectFilesystem {
   void walkRelativeFileTree(
       Path pathRelativeToProjectRoot,
       EnumSet<FileVisitOption> visitOptions,
-      final FileVisitor<Path> fileVisitor)
+      FileVisitor<Path> fileVisitor)
       throws IOException;
 
   /** Walks a project-root relative file tree with a visitor and visit options. */
@@ -168,7 +161,7 @@ public interface ProjectFilesystem {
 
   ImmutableSet<Path> getFilesUnderPath(
       Path pathRelativeToProjectRoot,
-      final Predicate<Path> predicate,
+      Predicate<Path> predicate,
       EnumSet<FileVisitOption> visitOptions)
       throws IOException;
 

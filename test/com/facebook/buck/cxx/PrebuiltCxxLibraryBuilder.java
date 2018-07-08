@@ -16,15 +16,15 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.coercer.SourceList;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
@@ -36,8 +36,10 @@ import java.util.regex.Pattern;
 
 public class PrebuiltCxxLibraryBuilder
     extends AbstractNodeBuilder<
-        PrebuiltCxxLibraryDescriptionArg.Builder, PrebuiltCxxLibraryDescriptionArg,
-        PrebuiltCxxLibraryDescription, BuildRule> {
+        PrebuiltCxxLibraryDescriptionArg.Builder,
+        PrebuiltCxxLibraryDescriptionArg,
+        PrebuiltCxxLibraryDescription,
+        BuildRule> {
 
   public PrebuiltCxxLibraryBuilder(BuildTarget target, FlavorDomain<CxxPlatform> cxxPlatforms) {
     super(
@@ -148,12 +150,6 @@ public class PrebuiltCxxLibraryBuilder
 
   public PrebuiltCxxLibraryBuilder setSupportedPlatformsRegex(Pattern supportedPlatformsRegex) {
     getArgForPopulating().setSupportedPlatformsRegex(Optional.of(supportedPlatformsRegex));
-    return this;
-  }
-
-  public PrebuiltCxxLibraryBuilder setVersionedSubDir(
-      VersionMatchedCollection<String> versionedSubDir) {
-    getArgForPopulating().setVersionedSubDir(Optional.of(versionedSubDir));
     return this;
   }
 

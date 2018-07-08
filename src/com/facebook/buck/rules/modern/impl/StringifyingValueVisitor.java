@@ -16,17 +16,23 @@
 
 package com.facebook.buck.rules.modern.impl;
 
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.SourcePath;
 import com.facebook.buck.rules.modern.ClassInfo;
 import com.facebook.buck.rules.modern.OutputPath;
+import com.facebook.buck.rules.modern.ValueTypeInfo;
+import com.facebook.buck.rules.modern.ValueVisitor;
 import com.facebook.buck.util.Scope;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 /** A ValueVisitor that can be used to construct a String representation of an object. */
 public class StringifyingValueVisitor implements ValueVisitor<RuntimeException> {
@@ -45,7 +51,11 @@ public class StringifyingValueVisitor implements ValueVisitor<RuntimeException> 
   }
 
   @Override
-  public <T> void visitField(Field field, T value, ValueTypeInfo<T> valueTypeInfo) {
+  public <T> void visitField(
+      Field field,
+      T value,
+      ValueTypeInfo<T> valueTypeInfo,
+      Optional<CustomFieldBehavior> customBehavior) {
     newline();
     append("%s:", field.getName());
     valueTypeInfo.visit(value, this);
@@ -59,6 +69,31 @@ public class StringifyingValueVisitor implements ValueVisitor<RuntimeException> 
           for (T e : value) {
             newline();
             innerType.visit(e, this);
+          }
+        });
+  }
+
+  @Override
+  public <K, V> void visitMap(
+      ImmutableSortedMap<K, V> value, ValueTypeInfo<K> keyType, ValueTypeInfo<V> valueType) {
+    container(
+        "Map",
+        () -> {
+          for (Map.Entry<K, V> e : value.entrySet()) {
+            newline();
+            container(
+                "key",
+                () -> {
+                  newline();
+                  keyType.visit(e.getKey(), this);
+                });
+            newline();
+            container(
+                "value",
+                () -> {
+                  newline();
+                  valueType.visit(e.getValue(), this);
+                });
           }
         });
   }
@@ -86,6 +121,15 @@ public class StringifyingValueVisitor implements ValueVisitor<RuntimeException> 
           });
     } else {
       append("Optional.empty()");
+    }
+  }
+
+  @Override
+  public <T> void visitNullable(@Nullable T value, ValueTypeInfo<T> inner) throws RuntimeException {
+    if (value == null) {
+      append("null");
+    } else {
+      inner.visit(value, this);
     }
   }
 

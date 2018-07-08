@@ -20,6 +20,7 @@ enum BuildSlaveEventType {
     ALL_BUILD_RULES_FINISHED_EVENT = 4,
     MOST_BUILD_RULES_FINISHED_EVENT = 5,
     COORDINATOR_BUILD_PROGRESS_EVENT = 6,
+    BUILD_RULE_UNLOCKED_EVENT = 7,
 }
 
 struct BuildSlaveEvent {
@@ -30,6 +31,7 @@ struct BuildSlaveEvent {
     11: optional BuildRuleStartedEvent buildRuleStartedEvent;
     12: optional BuildRuleFinishedEvent buildRuleFinishedEvent;
     13: optional CoordinatorBuildProgressEvent coordinatorBuildProgressEvent;
+    14: optional BuildRuleUnlockedEvent buildRuleUnlockedEvent;
 }
 
 enum ConsoleEventSeverity {
@@ -53,6 +55,10 @@ struct BuildRuleFinishedEvent {
 
 struct CoordinatorBuildProgressEvent {
     1: optional CoordinatorBuildProgress buildProgress;
+}
+
+struct BuildRuleUnlockedEvent {
+    1: optional string buildTarget;
 }
 
 ##############################################################################
@@ -134,4 +140,68 @@ struct BuildSlaveFinishedStats {
     5: optional string hostname;
     6: optional string distBuildMode;
     7: optional HealthCheckStats healthCheckStats;
+    8: optional string jobName;
+}
+
+##############################################################################
+## HTTP body thrift Request/Response structs
+##############################################################################
+
+struct GetAllAvailableCapacityRequest {
+}
+
+struct GetAllAvailableCapacityResponse {
+  1 : optional i32 availableCapacity;
+}
+
+struct ObtainCapacityRequest {
+  1 : optional stampede.BuildSlaveRunId buildSlaveRunId;
+  2 : optional i32 capacity;
+}
+
+struct ObtainCapacityResponse {
+  1 : optional i32 obtainedCapacity;
+}
+
+struct ObtainAllAvailableCapacityRequest {
+  1 : optional stampede.BuildSlaveRunId buildSlaveRunId;
+}
+
+struct ObtainAllAvailableCapacityResponse {
+  1 : optional i32 obtainedCapacity;
+}
+
+struct ReturnCapacityRequest {
+  1 : optional stampede.BuildSlaveRunId buildSlaveRunId;
+  2 : optional i32 capacity;
+}
+
+struct ReturnCapacityResponse {
+}
+
+enum BuildSlaveRequestType {
+  UNKNOWN = 0,
+  GET_ALL_AVAILABLE_CAPACITY = 1,
+  OBTAIN_CAPACITY = 2,
+  OBTAIN_ALL_AVAILABLE_CAPACITY = 3,
+  RETURN_CAPACITY = 4,
+}
+
+struct BuildSlaveRequest {
+  1 : optional BuildSlaveRequestType type = BuildSlaveRequestType.UNKNOWN;
+  2 : optional GetAllAvailableCapacityRequest getAllAvailableCapacityRequest;
+  3 : optional ObtainCapacityRequest obtainCapacityRequest;
+  4 : optional ObtainAllAvailableCapacityRequest obtainAllAvailableCapacityRequest;
+  5 : optional ReturnCapacityRequest returnCapacityRequest;
+}
+
+struct BuildSlaveResponse {
+  1 : optional bool wasSuccessful;
+  2 : optional string errorMessage;
+
+  10 : optional BuildSlaveRequestType type = BuildSlaveRequestType.UNKNOWN;
+  11 : optional GetAllAvailableCapacityResponse getAllAvailableCapacityResponse;
+  12 : optional ObtainAllAvailableCapacityResponse obtainAllAvailableCapacityResponse;
+  13 : optional ObtainCapacityResponse obtainCapacityResponse;
+  14 : optional ReturnCapacityResponse returnCapacityResponse;
 }

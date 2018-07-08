@@ -15,7 +15,7 @@
  */
 package com.facebook.buck.versions;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTarget;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -31,8 +31,7 @@ public class FixedVersionSelector implements VersionSelector {
 
   @Override
   public ImmutableMap<BuildTarget, Version> resolve(
-      BuildTarget root, ImmutableMap<BuildTarget, ImmutableSet<Version>> domain)
-      throws VersionException {
+      BuildTarget root, ImmutableMap<BuildTarget, ImmutableSet<Version>> domain) {
     return Preconditions.checkNotNull(selections.get(root));
   }
 }

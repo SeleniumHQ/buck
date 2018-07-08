@@ -16,17 +16,18 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.attr.HasSupplementaryOutputs;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.model.macros.MacroException;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.HasSupplementaryOutputs;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableList;
 import java.util.function.Consumer;
 
@@ -36,40 +37,9 @@ public class OutputMacroExpander extends AbstractMacroExpanderWithoutPrecomputed
   public Arg expandFrom(
       BuildTarget target,
       CellPathResolver cellNames,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       OutputMacro input) {
-    return new Arg() {
-
-      @AddToRuleKey private final String name = input.getOutputName();
-
-      @Override
-      public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver pathResolver) {
-        // Ideally, we'd support some way to query the `HasSupplementalOutputs` interface via a
-        // `SourcePathResolver` so we wouldn't need to capture the `BuildRuleResolver`.
-        BuildRule rule =
-            resolver
-                .getRuleOptional(target)
-                .orElseThrow(
-                    () ->
-                        new AssertionError(
-                            "Expected build target to resolve to a build rule: " + target));
-        if (rule instanceof HasSupplementaryOutputs) {
-          SourcePath output =
-              ((HasSupplementaryOutputs) rule)
-                  .getSourcePathToSupplementaryOutput(input.getOutputName());
-          if (output != null) {
-            // Note: As this is only used by the declaring rule, it can just use a relative path
-            // here as it will necessarily be expanded in the same cell.
-            consumer.accept(pathResolver.getRelativePath(output).toString());
-            return;
-          }
-        }
-        throw new HumanReadableException(
-            String.format(
-                "%s: rule does not have an output with the name: %s",
-                target, input.getOutputName()));
-      }
-    };
+    return new OutputArg(input, graphBuilder, target);
   }
 
   @Override
@@ -86,5 +56,43 @@ public class OutputMacroExpander extends AbstractMacroExpanderWithoutPrecomputed
           String.format("expected exactly one argument (found %d)", args.size()));
     }
     return OutputMacro.of(args.get(0));
+  }
+
+  private static class OutputArg implements Arg {
+    @AddToRuleKey private final String name;
+
+    private final BuildRuleResolver resolver;
+    private final BuildTarget target;
+
+    public OutputArg(OutputMacro input, BuildRuleResolver resolver, BuildTarget target) {
+      this.resolver = resolver;
+      this.target = target;
+      this.name = input.getOutputName();
+    }
+
+    @Override
+    public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver pathResolver) {
+      // Ideally, we'd support some way to query the `HasSupplementalOutputs` interface via a
+      // `SourcePathResolver` so we wouldn't need to capture the `BuildRuleResolver`.
+      BuildRule rule =
+          resolver
+              .getRuleOptional(target)
+              .orElseThrow(
+                  () ->
+                      new AssertionError(
+                          "Expected build target to resolve to a build rule: " + target));
+      if (rule instanceof HasSupplementaryOutputs) {
+        SourcePath output =
+            ((HasSupplementaryOutputs) rule).getSourcePathToSupplementaryOutput(name);
+        if (output != null) {
+          // Note: As this is only used by the declaring rule, it can just use a relative path
+          // here as it will necessarily be expanded in the same cell.
+          consumer.accept(pathResolver.getRelativePath(output).toString());
+          return;
+        }
+      }
+      throw new HumanReadableException(
+          String.format("%s: rule does not have an output with the name: %s", target, name));
+    }
   }
 }

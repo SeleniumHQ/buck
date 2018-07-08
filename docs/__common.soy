@@ -126,7 +126,7 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
         <input id="algolia-doc-search" type="search" placeholder="Search docs..." />
       </li>
         <li><a href='{ROOT}setup/getting_started.html'>Docs</a>
-        <li><a href='https://groups.google.com/forum/#!forum/buck-build'>Group</a>
+        <li><a href='https://github.com/facebook/buck/issues'>Issues</a>
         <li><a href='https://github.com/facebook/buck'>GitHub</a>
       </ul>
 	</nav></header>
@@ -161,479 +161,6 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 {/template}
 
 /**
- * @param currentnavid The navigation id of the loaded page
- * @param page The filename of the target page
- * @param folder href folder target
- * @param text Navigation text
- */
-{template .navigationLink}
-  {let $targetnavid}
-    {$folder}_{$page}
-  {/let}
-  {let $classname}
-    {if $targetnavid == $currentnavid}
-      navActiveItem
-    {/if}
-  {/let}
-  <li{if isNonnull($classname)} class="{$classname}"{/if}>
-    <a href="{ROOT}{$folder}/{$page}.html">{$text}</a>
-  </li>
-{/template}
-
-/**
- * @param currentnavid The navigation id of the loaded page
- * @param platform
- * @param rules
- */
-{template .platformBuildRuleLink}
-    <li><strong>{$platform}</strong></li>
-    {foreach $rule in $rules}
-        {let $ruletext}
-          {$rule}()
-        {/let}
-        {call .navigationLink}
-          {param currentnavid: $currentnavid /}
-          {param folder: 'rule' /}
-          {param page: $rule /}
-          {param text: $ruletext /}
-        {/call}
-    {/foreach}
-{/template}
-
-/**
- * Consider passing in the path to the URL of the page that the user
- * is currently on and not hyperlinking that item in the table of contents.
- * @param navid The navigation id of the loaded page
- */
-{template .tableOfContents}
-    {let $platformRulesMap: [
-        'android': [
-            'android_aar',
-            'android_binary',
-            'android_build_config',
-            'android_instrumentation_apk',
-            'android_instrumentation_test',
-            'android_library',
-            'android_manifest',
-            'android_prebuilt_aar',
-            'android_resource',
-            'apk_genrule',
-            'gen_aidl',
-            'keystore',
-            'ndk_library',
-            'prebuilt_jar',
-            'prebuilt_native_library',
-            'robolectric_test',
-        ],
-        'core': [
-            'command_alias',
-            'export_file',
-            'genrule',
-            'http_archive',
-            'http_file',
-            'remote_file',
-            'worker_tool',
-            'zip_file',
-        ],
-        'cxx': [
-            'cxx_binary',
-            'cxx_library',
-            'cxx_precompiled_header',
-            'cxx_test',
-            'prebuilt_cxx_library',
-            'prebuilt_cxx_library_group',
-        ],
-        'd': [
-            'd_binary',
-            'd_library',
-            'd_test',
-        ],
-        'dotnet': [
-            'csharp_library',
-            'prebuilt_dotnet_library',
-        ],
-        'go': [
-            'go_binary',
-            'go_library',
-            'go_test',
-            'cgo_library',
-        ],
-        'groovy': [
-            'groovy_library',
-        ],
-        'halide': [
-            'halide_library',
-        ],
-        'haskell': [
-            'haskell_binary',
-            'haskell_library',
-            'prebuilt_haskell_library',
-        ],
-        'ios': [
-            'apple_asset_catalog',
-            'apple_binary',
-            'apple_bundle',
-            'apple_library',
-            'apple_package',
-            'apple_resource',
-            'apple_test',
-            'core_data_model',
-            'prebuilt_apple_framework',
-        ],
-        'java': [
-            'java_binary',
-            'java_library',
-            'java_test',
-            'prebuilt_jar',
-            'prebuilt_native_library',
-        ],
-        'kotlin': [
-            'kotlin_library',
-            'kotlin_test',
-        ],
-        'lua': [
-            'cxx_lua_extension',
-            'lua_binary',
-            'lua_library',
-        ],
-        'ocaml': [
-            'ocaml_binary',
-            'ocaml_library',
-        ],
-        'python': [
-            'prebuilt_python_library',
-            'python_binary',
-            'python_library',
-            'python_test',
-        ],
-        'rust': [
-            'rust_binary',
-            'rust_library',
-            'rust_test',
-            'prebuilt_rust_library',
-        ],
-    ] /}
-  <h3>The Basics</h3>
-  <ul>
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'setup' /}
-      {param page: 'getting_started' /}
-      {param text: 'Getting Started' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'about' /}
-      {param page: 'overview' /}
-      {param text: 'Key Topics' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'learning' /}
-      {param page: 'tutorial' /}
-      {param text: 'Tutorial' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'setup' /}
-      {param page: 'intellij_plugin_install' /}
-      {param text: 'Installing the IntelliJ Plugin' /}
-    {/call}
-
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'article' /}
-      {param page: 'exopackage' /}
-      {param text: 'Exopackage' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'article' /}
-      {param page: 'query_cheat_sheet' /}
-      {param text: 'Buck Query Cheat Sheet' /}
-    {/call}
-  </ul>
-  <h3>About</h3>
-  <ul>
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'what_makes_buck_so_fast' /}
-      {param text: 'What Makes Buck so Fast?' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'about' /}
-      {param page: 'showcase' /}
-      {param text: 'Showcase' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'troubleshooting' /}
-      {param text: 'Troubleshooting' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'about' /}
-      {param page: 'performance_tuning' /}
-      {param text: 'Performance Tuning' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'faq' /}
-      {param text: 'FAQ' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'presentations' /}
-      {param page: 'index' /}
-      {param text: 'Learn More (Buck Presentations)' /}
-    {/call}
-  </ul>
-  <h3>Concepts</h3>
-  <ul>
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'build_rule' /}
-      {param text: 'Build Rule' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'build_target' /}
-      {param text: 'Build Target' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'build_file' /}
-      {param text: 'Build File' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'buckjavaargs' /}
-      {param text: '.buckjavaargs' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'buckconfig' /}
-      {param text: '.buckconfig' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'build_target_pattern' /}
-      {param text: 'Build Target Pattern' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'visibility' /}
-      {param text: 'Visibility' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'http_cache_api' /}
-      {param text: 'HTTP Cache API' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'rule_keys' /}
-      {param text: 'Rule Keys' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'java_abis' /}
-      {param text: 'Java ABIs' /}
-    {/call}
-  </ul>
-  <h3>Build Rules</h3>
-  <ul>
-    // Ugh, closure doesn't have the concept of sorting, so we cannot control the order without
-    // listing it ourselves.
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'Core' /}
-        {param rules: $platformRulesMap['core'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'Android' /}
-        {param rules: $platformRulesMap['android'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'CXX' /}
-        {param rules: $platformRulesMap['cxx'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'D' /}
-        {param rules: $platformRulesMap['d'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'Go' /}
-        {param rules: $platformRulesMap['go'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'Groovy' /}
-        {param rules: $platformRulesMap['groovy'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'Halide' /}
-        {param rules: $platformRulesMap['halide'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'Haskell' /}
-        {param rules: $platformRulesMap['haskell'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'iOS' /}
-        {param rules: $platformRulesMap['ios'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'Java' /}
-        {param rules: $platformRulesMap['java'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'Kotlin' /}
-        {param rules: $platformRulesMap['kotlin'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'Lua' /}
-        {param rules: $platformRulesMap['lua'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'OCaml' /}
-        {param rules: $platformRulesMap['ocaml'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'Python' /}
-        {param rules: $platformRulesMap['python'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: 'Rust' /}
-        {param rules: $platformRulesMap['rust'] /}
-    {/call}
-    {call .platformBuildRuleLink}
-        {param currentnavid: $navid /}
-        {param platform: '.Net' /}
-        {param rules: $platformRulesMap['dotnet'] /}
-    {/call}
-  </ul>
-  <h3>Functions</h3>
-  <ul>
-    {foreach $function in [
-        'add_build_file_dep',
-        'allow_unsafe_import',
-        'flatten_dicts',
-        'glob',
-        'get_base_path',
-        'get_cell_name',
-        'host_info',
-        'include_defs',
-        'load',
-        'read_config',
-        'subdir_glob',
-        ]}
-      {let $functiontext}
-        {$function}()
-      {/let}
-      {call .navigationLink}
-        {param currentnavid: $navid /}
-        {param folder: 'function' /}
-        {param page: $function /}
-        {param text: $functiontext /}
-      {/call}
-    {/foreach}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'function' /}
-      {param page: 'string_parameter_macros' /}
-      {param text: 'String Parameter Macros' /}
-    {/call}
-  </ul>
-  <h3>Commands</h3>
-  <ul>
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'command' /}
-      {param page: 'common_parameters' /}
-      {param text: 'Common Parameters' /}
-    {/call}
-    {foreach $command in [
-        'audit',
-        'build',
-        'clean',
-        'doctor',
-        'fetch',
-        'fix',
-        'install',
-        'project',
-        'publish',
-        'query',
-        'run',
-        'root',
-        'server',
-        'suggest',
-        'targets',
-        'test',
-        'uninstall',
-        ]}
-      {let $commandtext}
-        buck {$command}
-      {/let}
-      {call .navigationLink}
-        {param currentnavid: $navid /}
-        {param folder: 'command' /}
-        {param page: $command /}
-        {param text: $commandtext /}
-      {/call}
-    {/foreach}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'command' /}
-      {param page: 'buckd' /}
-      {param text: 'buckd' /}
-    {/call}
-  </ul>
-  <h3>Extending Buck</h3>
-  <ul>
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'extending' /}
-      {param page: 'macros' /}
-      {param text: 'Custom Macros' /}
-    {/call}
-    {call .navigationLink}
-      {param currentnavid: $navid /}
-      {param folder: 'extending' /}
-      {param page: 'rules' /}
-      {param text: 'Custom Rules' /}
-    {/call}
-  </ul>
-{/template}
-
-/**
  * @param navid The current page's navigation id.
  * @param? prettify true if https://code.google.com/p/google-code-prettify/
  *     should be used.
@@ -643,7 +170,7 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 {if $navid != 'home'}
   </article>
   <nav>
-    {call buck.tableOfContents data="all"}
+    {call table_of_contents.main data="all"}
       {param navid: $navid /}
     {/call}
   </nav>
@@ -654,7 +181,7 @@ src="https://www.facebook.com/tr?id=1637165926500152&ev=PageView&noscript=1"
 </div></section>
 
 <footer><div class='width'>
-  &copy; Copyright Facebook, 2013 -
+  &copy; Copyright Facebook, 2013 - 2018
 </div></footer>
 
 <!-- Algolia Search Code -->
@@ -719,7 +246,7 @@ docsearch({
  * @param overview HTML description of the rule.
  * @param status one of FROZEN, UNFROZEN, or DEPRECATED to indicate the
        current level of support for the rule.
- * @param args HTML documentation for each arg for the rule.
+ * @param? args HTML documentation for each arg for the rule.
  *     Should be created using multiple applications of the {buck.arg}
  *     template.
  * @param? flavors HTML documentation for each flavor supported by the rule.
@@ -836,7 +363,7 @@ docsearch({
  * @param overview HTML description of the function.
  * @param status one of FROZEN, UNFROZEN, or DEPRECATED to indicate the
        current level of support for the rule.
- * @param args HTML documentation for each arg for the function.
+ * @param? args HTML documentation for each arg for the function.
  *     Should be created using multiple applications of the {buck.functionArg}
  *     template.
  * @param? examples HTML documentation that shows examples of the function
@@ -855,10 +382,12 @@ docsearch({
 {/switch}
 {$overview|noAutoescape}
 
-<h2>Arguments</h2>
-<ul class="{css arglist}">
-  {$args|noAutoescape}
-</ul>
+{if $args}
+  <h2>Arguments</h2>
+  <ul class="{css arglist}">
+    {$args|noAutoescape}
+  </ul>
+{/if}
 
 {if $examples}
   <h2>Examples</h2>
@@ -886,6 +415,11 @@ docsearch({
 /***/
 {template .abi_rule_keys}
 {call .concept_link_heading}{param page : 'rule_keys' /}{param heading : 'abi_rule_keys' /}{param name : 'ABI rule keys' /}{/call}
+{/template}
+
+/***/
+{template .skylark}
+{call .concept_link_heading}{param page : 'skylark' /}{param heading : 'migration' /}{param name : 'Python DSL to Skylark migration' /}{/call}
 {/template}
 
 /***/
@@ -1097,6 +631,11 @@ docsearch({
 {/template}
 
 /***/
+{template .fn_get_base_path}
+<a href="{ROOT}function/get_base_path.html"><code>get_base_path()</code></a>
+{/template}
+
+/***/
 {template .fn_read_config}
 <a href="{ROOT}function/read_config.html"><code>read_config()</code></a>
 {/template}
@@ -1174,9 +713,23 @@ docsearch({
 
 /**
  * @param name
+ * @param? section
+ * @param? rendered_text
  */
 {template .cmd_link}
-<a href="{ROOT}command/{$name}.html"><code>buck {$name}</code></a>
+  {if not $section}
+    {if $rendered_text}
+      <a href="{ROOT}command/{$name}.html"><code>{$rendered_text}</code></a>
+    {else}
+      <a href="{ROOT}command/{$name}.html"><code>buck {$name}</code></a>
+    {/if}
+  {else}
+    {if $rendered_text}
+      <a href="{ROOT}command/{$name}.html#{$section}"><code>{$rendered_text}</code></a>
+    {else}
+      <a href="{ROOT}command/{$name}.html#{$section}"><code>{$section}</code></a>
+    {/if}
+  {/if}
 {/template}
 
 /***/
@@ -1333,7 +886,10 @@ docsearch({
   {param desc}
   List of <a href="{ROOT}concept/build_target_pattern.html">build
   target patterns</a> that identify the build rules that can include
-  this rule in its <code>deps</code>.
+  this rule as a dependency, for example, by listing it in
+  their <code>deps</code> or <code>exported_deps</code> attributes.
+  For more information,
+  see {call buck.concept_link}{param page: 'visibility' /}{param name: 'visibility' /}{/call}.
   {/param}
 {/call}
 {/template}
@@ -1345,7 +901,7 @@ docsearch({
   {param default : '[]' /}
   {param desc}
   List of <a href="{ROOT}concept/build_target.html">build targets</a> that
-  identify the test rules that exercise this target.
+  identify tests that exercise this target.
   {/param}
 {/call}
 {/template}

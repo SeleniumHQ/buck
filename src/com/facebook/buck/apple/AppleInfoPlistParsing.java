@@ -20,7 +20,7 @@ import com.dd.plist.NSDictionary;
 import com.dd.plist.NSObject;
 import com.dd.plist.PropertyListFormatException;
 import com.dd.plist.PropertyListParser;
-import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -51,7 +51,7 @@ public class AppleInfoPlistParsing {
         throw new IOException(e);
       } catch (ArrayIndexOutOfBoundsException e) {
         throw new HumanReadableException(
-            plistPath.toString() + ": the content of the plist is invalid or empty.");
+            plistPath + ": the content of the plist is invalid or empty.");
       }
     }
     NSObject bundleId = infoPlist.objectForKey("CFBundleIdentifier");

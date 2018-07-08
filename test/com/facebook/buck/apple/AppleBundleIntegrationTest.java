@@ -33,15 +33,16 @@ import com.dd.plist.NSNumber;
 import com.dd.plist.NSString;
 import com.dd.plist.PropertyListParser;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
@@ -50,10 +51,10 @@ import com.facebook.buck.testutil.integration.FakeAppleDeveloperEnvironment;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.HumanReadableException;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import java.io.IOException;
@@ -131,7 +132,7 @@ public class AppleBundleIntegrationTest {
             this, "simple_application_bundle_no_debug", tmp);
     workspace.setUp();
 
-    final String target = "//:DemoApp#iphonesimulator-x86_64,no-debug,no-include-frameworks";
+    String target = "//:DemoApp#iphonesimulator-x86_64,no-debug,no-include-frameworks";
 
     workspace.enableDirCache();
     workspace.runBuckBuild("-c", "apple.cache_bundles_and_packages=false", target).assertSuccess();
@@ -229,9 +230,7 @@ public class AppleBundleIntegrationTest {
   private NSDictionary verifyAndParsePlist(Path path) throws Exception {
     assertTrue(Files.exists(path));
     String resultContents = filesystem.readFileIfItExists(path).get();
-    NSDictionary resultPlist =
-        (NSDictionary) PropertyListParser.parse(resultContents.getBytes(Charsets.UTF_8));
-    return resultPlist;
+    return (NSDictionary) PropertyListParser.parse(resultContents.getBytes(Charsets.UTF_8));
   }
 
   @Test
@@ -530,8 +529,7 @@ public class AppleBundleIntegrationTest {
     AppleDsymTestUtil.checkDsymFileHasDebugSymbolForMain(workspace, dwarfPath);
 
     ProcessExecutor.Result result =
-        workspace.runCommand(
-            "dsymutil", "-o", binaryPath.toString() + ".test.dSYM", binaryPath.toString());
+        workspace.runCommand("dsymutil", "-o", binaryPath + ".test.dSYM", binaryPath.toString());
 
     String dsymutilOutput = "";
     if (result.getStderr().isPresent()) {
@@ -651,6 +649,24 @@ public class AppleBundleIntegrationTest {
 
     workspace.verify(
         Paths.get("DemoApp_output.expected"),
+        BuildTargets.getGenPath(
+            filesystem,
+            target.withAppendedFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+            "%s"));
+  }
+
+  @Test
+  public void appBundleWithPlatformBinaryWithResources() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "app_bundle_with_resources", tmp);
+    workspace.setUp();
+
+    BuildTarget target =
+        workspace.newBuildTarget("//:DemoAppWithPlatformBinary#iphonesimulator-x86_64,no-debug");
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+
+    workspace.verify(
+        Paths.get("DemoAppWithPlatformBinary_output.expected"),
         BuildTargets.getGenPath(
             filesystem,
             target.withAppendedFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
@@ -828,9 +844,9 @@ public class AppleBundleIntegrationTest {
       String needle, ProjectWorkspace workspace, BuildTarget target, String genPathFormat)
       throws IOException {
     Path outputPath = BuildTargets.getGenPath(filesystem, target, genPathFormat);
-    final Path path = workspace.getPath(outputPath);
+    Path path = workspace.getPath(outputPath);
     assertTrue(Files.exists(path));
-    final String contents = workspace.getFileContents(outputPath);
+    String contents = workspace.getFileContents(outputPath);
     assertTrue(contents.contains(needle));
   }
 
@@ -1018,7 +1034,7 @@ public class AppleBundleIntegrationTest {
   }
 
   @Test
-  public void watchApplicationBundle() throws IOException, InterruptedException {
+  public void watchApplicationBundle() throws IOException {
     assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.WATCHOS));
 
     ProjectWorkspace workspace =
@@ -1054,7 +1070,7 @@ public class AppleBundleIntegrationTest {
   }
 
   @Test
-  public void legacyWatchApplicationBundle() throws IOException, InterruptedException {
+  public void legacyWatchApplicationBundle() throws IOException {
     assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.WATCHOS));
 
     ProjectWorkspace workspace =
@@ -1141,10 +1157,14 @@ public class AppleBundleIntegrationTest {
                 .resolve(target.getShortName() + ".app"));
 
     String resourceName = "Resource.plist";
-    assertFalse(Files.exists(appPath.resolve(resourceName)));
+    assertFalse(
+        "The resource should be absent in the app bundle.",
+        Files.exists(appPath.resolve(resourceName)));
 
     Path frameworkPath = appPath.resolve("Frameworks/TestFramework.framework");
-    assertTrue(Files.exists(frameworkPath.resolve(resourceName)));
+    assertTrue(
+        "The resource should be present in the embedded framework.",
+        Files.exists(frameworkPath.resolve(resourceName)));
   }
 
   @Test
@@ -1166,8 +1186,7 @@ public class AppleBundleIntegrationTest {
                 "%s")
             .resolve(target.getShortName() + ".app");
     assertThat(
-        result.getStdout(),
-        Matchers.startsWith(target.getFullyQualifiedName() + " " + appPath.toString()));
+        result.getStdout(), Matchers.startsWith(target.getFullyQualifiedName() + " " + appPath));
 
     // test debug output
     target = BuildTargetFactory.newInstance("//:DemoApp#dwarf-and-dsym");
@@ -1180,12 +1199,11 @@ public class AppleBundleIntegrationTest {
                 "%s")
             .resolve(target.getShortName() + ".app");
     assertThat(
-        result.getStdout(),
-        Matchers.startsWith(target.getFullyQualifiedName() + " " + appPath.toString()));
+        result.getStdout(), Matchers.startsWith(target.getFullyQualifiedName() + " " + appPath));
   }
 
   @Test
-  public void macAppWithExtraBinary() throws IOException, InterruptedException {
+  public void macAppWithExtraBinary() throws IOException {
     assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
 
     ProjectWorkspace workspace =
@@ -1214,7 +1232,7 @@ public class AppleBundleIntegrationTest {
   }
 
   @Test
-  public void macAppWithXPCService() throws IOException, InterruptedException {
+  public void macAppWithXPCService() throws IOException {
     assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
 
     ProjectWorkspace workspace =
@@ -1244,7 +1262,7 @@ public class AppleBundleIntegrationTest {
   }
 
   @Test
-  public void macAppWithPlugin() throws IOException, InterruptedException {
+  public void macAppWithPlugin() throws IOException {
     assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
 
     ProjectWorkspace workspace =
@@ -1273,7 +1291,7 @@ public class AppleBundleIntegrationTest {
   }
 
   @Test
-  public void macAppWithPrefPane() throws IOException, InterruptedException {
+  public void macAppWithPrefPane() throws IOException {
     assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
 
     ProjectWorkspace workspace =
@@ -1302,6 +1320,35 @@ public class AppleBundleIntegrationTest {
   }
 
   @Test
+  public void macAppWithQuickLook() throws IOException {
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "apple_osx_app_with_quicklook", tmp);
+    workspace.setUp();
+
+    BuildTarget target = BuildTargetFactory.newInstance("//:App#no-debug");
+    ProcessResult buildResult =
+        workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+    buildResult.assertSuccess();
+
+    Path appPath =
+        workspace.getPath(
+            BuildTargets.getGenPath(
+                    filesystem,
+                    target.withAppendedFlavors(
+                        AppleDebugFormat.NONE.getFlavor(),
+                        AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+                    "%s")
+                .resolve(target.getShortName() + ".app"));
+    Path quicklookPath = appPath.resolve("Contents/Library/QuickLook/QuickLook.qlgenerator");
+    Path quicklookBinaryPath = quicklookPath.resolve("Contents/MacOS/QuickLook");
+    Path quicklookInfoPlistPath = quicklookPath.resolve("Contents/Info.plist");
+    assertTrue(Files.exists(quicklookBinaryPath));
+    assertTrue(Files.exists(quicklookInfoPlistPath));
+  }
+
+  @Test
   public void resourcesFromOtherCellsCanBeProperlyIncluded() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(
@@ -1322,5 +1369,120 @@ public class AppleBundleIntegrationTest {
     assertTrue(
         "Resource file should exist.",
         Files.isRegularFile(outputPath.resolve("other_resource.txt")));
+  }
+
+  @Test
+  public void bundleTraversesAppleResourceResourcesFromPlatformDepsForAdditionalResources()
+      throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "app_bundle_with_resources_from_deps", tmp);
+    workspace.setUp();
+    Path outputPath = workspace.buildAndReturnOutput("//:mybundle#iphonesimulator-x86_64");
+    assertTrue(
+        "Resource file matching platform should exist.",
+        Files.isRegularFile(outputPath.resolve("sim.txt")));
+    assertFalse(
+        "Resource file not matching platform should not exist.",
+        Files.isRegularFile(outputPath.resolve("device.txt")));
+  }
+
+  @Test
+  public void defaultBinaryIsUsedWhenOnTargetPlatformMismatch() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "app_bundle_with_platform_binary", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild("//:bundle#iphoneos-armv7").assertFailure();
+  }
+
+  @Test
+  public void binaryMatchingTargetPlatformIsUsed() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "app_bundle_with_platform_binary", tmp);
+    workspace.setUp();
+    workspace.runBuckBuild("//:bundle#iphonesimulator-x86_64").assertSuccess();
+  }
+
+  @Test
+  public void defaultBinaryIsNotUsedWhenPlatformSpecificBinaryIsSpecified() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "app_bundle_with_platform_binary", tmp);
+    workspace.setUp();
+    workspace
+        .runBuckBuild("//:bundle_with_broken_default_binary#iphonesimulator-x86_64")
+        .assertSuccess();
+  }
+
+  @Test
+  public void errorMessageForBundleWithoutBinaryIsDisplayed() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "app_bundle_with_platform_binary", tmp);
+    workspace.setUp();
+    thrown.expectMessage(
+        "Binary matching target platform iphonesimulator-x86_64 cannot be found"
+            + " and binary default is not specified.");
+    workspace.runBuckBuild("//:bundle_without_binary#iphonesimulator-x86_64").assertFailure();
+  }
+
+  @Test
+  public void errorMessageForBundleWithMultipleMatchingBinariesIsDisplayed() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "app_bundle_with_platform_binary", tmp);
+    workspace.setUp();
+    thrown.expectMessage(
+        "There must be at most one binary matching the target platform "
+            + "iphonesimulator-x86_64 but all of [//:binary, //:binary] matched. "
+            + "Please make your pattern more precise and remove any duplicates.");
+    workspace
+        .runBuckBuild("//:bundle_with_multiple_matching_binaries#iphonesimulator-x86_64")
+        .assertFailure();
+  }
+
+  @Test
+  public void crossCellApplicationBundle() throws IOException, InterruptedException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
+            this, "simple_cross_cell_application_bundle/primary", tmp.newFolder());
+    workspace.setUp();
+    ProjectWorkspace secondary =
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
+            this, "simple_cross_cell_application_bundle/secondary", tmp.newFolder());
+    secondary.setUp();
+
+    TestDataHelper.overrideBuckconfig(
+        workspace,
+        ImmutableMap.of(
+            "repositories",
+            ImmutableMap.of("secondary", secondary.getPath(".").normalize().toString())));
+
+    BuildTarget target =
+        workspace.newBuildTarget("//:DemoApp#dwarf-and-dsym,iphonesimulator-x86_64,no_debug");
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+
+    workspace.verify(
+        Paths.get("DemoApp_output.expected"),
+        BuildTargets.getGenPath(
+            filesystem,
+            target.withAppendedFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+            "%s"));
+
+    Path appPath =
+        workspace.getPath(
+            BuildTargets.getGenPath(
+                    filesystem,
+                    target.withAppendedFlavors(AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
+                    "%s")
+                .resolve(target.getShortName() + ".app"));
+    assertTrue(Files.exists(appPath.resolve(target.getShortName())));
+
+    assertTrue(checkCodeSigning(appPath));
+
+    // Non-Swift target shouldn't include Frameworks/
+    assertFalse(Files.exists(appPath.resolve("Frameworks")));
   }
 }

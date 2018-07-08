@@ -29,8 +29,8 @@ import java.io.InputStream;
 import java.io.SequenceInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.logging.Handler;
 import java.util.logging.LogManager;
 import java.util.logging.Logger; // NOPMD
@@ -121,7 +121,7 @@ public class LogConfig {
     if (handlers == null) {
       return;
     }
-    for (Handler h : Arrays.asList(handlers)) {
+    for (Handler h : handlers) {
       h.flush();
     }
   }
@@ -136,7 +136,7 @@ public class LogConfig {
       ST st = new ST(template);
       st.add(
           "default_file_pattern",
-          MorePaths.pathWithUnixSeparators(logConfigSetup.getLogFilePath()).toString());
+          MorePaths.pathWithUnixSeparators(logConfigSetup.getLogFilePath()));
       st.add("default_count", logConfigSetup.getCount());
       st.add("default_max_size_bytes", logConfigSetup.getMaxLogSizeBytes());
       String result = st.render();
@@ -167,7 +167,7 @@ public class LogConfig {
             logConfigSetup.getLogFilePrefix() + "*.log*",
             PathListing.GET_PATH_MODIFIED_TIME,
             PathListing.FilterMode.EXCLUDE,
-            Optional.empty(),
+            OptionalInt.empty(),
             Optional.of(logConfigSetup.getMaxLogSizeBytes()))) {
       Files.deleteIfExists(path);
     }

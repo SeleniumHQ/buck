@@ -16,21 +16,21 @@
 
 package com.facebook.buck.js;
 
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.UserFlavor;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.UserFlavor;
 import com.facebook.buck.model.macros.MacroException;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.ProxyArg;
 import com.facebook.buck.rules.macros.AbstractMacroExpanderWithoutPrecomputedWork;
@@ -40,6 +40,8 @@ import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.shell.WorkerShellStep;
 import com.facebook.buck.shell.WorkerTool;
+import com.facebook.buck.util.json.JsonBuilder;
+import com.facebook.buck.util.json.JsonBuilder.ObjectBuilder;
 import com.facebook.buck.worker.WorkerJobParams;
 import com.facebook.buck.worker.WorkerProcessIdentity;
 import com.facebook.buck.worker.WorkerProcessParams;
@@ -49,13 +51,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
-import java.nio.file.Path;
-import java.util.Collection;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 public class JsUtil {
   private static final ImmutableList<AbstractMacroExpanderWithoutPrecomputedWork<? extends Macro>>
@@ -84,25 +82,36 @@ public class JsUtil {
 
   private JsUtil() {}
 
-  static WorkerShellStep workerShellStep(
+  static WorkerShellStep jsonWorkerShellStepAddingFlavors(
       WorkerTool worker,
-      String jobArgs,
+      ObjectBuilder jobArgs,
       BuildTarget buildTarget,
-      SourcePathResolver sourcePathResolver,
-      ProjectFilesystem projectFilesystem) {
-    final Tool tool = worker.getTool();
-    final WorkerJobParams params =
+      SourcePathResolver pathResolver,
+      ProjectFilesystem filesystem) {
+    String jobArgsString =
+        jobArgs
+            .addArray(
+                "flavors",
+                buildTarget
+                    .getFlavors()
+                    .stream()
+                    .filter(JsFlavors::shouldBePassedToWorker)
+                    .map(Flavor::getName)
+                    .collect(JsonBuilder.toArrayOfStrings()))
+            .toString();
+    Tool tool = worker.getTool();
+    WorkerJobParams params =
         WorkerJobParams.of(
-            jobArgs,
+            jobArgsString,
             WorkerProcessParams.of(
                 worker.getTempDir(),
-                tool.getCommandPrefix(sourcePathResolver),
-                tool.getEnvironment(sourcePathResolver),
+                tool.getCommandPrefix(pathResolver),
+                tool.getEnvironment(pathResolver),
                 worker.getMaxWorkers(),
                 worker.isPersistent()
                     ? Optional.of(
                         WorkerProcessIdentity.of(
-                            buildTarget.getCellPath().toString() + buildTarget.toString(),
+                            buildTarget.getCellPath().toString() + buildTarget,
                             worker.getInstanceKey()))
                     : Optional.empty()));
     return new WorkerShellStep(
@@ -110,31 +119,14 @@ public class JsUtil {
         Optional.of(params),
         Optional.empty(),
         Optional.empty(),
-        new WorkerProcessPoolFactory(projectFilesystem));
-  }
-
-  static String resolveMapJoin(
-      Collection<SourcePath> items,
-      SourcePathResolver sourcePathResolver,
-      Function<Path, String> mapper) {
-    return items
-        .stream()
-        .map(sourcePathResolver::getAbsolutePath)
-        .map(mapper)
-        .collect(Collectors.joining(" "));
+        new WorkerProcessPoolFactory(filesystem));
   }
 
   static boolean isJsLibraryTarget(BuildTarget target, TargetGraph targetGraph) {
     return targetGraph.get(target).getDescription() instanceof JsLibraryDescription;
   }
 
-  static BuildRuleParams withWorkerDependencyOnly(
-      BuildRuleParams params, BuildRuleResolver resolver, BuildTarget worker) {
-    BuildRule workerRule = resolver.getRule(worker);
-    return copyParamsWithDependencies(params, workerRule);
-  }
-
-  static BuildRuleParams copyParamsWithDependencies(BuildRuleParams params, BuildRule... rules) {
+  static BuildRuleParams paramsWithDeps(BuildRuleParams params, BuildRule... rules) {
     return params.withoutDeclaredDeps().withExtraDeps(ImmutableSortedSet.copyOf(rules));
   }
 
@@ -171,11 +163,11 @@ public class JsUtil {
   public static Optional<Arg> getExtraJson(
       HasExtraJson args,
       BuildTarget target,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       CellPathResolver cellRoots) {
     StringWithMacrosConverter macrosConverter =
-        StringWithMacrosConverter.of(target, cellRoots, resolver, MACRO_EXPANDERS);
-    return args.getExtraJson().map(macrosConverter::convert);
+        StringWithMacrosConverter.of(target, cellRoots, MACRO_EXPANDERS);
+    return args.getExtraJson().map(x -> macrosConverter.convert(x, graphBuilder));
   }
 
   /** @return The input with all special JSON characters escaped, but not wrapped in quotes. */

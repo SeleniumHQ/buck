@@ -16,11 +16,12 @@
 
 package com.facebook.buck.cxx.toolchain;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.SymlinkTree;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SymlinkTree;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import java.nio.file.Path;
@@ -40,19 +41,14 @@ public class HeaderSymlinkTree extends SymlinkTree {
   /**
    * Get path to use as an include path to get access to the files in the tree.
    *
-   * <p>If {@link #getHeaderMap()} is present, then the path it returns needs to be passed as an
-   * include path as well and it has to be passed before the path returned from this method.
+   * <p>If {@link #getHeaderMapSourcePath()} is present, then the path it returns needs to be passed
+   * as an include path as well and it has to be passed before the path returned from this method.
    *
    * <p>This path should not be added to rulekeys as a SourcePath (in some cases it points to the
    * entire buck-out).
    */
-  public Path getIncludePath() {
-    return getRoot();
-  }
-
-  /** Get path of the header map indexing this tree if one exists. */
-  public Optional<Path> getHeaderMap() {
-    return Optional.empty();
+  public PathSourcePath getIncludeSourcePath() {
+    return PathSourcePath.of(getProjectFilesystem(), getProjectFilesystem().relativize(getRoot()));
   }
 
   public Optional<SourcePath> getHeaderMapSourcePath() {

@@ -20,22 +20,21 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.android.aapt.RDotTxtEntry;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.Keystore;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Paths;
@@ -47,7 +46,7 @@ import org.junit.Test;
 public class AndroidBinaryDescriptionTest {
 
   @Test
-  public void testNoDxRulesBecomeFirstOrderDeps() throws Exception {
+  public void testNoDxRulesBecomeFirstOrderDeps() {
     TargetNode<?, ?> transitiveDepNode =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//exciting:dep"))
             .addSrc(Paths.get("Dep.java"))
@@ -74,26 +73,24 @@ public class AndroidBinaryDescriptionTest {
             .build();
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(transitiveDepNode, depNode, keystoreNode, androidBinaryNode);
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder =
+        new TestActionGraphBuilder(
+            targetGraph, AndroidBinaryBuilder.createToolchainProviderForAndroidBinary());
 
-    BuildRule transitiveDep = ruleResolver.requireRule(transitiveDepNode.getBuildTarget());
-    ruleResolver.requireRule(target);
+    BuildRule transitiveDep = graphBuilder.requireRule(transitiveDepNode.getBuildTarget());
+    graphBuilder.requireRule(target);
     BuildRule nonPredexedRule =
-        ruleResolver.requireRule(
+        graphBuilder.requireRule(
             target.withFlavors(AndroidBinaryGraphEnhancer.NON_PREDEXED_DEX_BUILDABLE_FLAVOR));
     assertThat(nonPredexedRule.getBuildDeps(), Matchers.hasItem(transitiveDep));
   }
 
   @Test
   public void turkishCaseRulesDoNotCrashConstructor() throws Exception {
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//:keystore");
     Keystore keystore =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             new Keystore(
                 buildTarget,
                 new FakeProjectFilesystem(),
@@ -109,14 +106,14 @@ public class AndroidBinaryDescriptionTest {
           .setManifest(FakeSourcePath.of("manifest.xml"))
           .setKeystore(keystore.getBuildTarget())
           .setPackageType("instrumented")
-          .build(ruleResolver, new FakeProjectFilesystem(), TargetGraph.EMPTY);
+          .build(graphBuilder, new FakeProjectFilesystem(), TargetGraph.EMPTY);
     } finally {
       Locale.setDefault(originalLocale);
     }
   }
 
   @Test
-  public void duplicateResourceBanningDefaultAllow() throws Exception {
+  public void duplicateResourceBanningDefaultAllow() {
     AndroidBinaryDescriptionArg arg =
         AndroidBinaryDescriptionArg.builder()
             .setName("res")
@@ -130,7 +127,7 @@ public class AndroidBinaryDescriptionTest {
   }
 
   @Test
-  public void duplicateResourceBanningDefaultBan() throws Exception {
+  public void duplicateResourceBanningDefaultBan() {
     AndroidBinaryDescriptionArg arg =
         AndroidBinaryDescriptionArg.builder()
             .setName("res")
@@ -147,7 +144,7 @@ public class AndroidBinaryDescriptionTest {
   }
 
   @Test(expected = IllegalArgumentException.class)
-  public void duplicateResourceBanningBadCombinationBan() throws Exception {
+  public void duplicateResourceBanningBadCombinationBan() {
     AndroidBinaryDescriptionArg.builder()
         .setName("res")
         .setManifest(FakeSourcePath.of("manifest"))
@@ -160,7 +157,7 @@ public class AndroidBinaryDescriptionTest {
   }
 
   @Test(expected = IllegalArgumentException.class)
-  public void duplicateResourceBanningBadCombinationAllow() throws Exception {
+  public void duplicateResourceBanningBadCombinationAllow() {
     AndroidBinaryDescriptionArg.builder()
         .setName("res")
         .setManifest(FakeSourcePath.of("manifest"))

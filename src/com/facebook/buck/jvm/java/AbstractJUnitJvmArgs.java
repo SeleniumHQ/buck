@@ -16,15 +16,18 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.runner.FileClassPathRunner;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.test.selectors.TestSelectorList;
 import com.facebook.buck.util.Verbosity;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.util.env.BuckClasspath;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import java.io.File;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 import java.util.logging.Level;
 import org.immutables.value.Value;
@@ -189,9 +192,9 @@ abstract class AbstractJUnitJvmArgs {
     args.add(
         "-classpath",
         "@"
-            + filesystem.resolve(getClasspathFile()).toString()
+            + filesystem.resolve(getClasspathFile())
             + File.pathSeparator
-            + getTestRunnerClasspath().toString());
+            + getTestRunnerClasspath());
 
     args.add(FileClassPathRunner.class.getName());
 
@@ -226,5 +229,9 @@ abstract class AbstractJUnitJvmArgs {
     for (String testClassName : getTestClasses()) {
       args.add(testClassName);
     }
+  }
+
+  public Map<String, String> getEnvironment() {
+    return ImmutableMap.of(BuckClasspath.TEST_ENV_VAR_NAME, getClasspathFile().toString());
   }
 }

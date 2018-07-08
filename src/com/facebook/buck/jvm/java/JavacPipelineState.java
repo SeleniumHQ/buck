@@ -16,11 +16,11 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.pipeline.RulePipelineState;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.RulePipelineState;
-import com.facebook.buck.rules.SourcePathResolver;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.Verbosity;
@@ -86,8 +86,7 @@ public class JavacPipelineState implements RulePipelineState {
     return invocation != null;
   }
 
-  public Javac.Invocation getJavacInvocation(ExecutionContext context)
-      throws IOException, InterruptedException {
+  public Javac.Invocation getJavacInvocation(ExecutionContext context) throws IOException {
     if (invocation == null) {
       javacOptions.validateOptions(classpathChecker::validateClasspath);
 
@@ -137,6 +136,7 @@ public class JavacPipelineState implements RulePipelineState {
                   compilerParameters.getPathToSourcesList(),
                   compilerParameters.getWorkingDirectory(),
                   compilerParameters.shouldTrackClassUsage(),
+                  compilerParameters.shouldTrackJavacPhaseEvents(),
                   abiJarParameters,
                   libraryJarParameters,
                   compilerParameters.getAbiGenerationMode(),
@@ -208,7 +208,7 @@ public class JavacPipelineState implements RulePipelineState {
       Path generatedCodeDirectory,
       ExecutionContext context,
       ImmutableSortedSet<Path> buildClasspathEntries) {
-    final ImmutableList.Builder<String> builder = ImmutableList.builder();
+    ImmutableList.Builder<String> builder = ImmutableList.builder();
 
     javacOptions.appendOptionsTo(
         new OptionsConsumer() {

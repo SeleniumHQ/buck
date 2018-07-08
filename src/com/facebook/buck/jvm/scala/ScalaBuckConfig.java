@@ -17,14 +17,14 @@
 package com.facebook.buck.jvm.scala;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
+import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CommandTool;
-import com.facebook.buck.rules.HashedFileTool;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.tool.config.ToolConfig;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
@@ -36,7 +36,7 @@ public class ScalaBuckConfig {
 
   private final BuckConfig delegate;
 
-  public ScalaBuckConfig(final BuckConfig delegate) {
+  public ScalaBuckConfig(BuckConfig delegate) {
     this.delegate = delegate;
   }
 

@@ -3,4 +3,5 @@ cxx_binary(
     srcs = [
         "main.cpp",
     ],
+    link_style = "static",
 )

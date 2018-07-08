@@ -17,21 +17,18 @@ package com.facebook.buck.jvm.java;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.SymlinkFileStep;
@@ -48,10 +45,7 @@ public class CopyResourcesStepTest {
   @Test
   public void testAddResourceCommandsWithBuildFileParentOfSrcDirectory()
       throws InterruptedException {
-    SourcePathRuleFinder ruleFinder =
-        new SourcePathRuleFinder(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     SourcePathResolver resolver = DefaultSourcePathResolver.from(ruleFinder);
     // Files:
     // android/java/BUCK
@@ -120,8 +114,7 @@ public class CopyResourcesStepTest {
   }
 
   @Test
-  public void testAddResourceCommandsWithBuildFileParentOfJavaPackage()
-      throws InterruptedException {
+  public void testAddResourceCommandsWithBuildFileParentOfJavaPackage() {
     // Files:
     // android/java/src/BUCK
     // android/java/src/com/facebook/base/data.json
@@ -130,10 +123,7 @@ public class CopyResourcesStepTest {
     JavaPackageFinder javaPackageFinder = createJavaPackageFinder();
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
 
-    SourcePathRuleFinder ruleFinder =
-        new SourcePathRuleFinder(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     BuildContext buildContext =
         FakeBuildContext.withSourcePathResolver(DefaultSourcePathResolver.from(ruleFinder))
             .withJavaPackageFinder(javaPackageFinder)
@@ -146,7 +136,7 @@ public class CopyResourcesStepTest {
             buildTarget,
             ResourcesParameters.builder()
                 .setResources(
-                    ImmutableSortedSet.<SourcePath>of(
+                    ImmutableSortedSet.of(
                         FakeSourcePath.of(
                             filesystem, "android/java/src/com/facebook/base/data.json"),
                         FakeSourcePath.of(
@@ -191,7 +181,7 @@ public class CopyResourcesStepTest {
   }
 
   @Test
-  public void testAddResourceCommandsWithBuildFileInJavaPackage() throws InterruptedException {
+  public void testAddResourceCommandsWithBuildFileInJavaPackage() {
     // Files:
     // android/java/src/com/facebook/BUCK
     // android/java/src/com/facebook/base/data.json
@@ -201,10 +191,7 @@ public class CopyResourcesStepTest {
     JavaPackageFinder javaPackageFinder = createJavaPackageFinder();
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
 
-    SourcePathRuleFinder ruleFinder =
-        new SourcePathRuleFinder(
-            new SingleThreadedBuildRuleResolver(
-                TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer()));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(new TestActionGraphBuilder());
     BuildContext buildContext =
         FakeBuildContext.withSourcePathResolver(DefaultSourcePathResolver.from(ruleFinder))
             .withJavaPackageFinder(javaPackageFinder)

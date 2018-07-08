@@ -19,24 +19,23 @@ package com.facebook.buck.jvm.java;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
@@ -109,21 +108,19 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
 
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(aNode, bNode, cNode, dNode, eNode, zNode);
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    resolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(ruleResolver));
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
+    resolver = DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
 
-    a = ruleResolver.requireRule(aNode.getBuildTarget());
-    b = ruleResolver.requireRule(bNode.getBuildTarget());
-    c = ruleResolver.requireRule(cNode.getBuildTarget());
-    d = ruleResolver.requireRule(dNode.getBuildTarget());
-    e = ruleResolver.requireRule(eNode.getBuildTarget());
-    z = ruleResolver.requireRule(zNode.getBuildTarget());
+    a = graphBuilder.requireRule(aNode.getBuildTarget());
+    b = graphBuilder.requireRule(bNode.getBuildTarget());
+    c = graphBuilder.requireRule(cNode.getBuildTarget());
+    d = graphBuilder.requireRule(dNode.getBuildTarget());
+    e = graphBuilder.requireRule(eNode.getBuildTarget());
+    z = graphBuilder.requireRule(zNode.getBuildTarget());
   }
 
   @Test
-  public void getOutputClasspathEntries() throws Exception {
+  public void getOutputClasspathEntries() {
     JavaLibrary aLib = (JavaLibrary) a;
     assertEquals(
         ImmutableSet.of(
@@ -139,7 +136,7 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
   }
 
   @Test
-  public void getClasspathFromLibraries() throws Exception {
+  public void getClasspathFromLibraries() {
     assertEquals(
         ImmutableSet.of(getFullOutput(a), getFullOutput(c), getFullOutput(e)),
         // b is non-java so b and d do not appear
@@ -173,7 +170,7 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
   }
 
   @Test
-  public void getTransitiveClasspaths() throws Exception {
+  public void getTransitiveClasspaths() {
     JavaLibrary aLib = (JavaLibrary) a;
     assertEquals(
         ImmutableSet.builder()
@@ -195,11 +192,9 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
 
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(aNode, bNode, cNode, dNode, eNode, zNode, noOutputNode);
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
 
-    JavaLibrary noOutput = (JavaLibrary) ruleResolver.requireRule(noOutputNode.getBuildTarget());
+    JavaLibrary noOutput = (JavaLibrary) graphBuilder.requireRule(noOutputNode.getBuildTarget());
 
     assertEquals(
         "root does not appear if output jar not present.",
@@ -218,7 +213,7 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
                 HashCode.fromString("aaaa"))
             .setMavenCoords("com.example:buck:1.0")
             .addDep(z.getBuildTarget())
-            .build(ruleResolver);
+            .build(graphBuilder);
 
     assertEquals(
         "Does appear if no output jar but maven coordinate present.",
@@ -227,7 +222,7 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
   }
 
   @Test
-  public void getJavaLibraryDeps() throws Exception {
+  public void getJavaLibraryDeps() {
     assertThat(
         JavaLibraryClasspathProvider.getJavaLibraryDeps(ImmutableList.of(a, b, c, d, e)),
         Matchers.containsInAnyOrder(a, c, d, e));
@@ -251,8 +246,7 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
       Iterable<String> srcs,
       Iterable<TargetNode<?, ?>> deps,
       @Nullable Iterable<TargetNode<?, ?>> exportedDeps,
-      final ProjectFilesystem filesystem)
-      throws Exception {
+      ProjectFilesystem filesystem) {
     JavaLibraryBuilder builder;
     BuildTarget parsedTarget = BuildTargetFactory.newInstance(target);
     JavaBuckConfig testConfig = getJavaBuckConfigWithCompilationMode();

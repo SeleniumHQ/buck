@@ -24,31 +24,33 @@ import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.apple.AppleBundleResources;
 import com.facebook.buck.apple.AppleLibraryDescription;
 import com.facebook.buck.apple.HasAppleBundleResourcesDescription;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.description.arg.HasDeclaredDeps;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.Flavored;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.Flavored;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.HasDeclaredDeps;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.ExportFile;
 import com.facebook.buck.shell.ExportFileDescription;
+import com.facebook.buck.shell.ExportFileDirectoryAction;
 import com.facebook.buck.shell.WorkerTool;
 import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.util.types.Either;
-import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -56,11 +58,14 @@ import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import java.util.Collection;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Stream;
 import org.immutables.value.Value;
 
 public class JsBundleDescription
-    implements Description<JsBundleDescriptionArg>,
+    implements DescriptionWithTargetGraph<JsBundleDescriptionArg>,
         Flavored,
         HasAppleBundleResourcesDescription<JsBundleDescriptionArg>,
         JsBundleOutputsDescription<JsBundleDescriptionArg> {
@@ -99,41 +104,47 @@ public class JsBundleDescription
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       JsBundleDescriptionArg args) {
-    BuildRuleResolver resolver = context.getBuildRuleResolver();
+    ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
-    final ImmutableSortedSet<Flavor> flavors = buildTarget.getFlavors();
+    ImmutableSortedSet<Flavor> flavors = buildTarget.getFlavors();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
     // Source maps are exposed individually using a special flavor
     if (flavors.contains(JsFlavors.SOURCE_MAP)) {
       BuildTarget bundleTarget = buildTarget.withoutFlavors(JsFlavors.SOURCE_MAP);
-      resolver.requireRule(bundleTarget);
-      JsBundleOutputs bundleOutputs = resolver.getRuleWithType(bundleTarget, JsBundleOutputs.class);
+      graphBuilder.requireRule(bundleTarget);
+      JsBundleOutputs bundleOutputs =
+          graphBuilder.getRuleWithType(bundleTarget, JsBundleOutputs.class);
 
       return new ExportFile(
           buildTarget,
           projectFilesystem,
-          new SourcePathRuleFinder(resolver),
+          ruleFinder,
           bundleOutputs.getBundleName() + ".map",
           ExportFileDescription.Mode.REFERENCE,
-          bundleOutputs.getSourcePathToSourceMap());
+          bundleOutputs.getSourcePathToSourceMap(),
+          ExportFileDirectoryAction.FAIL);
     }
 
     if (flavors.contains(JsFlavors.MISC)) {
       BuildTarget bundleTarget = buildTarget.withoutFlavors(JsFlavors.MISC);
-      resolver.requireRule(bundleTarget);
-      JsBundleOutputs bundleOutputs = resolver.getRuleWithType(bundleTarget, JsBundleOutputs.class);
+      graphBuilder.requireRule(bundleTarget);
+      JsBundleOutputs bundleOutputs =
+          graphBuilder.getRuleWithType(bundleTarget, JsBundleOutputs.class);
 
       return new ExportFile(
           buildTarget,
           projectFilesystem,
-          new SourcePathRuleFinder(resolver),
+          ruleFinder,
           bundleOutputs.getBundleName() + "-misc",
           ExportFileDescription.Mode.REFERENCE,
-          bundleOutputs.getSourcePathToMisc());
+          bundleOutputs.getSourcePathToMisc(),
+          // TODO(27131551): temporary allow directory export until a proper fix is implemented
+          ExportFileDirectoryAction.ALLOW);
     }
 
     // For Android, we bundle JS output as assets, and images etc. as resources.
@@ -144,27 +155,41 @@ public class JsBundleDescription
         && !flavors.contains(JsFlavors.FORCE_JS_BUNDLE)
         && !flavors.contains(JsFlavors.DEPENDENCY_FILE)) {
       return createAndroidRule(
-          toolchainProvider, buildTarget, projectFilesystem, resolver, args.getAndroidPackage());
+          toolchainProvider,
+          buildTarget,
+          projectFilesystem,
+          graphBuilder,
+          ruleFinder,
+          args.getAndroidPackage());
     }
+
+    Either<ImmutableSet<String>, String> entryPoint = args.getEntry();
+    TransitiveLibraryDependencies libsResolver =
+        new TransitiveLibraryDependencies(
+            buildTarget, context.getTargetGraph(), graphBuilder, ruleFinder);
+    ImmutableSet<JsLibrary> flavoredLibraryDeps = libsResolver.collect(args.getDeps());
+    Stream<BuildRule> generatedDeps =
+        findGeneratedSources(ruleFinder, flavoredLibraryDeps.stream())
+            .map(graphBuilder::requireRule);
 
     // Flavors are propagated from js_bundle targets to their js_library dependencies
     // for that reason, dependencies of libraries are handled manually, and as a first step,
-    // all dependencies to libraries are removed
-    params = JsUtil.withWorkerDependencyOnly(params, resolver, args.getWorker());
-
-    final Either<ImmutableSet<String>, String> entryPoint = args.getEntry();
-    TransitiveLibraryDependencies libsResolver =
-        new TransitiveLibraryDependencies(buildTarget, context.getTargetGraph(), resolver);
-    ImmutableSortedSet<JsLibrary> libraryDeps = libsResolver.collect(args.getDeps());
-
-    BuildRuleParams paramsWithLibraries = params.copyAppendingExtraDeps(libraryDeps);
+    // all dependencies to libraries are replaced with dependencies to flavored library targets.
+    BuildRuleParams paramsWithFlavoredLibraries =
+        params
+            .withoutDeclaredDeps()
+            .copyAppendingExtraDeps(
+                Stream.concat(flavoredLibraryDeps.stream(), generatedDeps)::iterator);
     ImmutableSortedSet<SourcePath> libraries =
-        libraryDeps
+        flavoredLibraryDeps
             .stream()
             .map(JsLibrary::getSourcePathToOutput)
             .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
     ImmutableSet<String> entryPoints =
         entryPoint.isLeft() ? entryPoint.getLeft() : ImmutableSet.of(entryPoint.getRight());
+
+    Optional<Arg> extraJson =
+        JsUtil.getExtraJson(args, buildTarget, graphBuilder, context.getCellPathResolver());
 
     // If {@link JsFlavors.DEPENDENCY_FILE} is specified, the worker will output a file containing
     // all dependencies between files that go into the final bundle
@@ -172,76 +197,64 @@ public class JsBundleDescription
       return new JsDependenciesFile(
           buildTarget,
           projectFilesystem,
-          paramsWithLibraries,
+          paramsWithFlavoredLibraries,
           libraries,
           entryPoints,
-          resolver.getRuleWithType(args.getWorker(), WorkerTool.class));
+          extraJson,
+          graphBuilder.getRuleWithType(args.getWorker(), WorkerTool.class));
     }
 
-    ImmutableList<ImmutableSet<SourcePath>> libraryPathGroups =
-        args.getLibraryGroups()
-            .stream()
-            .map(
-                group ->
-                    group
-                        .stream()
-                        .map(
-                            lib ->
-                                (SourcePath)
-                                    libsResolver.requireLibrary(lib).getSourcePathToOutput())
-                        .collect(ImmutableSet.toImmutableSet()))
-            .collect(ImmutableList.toImmutableList());
-
-    String bundleName = getBundleName(args, buildTarget.getFlavors());
+    String bundleName =
+        args.computeBundleName(buildTarget.getFlavors(), () -> args.getName() + ".js");
 
     return new JsBundle(
         buildTarget,
         projectFilesystem,
-        paramsWithLibraries,
+        paramsWithFlavoredLibraries,
         libraries,
         entryPoints,
-        JsUtil.getExtraJson(args, buildTarget, resolver, context.getCellPathResolver()),
-        libraryPathGroups,
+        extraJson,
         bundleName,
-        resolver.getRuleWithType(args.getWorker(), WorkerTool.class));
+        graphBuilder.getRuleWithType(args.getWorker(), WorkerTool.class));
   }
 
   private static BuildRule createAndroidRule(
       ToolchainProvider toolchainProvider,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
+      SourcePathRuleFinder ruleFinder,
       Optional<String> rDotJavaPackage) {
-    final BuildTarget bundleTarget =
+    BuildTarget bundleTarget =
         buildTarget
             .withAppendedFlavors(JsFlavors.FORCE_JS_BUNDLE)
             .withoutFlavors(JsFlavors.ANDROID_RESOURCES)
             .withoutFlavors(AndroidResourceDescription.AAPT2_COMPILE_FLAVOR);
-    resolver.requireRule(bundleTarget);
+    graphBuilder.requireRule(bundleTarget);
 
-    final JsBundle jsBundle = resolver.getRuleWithType(bundleTarget, JsBundle.class);
+    JsBundle jsBundle = graphBuilder.getRuleWithType(bundleTarget, JsBundle.class);
     if (buildTarget.getFlavors().contains(JsFlavors.ANDROID_RESOURCES)) {
-      final String rDot =
+      String rDot =
           rDotJavaPackage.orElseThrow(
               () ->
                   new HumanReadableException(
                       "Specify `android_package` when building %s for Android.",
                       buildTarget.getUnflavoredBuildTarget()));
       return createAndroidResources(
-          toolchainProvider, buildTarget, projectFilesystem, resolver, jsBundle, rDot);
+          toolchainProvider, buildTarget, projectFilesystem, ruleFinder, jsBundle, rDot);
     } else {
-      return createAndroidBundle(buildTarget, projectFilesystem, resolver, jsBundle);
+      return createAndroidBundle(buildTarget, projectFilesystem, graphBuilder, jsBundle);
     }
   }
 
   private static JsBundleAndroid createAndroidBundle(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       JsBundle jsBundle) {
 
-    final BuildTarget resourceTarget = buildTarget.withAppendedFlavors(JsFlavors.ANDROID_RESOURCES);
-    final BuildRule resource = resolver.requireRule(resourceTarget);
+    BuildTarget resourceTarget = buildTarget.withAppendedFlavors(JsFlavors.ANDROID_RESOURCES);
+    BuildRule resource = graphBuilder.requireRule(resourceTarget);
 
     return new JsBundleAndroid(
         buildTarget,
@@ -251,14 +264,14 @@ public class JsBundleDescription
             () -> ImmutableSortedSet.of(jsBundle, resource),
             ImmutableSortedSet.of()),
         jsBundle,
-        resolver.getRuleWithType(resourceTarget, AndroidResource.class));
+        graphBuilder.getRuleWithType(resourceTarget, AndroidResource.class));
   }
 
   private static BuildRule createAndroidResources(
       ToolchainProvider toolchainProvider,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      BuildRuleResolver resolver,
+      SourcePathRuleFinder ruleFinder,
       JsBundle jsBundle,
       String rDotJavaPackage) {
     if (buildTarget.getFlavors().contains(AndroidResourceDescription.AAPT2_COMPILE_FLAVOR)) {
@@ -283,7 +296,7 @@ public class JsBundleDescription
         buildTarget,
         projectFilesystem,
         params,
-        new SourcePathRuleFinder(resolver),
+        ruleFinder,
         ImmutableSortedSet.of(), // deps
         jsBundle.getSourcePathToResources(),
         ImmutableSortedMap.of(), // resSrcs
@@ -292,6 +305,19 @@ public class JsBundleDescription
         ImmutableSortedMap.of(),
         null,
         false);
+  }
+
+  /**
+   * Finds all build targets that are inputs to any transitive JsFile dependency of any of the
+   * passed in JsLibrary instances.
+   */
+  private static Stream<BuildTarget> findGeneratedSources(
+      SourcePathRuleFinder ruleFinder, Stream<JsLibrary> libraries) {
+    return libraries
+        .map(lib -> lib.getJsFiles(ruleFinder))
+        .flatMap(Function.identity())
+        .map(jsFile -> jsFile.getSourceBuildTarget(ruleFinder))
+        .filter(Objects::nonNull);
   }
 
   @Override
@@ -314,51 +340,32 @@ public class JsBundleDescription
   @BuckStyleImmutable
   @Value.Immutable
   interface AbstractJsBundleDescriptionArg
-      extends CommonDescriptionArg, HasDeclaredDeps, HasExtraJson {
+      extends CommonDescriptionArg, HasDeclaredDeps, HasExtraJson, HasBundleName {
 
     Either<ImmutableSet<String>, String> getEntry();
-
-    @Value.Default
-    default String getBundleName() {
-      return getName() + ".js";
-    }
-
-    ImmutableList<Pair<Flavor, String>> getBundleNameForFlavor();
 
     BuildTarget getWorker();
 
     /** For R.java */
     Optional<String> getAndroidPackage();
-
-    /**
-     * Get the ordered list of library groups that should be bundled together, in the case of
-     * "bundle splitting".
-     */
-    ImmutableList<ImmutableSet<BuildTarget>> getLibraryGroups();
-  }
-
-  private static String getBundleName(
-      JsBundleDescriptionArg args, ImmutableSortedSet<Flavor> flavors) {
-    for (Pair<Flavor, String> nameForFlavor : args.getBundleNameForFlavor()) {
-      if (flavors.contains(nameForFlavor.getFirst())) {
-        return nameForFlavor.getSecond();
-      }
-    }
-    return args.getBundleName();
   }
 
   private static class TransitiveLibraryDependencies {
     private final ImmutableSortedSet<Flavor> extraFlavors;
-    private final BuildRuleResolver resolver;
+    private final ActionGraphBuilder graphBuilder;
     private final SourcePathRuleFinder ruleFinder;
     private final TargetGraph targetGraph;
 
     private TransitiveLibraryDependencies(
-        BuildTarget bundleTarget, TargetGraph targetGraph, BuildRuleResolver resolver) {
+        BuildTarget bundleTarget,
+        TargetGraph targetGraph,
+        ActionGraphBuilder graphBuilder,
+        SourcePathRuleFinder ruleFinder) {
       this.targetGraph = targetGraph;
-      this.resolver = resolver;
+      this.graphBuilder = graphBuilder;
+      this.ruleFinder = ruleFinder;
 
-      final ImmutableSortedSet<Flavor> bundleFlavors = bundleTarget.getFlavors();
+      ImmutableSortedSet<Flavor> bundleFlavors = bundleTarget.getFlavors();
       extraFlavors =
           bundleFlavors
               .stream()
@@ -368,20 +375,19 @@ public class JsBundleDescription
                           .stream()
                           .anyMatch(domain -> domain.contains(flavor)))
               .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
-      ruleFinder = new SourcePathRuleFinder(resolver);
     }
 
-    ImmutableSortedSet<JsLibrary> collect(Collection<BuildTarget> deps) {
-      ImmutableSortedSet.Builder<JsLibrary> jsLibraries = ImmutableSortedSet.naturalOrder();
+    ImmutableSet<JsLibrary> collect(Collection<BuildTarget> deps) {
+      ImmutableSet.Builder<JsLibrary> jsLibraries = ImmutableSet.builder();
 
       new AbstractBreadthFirstTraversal<BuildTarget>(deps) {
         @Override
         public Iterable<BuildTarget> visit(BuildTarget target) throws RuntimeException {
-          final TargetNode<?, ?> targetNode = targetGraph.get(target);
-          final Description<?> description = targetNode.getDescription();
+          TargetNode<?, ?> targetNode = targetGraph.get(target);
+          DescriptionWithTargetGraph<?> description = targetNode.getDescription();
 
           if (description instanceof JsLibraryDescription) {
-            final JsLibrary library = requireLibrary(target);
+            JsLibrary library = requireLibrary(target);
             jsLibraries.add(library);
             return getLibraryDependencies(library);
           } else if (description instanceof AndroidLibraryDescription
@@ -397,7 +403,7 @@ public class JsBundleDescription
     }
 
     private JsLibrary requireLibrary(BuildTarget target) {
-      BuildRule rule = resolver.requireRule(target.withAppendedFlavors(extraFlavors));
+      BuildRule rule = graphBuilder.requireRule(target.withAppendedFlavors(extraFlavors));
       Preconditions.checkState(rule instanceof JsLibrary);
       return (JsLibrary) rule;
     }

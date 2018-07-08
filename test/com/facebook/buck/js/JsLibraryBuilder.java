@@ -16,10 +16,11 @@
 
 package com.facebook.buck.js;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.test.selectors.Nullable;
 import com.facebook.buck.util.types.Either;
@@ -42,8 +43,13 @@ public class JsLibraryBuilder
     return this;
   }
 
-  JsLibraryBuilder setDepsQuery(Query query) {
-    getArgForPopulating().setDepsQuery(query);
+  JsLibraryBuilder setDepsQuery(@Nullable Query query) {
+    getArgForPopulating().setDepsQuery(Optional.ofNullable(query));
+    return this;
+  }
+
+  JsLibraryBuilder setExtraJson(Optional<StringWithMacros> extraJson) {
+    getArgForPopulating().setExtraJson(extraJson);
     return this;
   }
 

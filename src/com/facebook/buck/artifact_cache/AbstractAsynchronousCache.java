@@ -18,13 +18,15 @@ package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.Scope;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -38,6 +40,7 @@ import com.google.common.util.concurrent.SettableFuture;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -129,6 +132,11 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
         eventListener.multiFetchStarted(
             requests
                 .stream()
+                .map(r -> r.getRequest().getBuildTarget())
+                .filter(Objects::nonNull)
+                .collect(ImmutableList.toImmutableList()),
+            requests
+                .stream()
                 .map(r -> r.getRequest().getRuleKey())
                 .collect(ImmutableList.toImmutableList()))) {
       try {
@@ -210,7 +218,7 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
   private void doFetch(FetchRequest request) {
     CacheResult result;
     CacheEventListener.FetchRequestEvents requestEvents =
-        eventListener.fetchStarted(request.getRuleKey());
+        eventListener.fetchStarted(request.getBuildTarget(), request.getRuleKey());
     try {
       FetchResult fetchResult = fetchImpl(request.getRuleKey(), request.getOutput());
       result = fetchResult.getCacheResult();
@@ -337,10 +345,10 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
   }
 
   @Override
-  public final ListenableFuture<CacheResult> fetchAsync(RuleKey ruleKey, LazyPath output) {
-    eventListener.fetchScheduled(ruleKey);
+  public final ListenableFuture<CacheResult> fetchAsync(
+      @Nullable BuildTarget target, RuleKey ruleKey, LazyPath output) {
     SettableFuture<CacheResult> future = SettableFuture.create();
-    addFetchRequest(new FetchRequest(ruleKey, output, future));
+    addFetchRequest(new FetchRequest(target, ruleKey, output, future));
     return future;
   }
 
@@ -355,7 +363,7 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
   }
 
   @Override
-  public final ListenableFuture<Void> store(final ArtifactInfo info, final BorrowablePath output) {
+  public final ListenableFuture<Void> store(ArtifactInfo info, BorrowablePath output) {
     if (!getCacheReadMode().isWritable()) {
       return Futures.immediateFuture(null);
     }
@@ -368,11 +376,11 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
       return Futures.immediateFuture(null);
     }
 
-    final Path tmp;
+    Path tmp;
     try {
       tmp = getPathForArtifact(output);
     } catch (IOException e) {
-      LOG.error(e, "Failed to store artifact in temp file: " + output.getPath().toString());
+      LOG.error(e, "Failed to store artifact in temp file: " + output.getPath());
       return Futures.immediateFuture(null);
     }
 
@@ -392,6 +400,84 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
             requestEvents.failed(e, msg);
             throw new RuntimeException(e);
           }
+        });
+  }
+
+  @Override
+  public final ListenableFuture<Void> store(
+      ImmutableList<Pair<ArtifactInfo, BorrowablePath>> artifacts) {
+    if (!getCacheReadMode().isWritable()) {
+      return Futures.immediateFuture(null);
+    }
+
+    ImmutableList.Builder<Pair<ArtifactInfo, Path>> matchedArtifactsBuilder =
+        ImmutableList.builderWithExpectedSize(artifacts.size());
+    ImmutableList.Builder<Long> artifactSizesInBytesBuilder =
+        ImmutableList.builderWithExpectedSize(artifacts.size());
+
+    for (int i = 0; i < artifacts.size(); i++) {
+      BorrowablePath output = artifacts.get(i).getSecond();
+      ArtifactInfo info = artifacts.get(i).getFirst();
+      long artifactSizeBytes = getFileSize(output.getPath());
+      if (artifactExceedsMaximumSize(artifactSizeBytes)) {
+        LOG.info(
+            "Artifact too big so not storing it in the %s cache. file=[%s] buildTarget=[%s]",
+            name, output.getPath(), info.getBuildTarget());
+        continue;
+      }
+
+      Path tmp;
+      try {
+        tmp = getPathForArtifact(output);
+      } catch (IOException e) {
+        LOG.error(e, "Failed to store artifact in temp file: " + output.getPath());
+        continue;
+      }
+
+      matchedArtifactsBuilder.add(new Pair<>(info, tmp));
+      artifactSizesInBytesBuilder.add(artifactSizeBytes);
+    }
+
+    ImmutableList<Pair<ArtifactInfo, Path>> matchedArtifacts = matchedArtifactsBuilder.build();
+
+    if (matchedArtifacts.isEmpty()) {
+      return Futures.immediateFuture(null);
+    }
+
+    ImmutableList<Long> artifactSizesInBytes = artifactSizesInBytesBuilder.build();
+
+    ImmutableList.Builder<StoreEvents> eventsBuilder =
+        ImmutableList.builderWithExpectedSize(artifactSizesInBytes.size());
+    for (int i = 0; i < artifactSizesInBytes.size(); i++) {
+      eventsBuilder.add(
+          eventListener.storeScheduled(
+              matchedArtifacts.get(i).getFirst(), artifactSizesInBytes.get(i)));
+    }
+
+    ImmutableList<StoreEvents> events = eventsBuilder.build();
+
+    return storeExecutorService.submit(
+        () -> {
+          for (int i = 0; i < matchedArtifacts.size(); i++) {
+            StoreEvents.StoreRequestEvents requestEvents = events.get(i).started();
+            try {
+              StoreResult result =
+                  storeImpl(
+                      matchedArtifacts.get(i).getFirst(), matchedArtifacts.get(i).getSecond());
+              requestEvents.finished(result);
+            } catch (IOException e) {
+              String msg =
+                  String.format(
+                      "store(%s): %s: %s",
+                      matchedArtifacts.get(i).getFirst().getRuleKeys(),
+                      e.getClass().getName(),
+                      e.getMessage());
+              requestEvents.failed(e, msg);
+              throw new RuntimeException(e);
+            }
+          }
+
+          return null;
         });
   }
 
@@ -446,7 +532,7 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
 
     void fetchScheduled(RuleKey ruleKey);
 
-    FetchRequestEvents fetchStarted(RuleKey ruleKey);
+    FetchRequestEvents fetchStarted(BuildTarget target, RuleKey ruleKey);
 
     interface FetchRequestEvents {
       void finished(FetchResult result);
@@ -454,7 +540,8 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
       void failed(IOException e, String errorMessage, CacheResult result);
     }
 
-    MultiFetchRequestEvents multiFetchStarted(ImmutableList<RuleKey> keys);
+    MultiFetchRequestEvents multiFetchStarted(
+        ImmutableList<BuildTarget> targets, ImmutableList<RuleKey> keys);
 
     interface MultiFetchRequestEvents extends Scope {
       void skipped(int keyIndex);
@@ -476,15 +563,26 @@ public abstract class AbstractAsynchronousCache implements ArtifactCache {
   }
 
   protected static class FetchRequest {
+    @Nullable private final BuildTarget target;
     private final RuleKey ruleKey;
     private final LazyPath output;
     private final SettableFuture<CacheResult> future;
 
     @VisibleForTesting
-    protected FetchRequest(RuleKey ruleKey, LazyPath output, SettableFuture<CacheResult> future) {
+    protected FetchRequest(
+        @Nullable BuildTarget target,
+        RuleKey ruleKey,
+        LazyPath output,
+        SettableFuture<CacheResult> future) {
+      this.target = target;
       this.ruleKey = ruleKey;
       this.output = output;
       this.future = future;
+    }
+
+    @Nullable
+    public BuildTarget getBuildTarget() {
+      return target;
     }
 
     public RuleKey getRuleKey() {

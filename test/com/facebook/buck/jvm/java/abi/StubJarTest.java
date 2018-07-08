@@ -21,6 +21,7 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeThat;
 
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
@@ -29,7 +30,6 @@ import com.facebook.buck.jvm.java.JarDumper;
 import com.facebook.buck.jvm.java.JavacEventSinkToBuckEventBusBridge;
 import com.facebook.buck.jvm.java.testutil.compiler.CompilerTreeApiParameterized;
 import com.facebook.buck.jvm.java.testutil.compiler.TestCompiler;
-import com.facebook.buck.model.BuildId;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.facebook.buck.util.timing.FakeClock;
 import com.facebook.buck.util.unarchive.ArchiveFormat;
@@ -102,7 +102,7 @@ public class StubJarTest {
   private ProjectFilesystem filesystem;
 
   @Before
-  public void createTempFilesystem() throws InterruptedException, IOException {
+  public void createTempFilesystem() throws IOException {
     File out = temp.newFolder();
     filesystem = TestProjectFilesystems.createProjectFilesystem(out.toPath());
   }
@@ -615,6 +615,42 @@ public class StubJarTest {
         .createStubJar();
   }
 
+  @Test
+  public void failsWhenAnnotationWillNotLoad() throws IOException {
+    if (testingMode != MODE_SOURCE_BASED_MISSING_DEPS) {
+      return;
+    }
+
+    tester
+        .setSourceFile(
+            "DepAnno.java", "package com.example.buck.dependency;", "public @interface DepAnno { }")
+        .createStubJar()
+        .addStubJarToClasspath()
+        .setSourceFile(
+            "A.java",
+            "package com.example.buck;",
+            "import com.example.buck.dependency.DepAnno;",
+            "@DepAnno",
+            "public class A {",
+            "  public void foo(@DepAnno int d) { }",
+            "}")
+        .addExpectedCompileError(
+            "A.java:3: error: Could not find the annotation com.example.buck.dependency.DepAnno.\n"
+                + "@DepAnno\n"
+                + "^\n"
+                + "  This can happen for one of two reasons:\n"
+                + "  1. A dependency is missing in the BUCK file for the current target. Try building the current rule without the #source-only-abi flavor, fix any errors that are reported, and then build this flavor again.\n"
+                + "  2. The rule that owns com.example.buck.dependency.DepAnno is not marked with required_for_source_only_abi = True. Add that parameter to the rule and try again.")
+        .addExpectedCompileError(
+            "A.java:5: error: Could not find the annotation com.example.buck.dependency.DepAnno.\n"
+                + "  public void foo(@DepAnno int d) { }\n"
+                + "                  ^\n"
+                + "  This can happen for one of two reasons:\n"
+                + "  1. A dependency is missing in the BUCK file for the current target. Try building the current rule without the #source-only-abi flavor, fix any errors that are reported, and then build this flavor again.\n"
+                + "  2. The rule that owns com.example.buck.dependency.DepAnno is not marked with required_for_source_only_abi = True. Add that parameter to the rule and try again.")
+        .createStubJar();
+  }
+
   /**
    * Regression test for a bug where our error suppressing listener wasn't tracking Context changes
    * across rounds.
@@ -986,9 +1022,12 @@ public class StubJarTest {
             "  public void cheese(String key) {}",
             "}")
         .addExpectedCompileError(
-            "A.java:3: error: Could not load the class file for this annotation. Consider adding required_for_source_only_abi = True to its build rule.\n"
+            "A.java:3: error: Could not find the annotation com.example.buck.Foo.\n"
                 + "  @Foo\n"
-                + "  ^")
+                + "  ^\n"
+                + "  This can happen for one of two reasons:\n"
+                + "  1. A dependency is missing in the BUCK file for the current target. Try building the current rule without the #source-only-abi flavor, fix any errors that are reported, and then build this flavor again.\n"
+                + "  2. The rule that owns com.example.buck.Foo is not marked with required_for_source_only_abi = True. Add that parameter to the rule and try again.")
         .createStubJar();
   }
 
@@ -4509,7 +4548,7 @@ public class StubJarTest {
 
   public class Foo<T> implements Callable<T> {
     @Override
-    public T call() throws Exception {
+    public T call() {
       return null;
     }
   }
@@ -5107,21 +5146,21 @@ public class StubJarTest {
       return this;
     }
 
-    public Tester addStubJarToClasspath() throws IOException {
+    public Tester addStubJarToClasspath() {
       classpath =
           ImmutableSortedSet.<Path>naturalOrder().addAll(classpath).add(stubJarPath).build();
       resetActuals();
       return this;
     }
 
-    public Tester addFullJarToClasspath() throws IOException {
+    public Tester addFullJarToClasspath() {
       classpath =
           ImmutableSortedSet.<Path>naturalOrder().addAll(classpath).add(fullJarPath).build();
       resetActuals();
       return this;
     }
 
-    public Tester addFullJarToClasspathAlways() throws IOException {
+    public Tester addFullJarToClasspathAlways() {
       universalClasspath =
           ImmutableSortedSet.<Path>naturalOrder()
               .addAll(universalClasspath)
@@ -5209,7 +5248,7 @@ public class StubJarTest {
           result.append("        .addExpectedFullAbi(\n");
           result.append(indent);
           result.append('"');
-          result.append(fileName.substring(0, fileName.length() - ".class".length()));
+          result.append(fileName, 0, fileName.length() - ".class".length());
 
           for (String abiLine : actualFullAbis.get(fileName)) {
             result.append("\",\n");
@@ -5224,7 +5263,7 @@ public class StubJarTest {
           result.append("        .addExpectedStub(\n");
           result.append(indent);
           result.append('"');
-          result.append(fileName.substring(0, fileName.length() - ".class".length()));
+          result.append(fileName, 0, fileName.length() - ".class".length());
 
           for (String stubLine : actualStubs.get(fileName)) {
             result.append("\",\n");

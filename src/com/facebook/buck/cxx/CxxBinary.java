@@ -16,28 +16,26 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
+import com.facebook.buck.core.rules.attr.HasSupplementaryOutputs;
+import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.rules.tool.BinaryBuildRule;
+import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.BinaryBuildRule;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.CacheableBuildRule;
-import com.facebook.buck.rules.ForwardingBuildTargetSourcePath;
-import com.facebook.buck.rules.HasRuntimeDeps;
-import com.facebook.buck.rules.HasSupplementaryOutputs;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.rules.coercer.FrameworkPath;
-import com.facebook.buck.rules.keys.SupportsInputBasedRuleKey;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -52,36 +50,35 @@ public class CxxBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
         HasRuntimeDeps,
         HasAppleDebugSymbolDeps,
         SupportsInputBasedRuleKey,
-        HasSupplementaryOutputs,
-        CacheableBuildRule {
+        HasSupplementaryOutputs {
 
-  private BuildRuleResolver ruleResolver;
   private final CxxPlatform cxxPlatform;
   private final BuildRule linkRule;
   private final Tool executable;
   private final ImmutableSortedSet<BuildTarget> tests;
   private final ImmutableSortedSet<FrameworkPath> frameworks;
   private final BuildTarget platformlessTarget;
+  private final boolean cacheable;
 
   public CxxBinary(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
-      BuildRuleResolver ruleResolver,
       CxxPlatform cxxPlatform,
       BuildRule linkRule,
       Tool executable,
       Iterable<FrameworkPath> frameworks,
       Iterable<BuildTarget> tests,
-      BuildTarget platformlessTarget) {
+      BuildTarget platformlessTarget,
+      boolean cacheable) {
     super(buildTarget, projectFilesystem, params);
-    this.ruleResolver = ruleResolver;
     this.cxxPlatform = cxxPlatform;
     this.linkRule = linkRule;
     this.executable = executable;
     this.tests = ImmutableSortedSet.copyOf(tests);
     this.frameworks = ImmutableSortedSet.copyOf(frameworks);
     this.platformlessTarget = platformlessTarget;
+    this.cacheable = cacheable;
     performChecks();
   }
 
@@ -137,10 +134,11 @@ public class CxxBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public CxxPreprocessorInput getPrivateCxxPreprocessorInput(CxxPlatform cxxPlatform) {
+  public CxxPreprocessorInput getPrivateCxxPreprocessorInput(
+      CxxPlatform cxxPlatform, ActionGraphBuilder graphBuilder) {
     return CxxPreprocessables.getCxxPreprocessorInput(
         platformlessTarget,
-        ruleResolver,
+        graphBuilder,
         /* hasHeaderSymlinkTree */ true,
         cxxPlatform,
         HeaderVisibility.PRIVATE,
@@ -160,7 +158,7 @@ public class CxxBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public boolean isCacheable() {
-    return false; // CxxBinary is a wrapper rule, and takes < 1ms to complete.
+    return cacheable;
   }
 
   // This rule just delegates to the output of the `CxxLink` rule and so needs that available at
@@ -168,8 +166,7 @@ public class CxxBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @Override
   public Stream<BuildTarget> getRuntimeDeps(SourcePathRuleFinder ruleFinder) {
     return Stream.concat(
-            getDeclaredDeps().stream(),
-            BuildableSupport.getDepsCollection(executable, ruleFinder).stream())
+            getDeclaredDeps().stream(), BuildableSupport.getDeps(executable, ruleFinder))
         .map(BuildRule::getBuildTarget);
   }
 
@@ -188,13 +185,5 @@ public class CxxBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
       }
     }
     return null;
-  }
-
-  @Override
-  public void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver) {
-    this.ruleResolver = ruleResolver;
   }
 }

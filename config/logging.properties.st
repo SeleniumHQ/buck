@@ -23,7 +23,7 @@
 # level (before passing them to the console / log files / etc.)
 #
 # If you want to enable more verbose logging, do it here.
-.level=INFO
+.level=FINE
 
 # Enable console logging handler and file handler to write rotating log files under
 # buck-out/log/buck-*.log in the project(s) being used.
@@ -35,6 +35,9 @@ com.facebook.buck.log.ConsoleHandler.level=SEVERE
 # http client is way too chatty at FINER level.
 httpclient.wire.content.level=SEVERE
 httpclient.wire.header.level=SEVERE
+
+# Needed for "buck fix" to find many source ABI errors
+com.facebook.buck.jvm.java.Jsr199JavacInvocation.level=FINE
 
 # Log to buck-out/log/buck-*.log.
 java.util.logging.FileHandler.pattern=<default_file_pattern>
@@ -53,10 +56,10 @@ java.util.logging.FileHandler.encoding=UTF-8
 
 # Use a circular buffer to store high granularity logging in memory, only interesting if we hit
 # an error.
-com.facebook.buck.log.memory.MemoryHandler.level=ALL
+com.facebook.buck.log.memory.MemoryHandler.level=SEVERE
 
 # Define the buffer size.
-com.facebook.buck.log.memory.MemoryHandler.size=100
+com.facebook.buck.log.memory.MemoryHandler.size=10
 
 # Define the push level.
 com.facebook.buck.log.memory.MemoryHandler.push=SEVERE

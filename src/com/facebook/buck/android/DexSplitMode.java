@@ -17,9 +17,9 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.dalvik.ZipSplitter;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.AddsToRuleKey;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import java.util.Collection;
@@ -39,6 +39,12 @@ class DexSplitMode implements AddsToRuleKey {
           /* isPrimaryDexScenarioOverflowAllowed */ false,
           /* secondaryDexHeadClassesFile */ Optional.empty(),
           /* secondaryDexTailClassesFile */ Optional.empty());
+
+  /**
+   * By default, assume we have 5MB of linear alloc, 1MB of which is taken up by the framework, so
+   * that leaves 4MB.
+   */
+  static final long DEFAULT_LINEAR_ALLOC_HARD_LIMIT = 4 * 1024 * 1024;
 
   @AddToRuleKey private final boolean shouldSplitDex;
 

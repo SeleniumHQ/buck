@@ -18,21 +18,19 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import java.util.function.Consumer;
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -41,7 +39,7 @@ public class FrameworkPathArgTest {
 
   private static class TestFrameworkPathArg extends FrameworkPathArg {
     public TestFrameworkPathArg(FrameworkPath frameworkPath) {
-      super(ImmutableSet.of(frameworkPath));
+      super(ImmutableSortedSet.of(frameworkPath));
     }
 
     @Override
@@ -51,18 +49,16 @@ public class FrameworkPathArgTest {
   }
 
   @Test
-  public void testGetDeps() throws Exception {
+  public void testGetDeps() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(ruleResolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
     BuildTarget genruleTarget = BuildTargetFactory.newInstance("//:genrule");
     Genrule genrule =
         GenruleBuilder.newGenruleBuilder(genruleTarget)
             .setOut("foo/bar.o")
-            .build(ruleResolver, filesystem);
+            .build(graphBuilder, filesystem);
 
     FrameworkPath sourcePathFrameworkPath =
         FrameworkPath.ofSourcePath(genrule.getSourcePathToOutput());

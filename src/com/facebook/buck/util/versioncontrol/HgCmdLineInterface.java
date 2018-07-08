@@ -25,13 +25,14 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
@@ -39,7 +40,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
-import javax.annotation.Nullable;
 
 public class HgCmdLineInterface implements VersionControlCmdLineInterface {
 
@@ -55,9 +55,6 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
 
   private static final String HG_CMD_TEMPLATE = "{hg}";
   private static final String REVISION_ID_TEMPLATE = "{revision}";
-
-  private static final ImmutableList<String> ROOT_COMMAND =
-      ImmutableList.of(HG_CMD_TEMPLATE, "root");
 
 
   private static final ImmutableList<String> CURRENT_REVISION_ID_COMMAND =
@@ -81,8 +78,6 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   private final String hgCmd;
   private final ImmutableMap<String, String> environment;
 
-  @Nullable private Optional<Path> hgRoot;
-
   public HgCmdLineInterface(
       ProcessExecutorFactory processExecutorFactory,
       Path projectRoot,
@@ -105,32 +100,35 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   }
 
   @Override
-  public String diffBetweenRevisions(String baseRevision, String tipRevision)
+  public VersionControlSupplier<InputStream> diffBetweenRevisions(
+      String baseRevision, String tipRevision)
       throws VersionControlCommandFailedException, InterruptedException {
     validateRevisionId(baseRevision);
     validateRevisionId(tipRevision);
 
-    File temp = null;
-    try {
-      temp = File.createTempFile("diff", ".tmp");
-      // Command: hg export -r "base::tip - base"
-      executeCommand(
-          ImmutableList.of(
-              HG_CMD_TEMPLATE,
-              "export",
-              "-o",
-              temp.toString(),
-              "--rev",
-              baseRevision + "::" + tipRevision + " - " + baseRevision));
-      return new String(Files.readAllBytes(temp.toPath()));
-    } catch (IOException e) {
-      LOG.debug(e.getMessage());
-      throw new VersionControlCommandFailedException(e.getMessage());
-    } finally {
-      if (temp != null) {
-        temp.delete();
+    return () -> {
+      try {
+        File diffFile = File.createTempFile("diff", ".tmp");
+        executeCommand(
+            ImmutableList.of(
+                HG_CMD_TEMPLATE,
+                "export",
+                "-o",
+                diffFile.toString(),
+                "--rev",
+                baseRevision + "::" + tipRevision + " - " + baseRevision));
+        return new BufferedInputStream(new FileInputStream(diffFile)) {
+          @Override
+          public void close() throws IOException {
+            super.close();
+            diffFile.delete();
+          }
+        };
+      } catch (IOException e) {
+        LOG.debug(e.getMessage());
+        throw new VersionControlCommandFailedException(e.getMessage());
       }
-    }
+    };
   }
 
   @Override
@@ -185,18 +183,6 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
             : ImmutableSet.of(),
         baseRevisionWords[0],
         Long.valueOf(baseRevisionWords[1]));
-  }
-
-  @Nullable
-  public Path getHgRoot() throws InterruptedException {
-    if (hgRoot == null) {
-      try {
-        hgRoot = Optional.of(Paths.get(executeCommand(ROOT_COMMAND)));
-      } catch (VersionControlCommandFailedException e) {
-        hgRoot = Optional.empty();
-      }
-    }
-    return hgRoot.orElse(null);
   }
 
   private String executeCommand(Iterable<String> command)
@@ -258,7 +244,7 @@ public class HgCmdLineInterface implements VersionControlCmdLineInterface {
   }
 
   private static Iterable<String> replaceTemplateValue(
-      Iterable<String> values, final String template, final String replacement) {
+      Iterable<String> values, String template, String replacement) {
     return StreamSupport.stream(values.spliterator(), false)
         .map(text -> text.contains(template) ? text.replace(template, replacement) : text)
         .collect(ImmutableList.toImmutableList());

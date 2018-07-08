@@ -22,39 +22,51 @@ import static org.easymock.EasyMock.replay;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.ExitCode;
 import com.facebook.buck.distributed.build_slave.ThriftCoordinatorServer.ExitState;
-import com.facebook.buck.distributed.testutil.CustomBuildRuleResolverFactory;
+import com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.GetWorkResponse;
+import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.listener.NoOpCoordinatorBuildRuleEventsPublisher;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.SettableFuture;
+import java.io.File;
 import java.io.IOException;
+import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
 import org.easymock.Capture;
 import org.easymock.EasyMock;
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 public class ThriftCoordinatorServerIntegrationTest {
   public static final StampedeId STAMPEDE_ID = new StampedeId().setId("down the line");
 
   private static final String MINION_ID = "super cool minion";
+  private static final String OTHER_MINION_ID = "other super cool minion";
+  private static final MinionType MINION_TYPE = MinionType.STANDARD_SPEC;
   private static final int MAX_WORK_UNITS_TO_FETCH = 10;
   private static final int CONNECTION_TIMEOUT_MILLIS = 1000;
+
+  @Rule public TemporaryFolder tempDirectory = new TemporaryFolder();
 
   @Test
   public void testMakingSimpleRequest() throws IOException {
     try (ThriftCoordinatorServer server =
-            createServerOnRandomPort(BuildTargetsQueue.newEmptyQueue());
+            createServerOnRandomPort(ReverseDepBuildTargetsQueue.newEmptyQueue());
         ThriftCoordinatorClient client =
             new ThriftCoordinatorClient("localhost", STAMPEDE_ID, CONNECTION_TIMEOUT_MILLIS)) {
       server.start();
       client.start(server.getPort());
       GetWorkResponse response =
-          client.getWork(MINION_ID, 0, ImmutableList.of(), MAX_WORK_UNITS_TO_FETCH);
+          client.getWork(MINION_ID, MINION_TYPE, 0, ImmutableList.of(), MAX_WORK_UNITS_TO_FETCH);
       Assert.assertNotNull(response);
       Assert.assertFalse(response.isContinueBuilding()); // Build is finished
     }
@@ -62,7 +74,7 @@ public class ThriftCoordinatorServerIntegrationTest {
 
   @Test
   public void testThriftServerWithDiamondGraph() throws IOException, NoSuchBuildTargetException {
-    BuildTargetsQueue diamondQueue = BuildTargetsQueueTest.createDiamondDependencyQueue();
+    BuildTargetsQueue diamondQueue = ReverseDepBuildTargetsQueueTest.createDiamondDependencyQueue();
 
     Capture<ExitState> exitState = EasyMock.newCapture();
     ThriftCoordinatorServer.EventListener eventListener =
@@ -81,7 +93,7 @@ public class ThriftCoordinatorServerIntegrationTest {
       client.start(server.getPort());
 
       GetWorkResponse responseOne =
-          client.getWork(MINION_ID, 0, ImmutableList.of(), MAX_WORK_UNITS_TO_FETCH);
+          client.getWork(MINION_ID, MINION_TYPE, 0, ImmutableList.of(), MAX_WORK_UNITS_TO_FETCH);
 
       Assert.assertEquals(responseOne.getWorkUnitsSize(), 1);
       Assert.assertTrue(responseOne.isContinueBuilding());
@@ -89,20 +101,29 @@ public class ThriftCoordinatorServerIntegrationTest {
       GetWorkResponse responseTwo =
           client.getWork(
               MINION_ID,
+              MINION_TYPE,
               0,
-              ImmutableList.of(CustomBuildRuleResolverFactory.LEAF_TARGET),
+              ImmutableList.of(CustomActiongGraphBuilderFactory.LEAF_TARGET),
               MAX_WORK_UNITS_TO_FETCH);
 
       Assert.assertEquals(responseTwo.getWorkUnitsSize(), 2);
       Assert.assertTrue(responseTwo.isContinueBuilding());
 
+      // Second minion gets released as remaining work fits on the first (coordinator) minion.
+      GetWorkResponse responseForOtherMinion =
+          client.getWork(
+              OTHER_MINION_ID, MINION_TYPE, 0, ImmutableList.of(), MAX_WORK_UNITS_TO_FETCH);
+      Assert.assertEquals(responseForOtherMinion.getWorkUnitsSize(), 0);
+      Assert.assertFalse(responseForOtherMinion.isContinueBuilding());
+
       GetWorkResponse responseThree =
           client.getWork(
               MINION_ID,
+              MINION_TYPE,
               0,
               ImmutableList.of(
-                  CustomBuildRuleResolverFactory.LEFT_TARGET,
-                  CustomBuildRuleResolverFactory.RIGHT_TARGET),
+                  CustomActiongGraphBuilderFactory.LEFT_TARGET,
+                  CustomActiongGraphBuilderFactory.RIGHT_TARGET),
               MAX_WORK_UNITS_TO_FETCH);
 
       Assert.assertEquals(responseThree.getWorkUnitsSize(), 1);
@@ -111,8 +132,9 @@ public class ThriftCoordinatorServerIntegrationTest {
       GetWorkResponse responseFour =
           client.getWork(
               MINION_ID,
+              MINION_TYPE,
               0,
-              ImmutableList.of(CustomBuildRuleResolverFactory.ROOT_TARGET),
+              ImmutableList.of(CustomActiongGraphBuilderFactory.ROOT_TARGET),
               MAX_WORK_UNITS_TO_FETCH);
 
       Assert.assertEquals(responseFour.getWorkUnitsSize(), 0);
@@ -122,8 +144,9 @@ public class ThriftCoordinatorServerIntegrationTest {
       GetWorkResponse responseFive =
           client.getWork(
               MINION_ID,
+              MINION_TYPE,
               0,
-              ImmutableList.of(CustomBuildRuleResolverFactory.ROOT_TARGET),
+              ImmutableList.of(CustomActiongGraphBuilderFactory.ROOT_TARGET),
               MAX_WORK_UNITS_TO_FETCH);
 
       Assert.assertEquals(responseFive.getWorkUnitsSize(), 0);
@@ -135,8 +158,7 @@ public class ThriftCoordinatorServerIntegrationTest {
     EasyMock.verify(eventListener);
   }
 
-  public static ThriftCoordinatorServer createServerOnRandomPort(BuildTargetsQueue queue)
-      throws IOException {
+  public static ThriftCoordinatorServer createServerOnRandomPort(BuildTargetsQueue queue) {
     return createCoordinatorServer(OptionalInt.empty(), queue);
   }
 
@@ -160,7 +182,10 @@ public class ThriftCoordinatorServerIntegrationTest {
         eventListener,
         new NoOpCoordinatorBuildRuleEventsPublisher(),
         EasyMock.createNiceMock(MinionHealthTracker.class),
-        EasyMock.createNiceMock(DistBuildService.class));
+        EasyMock.createNiceMock(DistBuildService.class),
+        EasyMock.createNiceMock(MinionCountProvider.class),
+        Optional.of(MINION_ID),
+        true /* releasingMinionsEarlyEnabled */);
   }
 
   @Test
@@ -169,13 +194,14 @@ public class ThriftCoordinatorServerIntegrationTest {
     StampedeId wrongStampedeId = new StampedeId().setId("not-" + STAMPEDE_ID.id);
 
     try (ThriftCoordinatorServer server =
-            createCoordinatorServer(OptionalInt.empty(), BuildTargetsQueue.newEmptyQueue());
+            createCoordinatorServer(
+                OptionalInt.empty(), ReverseDepBuildTargetsQueue.newEmptyQueue());
         ThriftCoordinatorClient client =
             new ThriftCoordinatorClient("localhost", wrongStampedeId, CONNECTION_TIMEOUT_MILLIS)) {
       server.start();
       client.start(server.getPort());
       try {
-        client.getWork(MINION_ID, 0, ImmutableList.of(), MAX_WORK_UNITS_TO_FETCH);
+        client.getWork(MINION_ID, MINION_TYPE, 0, ImmutableList.of(), MAX_WORK_UNITS_TO_FETCH);
         Assert.fail("expecting exception, because stampede id mismatches");
       } catch (Exception e) {
         // expected
@@ -201,14 +227,17 @@ public class ThriftCoordinatorServerIntegrationTest {
                 eventListener,
                 new NoOpCoordinatorBuildRuleEventsPublisher(),
                 EasyMock.createNiceMock(MinionHealthTracker.class),
-                EasyMock.createNiceMock(DistBuildService.class));
+                EasyMock.createNiceMock(DistBuildService.class),
+                EasyMock.createNiceMock(MinionCountProvider.class),
+                Optional.of(MINION_ID),
+                true /* releasingMinionsEarlyEnabled */);
         ThriftCoordinatorClient client =
             new ThriftCoordinatorClient("localhost", STAMPEDE_ID, CONNECTION_TIMEOUT_MILLIS)) {
       server.start();
       client.start(server.getPort());
       queueFuture.setException(new RuntimeException());
       try {
-        client.getWork(MINION_ID, 0, ImmutableList.of(), MAX_WORK_UNITS_TO_FETCH);
+        client.getWork(MINION_ID, MINION_TYPE, 0, ImmutableList.of(), MAX_WORK_UNITS_TO_FETCH);
         Assert.fail("expecting exception, because stampede id mismatches");
       } catch (Exception e) {
         // expected.
@@ -224,7 +253,7 @@ public class ThriftCoordinatorServerIntegrationTest {
   @SuppressWarnings("PMD.EmptyCatchBlock")
   public void testCoordinatorExitsCodeIsZeroIfSucceededExternally() throws Exception {
     SettableFuture<BuildTargetsQueue> future = SettableFuture.create();
-    future.set(BuildTargetsQueueTest.createDiamondDependencyQueue());
+    future.set(ReverseDepBuildTargetsQueueTest.createDiamondDependencyQueue());
 
     SettableFuture<BuildTargetsQueue> queueFuture = SettableFuture.create();
     ThriftCoordinatorServer.EventListener eventListener =
@@ -246,7 +275,10 @@ public class ThriftCoordinatorServerIntegrationTest {
                 eventListener,
                 new NoOpCoordinatorBuildRuleEventsPublisher(),
                 EasyMock.createNiceMock(MinionHealthTracker.class),
-                distBuildService);
+                distBuildService,
+                EasyMock.createNiceMock(MinionCountProvider.class),
+                Optional.empty(),
+                true /* releasingMinionsEarlyEnabled */);
         ThriftCoordinatorClient client =
             new ThriftCoordinatorClient("localhost", STAMPEDE_ID, CONNECTION_TIMEOUT_MILLIS)) {
       server.start();
@@ -263,7 +295,7 @@ public class ThriftCoordinatorServerIntegrationTest {
   @SuppressWarnings("PMD.EmptyCatchBlock")
   public void testCoordinatorExitsCodeIsNonZeroIfFailedExternally() throws Exception {
     SettableFuture<BuildTargetsQueue> future = SettableFuture.create();
-    future.set(BuildTargetsQueueTest.createDiamondDependencyQueue());
+    future.set(ReverseDepBuildTargetsQueueTest.createDiamondDependencyQueue());
 
     SettableFuture<BuildTargetsQueue> queueFuture = SettableFuture.create();
     ThriftCoordinatorServer.EventListener eventListener =
@@ -284,7 +316,10 @@ public class ThriftCoordinatorServerIntegrationTest {
                 eventListener,
                 new NoOpCoordinatorBuildRuleEventsPublisher(),
                 EasyMock.createNiceMock(MinionHealthTracker.class),
-                distBuildService);
+                distBuildService,
+                EasyMock.createNiceMock(MinionCountProvider.class),
+                Optional.empty(),
+                true /* releasingMinionsEarlyEnabled */);
         ThriftCoordinatorClient client =
             new ThriftCoordinatorClient("localhost", STAMPEDE_ID, CONNECTION_TIMEOUT_MILLIS)) {
       server.start();
@@ -296,5 +331,34 @@ public class ThriftCoordinatorServerIntegrationTest {
           ExitCode.BUILD_FAILED_EXTERNALLY_EXIT_CODE.getCode(),
           server.waitUntilBuildCompletesAndReturnExitCode());
     }
+  }
+
+  @Test
+  public void testFailedBuildDoesNotGenerateTrace() throws IOException {
+    testChromeTraceHelper(1, false);
+  }
+
+  @Test
+  public void testSuccessfullBuildGeneratesTrace() throws IOException {
+    testChromeTraceHelper(0, true);
+  }
+
+  private void testChromeTraceHelper(int exitCode, boolean chromeExpectedToBeCreated)
+      throws IOException {
+    File traceFile = newNonExistentTmpFile();
+
+    Future<ExitState> exitState =
+        CompletableFuture.completedFuture(ExitState.setLocally(exitCode, ""));
+    DistBuildTraceTracker chromeTraceTracker = new DistBuildTraceTracker(new StampedeId());
+    boolean result =
+        ThriftCoordinatorServer.exportChromeTraceIfSuccessInternal(
+            traceFile.toPath(), exitState, chromeTraceTracker);
+    Assert.assertEquals(chromeExpectedToBeCreated, result);
+    Assert.assertEquals(chromeExpectedToBeCreated, traceFile.exists());
+  }
+
+  private File newNonExistentTmpFile() throws IOException {
+    return new File(
+        tempDirectory.getRoot().toPath().resolve(UUID.randomUUID().toString()).toString());
   }
 }

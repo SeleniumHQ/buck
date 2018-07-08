@@ -22,6 +22,7 @@ import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.hasItem;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
@@ -136,13 +137,13 @@ public class JavaBinaryIntegrationTest extends AbiCompilationModeTest {
   public void fatJarWithAlternateJavaBin() throws IOException, InterruptedException {
     setUpProjectWorkspaceForScenario("fat_jar");
     Path jar = workspace.buildAndReturnOutput("//:bin-alternate-java");
-    String javaHomeArg = "-Dbuck.fatjar.java.home=" + tmp.getRoot().toString();
+    String javaHomeArg = "-Dbuck.fatjar.java.home=" + tmp.getRoot();
     ProcessExecutor.Result result = workspace.runJar(jar, ImmutableList.of(javaHomeArg));
     assertEquals("Running java wrapper\nRunning inner jar", result.getStdout().get().trim());
   }
 
   @Test
-  public void jarWithMetaInfo() throws IOException, InterruptedException {
+  public void jarWithMetaInfo() throws IOException {
     setUpProjectWorkspaceForScenario("java_binary_with_meta_inf");
     Path jar = workspace.buildAndReturnOutput("//:bin-meta-inf");
     try (JarFile jarFile = new JarFile(jar.toFile())) {
@@ -231,6 +232,15 @@ public class JavaBinaryIntegrationTest extends AbiCompilationModeTest {
                 containsString("javac"),
                 containsString("-bootclasspath"),
                 containsString(workspace.getPath("clowntown.jar").toString()))));
+  }
+
+  @Test
+  public void testExportedProvidedDepsExcludedFromBinary() throws IOException {
+    setUpProjectWorkspaceForScenario("exported_provided_deps");
+    Path jar = workspace.buildAndReturnOutput("//:binary_without_exported_provided_dep");
+    try (JarFile jarFile = new JarFile(jar.toFile())) {
+      assertNull(jarFile.getEntry("com/test/ExportedProvidedLibraryClass.class"));
+    }
   }
 
   private ProjectWorkspace setUpProjectWorkspaceForScenario(String scenario) throws IOException {

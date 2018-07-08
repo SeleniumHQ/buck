@@ -18,13 +18,14 @@ package com.facebook.buck.doctor;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.doctor.config.BuildLogEntry;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildId;
-import com.facebook.buck.rules.Cell;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.hamcrest.Matchers;
@@ -51,11 +52,13 @@ public class BuildLogHelperIntegrationTest {
             .stream()
             .collect(
                 ImmutableMap.toImmutableMap(
-                    e -> e.getBuildId().get(), e -> e.getCommandArgs().get()));
+                    e -> e.getBuildId().get(), e -> Joiner.on(" ").join(e.getCommandArgs().get())));
 
     assertThat(
         buildIdToCommandMap,
         Matchers.equalTo(
-            ImmutableMap.of(new BuildId("ac8bd626-6137-4747-84dd-5d4f215c876c"), "build buck")));
+            ImmutableMap.of(
+                new BuildId("ac8bd626-6137-4747-84dd-5d4f215c876c"),
+                "build --config foo.bar=baz @mode_file buck")));
   }
 }

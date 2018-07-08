@@ -19,12 +19,12 @@ package com.facebook.buck.jvm.groovy;
 import static com.google.common.collect.Iterables.any;
 import static com.google.common.collect.Iterables.transform;
 
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.OptionsConsumer;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -98,7 +98,7 @@ class GroovycStep implements Step {
   }
 
   private ImmutableList<String> createCommand() {
-    final ImmutableList.Builder<String> command = ImmutableList.builder();
+    ImmutableList.Builder<String> command = ImmutableList.builder();
 
     command.addAll(groovyc.getCommandPrefix(resolver));
 
@@ -126,7 +126,7 @@ class GroovycStep implements Step {
         pathToSrcsList);
   }
 
-  private void addCrossCompilationOptions(final ImmutableList.Builder<String> command) {
+  private void addCrossCompilationOptions(ImmutableList.Builder<String> command) {
     if (shouldCrossCompile()) {
       command.add("-j");
       javacOptions.appendOptionsTo(

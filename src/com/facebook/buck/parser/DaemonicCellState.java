@@ -16,16 +16,17 @@
 
 package com.facebook.buck.parser;
 
+import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.UnflavoredBuildTarget;
+import com.facebook.buck.model.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.parser.thrift.BuildFileEnvProperty;
 import com.facebook.buck.parser.thrift.RemoteDaemonicCellState;
-import com.facebook.buck.rules.Cell;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.concurrent.AutoCloseableLock;
 import com.facebook.buck.util.concurrent.AutoCloseableReadWriteUpdateLock;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
@@ -53,22 +54,24 @@ class DaemonicCellState {
 
   private static final Logger LOG = Logger.get(DaemonicCellState.class);
 
-  private class CacheImpl<T> implements PipelineNodeCache.Cache<BuildTarget, T> {
+  /**
+   * Cache of {@link BuildTarget} to some computed value at the {@link Cell} bases
+   *
+   * @param <T> the type of value cached
+   */
+  class Cache<T> {
 
     @GuardedBy("rawAndComputedNodesLock")
     public final ConcurrentMapCache<BuildTarget, T> allComputedNodes =
         new ConcurrentMapCache<>(parsingThreads);
 
-    @Override
-    public Optional<T> lookupComputedNode(Cell cell, BuildTarget target)
-        throws BuildTargetException {
+    public Optional<T> lookupComputedNode(BuildTarget target) throws BuildTargetException {
       try (AutoCloseableLock readLock = rawAndComputedNodesLock.readLock()) {
         return Optional.ofNullable(allComputedNodes.getIfPresent(target));
       }
     }
 
-    @Override
-    public T putComputedNodeIfNotPresent(Cell cell, BuildTarget target, T targetNode)
+    public T putComputedNodeIfNotPresent(BuildTarget target, T targetNode)
         throws BuildTargetException {
       try (AutoCloseableLock writeLock = rawAndComputedNodesLock.writeLock()) {
         T updatedNode = allComputedNodes.putIfAbsentAndGet(target, targetNode);
@@ -105,7 +108,7 @@ class DaemonicCellState {
   private final Set<UnflavoredBuildTarget> allRawNodeTargets;
 
   @GuardedBy("rawAndComputedNodesLock")
-  private final ConcurrentMap<Class<?>, CacheImpl<?>> typedNodeCaches;
+  private final ConcurrentMap<Class<?>, Cache<?>> typedNodeCaches;
 
   private final AutoCloseableReadWriteUpdateLock rawAndComputedNodesLock;
   private final int parsingThreads;
@@ -134,23 +137,23 @@ class DaemonicCellState {
   }
 
   @SuppressWarnings("unchecked")
-  public <T> CacheImpl<T> getOrCreateCache(Class<T> type) {
+  public <T> Cache<T> getOrCreateCache(Class<T> type) {
     try (AutoCloseableLock updateLock = rawAndComputedNodesLock.updateLock()) {
-      CacheImpl<?> cache = typedNodeCaches.get(type);
+      Cache<?> cache = typedNodeCaches.get(type);
       if (cache == null) {
         try (AutoCloseableLock writeLock = rawAndComputedNodesLock.writeLock()) {
-          cache = new CacheImpl<>();
+          cache = new Cache<>();
           typedNodeCaches.put(type, cache);
         }
       }
-      return (CacheImpl<T>) cache;
+      return (Cache<T>) cache;
     }
   }
 
   @SuppressWarnings("unchecked")
-  public <T> CacheImpl<T> getCache(Class<T> type) {
+  public <T> Cache<T> getCache(Class<T> type) {
     try (AutoCloseableLock readLock = rawAndComputedNodesLock.readLock()) {
-      return (CacheImpl<T>) typedNodeCaches.get(type);
+      return (Cache<T>) typedNodeCaches.get(type);
     }
   }
 
@@ -161,9 +164,9 @@ class DaemonicCellState {
   }
 
   ImmutableSet<Map<String, Object>> putRawNodesIfNotPresentAndStripMetaEntries(
-      final Path buildFile,
-      final ImmutableSet<Map<String, Object>> withoutMetaIncludes,
-      final ImmutableSet<Path> dependentsOfEveryNode,
+      Path buildFile,
+      ImmutableSet<Map<String, Object>> withoutMetaIncludes,
+      ImmutableSet<Path> dependentsOfEveryNode,
       ImmutableMap<String, Optional<String>> env) {
     try (AutoCloseableLock writeLock = rawAndComputedNodesLock.writeLock()) {
       ImmutableSet<Map<String, Object>> updated =
@@ -197,7 +200,7 @@ class DaemonicCellState {
               RawNodeParsePipeline.parseBuildTargetFromRawRule(
                   cellRoot, cellCanonicalName, rawNode, path);
           LOG.debug("Invalidating target for path %s: %s", path, target);
-          for (CacheImpl<?> cache : typedNodeCaches.values()) {
+          for (Cache<?> cache : typedNodeCaches.values()) {
             cache.allComputedNodes.invalidateAll(targetsCornucopia.get(target));
           }
           targetsCornucopia.removeAll(target);
@@ -352,7 +355,7 @@ class DaemonicCellState {
       deserializedRawNodes.forEach(
           rawNode -> {
             daemonicCellState.allRawNodeTargets.add(
-                UnflavoredBuildTarget.of(
+                ImmutableUnflavoredBuildTarget.of(
                     root,
                     cell.getCanonicalName(),
                     "//" + rawNode.get("buck.base_path"),

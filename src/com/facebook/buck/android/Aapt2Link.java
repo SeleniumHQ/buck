@@ -17,24 +17,23 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRule;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
-import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.RichStream;
@@ -49,14 +48,19 @@ import java.util.List;
 import java.util.Optional;
 import java.util.SortedSet;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /** Perform the "aapt2 link" step of building an Android app. */
 public class Aapt2Link extends AbstractBuildRule {
+  @AddToRuleKey private final boolean includesVectorDrawables;
   @AddToRuleKey private final boolean noAutoVersion;
+  @AddToRuleKey private final boolean noVersionTransitions;
+  @AddToRuleKey private final boolean noAutoAddOverlay;
   @AddToRuleKey private final ImmutableList<Aapt2Compile> compileRules;
   @AddToRuleKey private final SourcePath manifest;
   @AddToRuleKey private final ManifestEntries manifestEntries;
+  @AddToRuleKey private final ImmutableList<SourcePath> dependencyResourceApks;
 
   private final AndroidPlatformTarget androidPlatformTarget;
   private final Supplier<ImmutableSortedSet<BuildRule>> buildDepsSupplier;
@@ -69,14 +73,22 @@ public class Aapt2Link extends AbstractBuildRule {
       ImmutableList<HasAndroidResourceDeps> resourceRules,
       SourcePath manifest,
       ManifestEntries manifestEntries,
+      ImmutableList<SourcePath> dependencyResourceApks,
+      boolean includesVectorDrawables,
       boolean noAutoVersion,
+      boolean noVersionTransitions,
+      boolean noAutoAddOverlay,
       AndroidPlatformTarget androidPlatformTarget) {
     super(buildTarget, projectFilesystem);
     this.androidPlatformTarget = androidPlatformTarget;
     this.compileRules = compileRules;
     this.manifest = manifest;
     this.manifestEntries = manifestEntries;
+    this.dependencyResourceApks = dependencyResourceApks;
+    this.includesVectorDrawables = includesVectorDrawables;
     this.noAutoVersion = noAutoVersion;
+    this.noVersionTransitions = noVersionTransitions;
+    this.noAutoAddOverlay = noAutoAddOverlay;
     this.buildDepsSupplier =
         MoreSuppliers.memoize(
             () ->
@@ -84,6 +96,12 @@ public class Aapt2Link extends AbstractBuildRule {
                     .addAll(compileRules)
                     .addAll(RichStream.from(resourceRules).filter(BuildRule.class).toOnceIterable())
                     .addAll(ruleFinder.filterBuildRuleInputs(manifest))
+                    .addAll(
+                        RichStream.from(dependencyResourceApks)
+                            .map(ruleFinder::getRule)
+                            .filter(Optional::isPresent)
+                            .map(Optional::get)
+                            .collect(Collectors.toList()))
                     .build());
   }
 
@@ -134,17 +152,22 @@ public class Aapt2Link extends AbstractBuildRule {
       symlinkMap.put(linkPath, flata);
     }
 
-    steps.add(
-        RmStep.of(
-                BuildCellRelativePath.fromCellRelativePath(
-                    context.getBuildCellRootPath(), getProjectFilesystem(), linkTreePath))
-            .withRecursive(true));
+    steps.addAll(
+        MakeCleanDirectoryStep.of(
+            BuildCellRelativePath.fromCellRelativePath(
+                context.getBuildCellRootPath(), getProjectFilesystem(), linkTreePath)));
     steps.add(
         new SymlinkTreeStep("aapt", getProjectFilesystem(), linkTreePath, symlinkMap.build()));
 
     steps.add(
         new Aapt2LinkStep(
-            getBuildTarget(), getProjectFilesystem().resolve(linkTreePath), symlinkPaths.build()));
+            getBuildTarget(),
+            getProjectFilesystem().resolve(linkTreePath),
+            symlinkPaths.build(),
+            dependencyResourceApks
+                .stream()
+                .map(context.getSourcePathResolver()::getRelativePath)
+                .collect(Collectors.toList())));
     steps.add(ZipScrubberStep.of(getProjectFilesystem().resolve(getResourceApkPath())));
 
     buildableContext.recordArtifact(getFinalManifestPath());
@@ -200,11 +223,16 @@ public class Aapt2Link extends AbstractBuildRule {
 
   class Aapt2LinkStep extends ShellStep {
     private final List<Path> compiledResourcePaths;
+    private final List<Path> compiledResourceApkPaths;
 
     Aapt2LinkStep(
-        BuildTarget buildTarget, Path workingDirectory, List<Path> compiledResourcePaths) {
+        BuildTarget buildTarget,
+        Path workingDirectory,
+        List<Path> compiledResourcePaths,
+        List<Path> compiledResourceApkPaths) {
       super(Optional.of(buildTarget), workingDirectory);
       this.compiledResourcePaths = compiledResourcePaths;
+      this.compiledResourceApkPaths = compiledResourceApkPaths;
     }
 
     @Override
@@ -222,16 +250,30 @@ public class Aapt2Link extends AbstractBuildRule {
         builder.add("-v");
       }
 
+      if (includesVectorDrawables) {
+        builder.add("--no-version-vectors");
+      }
+
       if (noAutoVersion) {
         builder.add("--no-auto-version");
       }
-      builder.add("--auto-add-overlay");
+
+      if (noVersionTransitions) {
+        builder.add("--no-version-transitions");
+      }
+
+      if (!noAutoAddOverlay) {
+        builder.add("--auto-add-overlay");
+      }
 
       ProjectFilesystem pf = getProjectFilesystem();
       builder.add("-o", pf.resolve(getResourceApkPath()).toString());
       builder.add("--proguard", pf.resolve(getProguardConfigPath()).toString());
       builder.add("--manifest", pf.resolve(getFinalManifestPath()).toString());
       builder.add("-I", pf.resolve(androidPlatformTarget.getAndroidJar()).toString());
+      for (Path resourceApk : compiledResourceApkPaths) {
+        builder.add("-I", pf.resolve(resourceApk).toString());
+      }
       // We don't need the R.java output, but aapt2 won't output R.txt
       // unless we also request R.java.
       builder.add("--java", pf.resolve(getInitialRDotJavaDir()).toString());

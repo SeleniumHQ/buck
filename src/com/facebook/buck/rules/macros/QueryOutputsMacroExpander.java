@@ -16,16 +16,15 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.macros.MacroException;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.query.QueryBuildTarget;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.query.Query;
 import com.google.common.base.Preconditions;
@@ -66,10 +65,9 @@ public class QueryOutputsMacroExpander extends QueryMacroExpander<QueryOutputsMa
   public Arg expandFrom(
       BuildTarget target,
       CellPathResolver cellNames,
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       QueryOutputsMacro input,
-      QueryResults precomputedWork)
-      throws MacroException {
+      QueryResults precomputedWork) {
     return new QueriedOutputsArg(
         precomputedWork
             .results
@@ -77,11 +75,11 @@ public class QueryOutputsMacroExpander extends QueryMacroExpander<QueryOutputsMa
             .map(
                 queryTarget -> {
                   Preconditions.checkState(queryTarget instanceof QueryBuildTarget);
-                  return resolver.getRule(((QueryBuildTarget) queryTarget).getBuildTarget());
+                  return graphBuilder.getRule(((QueryBuildTarget) queryTarget).getBuildTarget());
                 })
             .map(BuildRule::getSourcePathToOutput)
-            .sorted()
             .filter(Objects::nonNull)
+            .sorted()
             .collect(ImmutableList.toImmutableList()));
   }
 

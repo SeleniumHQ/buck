@@ -19,15 +19,15 @@ package com.facebook.buck.distributed;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.ArtifactInfo;
 import com.facebook.buck.artifact_cache.CacheResult;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
-import com.facebook.buck.io.file.MoreFiles;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.ParallelRuleKeyCalculator;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.CloseableHolder;
 import com.facebook.buck.util.NamedTemporaryFile;
 import com.google.common.base.Preconditions;
@@ -57,7 +57,7 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
   // TODO(shivanker): Make these configurable.
   private static final int MAX_RULEKEYS_IN_MULTI_CONTAINS_REQUEST = 5000;
 
-  private final BuildRuleResolver resolver;
+  private final ActionGraphBuilder graphBuilder;
   private final BuckEventBus eventBus;
   private final ListeningExecutorService executorService;
   private final ArtifactCache remoteCache;
@@ -67,13 +67,13 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
   private final Map<BuildRule, ListenableFuture<BuildRule>> localUploadFutures;
 
   public DistBuildArtifactCacheImpl(
-      BuildRuleResolver resolver,
+      ActionGraphBuilder graphBuilder,
       ListeningExecutorService executorService,
       ArtifactCache remoteCache,
       BuckEventBus eventBus,
       ParallelRuleKeyCalculator<RuleKey> ruleKeyCalculator,
       Optional<ArtifactCache> localCacheToUploadFrom) {
-    this.resolver = resolver;
+    this.graphBuilder = graphBuilder;
     this.eventBus = eventBus;
     this.executorService = executorService;
     this.remoteCache = remoteCache;
@@ -156,12 +156,17 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
     ListenableFuture<CacheResult> asyncfetchResult;
     try (CloseableHolder<NamedTemporaryFile> tempFile =
         new CloseableHolder<>(
-            new NamedTemporaryFile(MoreFiles.sanitize(rule.getBuildTarget().getShortName()), ""))) {
+            new NamedTemporaryFile(MostFiles.sanitize(rule.getBuildTarget().getShortName()), ""))) {
       asyncfetchResult =
           Futures.transformAsync(
               asyncRuleKey,
               ruleKey ->
-                  localCache.get().fetchAsync(ruleKey, LazyPath.ofInstance(tempFile.get().get())),
+                  localCache
+                      .get()
+                      .fetchAsync(
+                          rule.getBuildTarget(),
+                          ruleKey,
+                          LazyPath.ofInstance(tempFile.get().get())),
               // We should already have computed the rulekey before calling this method, so using
               // DirectExecutor here is fine.
               MoreExecutors.directExecutor());
@@ -212,7 +217,7 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
         ruleKeyCalculator
             .getAllKnownTargets()
             .stream()
-            .map(resolver::requireRule)
+            .map(graphBuilder::requireRule)
             .collect(ImmutableSet.toImmutableSet()));
   }
 

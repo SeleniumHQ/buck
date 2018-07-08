@@ -33,6 +33,7 @@
   <property name="javac-plugin.location.dir.name" value="com/facebook/buck/jvm/java/plugin" />
   <property name="javac-plugin.location.dir" value="${classes.dir}/${javac-plugin.location.dir.name}" />
   <property name="buck.path_to_sh_binary_template" value="${basedir}/src/com/facebook/buck/shell/sh_binary_template" />
+  <property name="buck.path_to_isolated_trampoline" value="${basedir}/src/com/facebook/buck/rules/modern/builders/trampoline.sh" />
   <property name="buck.logging_config_file" value="${basedir}/config/logging.properties.st" />
   <property name="javadoc.dir" value="${build.dir}/javadoc" />
   <property name="javadoc-with-android.dir" value="${build.dir}/javadoc-with-android" />
@@ -81,6 +82,7 @@
   <property name="buck.info.file" value="${build.dir}/buck-info.json"/>
 
   <property name="modules.dir.name" value="buck-modules" />
+  <property name="modules.resources.dir.name" value="buck-modules-resources" />
 
   <property name="ecj.compiler" value="org.eclipse.jdt.core.JDTCompilerAdapter" />
   <property name="ecj.compiler.path" value="${eclipse.dir}/ecj-4.7.1.jar" />
@@ -111,36 +113,36 @@
     <include name="args4j/args4j-2.0.30.jar" />
     <include name="android/ddmlib-25.3.0.jar" />
     <include name="diffutils/diffutils-1.3.0.jar" />
-    <include name="guava/guava-20.0.jar" />
-    <include name="guava/guava-23.3-jre.jar" />
     <include name="ini4j/ini4j-0.5.2.jar" />
     <include name="jackson/jackson-annotations-2.7.8.jar" />
     <include name="jackson/jackson-core-2.7.8.jar" />
     <include name="jackson/jackson-databind-2.7.8.jar" />
     <include name="jackson/jackson-datatype-jdk8-2.7.8.jar" />
     <include name="jackson/jackson-datatype-guava-2.7.8.jar" />
-    <include name="jsr/jsr305.jar" />
     <include name="android/sdklib-25.3.0.jar" />
     <include name="nailgun/nailgun-server-0.9.3-SNAPSHOT.jar" />
-    <include name="jna/jna-4.4.0.jar" />
-    <include name="jna/jna-platform-4.4.0.jar" />
+    <include name="jna/jna-4.5.1.jar" />
+    <include name="jna/jna-platform-4.5.1.jar" />
     <include name="sqlite/sqlite-jdbc-3.20.0.jar" />
     <include name="bazel/skylark-lang_deploy.jar" />
+    <include name="googleapis/googleapis.jar" />
   </fileset>
 
   <fileset dir="${third-party.dir}/java" id="third-party.jars">
     <include name="ObjCBridge/ObjCBridge.jar" />
-    <include name="android/sdk-common-25.3.0.jar" />
     <include name="android/common-25.3.0.jar" />
     <include name="android/layoutlib-api-25.3.0.jar" />
+    <include name="android/sdk-common-25.3.0.jar" />
     <include name="aopalliance/aopalliance.jar" />
     <include name="asm/asm*-6.0.jar" />
+    <include name="bazel/skylark-lang_deploy.jar" />
+    <include name="bundletool/bundle.jar" />
     <include name="closure-templates/soy-excluding-deps.jar" />
     <include name="commons-compress/commons-compress-1.8.1.jar" />
     <include name="commons-logging/commons-logging-1.2.jar" />
     <include name="concurrent-locks/concurrent-locks-1.0.0.jar" />
-    <include name="dd-plist/dd-plist.jar" />
     <include name="d8/d8.jar" />
+    <include name="dd-plist/dd-plist.jar" />
     <include name="eclipse/org.eclipse.core.contenttype_3.5.100.v20160418-1621.jar"/>
     <include name="eclipse/org.eclipse.core.jobs_3.8.0.v20160319-0610.jar"/>
     <include name="eclipse/org.eclipse.core.resources_3.11.0.v20160422-0304.jar"/>
@@ -151,35 +153,49 @@
     <include name="eclipse/org.eclipse.osgi_3.11.0.v20160427-2120.jar"/>
     <include name="eden/eden.jar" />
     <include name="eden/java-thrift-dependencies.jar" />
+    <include name="errorprone/error_prone_annotations-2.0.19.jar" />
     <include name="fastutil/fastutil-7.2.0.jar" />
+    <include name="guava/guava-20.0.jar" />
+    <include name="guava/guava-23.3-jre.jar" />
+    <include name="grpc/grpc-context-1.11.0.jar" />
+    <include name="grpc/grpc-core-1.10.1.jar" />
+    <include name="grpc/grpc-netty-1.10.1.jar" />
+    <include name="grpc/grpc-protobuf-1.10.1.jar" />
+    <include name="grpc/grpc-protobuf-lite-1.11.0.jar" />
+    <include name="grpc/grpc-stub-1.10.1.jar" />
+    <include name="netty/netty-all-4.1.24.Final.jar" />
+    <include name="gson/gson-2.8.2.jar" />
     <include name="guice/guice-3.0.jar" />
     <include name="guice/guice-assistedinject-3.0.jar" />
     <include name="guice/guice-multibindings-3.0.jar" />
-    <include name="gson/gson-2.8.2.jar" />
     <include name="icu4j/icu4j-54.1.1.jar" />
     <include name="immutables/builder-2.5.7-SNAPSHOT.jar" />
     <include name="immutables/value-2.5.7-SNAPSHOT.jar" />
-    <include name="infer-annotations/infer-annotations-4.1.jar" />
-    <include name="nuprocess/nuprocess-1.1.0.jar" />
+    <include name="infer-annotations/infer-annotations-4.2.jar" />
     <include name="jacoco/org.jacoco.core-0.8.0.jar" />
     <include name="jacoco/org.jacoco.report-0.8.0.jar" />
-    <include name="jetty/jetty-all-9.2.10.v20150310.jar" />
     <include name="jdom/jdom-2.0.6.jar" />
+    <include name="jetty/jetty-all-9.4.9.v20180320-uber.jar" />
     <include name="jimfs/jimfs-1.1.jar" />
     <include name="jopt-simple/jopt-simple-4.6.jar" />
     <include name="json-simple/json-simple-1.1.1.jar" />
     <include name="jsr/javax.inject-1.jar" />
+    <include name="jsr/jsr305.jar" />
+    <include name="nuprocess/nuprocess-1.1.0.jar" />
     <include name="objenesis/objenesis-1.2.jar" />
     <include name="okhttp/okhttp-3.9.0.jar" />
     <include name="okio/okio-1.13.0.jar" />
+    <include name="opencensus/opencensus-api-0.12.2.jar" />
+    <include name="opencensus/opencensus-contrib-grpc-metrics-0.12.2.jar" />
     <include name="oshi/oshi-core-3.3-SNAPSHOT.jar" />
-    <include name="servlet-api/javax.servlet-api-3.1.0.jar" />
+    <include name="pf4j/pf4j-2.0.0-SNAPSHOT.jar" />
+    <include name="protobuf/protobuf-java-3.5.1.jar" />
+    <include name="protobuf/protobuf-java-util-3.5.1.jar" />
+    <include name="protobuf/protobuf-lite-3.0.1.jar" />
     <include name="slf4j/slf4j-jdk14-1.7.5.jar" /><!-- redirect slf4j to java.util.logging -->
     <include name="stringtemplate/ST-4.0.8.jar" />
     <include name="thrift/libthrift-0.10.0-patched.jar" />
     <include name="xz-java-1.5/xz-1.5.jar" />
-    <include name="bazel/skylark-lang_deploy.jar" />
-    <include name="pf4j/pf4j-2.0.0-SNAPSHOT.jar" />
 
     <!-- maven interop -->
     <include name="aether/aether-api-1.0.2.v20150114.jar" />
@@ -259,7 +275,9 @@
        do more than one thing.
 
        clear-successful-build must be first, and mark-successful-build last, in the list of dependencies.-->
-  <target name="default" depends="clear-successful-build, compile, build-modules, copy-resources, dx, javac-plugin, report-generator-jar, create-classpath, create-classpath-hash, gen-buck-info, mark-successful-build" />
+  <target name="default" depends="clear-successful-build, compile, build-modules, copy-resources,
+                                  dx, javac-plugin, report-generator-jar, create-classpath,
+                                  create-classpath-hash, gen-buck-info, mark-successful-build" />
 
   <target name="checkversion">
     <!-- The function Function class was only introduced in Java 8. -->
@@ -471,7 +489,8 @@
   </target>
 
   <target name="compile"
-          depends="compile-buck-modules-annotation-processor, compile-testrunner, compile-aosp, compile-manual-gen-src, bootstrapper, package-resources, tracing-api, dx"
+          depends="compile-buck-modules-annotation-processor, compile-testrunner, compile-aosp,
+                   compile-manual-gen-src, bootstrapper, package-resources, tracing-api, dx"
           description="compile Java source code">
     <mkdir dir="${classes.dir}" />
 
@@ -486,20 +505,13 @@
             and are deliberately isolated from Buck's core.
           -->
           <exclude name="com/facebook/buck/cli/bootstrapper/**" />
-          <exclude name="com/facebook/buck/d/**" />
-          <exclude name="com/facebook/buck/dotnet/**" />
           <exclude name="com/facebook/buck/event/api/**" />
-          <exclude name="com/facebook/buck/go/**" />
-          <exclude name="com/facebook/buck/haskell/**" />
+          <exclude name="com/facebook/buck/features/**" />
           <exclude name="com/facebook/buck/jvm/java/abi/source/**" />
           <exclude name="com/facebook/buck/jvm/java/lang/model/**" />
           <exclude name="com/facebook/buck/jvm/java/plugin/adapter/**" />
-          <exclude name="com/facebook/buck/lua/**" />
           <exclude name="com/facebook/buck/module/annotationprocessor/**" />
-          <exclude name="com/facebook/buck/rust/**" />
           <exclude name="com/facebook/buck/testrunner/**" />
-          <exclude name="com/facebook/buck/zip/bundler/**" />
-          <exclude name="com/facebook/buck/zip/rules/**" />
           <exclude name="org/openqa/selenium/buck/**" />
         </patternset>
       </javac-params>
@@ -525,12 +537,25 @@
     </jar>
   </target>
 
-  <target name="build-modules" depends="build-module-d, build-module-dotnet, build-module-go, build-module-haskell, build-module-lua, build-module-rust, build-module-zipbundler, build-module-ziprules"/>
+  <target name="build-modules" depends="
+                                        build-module-d,
+                                        build-module-dotnet,
+                                        build-module-filebundler,
+                                        build-module-filegroup,
+                                        build-module-go,
+                                        build-module-gwt,
+                                        build-module-haskell,
+                                        build-module-lua,
+                                        build-module-ocaml,
+                                        build-module-python,
+                                        build-module-rust,
+                                        build-module-ziprules
+                                       "/>
 
   <target name="build-module-d" depends="compile">
     <build-buck-module-jar module-name="d">
       <module-javac-params>
-        <include name="com/facebook/buck/d/**/*.java" />
+        <include name="com/facebook/buck/features/d/**/*.java" />
       </module-javac-params>
     </build-buck-module-jar>
   </target>
@@ -538,64 +563,113 @@
   <target name="build-module-dotnet" depends="compile">
     <build-buck-module-jar module-name="dotnet">
       <module-javac-params>
-        <include name="com/facebook/buck/dotnet/**/*.java" />
+        <include name="com/facebook/buck/features/dotnet/**/*.java" />
       </module-javac-params>
+    </build-buck-module-jar>
+  </target>
+
+  <target name="build-module-filebundler" depends="compile">
+    <build-buck-module-jar module-name="filebundler">
+      <module-javac-params>
+        <include name="com/facebook/buck/features/filebundler/**/*.java" />
+      </module-javac-params>
+    </build-buck-module-jar>
+  </target>
+
+  <target name="build-module-filegroup" depends="compile, build-module-filebundler">
+    <build-buck-module-jar module-name="filegroup">
+      <module-javac-params>
+        <include name="com/facebook/buck/features/filegroup/**/*.java" />
+      </module-javac-params>
+      <additional-classpath-entries>
+        <include name="filebundler.jar"/>
+      </additional-classpath-entries>
     </build-buck-module-jar>
   </target>
 
   <target name="build-module-go" depends="compile">
     <build-buck-module-jar-with-resources module-name="go">
       <module-javac-params>
-        <include name="com/facebook/buck/go/**/*.java" />
+        <include name="com/facebook/buck/features/go/**/*.java" />
       </module-javac-params>
       <module-resources>
-        <include name="com/facebook/buck/go/*.in"/>
+        <include name="com/facebook/buck/features/go/*.in"/>
       </module-resources>
     </build-buck-module-jar-with-resources>
+  </target>
+
+  <target name="build-module-gwt" depends="compile">
+    <build-buck-module-jar module-name="gwt">
+      <module-javac-params>
+        <include name="com/facebook/buck/features/gwt/**/*.java" />
+      </module-javac-params>
+    </build-buck-module-jar>
   </target>
 
   <target name="build-module-haskell" depends="compile">
     <build-buck-module-jar module-name="haskell">
       <module-javac-params>
-        <include name="com/facebook/buck/haskell/**/*.java" />
+        <include name="com/facebook/buck/features/haskell/**/*.java" />
       </module-javac-params>
     </build-buck-module-jar>
   </target>
 
-  <target name="build-module-lua" depends="compile">
+  <target name="build-module-lua" depends="compile, build-module-python">
     <build-buck-module-jar-with-resources module-name="lua">
       <module-javac-params>
-        <include name="com/facebook/buck/lua/**/*.java" />
+        <include name="com/facebook/buck/features/lua/**/*.java" />
       </module-javac-params>
+      <additional-classpath-entries>
+        <include name="python.jar"/>
+      </additional-classpath-entries>
       <module-resources>
-        <include name="com/facebook/buck/lua/*.in"/>
+        <include name="com/facebook/buck/features/lua/*.in"/>
       </module-resources>
     </build-buck-module-jar-with-resources>
+  </target>
+
+  <target name="build-module-ocaml" depends="compile">
+    <build-buck-module-jar module-name="ocaml">
+      <module-javac-params>
+        <include name="com/facebook/buck/features/ocaml/**/*.java" />
+      </module-javac-params>
+    </build-buck-module-jar>
+  </target>
+
+  <target name="build-module-python" depends="compile">
+    <build-buck-module-jar-with-resources module-name="python">
+      <module-javac-params>
+        <include name="com/facebook/buck/features/python/**/*.java" />
+      </module-javac-params>
+      <module-resources>
+        <include name="com/facebook/buck/features/python/*.in"/>
+        <include name="com/facebook/buck/features/python/__test_main__.py"/>
+      </module-resources>
+    </build-buck-module-jar-with-resources>
+    <copy-buck-module-external-resources module-name="python">
+      <module-external-resources>
+        <fileset dir="${src.dir}/com/facebook/buck/features/python">
+          <include name="make_pex.py"/>
+        </fileset>
+      </module-external-resources>
+    </copy-buck-module-external-resources>
   </target>
 
   <target name="build-module-rust" depends="compile">
     <build-buck-module-jar module-name="rust">
       <module-javac-params>
-        <include name="com/facebook/buck/rust/**/*.java" />
+        <include name="com/facebook/buck/features/rust/**/*.java" />
       </module-javac-params>
     </build-buck-module-jar>
   </target>
 
-  <target name="build-module-zipbundler" depends="compile">
-    <build-buck-module-jar module-name="zipbundler">
-      <module-javac-params>
-        <include name="com/facebook/buck/zip/bundler/**/*.java" />
-      </module-javac-params>
-    </build-buck-module-jar>
-  </target>
-
-  <target name="build-module-ziprules" depends="compile, build-module-zipbundler">
+  <target name="build-module-ziprules" depends="compile, build-module-filebundler">
     <build-buck-module-jar module-name="ziprules">
       <module-javac-params>
-        <include name="com/facebook/buck/zip/rules/**/*.java" />
+        <include name="com/facebook/buck/features/zip/rules/**/*.java" />
       </module-javac-params>
       <additional-classpath-entries>
-        <include name="zipbundler.jar"/>
+        <include name="filebundler.jar"/>
       </additional-classpath-entries>
     </build-buck-module-jar>
   </target>
@@ -674,8 +748,12 @@
         <include name="com/facebook/buck/maven/build-file.st"/>
         <include name="com/facebook/buck/python/*.py"/>
         <include name="com/facebook/buck/python/run_inplace.py.in"/>
-        <include name="com/facebook/buck/rules/BuckPyFunction.stg"/>
+        <include name="com/facebook/buck/parser/function/BuckPyFunction.stg"/>
         <include name="com/facebook/buck/shell/sh_binary_template"/>
+        <include name="com/facebook/buck/jvm/java/FatJar.java" />
+        <include name="com/facebook/buck/jvm/java/FatJarMain.java" />
+        <include name="com/facebook/buck/util/liteinfersupport/Nullable.java" />
+        <include name="com/facebook/buck/util/liteinfersupport/Preconditions.java" />
       </fileset>
     </copy>
   </target>
@@ -787,7 +865,8 @@
     <echo file="${build.dir}/classpath/classpaths">${classpaths}</echo>
   </target>
 
-  <target name="create-classpath-hash" depends="copy-resources, compile, dx, javac-plugin, report-generator-jar, create-classpath">
+  <target name="create-classpath-hash" depends="copy-resources, compile, dx, javac-plugin,
+                                                report-generator-jar, create-classpath">
     <delete file="${buck.hash.file}"/>
     <checksum todir="${build.dir}/checksums" totalproperty="buck.hash.value">
       <fileset dir="${build.dir}">
@@ -901,6 +980,21 @@
       <jar destfile="@{module-jar}" manifest="@{module-classes-dir}/META-INF/MANIFEST.MF">
         <fileset dir="@{module-classes-dir}" />
       </jar>
+    </sequential>
+  </macrodef>
+
+  <!--
+   Copies module resources that should be kept outside of module's jar file.
+   -->
+  <macrodef name="copy-buck-module-external-resources">
+    <attribute name="module-name" />
+    <attribute name="module-resources-dir" default="${build.dir}/${modules.resources.dir.name}/@{module-name}" />
+    <element name="module-external-resources" />
+    <sequential>
+      <mkdir dir="@{module-resources-dir}" />
+      <copy todir="@{module-resources-dir}">
+        <module-external-resources/>
+      </copy>
     </sequential>
   </macrodef>
 

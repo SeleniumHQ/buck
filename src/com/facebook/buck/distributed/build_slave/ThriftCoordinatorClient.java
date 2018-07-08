@@ -16,10 +16,12 @@
 
 package com.facebook.buck.distributed.build_slave;
 
+import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.CoordinatorService;
 import com.facebook.buck.distributed.thrift.CoordinatorService.Client;
 import com.facebook.buck.distributed.thrift.GetWorkRequest;
 import com.facebook.buck.distributed.thrift.GetWorkResponse;
+import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.ReportMinionAliveRequest;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.log.Logger;
@@ -42,9 +44,17 @@ import org.apache.thrift.transport.TTransportException;
 @ThreadSafe
 public class ThriftCoordinatorClient implements Closeable {
   private static final TimedLogger LOG = new TimedLogger(Logger.get(ThriftCoordinatorClient.class));
+
+  private enum State {
+    NOT_STARTED,
+    STARTED,
+    STOPPED,
+  }
+
   private final String remoteHost;
   private final StampedeId stampedeId;
   private final int connectionTimeoutMillis;
+  private State state;
 
   // NOTE(ruibm): Thrift Transport/Client is not thread safe so we can not interleave requests.
   //              All RPC calls from the client need to be synchronised.
@@ -56,50 +66,62 @@ public class ThriftCoordinatorClient implements Closeable {
     this.remoteHost = Preconditions.checkNotNull(remoteHost);
     this.stampedeId = stampedeId;
     this.connectionTimeoutMillis = connectionTimeoutMillis;
+    this.state = State.NOT_STARTED;
   }
 
   /** Starts the thrift client. */
   public synchronized ThriftCoordinatorClient start(int remotePort) throws ThriftException {
     LOG.info("Starting ThriftCoordinatorClient (for MinionModeRunner)...");
+    Preconditions.checkState(
+        state == State.NOT_STARTED, "Cannot start service while in state [%s].", state);
     transport = new TFramedTransport(new TSocket(remoteHost, remotePort, connectionTimeoutMillis));
 
     try {
       transport.open();
     } catch (TTransportException e) {
+      transport = null;
       throw new ThriftException(e);
     }
 
     TProtocol protocol = new TBinaryProtocol(transport);
     client = new CoordinatorService.Client(protocol);
+    this.state = State.STARTED;
     LOG.info("Started ThriftCoordinatorClient.");
     return this;
   }
 
   /** Orderly stops the thrift client. */
   public synchronized ThriftCoordinatorClient stop() {
-    Preconditions.checkNotNull(transport, "The client has already been stopped.");
+    Preconditions.checkState(
+        state == State.STARTED, "The client is in state [%s] and cannot be stopped.", state);
     LOG.info("Stopping ThriftCoordinatorClient (for MinionModeRunner)...");
-    transport.close();
+    Preconditions.checkNotNull(transport).close();
     LOG.info("Stopped ThriftCoordinatorClient.");
     transport = null;
     client = null;
+    state = State.STOPPED;
     return this;
   }
 
   /** Requests for more work from the Coordinator to build locally. */
   public synchronized GetWorkResponse getWork(
-      String minionId, int minionExitCode, List<String> finishedTargets, int maxWorkUnitsToFetch)
+      String minionId,
+      MinionType minionType,
+      int minionExitCode,
+      List<String> finishedTargets,
+      int maxWorkUnitsToFetch)
       throws IOException {
     LOG.info(
         String.format(
             "Sending GetWorkRequest. Minion [%s] is reporting that it finished building [%s] items. Requesting [%s] items.",
             minionId, finishedTargets.size(), maxWorkUnitsToFetch));
-    Client checkedClient = checkThriftClientRunning();
+    Client checkedClient = checkThriftClientRunningOrThrow();
 
     GetWorkRequest request =
         new GetWorkRequest()
             .setStampedeId(stampedeId)
             .setMinionId(minionId)
+            .setMinionType(minionType)
             .setFinishedTargets(finishedTargets)
             .setMaxWorkUnitsToFetch(maxWorkUnitsToFetch)
             .setLastExitCode(minionExitCode);
@@ -116,12 +138,16 @@ public class ThriftCoordinatorClient implements Closeable {
   }
 
   /** Reports back to the Coordinator that the current Minion is alive and healthy. */
-  public synchronized void reportMinionAlive(String minionId) throws ThriftException {
+  public synchronized void reportMinionAlive(String minionId, BuildSlaveRunId runId)
+      throws ThriftException {
     LOG.info("Sending ReportMinionAliveRequest.");
-    Client checkedClient = checkThriftClientRunning();
+    Client checkedClient = checkThriftClientRunningOrThrow();
 
     ReportMinionAliveRequest request =
-        new ReportMinionAliveRequest().setMinionId(minionId).setStampedeId(stampedeId);
+        new ReportMinionAliveRequest()
+            .setMinionId(minionId)
+            .setStampedeId(stampedeId)
+            .setRunId(runId);
     try {
       checkedClient.reportMinionAlive(request);
       LOG.info("Finished sending ReportMinionAliveRequest.");
@@ -133,12 +159,14 @@ public class ThriftCoordinatorClient implements Closeable {
   }
 
   @Override
-  public synchronized void close() throws ThriftException {
-    if (client != null) {
+  public synchronized void close() {
+    if (state == State.STARTED) {
       LOG.info("Closing ThriftCoordinatorClient.");
       stop();
       LOG.info("Closed ThriftCoordinatorClient.");
     }
+
+    state = State.STOPPED;
   }
 
   private ThriftException handleTException(TException ex, String requestType) {
@@ -153,19 +181,17 @@ public class ThriftCoordinatorClient implements Closeable {
     return ex;
   }
 
-  private CoordinatorService.Client checkThriftClientRunning() {
-    if (client == null) {
+  private CoordinatorService.Client checkThriftClientRunningOrThrow() {
+    if (state != State.STARTED) {
       // Immediately log the error, with stack trace. Otherwise might not appear
       // until Buck has finished shutting down if it crashed the application.
-      try {
-        throw new RuntimeException(
-            "Request received, but client was not started, or has already stopped.");
-      } catch (RuntimeException ex) {
-        LOG.error(ex);
-        throw ex;
-      }
+      RuntimeException exception =
+          new RuntimeException(
+              String.format("Request received but client is in state [%s].", state));
+      LOG.error(exception);
+      throw exception;
     }
 
-    return client;
+    return Preconditions.checkNotNull(client);
   }
 }

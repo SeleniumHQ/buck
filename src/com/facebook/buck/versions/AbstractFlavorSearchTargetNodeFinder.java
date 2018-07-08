@@ -16,12 +16,12 @@
 
 package com.facebook.buck.versions;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.UnflavoredBuildTarget;
-import com.facebook.buck.rules.TargetNode;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.util.RichStream;
-import com.facebook.buck.util.immutables.BuckStyleTuple;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -42,7 +42,7 @@ import org.immutables.value.Value;
 @BuckStyleTuple
 @SuppressWarnings(
     "rawtypes") // https://github.com/immutables/immutables/issues/548 requires us to use TargetNode
-                // not TargetNode<?, ?>
+// not TargetNode<?, ?>
 abstract class AbstractFlavorSearchTargetNodeFinder {
 
   /** @return a map of nodes indexed by their "base" target. */

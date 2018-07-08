@@ -23,6 +23,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.FileAttribute;
 import java.util.function.Supplier;
 
+/** Creates a temporary file that is deleted when this object is closed. */
 public class NamedTemporaryFile implements Closeable, Supplier<Path> {
   private final Path tempPath;
 

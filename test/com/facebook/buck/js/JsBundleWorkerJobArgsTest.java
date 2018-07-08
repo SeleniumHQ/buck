@@ -19,29 +19,31 @@ package com.facebook.buck.js;
 import static org.hamcrest.Matchers.equalTo;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.model.BuildTarget;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomainException;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomainException;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.shell.WorkerShellStep;
-import com.facebook.buck.util.HumanReadableException;
-import com.facebook.buck.util.ObjectMappers;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.json.ObjectMappers;
 import com.facebook.buck.util.types.Pair;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -51,24 +53,27 @@ public class JsBundleWorkerJobArgsTest {
   private FakeBuildableContext fakeBuildableContext;
 
   @Before
-  public void setUp() throws NoSuchBuildTargetException {
+  public void setUp() {
     scenario = JsTestScenario.builder().build();
     fakeBuildableContext = new FakeBuildableContext();
     buildContext(scenario);
   }
 
   @Test
-  public void testFileRamBundleFlavor() throws NoSuchBuildTargetException, IOException {
+  public void testFileRamBundleFlavor() throws IOException {
     JsBundle bundle =
         scenario.createBundle(
             targetWithFlavors("//:arbitrary", JsFlavors.RAM_BUNDLE_FILES), ImmutableSortedSet.of());
 
     JsonNode args = ObjectMappers.readValue(getJobArgs(bundle), JsonNode.class);
     assertThat(args.get("ramBundle").asText(), equalTo("files"));
+
+    JsonNode flavors = args.get("flavors");
+    assertThat(flavors, equalTo(arrayNodeOf(JsFlavors.RAM_BUNDLE_FILES)));
   }
 
   @Test
-  public void testIndexedRamBundleFlavor() throws NoSuchBuildTargetException, IOException {
+  public void testIndexedRamBundleFlavor() throws IOException {
     JsBundle bundle =
         scenario.createBundle(
             targetWithFlavors("//:arbitrary", JsFlavors.RAM_BUNDLE_INDEXED),
@@ -76,10 +81,11 @@ public class JsBundleWorkerJobArgsTest {
 
     JsonNode args = ObjectMappers.readValue(getJobArgs(bundle), JsonNode.class);
     assertThat(args.get("ramBundle").asText(), equalTo("indexed"));
+    assertThat(args.get("flavors"), equalTo(arrayNodeOf(JsFlavors.RAM_BUNDLE_INDEXED)));
   }
 
   @Test(expected = FlavorDomainException.class)
-  public void testMultipleRamBundleFlavorsFail() throws NoSuchBuildTargetException {
+  public void testMultipleRamBundleFlavorsFail() {
     JsBundle bundle =
         scenario.createBundle(
             targetWithFlavors(
@@ -90,7 +96,7 @@ public class JsBundleWorkerJobArgsTest {
   }
 
   @Test
-  public void testBuildRootIsPassed() throws NoSuchBuildTargetException, IOException {
+  public void testBuildRootIsPassed() throws IOException {
     JsBundle bundle = scenario.createBundle("//:arbitrary", ImmutableSortedSet.of());
     JsonNode args = ObjectMappers.readValue(getJobArgs(bundle), JsonNode.class);
     assertThat(
@@ -98,7 +104,7 @@ public class JsBundleWorkerJobArgsTest {
   }
 
   @Test
-  public void testBundleNameCanBeSet() throws NoSuchBuildTargetException {
+  public void testBundleNameCanBeSet() {
     String bundleName = "a-bundle-name.jsbundle";
     JsBundle bundle =
         scenario.createBundle("//:arbitrary", builder -> builder.setBundleName(bundleName));
@@ -107,7 +113,7 @@ public class JsBundleWorkerJobArgsTest {
   }
 
   @Test
-  public void testBundleNameIsFlavorSpecific() throws NoSuchBuildTargetException {
+  public void testBundleNameIsFlavorSpecific() {
     String bundleName = "flavored.js";
     JsBundle bundle =
         scenario.createBundle(
@@ -120,7 +126,7 @@ public class JsBundleWorkerJobArgsTest {
   }
 
   @Test
-  public void testFirstMatchingFlavorSetsBundleName() throws NoSuchBuildTargetException {
+  public void testFirstMatchingFlavorSetsBundleName() {
     String bundleName = "for-ios.js";
     JsBundle bundle =
         scenario.createBundle(
@@ -185,6 +191,15 @@ public class JsBundleWorkerJobArgsTest {
   private void buildContext(JsTestScenario scenario) {
     context =
         FakeBuildContext.withSourcePathResolver(
-            DefaultSourcePathResolver.from(new SourcePathRuleFinder(scenario.resolver)));
+            DefaultSourcePathResolver.from(new SourcePathRuleFinder(scenario.graphBuilder)));
+  }
+
+  private ArrayNode arrayNodeOf(Object... strings) {
+    return new ArrayNode(
+        JsonNodeFactory.instance,
+        Arrays.stream(strings)
+            .map(Object::toString)
+            .map(JsonNodeFactory.instance::textNode)
+            .collect(ImmutableList.toImmutableList()));
   }
 }

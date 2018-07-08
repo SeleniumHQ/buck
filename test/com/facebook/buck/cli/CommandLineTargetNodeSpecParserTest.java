@@ -16,19 +16,19 @@
 
 package com.facebook.buck.cli;
 
-import static com.facebook.buck.rules.TestCellBuilder.createCellRoots;
+import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.BuildFileSpec;
 import com.facebook.buck.parser.BuildTargetPatternTargetNodeParser;
 import com.facebook.buck.parser.BuildTargetSpec;
 import com.facebook.buck.parser.TargetNodeSpec;
-import com.facebook.buck.rules.CellPathResolver;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import java.nio.file.Files;
@@ -74,7 +74,7 @@ public class CommandLineTargetNodeSpecParserTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     CellPathResolver cellRoots = createCellRoots(filesystem);
     Files.createDirectories(
-        cellRoots.getCellPath(Optional.empty()).get().resolve("some").resolve("other"));
+        cellRoots.getCellPathOrThrow(Optional.empty()).resolve("some").resolve("other"));
     assertEquals(
         ImmutableSet.of(BuildTargetSpec.from(BuildTargetFactory.newInstance("//some:thing"))),
         PARSER.parse(cellRoots, "foo"));
@@ -122,7 +122,7 @@ public class CommandLineTargetNodeSpecParserTest {
   @Test
   public void cannotReferenceNonExistentDirectoryInARecursivelyWildcard() {
     CellPathResolver cellRoots = createCellRoots(null);
-    Path cellPath = cellRoots.getCellPath(Optional.empty()).get();
+    Path cellPath = cellRoots.getCellPathOrThrow(Optional.empty());
     exception.expectMessage(
         "does_not_exist/... references non-existent directory "
             + cellPath.resolve("does_not_exist"));
@@ -133,7 +133,7 @@ public class CommandLineTargetNodeSpecParserTest {
   @Test
   public void cannotReferenceNonExistentDirectoryWithPackageTargetNames() {
     CellPathResolver cellRoots = createCellRoots(null);
-    Path cellPath = cellRoots.getCellPath(Optional.empty()).get();
+    Path cellPath = cellRoots.getCellPathOrThrow(Optional.empty());
     exception.expectMessage(
         "does_not_exist: references non-existent directory " + cellPath.resolve("does_not_exist"));
     exception.expect(HumanReadableException.class);

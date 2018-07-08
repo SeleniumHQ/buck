@@ -18,23 +18,23 @@ package com.facebook.buck.android.relinker;
 import com.facebook.buck.android.AndroidLinkableMetadata;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
+import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildRuleDependencyVisitors;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.graph.DirectedAcyclicGraph;
 import com.facebook.buck.graph.TopologicalSort;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleDependencyVisitors;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildTargetSourcePath;
-import com.facebook.buck.rules.CellPathResolver;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Functions;
@@ -140,7 +140,7 @@ public class NativeRelinker {
 
     // This is the sub-graph that includes the linkableRules and all the dependents (including
     // non-linkable rules).
-    final DirectedAcyclicGraph<BuildRule> graph = getBuildGraph(linkableRules);
+    DirectedAcyclicGraph<BuildRule> graph = getBuildGraph(linkableRules);
     ImmutableList<BuildRule> sortedRules = TopologicalSort.sort(graph);
     // This maps a build rule to every rule in linkableRules that depends on it. This (added to the
     // copied libraries) is the set of linkables that could use a symbol from this build rule.
@@ -215,7 +215,7 @@ public class NativeRelinker {
       Set<BuildRule> linkableRules,
       DirectedAcyclicGraph<BuildRule> graph,
       ImmutableList<BuildRule> sortedRules) {
-    final Map<BuildRule, ImmutableSet<BuildRule>> allDependentsMap = new HashMap<>();
+    Map<BuildRule, ImmutableSet<BuildRule>> allDependentsMap = new HashMap<>();
     // Using the sorted list of rules makes this calculation much simpler. We can just assume that
     // we already know all the dependents of a rules incoming nodes when we are processing that
     // rule.
@@ -240,7 +240,7 @@ public class NativeRelinker {
     BuildRule baseRule = ruleFinder.getRule(source).orElse(null);
     ImmutableList<Arg> linkerArgs = ImmutableList.of();
     Linker linker = null;
-    if (baseRule != null && baseRule instanceof CxxLink) {
+    if (baseRule instanceof CxxLink) {
       CxxLink link = (CxxLink) baseRule;
       linkerArgs = link.getArgs();
       linker = link.getLinker();

@@ -16,16 +16,16 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
-import com.facebook.buck.rules.RuleKey;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetGraph;
+import com.facebook.buck.core.cell.CellProvider;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.SingleThreadedActionGraphBuilder;
+import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
@@ -62,18 +62,18 @@ public class VerifyCachesCommand extends AbstractCommand {
   }
 
   private boolean verifyRuleKeyCache(
-      BuckEventBus eventBus,
+      CellProvider cellProvider,
       PrintStream stdOut,
       RuleKeyConfiguration ruleKeyConfiguration,
       FileHashCache fileHashCache,
       RuleKeyCacheRecycler<RuleKey> recycler) {
     ImmutableList<Map.Entry<BuildRule, RuleKey>> contents = recycler.getCachedBuildRules();
     RuleKeyFieldLoader fieldLoader = new RuleKeyFieldLoader(ruleKeyConfiguration);
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer(), eventBus);
-    contents.forEach(e -> resolver.addToIndex(e.getKey()));
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder =
+        new SingleThreadedActionGraphBuilder(
+            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer(), cellProvider);
+    contents.forEach(e -> graphBuilder.addToIndex(e.getKey()));
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     DefaultRuleKeyFactory defaultRuleKeyFactory =
         new DefaultRuleKeyFactory(fieldLoader, fileHashCache, pathResolver, ruleFinder);
@@ -123,7 +123,7 @@ public class VerifyCachesCommand extends AbstractCommand {
             .map(
                 recycler ->
                     verifyRuleKeyCache(
-                        params.getBuckEventBus(),
+                        params.getCell().getCellProvider(),
                         params.getConsole().getStdOut(),
                         params.getRuleKeyConfiguration(),
                         params.getFileHashCache(),

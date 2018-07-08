@@ -20,6 +20,7 @@ import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.hamcrest.Matchers.any;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
@@ -29,19 +30,23 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.apple.AppleBundleResources;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
@@ -50,12 +55,12 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
-import com.facebook.buck.util.HumanReadableException;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.ImmutableSortedSet;
 import org.easymock.EasyMock;
-import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -120,19 +125,19 @@ public class JsBundleGenruleDescriptionTest {
   public void failsForNonJsBundleTargets() {
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(
-        Matchers.equalTo(
+        equalTo(
             "The 'js_bundle' argument of //:bundle-genrule, //js:bundle, must correspond to a js_bundle() rule."));
     JsTestScenario scenario = JsTestScenario.builder().arbitraryRule(defaultBundleTarget).build();
 
     new JsBundleGenruleBuilder(genruleTarget, defaultBundleTarget, scenario.filesystem)
-        .build(scenario.resolver, scenario.filesystem);
+        .build(scenario.graphBuilder, scenario.filesystem);
   }
 
   @Test
   public void underlyingJsBundleIsARuntimeDep() {
     assertArrayEquals(
         new BuildTarget[] {defaultBundleTarget},
-        setup.genrule().getRuntimeDeps(new SourcePathRuleFinder(setup.resolver())).toArray());
+        setup.genrule().getRuntimeDeps(new SourcePathRuleFinder(setup.graphBuilder())).toArray());
   }
 
   @Test
@@ -153,13 +158,86 @@ public class JsBundleGenruleDescriptionTest {
             "JS_DIR",
             pathResolver.getAbsolutePath(setup.jsBundle().getSourcePathToOutput()).toString()));
     assertThat(env, hasEntry("JS_BUNDLE_NAME", setup.jsBundle().getBundleName()));
+    assertThat(env, hasEntry("JS_BUNDLE_NAME_OUT", setup.jsBundle().getBundleName()));
+  }
+
+  @Test
+  public void allowsBundleRenaming() {
+    String renamedBundle = "bundle-renamed.abc";
+    setUpWithOptions(builderOptions().bundleName(renamedBundle));
+
+    Builder<String, String> builder = ImmutableMap.builder();
+    setup.genrule().addEnvironmentVariables(sourcePathResolver(), builder);
+    ImmutableMap<String, String> env = builder.build();
+
+    assertThat(setup.genrule().getBundleName(), equalTo(renamedBundle));
+    assertThat(env, hasEntry("JS_BUNDLE_NAME", setup.jsBundle().getBundleName()));
+    assertThat(env, hasEntry("JS_BUNDLE_NAME_OUT", renamedBundle));
+  }
+
+  @Test
+  public void allowsFlavorDependentRenaming() {
+    String releaseFlavorBundleName = "release.bundle";
+    ImmutableList<Pair<Flavor, String>> bundleNamesForFlavors =
+        ImmutableList.of(
+            new Pair<>(InternalFlavor.of("android"), "android.bundle"),
+            new Pair<>(InternalFlavor.of("release"), releaseFlavorBundleName));
+
+    setUpWithOptions(builderOptions().bundleNameForFlavor(bundleNamesForFlavors));
+
+    Builder<String, String> builder = ImmutableMap.builder();
+    JsBundleGenrule bundleGenrule = setup.genrule(JsFlavors.RELEASE);
+    bundleGenrule.addEnvironmentVariables(sourcePathResolver(), builder);
+    ImmutableMap<String, String> env = builder.build();
+
+    assertThat(bundleGenrule.getBundleName(), equalTo(releaseFlavorBundleName));
+    assertThat(env, hasEntry("JS_BUNDLE_NAME", setup.jsBundle().getBundleName()));
+    assertThat(env, hasEntry("JS_BUNDLE_NAME_OUT", releaseFlavorBundleName));
+  }
+
+  @Test
+  public void flavorDependentNamesFallBackToNameOfUnderlyingBundle() {
+    ImmutableList<Pair<Flavor, String>> bundleNamesForFlavors =
+        ImmutableList.of(
+            new Pair<>(InternalFlavor.of("android"), "android.bundle"),
+            new Pair<>(InternalFlavor.of("release"), "release.bundle"));
+    setUpWithOptions(builderOptions().bundleNameForFlavor(bundleNamesForFlavors));
+
+    Builder<String, String> builder = ImmutableMap.builder();
+    JsBundleGenrule bundleGenrule = setup.genrule(JsFlavors.IOS);
+    bundleGenrule.addEnvironmentVariables(sourcePathResolver(), builder);
+    ImmutableMap<String, String> env = builder.build();
+
+    assertThat(bundleGenrule.getBundleName(), equalTo(setup.jsBundle().getBundleName()));
+    assertThat(env, hasEntry("JS_BUNDLE_NAME", setup.jsBundle().getBundleName()));
+    assertThat(env, hasEntry("JS_BUNDLE_NAME_OUT", setup.jsBundle().getBundleName()));
+  }
+
+  @Test
+  public void flavorDependentNamesFallBackToSpecifiedBundleName() {
+    String renamedBundle = "bundle-renamed.abc";
+    ImmutableList<Pair<Flavor, String>> bundleNamesForFlavors =
+        ImmutableList.of(
+            new Pair<>(InternalFlavor.of("android"), "android.bundle"),
+            new Pair<>(InternalFlavor.of("release"), "release.bundle"));
+    setUpWithOptions(
+        builderOptions().bundleName(renamedBundle).bundleNameForFlavor(bundleNamesForFlavors));
+
+    Builder<String, String> builder = ImmutableMap.builder();
+    JsBundleGenrule bundleGenrule = setup.genrule(JsFlavors.IOS);
+    bundleGenrule.addEnvironmentVariables(sourcePathResolver(), builder);
+    ImmutableMap<String, String> env = builder.build();
+
+    assertThat(bundleGenrule.getBundleName(), equalTo(renamedBundle));
+    assertThat(env, hasEntry("JS_BUNDLE_NAME", setup.jsBundle().getBundleName()));
+    assertThat(env, hasEntry("JS_BUNDLE_NAME_OUT", renamedBundle));
   }
 
   @Test
   public void exposesReleaseFlavorAsEnvironmentVariable() {
     setUp(JsFlavors.RELEASE);
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(setup.resolver()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(setup.graphBuilder()));
     ImmutableMap.Builder<String, String> env = ImmutableMap.builder();
     setup.genrule().addEnvironmentVariables(pathResolver, env);
     assertThat(env.build(), hasEntry("RELEASE", "1"));
@@ -168,7 +246,7 @@ public class JsBundleGenruleDescriptionTest {
   @Test
   public void withoutReleaseFlavorEnvVariableIsEmpty() {
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(setup.resolver()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(setup.graphBuilder()));
     ImmutableMap.Builder<String, String> env = ImmutableMap.builder();
     setup.genrule().addEnvironmentVariables(pathResolver, env);
     assertThat(env.build(), hasEntry("RELEASE", ""));
@@ -178,7 +256,7 @@ public class JsBundleGenruleDescriptionTest {
   public void exposesAndroidFlavorAsEnvironmentVariable() {
     setUp(JsFlavors.ANDROID);
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(setup.resolver()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(setup.graphBuilder()));
     ImmutableMap.Builder<String, String> env = ImmutableMap.builder();
     setup.genrule().addEnvironmentVariables(pathResolver, env);
     assertThat(env.build(), hasEntry("PLATFORM", "android"));
@@ -188,7 +266,7 @@ public class JsBundleGenruleDescriptionTest {
   public void exposesIosFlavorAsEnvironmentVariable() {
     setUp(JsFlavors.IOS);
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(setup.resolver()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(setup.graphBuilder()));
     ImmutableMap.Builder<String, String> env = ImmutableMap.builder();
     setup.genrule().addEnvironmentVariables(pathResolver, env);
     assertThat(env.build(), hasEntry("PLATFORM", "ios"));
@@ -197,7 +275,7 @@ public class JsBundleGenruleDescriptionTest {
   @Test
   public void withoutPlatformFlavorEnvVariableIsEmpty() {
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(setup.resolver()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(setup.graphBuilder()));
     ImmutableMap.Builder<String, String> env = ImmutableMap.builder();
     setup.genrule().addEnvironmentVariables(pathResolver, env);
     assertThat(env.build(), hasEntry("PLATFORM", ""));
@@ -244,8 +322,10 @@ public class JsBundleGenruleDescriptionTest {
     setUp(defaultBundleTarget.withAppendedFlavors(JsFlavors.ANDROID));
 
     JsBundleAndroid jsBundleAndroid = setup.jsBundleAndroid();
+    BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
     assertEquals(
-        jsBundleAndroid.getRequiredPackageables(), setup.genrule().getRequiredPackageables());
+        jsBundleAndroid.getRequiredPackageables(ruleResolver),
+        setup.genrule().getRequiredPackageables(ruleResolver));
 
     AndroidPackageableCollector collector = packageableCollectorMock(setup);
     setup.genrule().addToCollector(collector);
@@ -256,7 +336,8 @@ public class JsBundleGenruleDescriptionTest {
   public void doesNotExposePackageablesWithSkipResources() {
     setupWithSkipResources(JsFlavors.ANDROID);
 
-    assertEquals(ImmutableList.of(), setup.genrule().getRequiredPackageables());
+    assertEquals(
+        ImmutableList.of(), setup.genrule().getRequiredPackageables(new TestActionGraphBuilder()));
     AndroidPackageableCollector collector = packageableCollectorMock(setup);
     setup.genrule().addToCollector(collector);
     verify(collector);
@@ -264,7 +345,8 @@ public class JsBundleGenruleDescriptionTest {
 
   @Test
   public void returnsNothingIfUnderlyingBundleIsNotForAndroid() {
-    assertEquals(ImmutableList.of(), setup.genrule().getRequiredPackageables());
+    assertEquals(
+        ImmutableList.of(), setup.genrule().getRequiredPackageables(new TestActionGraphBuilder()));
   }
 
   @Test
@@ -276,7 +358,7 @@ public class JsBundleGenruleDescriptionTest {
             genruleBuilder,
             setup.targetNode(),
             setup.rule().getProjectFilesystem(),
-            setup.resolver());
+            setup.graphBuilder());
 
     AppleBundleResources expected =
         AppleBundleResources.builder()
@@ -298,7 +380,7 @@ public class JsBundleGenruleDescriptionTest {
             genruleBuilder,
             setup.targetNode(),
             setup.rule().getProjectFilesystem(),
-            setup.resolver());
+            setup.graphBuilder());
 
     AppleBundleResources expected = AppleBundleResources.builder().build();
     assertEquals(expected, genruleBuilder.build());
@@ -380,8 +462,8 @@ public class JsBundleGenruleDescriptionTest {
                     StringWithMacrosUtils.format("%s", LocationMacro.of(locationTarget))))
             .build();
 
-    BuildRule buildRule = scenario.resolver.requireRule(genruleTarget);
-    assertThat(buildRule.getBuildDeps(), hasItem(scenario.resolver.getRule(locationTarget)));
+    BuildRule buildRule = scenario.graphBuilder.requireRule(genruleTarget);
+    assertThat(buildRule.getBuildDeps(), hasItem(scenario.graphBuilder.getRule(locationTarget)));
   }
 
   @Test
@@ -585,7 +667,7 @@ public class JsBundleGenruleDescriptionTest {
   }
 
   private DefaultSourcePathResolver sourcePathResolver() {
-    return DefaultSourcePathResolver.from(new SourcePathRuleFinder(setup.resolver()));
+    return DefaultSourcePathResolver.from(new SourcePathRuleFinder(setup.graphBuilder()));
   }
 
   private static class TestSetup {
@@ -600,14 +682,15 @@ public class JsBundleGenruleDescriptionTest {
     }
 
     BuildRule rule() {
-      return scenario.resolver.requireRule(target);
+      return scenario.graphBuilder.requireRule(target);
     }
 
-    JsBundleGenrule genrule() {
+    JsBundleGenrule genrule(Flavor... flavors) {
       return (JsBundleGenrule)
-          scenario.resolver.requireRule(
-              target.withoutFlavors(
-                  JsFlavors.DEPENDENCY_FILE, JsFlavors.SOURCE_MAP, JsFlavors.MISC));
+          scenario.graphBuilder.requireRule(
+              target
+                  .withoutFlavors(JsFlavors.DEPENDENCY_FILE, JsFlavors.SOURCE_MAP, JsFlavors.MISC)
+                  .withAppendedFlavors(flavors));
     }
 
     @SuppressWarnings("unchecked")
@@ -618,19 +701,20 @@ public class JsBundleGenruleDescriptionTest {
 
     JsBundleOutputs jsBundle(Flavor... extraFlavors) {
       return (JsBundleOutputs)
-          resolver().requireRule(bundleTarget.withAppendedFlavors(extraFlavors));
+          graphBuilder().requireRule(bundleTarget.withAppendedFlavors(extraFlavors));
     }
 
     JsBundleAndroid jsBundleAndroid() {
-      return resolver().getRuleWithType(bundleTarget, JsBundleAndroid.class);
+      return graphBuilder().getRuleWithType(bundleTarget, JsBundleAndroid.class);
     }
 
     BuildRule jsBundleDepsFile() {
-      return resolver().requireRule(bundleTarget.withAppendedFlavors(JsFlavors.DEPENDENCY_FILE));
+      return graphBuilder()
+          .requireRule(bundleTarget.withAppendedFlavors(JsFlavors.DEPENDENCY_FILE));
     }
 
-    BuildRuleResolver resolver() {
-      return scenario.resolver;
+    ActionGraphBuilder graphBuilder() {
+      return scenario.graphBuilder;
     }
   }
 

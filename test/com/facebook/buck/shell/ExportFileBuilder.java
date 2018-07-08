@@ -16,18 +16,26 @@
 
 package com.facebook.buck.shell;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.AbstractNodeBuilder;
-import com.facebook.buck.rules.SourcePath;
+import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
 public class ExportFileBuilder
     extends AbstractNodeBuilder<
-        ExportFileDescriptionArg.Builder, ExportFileDescriptionArg, ExportFileDescription,
+        ExportFileDescriptionArg.Builder,
+        ExportFileDescriptionArg,
+        ExportFileDescription,
         ExportFile> {
   public ExportFileBuilder(BuildTarget target) {
-    super(new ExportFileDescription(), target);
+    super(new ExportFileDescription(FakeBuckConfig.builder().build()), target);
+  }
+
+  public ExportFileBuilder(BuckConfig buckConfig, BuildTarget target) {
+    super(new ExportFileDescription(buckConfig), target);
   }
 
   public ExportFileBuilder setSrc(@Nullable SourcePath path) {

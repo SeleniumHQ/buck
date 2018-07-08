@@ -18,11 +18,12 @@ package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.Logger;
-import com.facebook.buck.rules.RuleKey;
 import com.facebook.buck.util.DirectoryCleaner;
 import com.facebook.buck.util.DirectoryCleanerArgs;
 import com.google.common.annotations.VisibleForTesting;
@@ -49,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import javax.annotation.Nullable;
 
 public class DirArtifactCache implements ArtifactCache {
 
@@ -90,7 +92,8 @@ public class DirArtifactCache implements ArtifactCache {
   }
 
   @Override
-  public ListenableFuture<CacheResult> fetchAsync(RuleKey ruleKey, LazyPath output) {
+  public ListenableFuture<CacheResult> fetchAsync(
+      @Nullable BuildTarget target, RuleKey ruleKey, LazyPath output) {
     return Futures.immediateFuture(fetch(ruleKey, output));
   }
 
@@ -274,7 +277,7 @@ public class DirArtifactCache implements ArtifactCache {
 
   @VisibleForTesting
   Path getPathForRuleKey(RuleKey ruleKey, Optional<String> extension) {
-    return getParentDirForRuleKey(ruleKey).resolve(ruleKey.toString() + extension.orElse(""));
+    return getParentDirForRuleKey(ruleKey).resolve(ruleKey + extension.orElse(""));
   }
 
   @VisibleForTesting
@@ -333,8 +336,8 @@ public class DirArtifactCache implements ArtifactCache {
 
   @VisibleForTesting
   List<Path> getAllFilesInCache() {
-    final List<Path> allFiles = new ArrayList<>();
-    final Path tempFolderPath = getPathToTempFolder();
+    List<Path> allFiles = new ArrayList<>();
+    Path tempFolderPath = getPathToTempFolder();
     try {
       Files.walkFileTree(
           filesystem.resolve(cacheDir),
@@ -382,7 +385,7 @@ public class DirArtifactCache implements ArtifactCache {
   DirectoryCleaner.PathSelector getDirectoryCleanerPathSelector() {
     return new DirectoryCleaner.PathSelector() {
       @Override
-      public Iterable<Path> getCandidatesToDelete(Path rootPath) throws IOException {
+      public Iterable<Path> getCandidatesToDelete(Path rootPath) {
         return getAllFilesInCache();
       }
 

@@ -22,6 +22,23 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
+import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildRules;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourceWithFlags;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
@@ -30,26 +47,10 @@ import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.Flavor;
-import com.facebook.buck.model.FlavorDomain;
-import com.facebook.buck.model.InternalFlavor;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildRules;
-import com.facebook.buck.rules.DefaultBuildTargetSourcePath;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.model.ImmutableBuildTarget;
 import com.facebook.buck.rules.DependencyAggregationTestUtil;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.SourcePathResolver;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.SourceWithFlags;
-import com.facebook.buck.rules.TargetGraph;
-import com.facebook.buck.rules.TargetGraphAndBuildTargets;
-import com.facebook.buck.rules.TargetNode;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.FrameworkPath;
@@ -62,7 +63,6 @@ import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TargetGraphFactory;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionUniverse;
 import com.facebook.buck.versions.VersionUniverseVersionSelector;
@@ -117,7 +117,7 @@ public class CxxBinaryDescriptionTest {
       flavors.remove(type.get().getKey());
     }
     BuildTarget target =
-        BuildTarget.of(
+        ImmutableBuildTarget.of(
             libTarget.getUnflavoredBuildTarget(),
             Sets.union(
                 flavors, ImmutableSet.of(CxxLibraryDescription.Type.SANDBOX_TREE.getFlavor())));
@@ -125,7 +125,7 @@ public class CxxBinaryDescriptionTest {
   }
 
   @Test
-  public void createBuildRule() throws Exception {
+  public void createBuildRule() {
     Assume.assumeFalse("this test is not for sandboxing", cxxBuckConfig.sandboxSources());
 
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
@@ -181,15 +181,13 @@ public class CxxBinaryDescriptionTest {
             cxxBinaryBuilder.build());
 
     // Create the build rules.
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(resolver);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
+    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
-    genHeaderBuilder.build(resolver, projectFilesystem, targetGraph);
-    genSourceBuilder.build(resolver, projectFilesystem, targetGraph);
-    depBuilder.build(resolver, projectFilesystem, targetGraph);
-    CxxBinary binRule = cxxBinaryBuilder.build(resolver, projectFilesystem, targetGraph);
+    genHeaderBuilder.build(graphBuilder, projectFilesystem, targetGraph);
+    genSourceBuilder.build(graphBuilder, projectFilesystem, targetGraph);
+    depBuilder.build(graphBuilder, projectFilesystem, targetGraph);
+    CxxBinary binRule = cxxBinaryBuilder.build(graphBuilder, projectFilesystem, targetGraph);
 
     assertThat(binRule.getLinkRule(), Matchers.instanceOf(CxxLink.class));
     CxxLink rule = (CxxLink) binRule.getLinkRule();
@@ -197,7 +195,7 @@ public class CxxBinaryDescriptionTest {
         CxxSourceRuleFactory.builder()
             .setBaseBuildTarget(target)
             .setProjectFilesystem(projectFilesystem)
-            .setResolver(resolver)
+            .setActionGraphBuilder(graphBuilder)
             .setPathResolver(pathResolver)
             .setRuleFinder(ruleFinder)
             .setCxxBuckConfig(CxxPlatformUtils.DEFAULT_CONFIG)
@@ -220,7 +218,7 @@ public class CxxBinaryDescriptionTest {
     // Verify that the compile rule for our user-provided source has correct deps setup
     // for the various header rules.
     BuildRule compileRule1 =
-        resolver.getRule(cxxSourceRuleFactory.createCompileBuildTarget("test/bar.cpp"));
+        graphBuilder.getRule(cxxSourceRuleFactory.createCompileBuildTarget("test/bar.cpp"));
     assertNotNull(compileRule1);
     assertThat(
         DependencyAggregationTestUtil.getDisaggregatedDeps(compileRule1)
@@ -235,7 +233,7 @@ public class CxxBinaryDescriptionTest {
     // Verify that the compile rule for our genrule-generated source has correct deps setup
     // for the various header rules and the generating genrule.
     BuildRule compileRule2 =
-        resolver.getRule(cxxSourceRuleFactory.createCompileBuildTarget(genSourceName));
+        graphBuilder.getRule(cxxSourceRuleFactory.createCompileBuildTarget(genSourceName));
     assertNotNull(compileRule2);
     assertThat(
         DependencyAggregationTestUtil.getDisaggregatedDeps(compileRule2)
@@ -250,20 +248,18 @@ public class CxxBinaryDescriptionTest {
   }
 
   @Test
-  public void staticPicLinkStyle() throws Exception {
+  public void staticPicLinkStyle() {
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            prepopulateWithSandbox(target), new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(prepopulateWithSandbox(target));
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     new CxxBinaryBuilder(target, cxxBuckConfig)
         .setSrcs(
             ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of(filesystem, "test.cpp"))))
-        .build(resolver, filesystem);
+        .build(graphBuilder, filesystem);
   }
 
   @Test
-  public void runtimeDepOnDeps() throws Exception {
+  public void runtimeDepOnDeps() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     BuildTarget leafBinaryTarget = BuildTargetFactory.newInstance("//:dep");
@@ -278,34 +274,31 @@ public class CxxBinaryDescriptionTest {
         new CxxBinaryBuilder(topLevelBinaryTarget, cxxBuckConfig)
             .setDeps(ImmutableSortedSet.of(libraryTarget));
 
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
+    ActionGraphBuilder graphBuilder =
+        new TestActionGraphBuilder(
             TargetGraphFactory.newInstance(
                 leafCxxBinaryBuilder.build(),
                 cxxLibraryBuilder.build(),
-                topLevelCxxBinaryBuilder.build()),
-            new DefaultTargetNodeToBuildRuleTransformer());
-    BuildRule leafCxxBinary = leafCxxBinaryBuilder.build(resolver, filesystem);
-    cxxLibraryBuilder.build(resolver, filesystem);
-    CxxBinary topLevelCxxBinary = topLevelCxxBinaryBuilder.build(resolver, filesystem);
+                topLevelCxxBinaryBuilder.build()));
+    BuildRule leafCxxBinary = leafCxxBinaryBuilder.build(graphBuilder, filesystem);
+    cxxLibraryBuilder.build(graphBuilder, filesystem);
+    CxxBinary topLevelCxxBinary = topLevelCxxBinaryBuilder.build(graphBuilder, filesystem);
 
     assertThat(
-        BuildRules.getTransitiveRuntimeDeps(topLevelCxxBinary, resolver),
+        BuildRules.getTransitiveRuntimeDeps(topLevelCxxBinary, graphBuilder),
         Matchers.hasItem(leafCxxBinary.getBuildTarget()));
   }
 
   @Test
-  public void linkerFlagsLocationMacro() throws Exception {
+  public void linkerFlagsLocationMacro() {
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            prepopulateWithSandbox(target), new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(prepopulateWithSandbox(target));
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     Genrule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
-            .build(resolver);
+            .build(graphBuilder);
     CxxBinaryBuilder builder =
         new CxxBinaryBuilder(target, cxxBuckConfig)
             .setLinkerFlags(
@@ -313,7 +306,7 @@ public class CxxBinaryDescriptionTest {
                     StringWithMacrosUtils.format(
                         "--linker-script=%s", LocationMacro.of(dep.getBuildTarget()))));
     assertThat(builder.build().getExtraDeps(), Matchers.hasItem(dep.getBuildTarget()));
-    BuildRule binary = builder.build(resolver).getLinkRule();
+    BuildRule binary = builder.build(graphBuilder).getLinkRule();
     assertThat(binary, Matchers.instanceOf(CxxLink.class));
     assertThat(
         Arg.stringify(((CxxLink) binary).getArgs(), pathResolver),
@@ -322,17 +315,15 @@ public class CxxBinaryDescriptionTest {
   }
 
   @Test
-  public void platformLinkerFlagsLocationMacroWithMatch() throws Exception {
+  public void platformLinkerFlagsLocationMacroWithMatch() {
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            prepopulateWithSandbox(target), new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(prepopulateWithSandbox(target));
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     Genrule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
-            .build(resolver);
+            .build(graphBuilder);
     CxxBinaryBuilder builder =
         new CxxBinaryBuilder(target, cxxBuckConfig)
             .setPlatformLinkerFlags(
@@ -346,7 +337,7 @@ public class CxxBinaryDescriptionTest {
                                 "--linker-script=%s", LocationMacro.of(dep.getBuildTarget()))))
                     .build());
     assertThat(builder.build().getExtraDeps(), Matchers.hasItem(dep.getBuildTarget()));
-    BuildRule binary = builder.build(resolver).getLinkRule();
+    BuildRule binary = builder.build(graphBuilder).getLinkRule();
     assertThat(binary, Matchers.instanceOf(CxxLink.class));
     assertThat(
         Arg.stringify(((CxxLink) binary).getArgs(), pathResolver),
@@ -355,17 +346,15 @@ public class CxxBinaryDescriptionTest {
   }
 
   @Test
-  public void platformLinkerFlagsLocationMacroWithoutMatch() throws Exception {
+  public void platformLinkerFlagsLocationMacroWithoutMatch() {
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            prepopulateWithSandbox(target), new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(prepopulateWithSandbox(target));
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     Genrule dep =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:dep"))
             .setOut("out")
-            .build(resolver);
+            .build(graphBuilder);
     CxxBinaryBuilder builder =
         new CxxBinaryBuilder(target, cxxBuckConfig)
             .setPlatformLinkerFlags(
@@ -377,7 +366,7 @@ public class CxxBinaryDescriptionTest {
                                 "--linker-script=%s", LocationMacro.of(dep.getBuildTarget()))))
                     .build());
     assertThat(builder.build().getExtraDeps(), Matchers.hasItem(dep.getBuildTarget()));
-    BuildRule binary = builder.build(resolver).getLinkRule();
+    BuildRule binary = builder.build(graphBuilder).getLinkRule();
     assertThat(binary, Matchers.instanceOf(CxxLink.class));
     assertThat(
         Arg.stringify(((CxxLink) binary).getArgs(), pathResolver),
@@ -388,7 +377,7 @@ public class CxxBinaryDescriptionTest {
   }
 
   @Test
-  public void binaryShouldLinkOwnRequiredLibraries() throws Exception {
+  public void binaryShouldLinkOwnRequiredLibraries() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     CxxPlatform platform = CxxPlatformUtils.DEFAULT_PLATFORM;
 
@@ -404,12 +393,10 @@ public class CxxBinaryDescriptionTest {
                 FrameworkPath.ofSourcePath(FakeSourcePath.of("/another/path/liba.dylib"))))
         .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("foo.c"))));
     TargetGraph targetGraph = TargetGraphFactory.newInstance(binaryBuilder.build());
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(resolver));
-    CxxBinary binary = binaryBuilder.build(resolver, filesystem, targetGraph);
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    CxxBinary binary = binaryBuilder.build(graphBuilder, filesystem, targetGraph);
     assertThat(binary.getLinkRule(), Matchers.instanceOf(CxxLink.class));
     assertThat(
         Arg.stringify(((CxxLink) binary.getLinkRule()).getArgs(), pathResolver),
@@ -417,7 +404,7 @@ public class CxxBinaryDescriptionTest {
   }
 
   @Test
-  public void testBinaryWithStripFlavorHasStripLinkRuleWithCorrectStripStyle() throws Exception {
+  public void testBinaryWithStripFlavorHasStripLinkRuleWithCorrectStripStyle() {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     CxxPlatform platform = CxxPlatformUtils.DEFAULT_PLATFORM;
 
@@ -431,10 +418,8 @@ public class CxxBinaryDescriptionTest {
             cxxBuckConfig);
     binaryBuilder.setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("foo.c"))));
     TargetGraph targetGraph = TargetGraphFactory.newInstance(binaryBuilder.build());
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    BuildRule resultRule = binaryBuilder.build(resolver, filesystem, targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
+    BuildRule resultRule = binaryBuilder.build(graphBuilder, filesystem, targetGraph);
     assertThat(resultRule, Matchers.instanceOf(CxxBinary.class));
     assertThat(((CxxBinary) resultRule).getLinkRule(), Matchers.instanceOf(CxxStrip.class));
 
@@ -443,7 +428,7 @@ public class CxxBinaryDescriptionTest {
   }
 
   @Test
-  public void depQuery() throws Exception {
+  public void depQuery() {
     CxxLibraryBuilder transitiveDepBuilder =
         new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:transitive_dep"));
     CxxLibraryBuilder depBuilder =
@@ -455,12 +440,10 @@ public class CxxBinaryDescriptionTest {
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(
             transitiveDepBuilder.build(), depBuilder.build(), builder.build());
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    CxxLibrary transitiveDep = (CxxLibrary) transitiveDepBuilder.build(resolver, targetGraph);
-    depBuilder.build(resolver, targetGraph);
-    CxxBinary binary = builder.build(resolver, targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
+    CxxLibrary transitiveDep = (CxxLibrary) transitiveDepBuilder.build(graphBuilder, targetGraph);
+    depBuilder.build(graphBuilder, targetGraph);
+    CxxBinary binary = builder.build(graphBuilder, targetGraph);
     // TODO(agallagher): should also test that `:dep` does *not* get included.
     assertThat(binary.getBuildDeps(), Matchers.hasItem(transitiveDep));
   }
@@ -505,7 +488,7 @@ public class CxxBinaryDescriptionTest {
   }
 
   @Test
-  public void testDefaultPlatformArg() throws Exception {
+  public void testDefaultPlatformArg() {
     CxxPlatform alternatePlatform =
         CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(InternalFlavor.of("alternate"));
     FlavorDomain<CxxPlatform> cxxPlatforms =
@@ -523,10 +506,8 @@ public class CxxBinaryDescriptionTest {
             cxxPlatforms);
     binaryBuilder.setDefaultPlatform(alternatePlatform.getFlavor());
     TargetGraph targetGraph = TargetGraphFactory.newInstance(binaryBuilder.build());
-    BuildRuleResolver resolver =
-        new SingleThreadedBuildRuleResolver(
-            targetGraph, new DefaultTargetNodeToBuildRuleTransformer());
-    CxxBinary binary = binaryBuilder.build(resolver, targetGraph);
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
+    CxxBinary binary = binaryBuilder.build(graphBuilder, targetGraph);
     assertThat(binary.getCxxPlatform(), equalTo(alternatePlatform));
   }
 }

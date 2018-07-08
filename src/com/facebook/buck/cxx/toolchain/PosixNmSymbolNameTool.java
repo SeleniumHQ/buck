@@ -16,22 +16,22 @@
 
 package com.facebook.buck.cxx.toolchain;
 
+import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
+import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTarget;
 import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.AbstractBuildRuleWithDeclaredAndExtraDeps;
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.BuildableContext;
-import com.facebook.buck.rules.BuildableSupport;
-import com.facebook.buck.rules.ExplicitBuildTargetSourcePath;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.rules.Tool;
 import com.facebook.buck.shell.DefaultShellStep;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.Step;
@@ -71,12 +71,12 @@ public class PosixNmSymbolNameTool implements SymbolNameTool {
   public SourcePath createUndefinedSymbolsFile(
       ProjectFilesystem projectFilesystem,
       BuildRuleParams baseParams,
-      BuildRuleResolver ruleResolver,
+      ActionGraphBuilder graphBuilder,
       SourcePathRuleFinder ruleFinder,
       BuildTarget target,
       Iterable<? extends SourcePath> linkerInputs) {
     UndefinedSymbolsFile rule =
-        ruleResolver.addToIndex(
+        graphBuilder.addToIndex(
             new UndefinedSymbolsFile(
                 target,
                 projectFilesystem,
@@ -116,14 +116,14 @@ public class PosixNmSymbolNameTool implements SymbolNameTool {
 
     @Override
     public ImmutableList<Step> getBuildSteps(
-        BuildContext context, final BuildableContext buildableContext) {
-      final Path output = getUndefinedSymbolsPath();
+        BuildContext context, BuildableContext buildableContext) {
+      Path output = getUndefinedSymbolsPath();
 
       // Cache the symbols file.
       buildableContext.recordArtifact(output);
 
       // Run `nm` on the inputs.
-      final ShellStep shellStep =
+      ShellStep shellStep =
           new DefaultShellStep(
               getBuildTarget(),
               getProjectFilesystem().getRootPath(),

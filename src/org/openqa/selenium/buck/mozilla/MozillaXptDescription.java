@@ -16,21 +16,26 @@
 
 package org.openqa.selenium.buck.mozilla;
 
-import com.facebook.buck.model.BuildTarget;
-import com.facebook.buck.rules.BuildRule;
-import com.facebook.buck.rules.BuildRuleCreationContext;
-import com.facebook.buck.rules.BuildRuleParams;
-import com.facebook.buck.rules.CommonDescriptionArg;
-import com.facebook.buck.rules.DefaultSourcePathResolver;
-import com.facebook.buck.rules.Description;
-import com.facebook.buck.rules.SourcePath;
-import com.facebook.buck.rules.SourcePathRuleFinder;
-import com.facebook.buck.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.description.Description;
+import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
+import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleCreationContext;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.io.Files;
 import java.nio.file.Path;
 import org.immutables.value.Value;
 
-public class MozillaXptDescription implements Description<MozillaXptArg> {
+public class MozillaXptDescription implements
+    DescriptionWithTargetGraph<MozillaXptArg>,
+    VersionPropagator<MozillaXptArg> {
 
   @Override
   public Class<MozillaXptArg> getConstructorArgType() {
@@ -39,12 +44,12 @@ public class MozillaXptDescription implements Description<MozillaXptArg> {
 
   @Override
   public BuildRule createBuildRule(
-      BuildRuleCreationContext context,
+      BuildRuleCreationContextWithTargetGraph context,
       BuildTarget buildTarget,
       BuildRuleParams params,
       MozillaXptArg args) {
     Path sourcePath = DefaultSourcePathResolver.from(
-        new SourcePathRuleFinder(context.getBuildRuleResolver()))
+        new SourcePathRuleFinder(context.getActionGraphBuilder()))
         .getRelativePath(args.getSrc());
     String name = Files.getNameWithoutExtension(sourcePath.toString()) + ".xpt";
 
@@ -55,6 +60,11 @@ public class MozillaXptDescription implements Description<MozillaXptArg> {
         name,
         args.getSrc(),
         args.getFallback());
+  }
+
+  @Override
+  public boolean producesCacheableSubgraph() {
+    return true;
   }
 
   @BuckStyleImmutable

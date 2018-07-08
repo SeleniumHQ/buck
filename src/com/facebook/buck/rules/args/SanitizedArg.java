@@ -16,8 +16,11 @@
 
 package com.facebook.buck.rules.args;
 
-import com.facebook.buck.rules.AddToRuleKey;
-import com.facebook.buck.rules.SourcePathResolver;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Interner;
 import com.google.common.collect.Interners;
@@ -26,8 +29,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 
 /**
- * An {@link Arg} which must be sanitized before contributing to a {@link
- * com.facebook.buck.rules.RuleKey}.
+ * An {@link Arg} which must be sanitized before contributing to a {@link RuleKey}.
  *
  * <p>
  *
@@ -50,7 +52,9 @@ public class SanitizedArg implements Arg {
   // to avoid bloating the rule key caches.
   private static final Interner<SanitizedArg> INTERNER = Interners.newWeakInterner();
 
+  @CustomFieldBehavior(DefaultFieldSerialization.class)
   private final String unsanitized;
+
   @AddToRuleKey private final String sanitized;
 
   private SanitizedArg(String unsanitized, String sanitized) {

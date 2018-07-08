@@ -16,10 +16,10 @@
 package com.facebook.buck.jvm.groovy;
 
 import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.rules.HashedFileTool;
-import com.facebook.buck.rules.Tool;
-import com.facebook.buck.util.HumanReadableException;
 import com.google.common.base.Suppliers;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -39,7 +39,7 @@ public class GroovyBuckConfig {
 
   Supplier<Tool> getGroovyCompiler() {
     Optional<Path> path = delegate.getPath("groovy", "groovy_home");
-    final Path groovyHomePath;
+    Path groovyHomePath;
     if (path.isPresent()) {
       groovyHomePath = path.get();
     } else {

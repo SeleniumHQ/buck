@@ -18,16 +18,14 @@ package com.facebook.buck.jvm.java;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.BuildContext;
-import com.facebook.buck.rules.BuildRuleResolver;
-import com.facebook.buck.rules.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildableContext;
 import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.SingleThreadedBuildRuleResolver;
-import com.facebook.buck.rules.TargetGraph;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
 import java.util.List;
@@ -36,17 +34,15 @@ import org.junit.Test;
 public class KeystoreTest {
 
   private static Keystore createKeystoreRuleForTest() throws NoSuchBuildTargetException {
-    BuildRuleResolver ruleResolver =
-        new SingleThreadedBuildRuleResolver(
-            TargetGraph.EMPTY, new DefaultTargetNodeToBuildRuleTransformer());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     return KeystoreBuilder.createBuilder(BuildTargetFactory.newInstance("//keystores:debug"))
         .setStore(FakeSourcePath.of("keystores/debug.keystore"))
         .setProperties(FakeSourcePath.of("keystores/debug.keystore.properties"))
-        .build(ruleResolver);
+        .build(graphBuilder);
   }
 
   @Test
-  public void testObservers() throws Exception {
+  public void testObservers() {
     Keystore keystore = createKeystoreRuleForTest();
     assertEquals("keystore", keystore.getType());
 
@@ -57,7 +53,7 @@ public class KeystoreTest {
   }
 
   @Test
-  public void testBuildInternal() throws Exception {
+  public void testBuildInternal() {
     BuildContext buildContext = FakeBuildContext.NOOP_CONTEXT;
 
     Keystore keystore = createKeystoreRuleForTest();
