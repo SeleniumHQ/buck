@@ -409,8 +409,8 @@
     <compiler srcdir="${aosp.src.dir}" destdir="${aosp.classes.dir}" gensrcdir="${aosp.gensrc.dir}">
       <compiler-params>
         <!-- suppress ManifestMerger2 warnings -->
-        <compilerarg value="-err:-all" compiler="${ecj.compiler}"/>
-        <compilerarg value="-warn:-all" compiler="${ecj.compiler}"/>
+        <compilerarg value="--add-exports=java.base/sun.security.x509=ALL-UNNAMED"/>
+        <compilerarg value="--add-exports=java.base/sun.security.pkcs=ALL-UNNAMED"/>
       </compiler-params>
     </compiler>
   </target>
@@ -445,7 +445,6 @@
              debug="on"
              deprecation="on"
              includeAntRuntime="no"
-             compiler="${buck.build.compiler}"
              >
         <javac-params />
         <!--

@@ -20,7 +20,7 @@ import com.android.common.SdkConstants;
 
 import com.android.sdklib.internal.build.SignedJarBuilder.IZipEntryFilter;
 import com.android.sdklib.internal.build.SignedJarBuilder.IZipEntryFilter.ZipAbortException;
-import sun.misc.BASE64Encoder;
+import java.util.Base64;
 import sun.security.pkcs.ContentInfo;
 import sun.security.pkcs.PKCS7;
 import sun.security.pkcs.SignerInfo;
@@ -105,7 +105,7 @@ public class SignedJarBuilder {
   private PrivateKey mKey;
   private X509Certificate mCertificate;
   private Manifest mManifest;
-  private BASE64Encoder mBase64Encoder;
+  private Base64.Encoder mBase64Encoder;
   private MessageDigest mMessageDigest;
 
   private byte[] mBuffer = new byte[4096];
@@ -136,7 +136,7 @@ public class SignedJarBuilder {
       main.putValue("Manifest-Version", "1.0");
       main.putValue("Created-By", "1.0 (Android)");
 
-      mBase64Encoder = new BASE64Encoder();
+      mBase64Encoder = Base64.getEncoder();
       mMessageDigest = MessageDigest.getInstance(DIGEST_ALGORITHM);
     }
   }
@@ -289,7 +289,7 @@ public class SignedJarBuilder {
         attr = new Attributes();
         mManifest.getEntries().put(entry.getName(), attr);
       }
-      attr.putValue(DIGEST_ATTR, mBase64Encoder.encode(mMessageDigest.digest()));
+      attr.putValue(DIGEST_ATTR, mBase64Encoder.encodeToString(mMessageDigest.digest()));
     }
   }
 
@@ -301,7 +301,7 @@ public class SignedJarBuilder {
     main.putValue("Signature-Version", "1.0");
     main.putValue("Created-By", "1.0 (Android)");
 
-    BASE64Encoder base64 = new BASE64Encoder();
+    Base64.Encoder base64 = Base64.getEncoder();
     MessageDigest md = MessageDigest.getInstance(DIGEST_ALGORITHM);
     PrintStream print = new PrintStream(
         new DigestOutputStream(new ByteArrayOutputStream(), md),
@@ -310,7 +310,7 @@ public class SignedJarBuilder {
     // Digest of the entire manifest
     mManifest.write(print);
     print.flush();
-    main.putValue(DIGEST_MANIFEST_ATTR, base64.encode(md.digest()));
+    main.putValue(DIGEST_MANIFEST_ATTR, base64.encodeToString(md.digest()));
 
     Map<String, Attributes> entries = mManifest.getEntries();
     for (Map.Entry<String, Attributes> entry : entries.entrySet()) {
@@ -323,7 +323,7 @@ public class SignedJarBuilder {
       print.flush();
 
       Attributes sfAttr = new Attributes();
-      sfAttr.putValue(DIGEST_ATTR, base64.encode(md.digest()));
+      sfAttr.putValue(DIGEST_ATTR, base64.encodeToString(md.digest()));
       sf.getEntries().put(entry.getKey(), sfAttr);
     }
 
