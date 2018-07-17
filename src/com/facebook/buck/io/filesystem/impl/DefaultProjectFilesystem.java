@@ -102,7 +102,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   private final Supplier<Path> tmpDir;
 
   private final ProjectFilesystemDelegate delegate;
-  private final WindowsFS winFSInstance;
+  @Nullable private final WindowsFS winFSInstance;
 
   // Defaults to false, and so paths should be valid.
   @VisibleForTesting protected boolean ignoreValidityOfPaths;
@@ -140,10 +140,6 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
       Preconditions.checkArgument(Files.isDirectory(root), "%s must be a directory", root);
       Preconditions.checkState(vfs.equals(root.getFileSystem()));
       Preconditions.checkArgument(root.isAbsolute(), "Expected absolute path. Got <%s>.", root);
-    }
-
-    if (Platform.detect() == Platform.WINDOWS) {
-      Preconditions.checkNotNull(winFSInstance);
     }
 
     this.projectRoot = MorePaths.normalize(root);
@@ -197,6 +193,9 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
             });
 
     this.winFSInstance = winFSInstance;
+    if (Platform.detect() == Platform.WINDOWS) {
+      Preconditions.checkNotNull(this.winFSInstance);
+    }
   }
 
   public static Path getCacheDir(Path root, Optional<String> value, BuckPaths buckPaths) {
@@ -805,6 +804,51 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   @Override
   public void move(Path source, Path target, CopyOption... options) throws IOException {
     Files.move(resolve(source), resolve(target), options);
+  }
+
+  @Override
+  public void mergeChildren(Path source, Path target, CopyOption... options) throws IOException {
+    Path resolvedSource = resolve(source);
+    Path resolvedTarget = resolve(target);
+    walkFileTree(
+        resolvedSource,
+        new FileVisitor<Path>() {
+          @Override
+          public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
+              throws IOException {
+            Path relative = resolvedSource.relativize(dir);
+            Path destDir = resolvedTarget.resolve(relative);
+            if (!Files.exists(destDir)) {
+              // Short circuit any copying
+              Files.move(dir, destDir, options);
+              return FileVisitResult.SKIP_SUBTREE;
+            }
+            return FileVisitResult.CONTINUE;
+          }
+
+          @Override
+          public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+              throws IOException {
+            if (!attrs.isDirectory()) {
+              Path relative = resolvedSource.relativize(file);
+              Files.move(file, resolvedTarget.resolve(relative), options);
+            }
+            return FileVisitResult.CONTINUE;
+          }
+
+          @Override
+          public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+            return FileVisitResult.CONTINUE;
+          }
+
+          @Override
+          public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+            if (!dir.equals(resolvedSource)) {
+              Files.deleteIfExists(dir);
+            }
+            return FileVisitResult.CONTINUE;
+          }
+        });
   }
 
   @Override

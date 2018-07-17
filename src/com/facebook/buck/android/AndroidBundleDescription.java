@@ -126,6 +126,12 @@ public class AndroidBundleDescription
       }
     }
 
+    // Check if the aapt mode is supportive for Bundle Build
+    if (args.getAaptMode() != AaptMode.AAPT2) {
+      throw new HumanReadableException(
+          "Android App Bundle can only be built with aapt2, but %s is using aapt1.", buildTarget);
+    }
+
     // We don't support requiring other flavors right now.
     if (buildTarget.isFlavored()) {
       throw new HumanReadableException(
@@ -163,7 +169,8 @@ public class AndroidBundleDescription
             dexSplitMode,
             exopackageModes,
             rulesToExcludeFromDex,
-            args);
+            args,
+            true);
     AndroidBundle androidBundle =
         androidBundleFactory.create(
             toolchainProvider,
@@ -304,5 +311,11 @@ public class AndroidBundleDescription
     abstract Optional<SourcePath> getRedexConfig();
 
     abstract ImmutableList<StringWithMacros> getRedexExtraArgs();
+
+    @Override
+    @Value.Default
+    public AaptMode getAaptMode() {
+      return AaptMode.AAPT2;
+    }
   }
 }

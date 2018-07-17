@@ -168,7 +168,7 @@ public class ApkBuilderStep implements Step {
     return StepExecutionResults.SUCCESS;
   }
 
-  private PrivateKeyAndCertificate createKeystoreProperties()
+  protected PrivateKeyAndCertificate createKeystoreProperties()
       throws IOException, KeyStoreException, NoSuchAlgorithmException, UnrecoverableKeyException {
     KeyStore keystore = KeyStore.getInstance(JARSIGNER_KEY_STORE_TYPE);
     KeystoreProperties keystoreProperties = keystorePropertiesSupplier.get();
@@ -240,9 +240,9 @@ public class ApkBuilderStep implements Step {
     return Joiner.on(' ').join(args.build());
   }
 
-  private static class PrivateKeyAndCertificate {
-    private final PrivateKey privateKey;
-    private final X509Certificate certificate;
+  protected static class PrivateKeyAndCertificate {
+    protected final PrivateKey privateKey;
+    protected final X509Certificate certificate;
 
     PrivateKeyAndCertificate(PrivateKey privateKey, X509Certificate certificate) {
       this.privateKey = privateKey;

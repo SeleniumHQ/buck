@@ -26,10 +26,15 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.UncheckedExecutionException;
+import java.io.IOException;
+import java.nio.channels.ClosedByInterruptException;
+import java.nio.file.FileSystemLoopException;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -47,11 +52,19 @@ public class ErrorLogger {
 
   @VisibleForTesting
   public interface LogImpl {
-
+    /**
+     * For user errors (HumanReadableException and similar), the user-friendly message will be
+     * reported through logUserVisible()
+     */
     void logUserVisible(String message);
 
+    /**
+     * For internal errrors (all non-user errors), the user-friendly message will be reported
+     * through logUserVisibleInternalError()
+     */
     void logUserVisibleInternalError(String message);
 
+    /** All exceptions will be passed to logVerbose. */
     void logVerbose(Throwable e);
   }
 
@@ -114,8 +127,124 @@ public class ErrorLogger {
     this.errorAugmentor = errorAugmentor;
   }
 
+  /**
+   * The result of exception "deconstruction". Provides access to the user-friendly message with
+   * context.
+   */
+  @VisibleForTesting
+  static class DeconstructedException {
+    private final Throwable rootCause;
+    @Nullable private final Throwable parent;
+    private final ImmutableList<String> context;
+
+    private DeconstructedException(
+        Throwable rootCause, @Nullable Throwable parent, ImmutableList<String> context) {
+      this.rootCause = rootCause;
+      this.parent = parent;
+      this.context = context;
+    }
+
+    private Optional<String> getContext(String indent) {
+      return context.isEmpty()
+          ? Optional.empty()
+          : Optional.of(
+              Joiner.on("\n")
+                  .join(context.stream().map(c -> indent + c).collect(Collectors.toList())));
+    }
+
+    private String getMessage(boolean suppressStackTraces) {
+      if (rootCause instanceof HumanReadableException) {
+        return ((HumanReadableException) rootCause).getHumanReadableErrorMessage();
+      }
+
+      if (rootCause instanceof InterruptedException
+          || rootCause instanceof ClosedByInterruptException) {
+        return "Interrupted";
+      }
+
+      if (rootCause instanceof BuckIsDyingException) {
+        return "Failed because buck was already dying";
+      }
+
+      if (isNoSpaceOnDevice()) {
+        return rootCause.getMessage();
+      }
+
+      String message = "";
+      if (rootCause instanceof FileSystemLoopException) {
+        // TODO(cjhopman): Is this message helpful? What's a smaller directory?
+        message =
+            "Loop detected in your directory, which may be caused by circular symlink. "
+                + "You may consider running the command in a smaller directory.\n";
+      }
+
+      if (rootCause instanceof OutOfMemoryError) {
+        message =
+            "Buck ran out of memory, you may consider increasing heap size with java args "
+                + "(see https://buckbuild.com/concept/buckjavaargs.html)\n";
+      }
+
+      if (suppressStackTraces) {
+        return String.format(
+            "%s%s: %s", message, rootCause.getClass().getName(), rootCause.getMessage());
+      }
+
+      if (parent == null) {
+        return String.format("%s%s", message, Throwables.getStackTraceAsString(rootCause));
+      }
+
+      Preconditions.checkState(parent.getCause() == rootCause);
+      return String.format("%s%s", message, getStackTraceOfCause(parent));
+    }
+
+    /** Indicates whether this exception is a user error or a buck internal error. */
+    public boolean isUserError() {
+      if (rootCause instanceof HumanReadableException
+          || rootCause instanceof InterruptedException
+          || rootCause instanceof ClosedByInterruptException) {
+        return true;
+      }
+
+      if (isNoSpaceOnDevice()) {
+        return true;
+      }
+
+      return false;
+    }
+
+    public boolean isNoSpaceOnDevice() {
+      return rootCause instanceof IOException
+          && rootCause.getMessage().startsWith("No space left on device");
+    }
+
+    /**
+     * Creates the user-friendly exception with context, masked stack trace (if not suppressed), and
+     * with augmentations.
+     */
+    public String getAugmentedErrorWithContext(
+        boolean suppressStackTraces,
+        String indent,
+        HumanReadableExceptionAugmentor errorAugmentor) {
+      StringBuilder messageBuilder = new StringBuilder();
+      // TODO(cjhopman): Based on verbosity, get the stacktrace here instead of just the message.
+      messageBuilder.append(getMessage(suppressStackTraces));
+      Optional<String> context = getContext(indent);
+      if (context.isPresent()) {
+        messageBuilder.append("\n");
+        messageBuilder.append(context.get());
+      }
+      return errorAugmentor.getAugmentedError(messageBuilder.toString());
+    }
+  }
+
   public void logException(Throwable e) {
     logger.logVerbose(e);
+    logUserVisible(deconstruct(e));
+  }
+
+  /** Deconstructs an exception to assist in creating user-friendly messages. */
+  @VisibleForTesting
+  static DeconstructedException deconstruct(Throwable e) {
     Throwable parent = null;
 
     // TODO(cjhopman): Think about how to handle multiline context strings.
@@ -127,9 +256,6 @@ public class ErrorLogger {
         ((ExceptionWithContext) e).getContext().ifPresent(msg -> context.add(0, msg));
       }
       Throwable cause = e.getCause();
-      if (!(cause instanceof Exception)) {
-        break;
-      }
       // TODO(cjhopman): Should parent point to the closest parent with context instead of just the
       // parent? If the parent doesn't include context, we're currently removing parts of the stack
       // trace without any context to replace it.
@@ -137,42 +263,21 @@ public class ErrorLogger {
       e = cause;
     }
 
-    logUserVisible(e, parent, context);
+    return new DeconstructedException(
+        Preconditions.checkNotNull(e), parent, ImmutableList.copyOf(context));
   }
 
-  private void logUserVisible(
-      Throwable rootCause, @Nullable Throwable parent, List<String> context) {
-    StringBuilder messageBuilder = new StringBuilder();
-    // TODO(cjhopman): Based on verbosity, get the stacktrace here instead of just the message.
-    messageBuilder.append(getMessageForRootCause(rootCause, parent));
-    if (!context.isEmpty()) {
-      messageBuilder.append("\n");
-      messageBuilder.append(
-          Joiner.on("\n").join(context.stream().map(c -> "    " + c).collect(Collectors.toList())));
-    }
-
-    String augmentedError = errorAugmentor.getAugmentedError(messageBuilder.toString());
-    if (rootCause instanceof HumanReadableException) {
+  private void logUserVisible(DeconstructedException deconstructed) {
+    String augmentedError =
+        deconstructed.getAugmentedErrorWithContext(suppressStackTraces, "    ", errorAugmentor);
+    if (deconstructed.isUserError()) {
       logger.logUserVisible(augmentedError);
     } else {
       logger.logUserVisibleInternalError(augmentedError);
     }
   }
 
-  private String getMessageForRootCause(Throwable rootCause, @Nullable Throwable parent) {
-    if (rootCause instanceof HumanReadableException) {
-      return ((HumanReadableException) rootCause).getHumanReadableErrorMessage();
-    } else if (suppressStackTraces) {
-      return String.format("%s: %s", rootCause.getClass().getName(), rootCause.getMessage());
-    } else if (parent == null) {
-      return Throwables.getStackTraceAsString(rootCause);
-    } else {
-      Preconditions.checkState(parent.getCause() == rootCause);
-      return getStackTraceOfCause(parent);
-    }
-  }
-
-  private String getStackTraceOfCause(Throwable parent) {
+  private static String getStackTraceOfCause(Throwable parent) {
     // If there's a parent, print the parent's stack trace and then filter out it and its
     // suppressed exceptions. This allows us to elide stack frames that are shared between the
     // root cause and its parent.

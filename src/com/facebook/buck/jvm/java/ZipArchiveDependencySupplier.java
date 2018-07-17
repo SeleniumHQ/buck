@@ -16,6 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
+import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
@@ -28,12 +29,9 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.util.stream.Stream;
 
 public class ZipArchiveDependencySupplier implements ArchiveDependencySupplier {
-  private final SourcePathRuleFinder ruleFinder;
-  private final ImmutableSortedSet<SourcePath> zipFiles;
+  @AddToRuleKey private final ImmutableSortedSet<SourcePath> zipFiles;
 
-  public ZipArchiveDependencySupplier(
-      SourcePathRuleFinder ruleFinder, ImmutableSortedSet<SourcePath> zipFiles) {
-    this.ruleFinder = ruleFinder;
+  public ZipArchiveDependencySupplier(ImmutableSortedSet<SourcePath> zipFiles) {
     this.zipFiles = zipFiles;
   }
 
@@ -43,7 +41,8 @@ public class ZipArchiveDependencySupplier implements ArchiveDependencySupplier {
   }
 
   @Override
-  public Stream<SourcePath> getArchiveMembers(SourcePathResolver resolver) {
+  public Stream<SourcePath> getArchiveMembers(
+      SourcePathResolver resolver, SourcePathRuleFinder ruleFinder) {
     return zipFiles
         .stream()
         .flatMap(
@@ -51,7 +50,7 @@ public class ZipArchiveDependencySupplier implements ArchiveDependencySupplier {
               BuildRule rule = ruleFinder.getRule((BuildTargetSourcePath) zipSourcePath);
               HasJavaAbi hasJavaAbi = (HasJavaAbi) rule;
               Preconditions.checkState(rule.getSourcePathToOutput().equals(zipSourcePath));
-              return hasJavaAbi.getJarContents().stream();
+              return hasJavaAbi.getAbiInfo().getJarContents().stream();
             });
   }
 }

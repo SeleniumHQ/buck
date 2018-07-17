@@ -38,6 +38,8 @@ import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.ParserPythonInterpreterProvider;
+import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
@@ -106,6 +108,7 @@ public class CommandRunnerParamsForTesting {
         KnownBuildRuleTypesProvider.of(
             DefaultKnownBuildRuleTypesFactory.of(
                 processExecutor, pluginManager, new TestSandboxExecutionStrategyFactory()));
+    ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
 
     return CommandRunnerParams.of(
         console,
@@ -116,11 +119,13 @@ public class CommandRunnerParamsForTesting {
         new SingletonArtifactCacheFactory(artifactCache),
         typeCoercerFactory,
         new DefaultParser(
-            cell.getBuckConfig().getView(ParserConfig.class),
+            new PerBuildStateFactory(
+                typeCoercerFactory,
+                new ConstructorArgMarshaller(typeCoercerFactory),
+                knownBuildRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder())),
+            parserConfig,
             typeCoercerFactory,
-            new ConstructorArgMarshaller(typeCoercerFactory),
-            knownBuildRuleTypesProvider,
-            new ExecutableFinder(),
             new TargetSpecResolver()),
         eventBus,
         platform,

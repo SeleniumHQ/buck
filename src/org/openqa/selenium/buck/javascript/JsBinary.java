@@ -27,6 +27,7 @@ import com.facebook.buck.core.rules.attr.InitializableFromDisk;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -192,7 +193,8 @@ public class JsBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps implemen
   }
 
   @Override
-  public JavascriptDependencies initializeFromDisk() throws IOException {
+  public JavascriptDependencies initializeFromDisk(SourcePathResolver pathResolver)
+      throws IOException {
     List<String> allLines = getProjectFilesystem().readLines(joyPath);
     joy = JavascriptDependencies.buildFrom(Joiner.on("\n").join(allLines));
     return joy;

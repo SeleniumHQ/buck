@@ -157,7 +157,7 @@ genrule(
     name = "disassemble_app_r_dot_java",
     out = "all_r_fields.smali",
     bash = " && ".join([
-        "$(exe //third-party/smali:baksmali) -o $TMP $(location :app)",
+        "$(exe //third-party/smali:baksmali) d -o $TMP $(location :app)",
         "cat $TMP/com/sample*/R*.smali | grep ^.field > $OUT",
     ]),
 )
@@ -414,4 +414,33 @@ android_binary(
         "//java/com/sample/small:small_with_no_resource_deps",
         "//res/com/sample/base:base",
     ],
+)
+
+android_binary(
+    name = "app_with_big_r_dot_java",
+    allow_r_dot_java_in_secondary_dex = True,
+    keystore = "//keystores:debug",
+    manifest = "SimpleManifest.xml",
+    minimize_primary_dex_size = True,
+    primary_dex_patterns = [
+        "/primary/R$",
+    ],
+    use_split_dex = True,
+    deps = [
+        "//java/com/resourceref:resourceref",
+    ],
+)
+
+genrule(
+    name = "disassemble_big_r_dot_java_primary",
+    out = "big_r_dot_java_primary.txt",
+    bash = "$(exe //third-party/smali:baksmali) list classes " +
+           "$(location :app_with_big_r_dot_java)/classes.dex > $OUT",
+)
+
+genrule(
+    name = "disassemble_big_r_dot_java_secondary",
+    out = "big_r_dot_java_secondary.txt",
+    bash = "$(exe //third-party/smali:baksmali) list classes " +
+           "$(location :app_with_big_r_dot_java)/classes2.dex > $OUT",
 )

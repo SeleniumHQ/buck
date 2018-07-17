@@ -34,8 +34,8 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
-import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.core.HasSources;
+import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.model.ImmutableBuildTarget;
@@ -47,7 +47,6 @@ import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Optional;
-import java.util.stream.Collectors;
 import org.immutables.value.Value;
 
 public class JavaLibraryDescription
@@ -61,10 +60,10 @@ public class JavaLibraryDescription
           JavaLibrary.SRC_JAR,
           JavaLibrary.MAVEN_JAR,
           JavaLibrary.UBER_JAR,
-          HasJavaAbi.CLASS_ABI_FLAVOR,
-          HasJavaAbi.SOURCE_ABI_FLAVOR,
-          HasJavaAbi.SOURCE_ONLY_ABI_FLAVOR,
-          HasJavaAbi.VERIFIED_SOURCE_ABI_FLAVOR);
+          JavaAbis.CLASS_ABI_FLAVOR,
+          JavaAbis.SOURCE_ABI_FLAVOR,
+          JavaAbis.SOURCE_ONLY_ABI_FLAVOR,
+          JavaAbis.VERIFIED_SOURCE_ABI_FLAVOR);
 
   private final ToolchainProvider toolchainProvider;
   private final JavaBuckConfig javaBuckConfig;
@@ -191,10 +190,6 @@ public class JavaLibraryDescription
             graphBuilder,
             args);
 
-    BuildTarget withoutMaven = ImmutableBuildTarget.of(
-        buildTarget.getUnflavoredBuildTarget(),
-        flavors.stream().filter(flavor -> flavor.compareTo(JavaLibrary.MAVEN_JAR) != 0).collect(Collectors.toSet()));
-
     DefaultJavaLibraryRules defaultJavaLibraryRules =
         DefaultJavaLibrary.rulesBuilder(
                 buildTarget,
@@ -211,7 +206,7 @@ public class JavaLibraryDescription
             .setToolchainProvider(context.getToolchainProvider())
             .build();
 
-    if (HasJavaAbi.isAbiTarget(buildTarget)) {
+    if (JavaAbis.isAbiTarget(buildTarget)) {
       return defaultJavaLibraryRules.buildAbi();
     }
 

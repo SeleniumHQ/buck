@@ -17,26 +17,18 @@
 package com.facebook.buck.cli.exception.handlers;
 
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.is;
 
 import com.facebook.buck.cli.exceptions.handlers.ExceptionHandlerRegistryFactory;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.exceptions.handler.ExceptionHandlerRegistry;
-import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.BuckIsDyingException;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.InterruptionFailedException;
-import com.google.common.collect.ImmutableMap;
-import com.martiansoftware.nailgun.NGContext;
 import java.io.IOException;
 import java.nio.channels.ClosedByInterruptException;
 import java.nio.file.FileSystemLoopException;
-import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import org.junit.Before;
 import org.junit.Test;
@@ -44,22 +36,16 @@ import org.junit.Test;
 public class ExceptionHandlerRegistryTest {
 
   private ExceptionHandlerRegistry registry;
-  private TestConsole console;
-  private Optional<NGContext> ngContext = Optional.empty();
 
   @Before
   public void setUp() {
-    console = new TestConsole();
-    registry =
-        ExceptionHandlerRegistryFactory.create(
-            console, ngContext, new HumanReadableExceptionAugmentor(ImmutableMap.of()));
+    registry = ExceptionHandlerRegistryFactory.create();
   }
 
   @Test
   public void testWithUnhandledExecutionException() {
     ExecutionException ex = new ExecutionException(new Throwable());
     assertThat(registry.handleException(ex), is(ExitCode.FATAL_GENERIC));
-    assertThat(console.getTextWrittenToStdErr(), containsString("UNKNOWN ERROR"));
   }
 
   @Test
@@ -69,7 +55,6 @@ public class ExceptionHandlerRegistryTest {
             "coming from Future, should be ignored",
             new HumanReadableException("useful exception"));
     assertThat(registry.handleException(ex), is(ExitCode.BUILD_ERROR));
-    assertThat(console.getTextWrittenToStdErr(), containsString("useful exception"));
   }
 
   @Test
@@ -81,14 +66,12 @@ public class ExceptionHandlerRegistryTest {
                 "coming from Future, should be ignored",
                 new InterruptedException("user interrupted exception")));
     assertThat(registry.handleException(ex), is(ExitCode.SIGNAL_INTERRUPT));
-    assertThat(console.getTextWrittenToStdErr(), is(emptyString()));
   }
 
   @Test
   public void testWithClosedByInterruptException() {
     assertThat(
         registry.handleException(new ClosedByInterruptException()), is(ExitCode.SIGNAL_INTERRUPT));
-    assertThat(console.getTextWrittenToStdErr(), is(emptyString()));
   }
 
   @Test
@@ -97,7 +80,6 @@ public class ExceptionHandlerRegistryTest {
     assertThat(
         registry.handleException(new IOException(noDiskSpaceMessage)),
         is(ExitCode.FATAL_DISK_FULL));
-    assertThat(console.getTextWrittenToStdErr(), containsString(noDiskSpaceMessage));
   }
 
   @Test
@@ -105,7 +87,6 @@ public class ExceptionHandlerRegistryTest {
     String fatalIOExceptionMessage = "Fatal IO Exception, not disk full, not FileSystemLoop";
     assertThat(
         registry.handleException(new IOException(fatalIOExceptionMessage)), is(ExitCode.FATAL_IO));
-    assertThat(console.getTextWrittenToStdErr(), containsString(fatalIOExceptionMessage));
   }
 
   @Test
@@ -113,7 +94,6 @@ public class ExceptionHandlerRegistryTest {
     assertThat(
         registry.handleException(new CommandLineException("command line exception")),
         is(ExitCode.COMMANDLINE_ERROR));
-    assertThat(console.getTextWrittenToStdErr(), containsString("BAD ARGUMENTS:"));
   }
 
   @Test
@@ -121,9 +101,6 @@ public class ExceptionHandlerRegistryTest {
     assertThat(
         registry.handleException(new FileSystemLoopException("Symlink found")),
         is(ExitCode.FATAL_GENERIC));
-    String consoleText = console.getTextWrittenToStdErr();
-    assertThat(consoleText, containsString("Loop detected"));
-    assertThat(consoleText, containsString("Symlink found"));
   }
 
   @Test
@@ -132,15 +109,6 @@ public class ExceptionHandlerRegistryTest {
         registry.handleException(
             new ExecutionException("coming from Future, will be ignored", new OutOfMemoryError())),
         is(ExitCode.FATAL_OOM));
-    assertThat(console.getTextWrittenToStdErr(), containsString("Buck ran out of memory"));
-  }
-
-  @Test
-  public void testWithInterruptionFailedException() {
-    assertThat(
-        registry.handleException(new InterruptionFailedException("Interruption failed")),
-        is(ExitCode.SIGNAL_INTERRUPT));
-    assertThat(console.getTextWrittenToStdErr(), is(emptyString()));
   }
 
   @Test
@@ -150,7 +118,6 @@ public class ExceptionHandlerRegistryTest {
         registry.handleException(
             BuildFileParseException.createForUnknownParseError(parserErrorMessage)),
         is(ExitCode.PARSE_ERROR));
-    assertThat(console.getTextWrittenToStdErr(), containsString(parserErrorMessage));
   }
 
   @Test
@@ -158,17 +125,13 @@ public class ExceptionHandlerRegistryTest {
     assertThat(
         registry.handleException(new BuckIsDyingException("Buck is dying")),
         is(ExitCode.FATAL_GENERIC));
-    assertThat(console.getTextWrittenToStdErr(), is(emptyString()));
   }
 
   @Test
   public void testWithThrowable() {
-    String throwableMessage = "this is a throwable";
+    String throwableMessage = "java.lang.Throwable: this is a throwable";
     assertThat(
         registry.handleException(new Throwable(throwableMessage)), is(ExitCode.FATAL_GENERIC));
-    String consoleText = console.getTextWrittenToStdErr();
-    assertThat(consoleText, containsString("UNKNOWN ERROR"));
-    assertThat(consoleText, containsString(throwableMessage));
   }
 
   @Test
@@ -180,8 +143,5 @@ public class ExceptionHandlerRegistryTest {
             throwableMessage, new Exception("t1", new Exception("t2", new Exception("t3", t4))));
     t4.initCause(t0.getCause());
     assertThat(registry.handleException(t0), is(ExitCode.FATAL_GENERIC));
-    String consoleText = console.getTextWrittenToStdErr();
-    assertThat(consoleText, containsString("UNKNOWN ERROR"));
-    assertThat(consoleText, containsString(throwableMessage));
   }
 }

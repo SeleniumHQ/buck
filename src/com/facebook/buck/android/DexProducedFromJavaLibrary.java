@@ -31,6 +31,7 @@ import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
@@ -85,6 +86,8 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
 
   @AddToRuleKey private final SourcePath javaLibrarySourcePath;
   @AddToRuleKey private final String dexTool;
+  /** Scale factor to apply to our weight estimate, for deceptive dexes. */
+  @AddToRuleKey private final int weightFactor;
 
   private final AndroidPlatformTarget androidPlatformTarget;
   private final JavaLibrary javaLibrary;
@@ -106,12 +109,24 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
       BuildRuleParams params,
       JavaLibrary javaLibrary,
       String dexTool) {
+    this(buildTarget, projectFilesystem, androidPlatformTarget, params, javaLibrary, dexTool, 1);
+  }
+
+  DexProducedFromJavaLibrary(
+      BuildTarget buildTarget,
+      ProjectFilesystem projectFilesystem,
+      AndroidPlatformTarget androidPlatformTarget,
+      BuildRuleParams params,
+      JavaLibrary javaLibrary,
+      String dexTool,
+      int weightFactor) {
     super(buildTarget, projectFilesystem, params);
     this.androidPlatformTarget = androidPlatformTarget;
     this.javaLibrary = javaLibrary;
     this.dexTool = dexTool;
     this.javaLibrarySourcePath = javaLibrary.getSourcePathToOutput();
     this.buildOutputInitializer = new BuildOutputInitializer<>(buildTarget, this);
+    this.weightFactor = weightFactor;
   }
 
   @Override
@@ -195,7 +210,9 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
             }
 
             writeMetadataValue(
-                buildableContext, WEIGHT_ESTIMATE, String.valueOf(weightEstimate.get()));
+                buildableContext,
+                WEIGHT_ESTIMATE,
+                String.valueOf(weightFactor * weightEstimate.get()));
 
             // Record the classnames to hashes map.
             writeMetadataValue(
@@ -213,7 +230,7 @@ public class DexProducedFromJavaLibrary extends AbstractBuildRuleWithDeclaredAnd
   }
 
   @Override
-  public BuildOutput initializeFromDisk() throws IOException {
+  public BuildOutput initializeFromDisk(SourcePathResolver pathResolver) throws IOException {
     int weightEstimate =
         Integer.parseInt(
             readMetadataValue(getProjectFilesystem(), getBuildTarget(), WEIGHT_ESTIMATE).get());

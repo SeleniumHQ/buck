@@ -384,6 +384,7 @@ public class Build implements Closeable {
       // Note that pathToBuildReport is an absolute path that may exist outside of the project
       // root, so it is not appropriate to use ProjectFilesystem to write the output.
       String jsonBuildReport = buildReport.generateJsonBuildReport();
+      eventBus.post(BuildEvent.buildReport(jsonBuildReport));
       // TODO(cjhopman): The build report should use an ErrorLogger to extract good error
       // messages.
       try {
@@ -482,6 +483,7 @@ public class Build implements Closeable {
     BuildReport buildReport = new BuildReport(e.createBuildExecutionResult(), pathResolver);
     try {
       String jsonBuildReport = buildReport.generateJsonBuildReport();
+      eventBus.post(BuildEvent.buildReport(jsonBuildReport));
       Files.write(jsonBuildReport, pathToBuildReport.toFile(), Charsets.UTF_8);
     } catch (IOException writeException) {
       LOG.warn(writeException, "Failed to write the build report to %s", pathToBuildReport);

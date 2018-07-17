@@ -1,4 +1,8 @@
-load("//tools/build_rules:java_rules.bzl", "java_immutables_library", "java_library_with_plugins")
+load(
+    "//tools/build_rules:java_rules.bzl",
+    "java_immutables_library",
+    "java_library_with_plugins",
+)
 
 java_library(
     name = "fat-jar-main",
@@ -22,7 +26,9 @@ java_library(
     srcs = [
         "JavaBuckConfig.java",
     ],
-    visibility = ["PUBLIC"],
+    visibility = [
+        "PUBLIC",
+    ],
     deps = [
         "//src/com/facebook/buck/android:utils",
         "//src/com/facebook/buck/config:config",
@@ -86,7 +92,9 @@ java_library(
         "JavacEventSink.java",
         "JavacEventSinkScopedSimplePerfEvent.java",
     ],
-    visibility = ["PUBLIC"],
+    visibility = [
+        "PUBLIC",
+    ],
     deps = [
         "//src/com/facebook/buck/config:config",
         "//src/com/facebook/buck/core/cell/name:name",
@@ -184,13 +192,16 @@ java_immutables_library(
         "//test/com/facebook/buck/jvm/java:integration-slow",
         "//test/com/facebook/buck/jvm/java:java",
     ],
-    visibility = ["PUBLIC"],
+    visibility = [
+        "PUBLIC",
+    ],
     deps = [
         "//src/com/facebook/buck/android:utils",
         "//src/com/facebook/buck/config:config",
         "//src/com/facebook/buck/core/description:description",
         "//src/com/facebook/buck/core/rules:rules",
         "//src/com/facebook/buck/core/rules/common:common",
+        "//src/com/facebook/buck/core/sourcepath/resolver/impl:impl",
         "//src/com/facebook/buck/core/toolchain/tool/impl:impl",
         "//src/com/facebook/buck/core/util/immutables:immutables",
         "//src/com/facebook/buck/event:event",
@@ -200,6 +211,7 @@ java_immutables_library(
         "//src/com/facebook/buck/io:executable-finder",
         "//src/com/facebook/buck/io:io",
         "//src/com/facebook/buck/io:transport",
+        "//src/com/facebook/buck/io/file:file",
         "//src/com/facebook/buck/io/filesystem:filesystem",
         "//src/com/facebook/buck/jvm/core:core",
         "//src/com/facebook/buck/jvm/java:javac-internals",
@@ -253,7 +265,9 @@ java_library(
         "DefaultJavaPackageFinder.java",
         "ResourcesRootPackageFinder.java",
     ],
-    visibility = ["PUBLIC"],
+    visibility = [
+        "PUBLIC",
+    ],
     deps = [
         "//src/com/facebook/buck/config:config",
         "//src/com/facebook/buck/core/cell/name:name",
@@ -297,6 +311,7 @@ java_library_with_plugins(
         "DefaultJavaLibrary.java",
         "DefaultJavaLibraryRules.java",
         "DefaultSourceOnlyAbiRuleInfo.java",
+        "DefaultSourceOnlyAbiRuleInfoFactory.java",
         "ForkMode.java",
         "JarBuildStepsFactory.java",
         "JarFattener.java",
@@ -348,7 +363,9 @@ java_library_with_plugins(
         "//test/com/facebook/buck/jvm/java:integration-slow",
         "//test/com/facebook/buck/jvm/java:java",
     ],
-    visibility = ["PUBLIC"],
+    visibility = [
+        "PUBLIC",
+    ],
     deps = [
         ":autodeps",
         "//src/com/facebook/buck/android:utils",
@@ -467,7 +484,9 @@ java_immutables_library(
         "//test/com/facebook/buck/jvm/java:integration-slow",
         "//test/com/facebook/buck/jvm/java:java",
     ],
-    visibility = ["PUBLIC"],
+    visibility = [
+        "PUBLIC",
+    ],
     deps = [
         "//src/com/facebook/buck/android:utils",
         "//src/com/facebook/buck/config:config",
@@ -536,9 +555,9 @@ java_library(
     ],
     visibility = [
         "//src/com/facebook/buck/cli:cli",
-        "//src/com/facebook/buck/ide/intellij:intellij",
+        "//src/com/facebook/buck/features/project/intellij:",
         "//src/com/facebook/buck/jvm/java/autodeps:",
-        "//test/com/facebook/buck/ide/intellij:intellij",
+        "//test/com/facebook/buck/features/project/intellij:intellij",
         "//test/com/facebook/buck/jvm/java:java",
         "//test/com/facebook/buck/jvm/java/autodeps:autodeps",
     ],

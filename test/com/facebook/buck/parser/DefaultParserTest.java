@@ -187,16 +187,16 @@ public class DefaultParserTest {
       Path buildFile)
       throws BuildFileParseException {
     try (PerBuildState state =
-        new PerBuildStateFactory()
-            .create(
+        new PerBuildStateFactory(
                 typeCoercerFactory,
-                parser.getPermState(),
                 new ConstructorArgMarshaller(typeCoercerFactory),
+                knownBuildRuleTypesProvider,
+                new ParserPythonInterpreterProvider(cell.getBuckConfig(), executableFinder))
+            .create(
+                parser.getPermState(),
                 eventBus,
-                new ParserPythonInterpreterProvider(cell.getBuckConfig(), executableFinder),
                 executor,
                 cell,
-                knownBuildRuleTypesProvider,
                 enableProfiling,
                 SpeculativeParsing.DISABLED)) {
       return DefaultParser.getTargetNodeRawAttributes(state, cell, buildFile);
@@ -307,15 +307,18 @@ public class DefaultParserTest {
                 processExecutor,
                 BuckPluginManagerFactory.createPluginManager(),
                 new TestSandboxExecutionStrategyFactory()));
+    ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
 
     typeCoercerFactory = new DefaultTypeCoercerFactory();
     parser =
         new DefaultParser(
-            cell.getBuckConfig().getView(ParserConfig.class),
+            new PerBuildStateFactory(
+                typeCoercerFactory,
+                new ConstructorArgMarshaller(typeCoercerFactory),
+                knownBuildRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, executableFinder)),
+            parserConfig,
             typeCoercerFactory,
-            new ConstructorArgMarshaller(typeCoercerFactory),
-            knownBuildRuleTypesProvider,
-            executableFinder,
             new TargetSpecResolver());
 
     counter = new ParseEventStartedCounter();
@@ -1659,14 +1662,17 @@ public class DefaultParserTest {
     BuildTarget fooLibTarget = BuildTargetFactory.newInstance(cellRoot, "//foo", "lib");
     HashCode original = buildTargetGraphAndGetHashCodes(parser, fooLibTarget).get(fooLibTarget);
 
+    ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
     DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     parser =
         new DefaultParser(
-            cell.getBuckConfig().getView(ParserConfig.class),
+            new PerBuildStateFactory(
+                typeCoercerFactory,
+                new ConstructorArgMarshaller(typeCoercerFactory),
+                knownBuildRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, executableFinder)),
+            parserConfig,
             typeCoercerFactory,
-            new ConstructorArgMarshaller(typeCoercerFactory),
-            knownBuildRuleTypesProvider,
-            executableFinder,
             new TargetSpecResolver());
     Path testFooJavaFile = tempDir.newFile("foo/Foo.java");
     Files.write(testFooJavaFile, "// Ceci n'est pas une Javafile\n".getBytes(UTF_8));
@@ -1778,14 +1784,17 @@ public class DefaultParserTest {
     HashCode libKey = hashes.get(fooLibTarget);
     HashCode lib2Key = hashes.get(fooLib2Target);
 
+    ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
     DefaultTypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     parser =
         new DefaultParser(
+            new PerBuildStateFactory(
+                typeCoercerFactory,
+                new ConstructorArgMarshaller(typeCoercerFactory),
+                knownBuildRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, executableFinder)),
             cell.getBuckConfig().getView(ParserConfig.class),
             typeCoercerFactory,
-            new ConstructorArgMarshaller(typeCoercerFactory),
-            knownBuildRuleTypesProvider,
-            executableFinder,
             new TargetSpecResolver());
     Files.write(
         testFooBuckFile,
@@ -2063,15 +2072,18 @@ public class DefaultParserTest {
     assertTrue(remote.isSetCellPaths());
     assertEquals(remote.cellPaths.size(), 1);
 
+    ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     // Reset parser to square one.
     parser =
         new DefaultParser(
-            cell.getBuckConfig().getView(ParserConfig.class),
+            new PerBuildStateFactory(
+                typeCoercerFactory,
+                new ConstructorArgMarshaller(typeCoercerFactory),
+                knownBuildRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, executableFinder)),
+            parserConfig,
             typeCoercerFactory,
-            new ConstructorArgMarshaller(typeCoercerFactory),
-            knownBuildRuleTypesProvider,
-            executableFinder,
             new TargetSpecResolver());
     // Restore state.
     parser.getPermState().restoreState(remote, cell);
@@ -2089,7 +2101,7 @@ public class DefaultParserTest {
                             ImmutableUnflavoredBuildTarget.of(
                                 cell.getRoot(), cell.getCanonicalName(), "//foo", "lib")),
                         BuildFileSpec.of(Paths.get("foo"), false, cell.getRoot()))),
-                ParserConfig.ApplyDefaultFlavorsMode.ENABLED)
+                ParserConfig.ApplyDefaultFlavorsMode.SINGLE)
             .getTargetGraph();
     assertEquals(oldGraph, newGraph);
   }
@@ -2199,7 +2211,7 @@ public class DefaultParserTest {
                 ImmutableList.of(
                     AbstractBuildTargetSpec.from(
                         BuildTargetFactory.newInstance(cellRoot, "//lib", "lib"))),
-                ParserConfig.ApplyDefaultFlavorsMode.ENABLED)
+                ParserConfig.ApplyDefaultFlavorsMode.SINGLE)
             .getBuildTargets();
 
     assertThat(
@@ -2246,7 +2258,7 @@ public class DefaultParserTest {
                 ImmutableList.of(
                     AbstractBuildTargetSpec.from(
                         BuildTargetFactory.newInstance(cellRoot, "//lib", "lib"))),
-                ParserConfig.ApplyDefaultFlavorsMode.ENABLED)
+                ParserConfig.ApplyDefaultFlavorsMode.SINGLE)
             .getBuildTargets();
 
     assertThat(
@@ -2297,7 +2309,7 @@ public class DefaultParserTest {
                 ImmutableList.of(
                     AbstractBuildTargetSpec.from(
                         BuildTargetFactory.newInstance(cellRoot, "//lib", "lib"))),
-                ParserConfig.ApplyDefaultFlavorsMode.ENABLED)
+                ParserConfig.ApplyDefaultFlavorsMode.SINGLE)
             .getBuildTargets();
 
     assertThat(

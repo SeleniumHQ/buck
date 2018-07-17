@@ -409,8 +409,8 @@
     <compiler srcdir="${aosp.src.dir}" destdir="${aosp.classes.dir}" gensrcdir="${aosp.gensrc.dir}">
       <compiler-params>
         <!-- suppress ManifestMerger2 warnings -->
-        <compilerarg value="--add-exports=java.base/sun.security.x509=ALL-UNNAMED"/>
-        <compilerarg value="--add-exports=java.base/sun.security.pkcs=ALL-UNNAMED"/>
+        <compilerarg value="-err:-all" compiler="${ecj.compiler}"/>
+        <compilerarg value="-warn:-all" compiler="${ecj.compiler}"/>
       </compiler-params>
     </compiler>
   </target>
@@ -445,6 +445,7 @@
              debug="on"
              deprecation="on"
              includeAntRuntime="no"
+             compiler="${buck.build.compiler}"
              >
         <javac-params />
         <!--
@@ -511,7 +512,7 @@
           <exclude name="com/facebook/buck/jvm/java/plugin/adapter/**" />
           <exclude name="com/facebook/buck/module/annotationprocessor/**" />
           <exclude name="com/facebook/buck/testrunner/**" />
-          <exclude name="org/openqa/selenium/buck/**" />
+          <exclude name="org/openqa/**" />
         </patternset>
       </javac-params>
     </compiler>
@@ -544,6 +545,7 @@
                                         build-module-go,
                                         build-module-gwt,
                                         build-module-haskell,
+                                        build-module-intellij,
                                         build-module-lua,
                                         build-module-ocaml,
                                         build-module-python,
@@ -611,6 +613,17 @@
         <include name="com/facebook/buck/features/haskell/**/*.java" />
       </module-javac-params>
     </build-buck-module-jar>
+  </target>
+
+  <target name="build-module-intellij" depends="compile">
+    <build-buck-module-jar-with-resources module-name="intellij">
+      <module-javac-params>
+        <include name="com/facebook/buck/features/project/intellij/**/*.java" />
+      </module-javac-params>
+      <module-resources>
+        <include name="com/facebook/buck/features/project/intellij/templates/*.st"/>
+      </module-resources>
+    </build-buck-module-jar-with-resources>
   </target>
 
   <target name="build-module-lua" depends="compile, build-module-python">
@@ -743,7 +756,6 @@
         <include name="com/facebook/buck/apple/project_generator/*.st"/>
         <include name="com/facebook/buck/httpserver/*.stg"/>
         <include name="com/facebook/buck/httpserver/resources/static/*"/>
-        <include name="com/facebook/buck/ide/intellij/templates/*"/>
         <include name="com/facebook/buck/maven/build-file.st"/>
         <include name="com/facebook/buck/python/*.py"/>
         <include name="com/facebook/buck/python/run_inplace.py.in"/>

@@ -25,14 +25,14 @@ import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.rules.common.BuildDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.core.HasJavaAbi;
+import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.java.ConfiguredCompiler;
 import com.facebook.buck.jvm.java.JarBuildStepsFactory;
 import com.facebook.buck.jvm.java.JavaBuckConfig.UnusedDependenciesAction;
 import com.facebook.buck.jvm.java.PrebuiltJar;
 import com.facebook.buck.jvm.java.RemoveClassesPatternsMatcher;
+import com.facebook.buck.jvm.java.ResourcesParameters;
 import com.facebook.buck.jvm.java.ZipArchiveDependencySupplier;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.google.common.collect.ImmutableList;
@@ -52,7 +52,6 @@ public class AndroidPrebuiltAar extends AndroidLibrary
       BuildTarget androidLibraryBuildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams androidLibraryParams,
-      SourcePathResolver resolver,
       SourcePathRuleFinder ruleFinder,
       SourcePath proguardConfig,
       SourcePath nativeLibsDirectory,
@@ -70,15 +69,13 @@ public class AndroidPrebuiltAar extends AndroidLibrary
                 Iterables.concat(
                     androidLibraryParams.getBuildDeps(),
                     ruleFinder.filterBuildRuleInputs(abiClasspath.get())))),
-        resolver,
         new JarBuildStepsFactory(
             projectFilesystem,
-            ruleFinder,
             androidLibraryBuildTarget,
             configuredCompiler,
             /* srcs */ ImmutableSortedSet.of(),
-            /* resources */ ImmutableSortedSet.of(),
-            /* resourcesRoot */ Optional.empty(),
+            ImmutableSortedSet.of(),
+            ResourcesParameters.of(),
             /* manifestFile */ Optional.empty(), // Manifest means something else for Android rules
             /* postprocessClassesCommands */ ImmutableList.of(),
             abiClasspath,
@@ -90,6 +87,7 @@ public class AndroidPrebuiltAar extends AndroidLibrary
             AbiGenerationMode.CLASS,
             AbiGenerationMode.CLASS,
             /* sourceOnlyAbiRuleInfo */ null),
+        ruleFinder,
         Optional.of(proguardConfig),
         /* firstOrderPackageableDeps */ androidLibraryParams.getDeclaredDeps().get(),
         /* exportedDeps */ ImmutableSortedSet.<BuildRule>naturalOrder()
@@ -98,7 +96,7 @@ public class AndroidPrebuiltAar extends AndroidLibrary
             .build(),
         /* providedDeps */ ImmutableSortedSet.of(),
         ImmutableSortedSet.of(),
-        HasJavaAbi.getClassAbiJar(androidLibraryBuildTarget),
+        JavaAbis.getClassAbiJar(androidLibraryBuildTarget),
         /* sourceOnlyAbiJar */ null,
         /* mavenCoords */ Optional.empty(),
         Optional.of(

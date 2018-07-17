@@ -21,7 +21,6 @@ import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
 import com.facebook.buck.core.rules.attr.InitializableFromDisk;
@@ -30,9 +29,10 @@ import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDe
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.jvm.core.DefaultJavaAbiInfo;
+import com.facebook.buck.jvm.core.JavaAbiInfo;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.step.Step;
@@ -54,21 +54,20 @@ public class CalculateClassAbi extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @AddToRuleKey private final AbiGenerationMode compatibilityMode;
 
   private final Path outputPath;
-  private final JarContentsSupplier abiJarContentsSupplier;
   private BuildOutputInitializer<Object> buildOutputInitializer;
+  private final DefaultJavaAbiInfo javaAbiInfo;
 
   public CalculateClassAbi(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams buildRuleParams,
-      SourcePathResolver resolver,
       SourcePath binaryJar,
       AbiGenerationMode compatibilityMode) {
     super(buildTarget, projectFilesystem, buildRuleParams);
     this.binaryJar = binaryJar;
     this.compatibilityMode = compatibilityMode;
     this.outputPath = getAbiJarPath(getProjectFilesystem(), getBuildTarget());
-    this.abiJarContentsSupplier = new JarContentsSupplier(resolver, getSourcePathToOutput());
+    this.javaAbiInfo = new DefaultJavaAbiInfo(getBuildTarget(), getSourcePathToOutput());
     this.buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
   }
 
@@ -95,7 +94,6 @@ public class CalculateClassAbi extends AbstractBuildRuleWithDeclaredAndExtraDeps
         libraryParams
             .withDeclaredDeps(ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(library)))
             .withoutExtraDeps(),
-        DefaultSourcePathResolver.from(ruleFinder),
         library,
         compatibilityMode);
   }
@@ -135,32 +133,24 @@ public class CalculateClassAbi extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @Override
-  public ImmutableSortedSet<SourcePath> getJarContents() {
-    return abiJarContentsSupplier.get();
+  public JavaAbiInfo getAbiInfo() {
+    return javaAbiInfo;
   }
 
   @Override
-  public boolean jarContains(String path) {
-    return abiJarContentsSupplier.jarContains(path);
+  public void invalidateInitializeFromDiskState() {
+    javaAbiInfo.invalidate();
   }
 
   @Override
-  public Object initializeFromDisk() throws IOException {
+  public Object initializeFromDisk(SourcePathResolver pathResolver) throws IOException {
     // Warm up the jar contents. We just wrote the thing, so it should be in the filesystem cache
-    abiJarContentsSupplier.load();
+    javaAbiInfo.load(pathResolver);
     return new Object();
   }
 
   @Override
   public BuildOutputInitializer<Object> getBuildOutputInitializer() {
     return buildOutputInitializer;
-  }
-
-  @Override
-  public void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver) {
-    abiJarContentsSupplier.updateSourcePathResolver(pathResolver);
   }
 }

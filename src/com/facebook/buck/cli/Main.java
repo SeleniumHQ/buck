@@ -33,7 +33,6 @@ import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
 import com.facebook.buck.core.cell.impl.LocalCellProviderFactory;
 import com.facebook.buck.core.cell.name.RelativeCellName;
 import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.exceptions.handler.ExceptionHandlerRegistry;
 import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
@@ -100,6 +99,8 @@ import com.facebook.buck.module.impl.DefaultBuckModuleManager;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.ParserPythonInterpreterProvider;
+import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.BuildStamp;
@@ -126,6 +127,8 @@ import com.facebook.buck.util.CloseableWrapper;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
+import com.facebook.buck.util.ErrorLogger;
+import com.facebook.buck.util.ErrorLogger.LogImpl;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.Libc;
 import com.facebook.buck.util.PkillProcessManager;
@@ -325,8 +328,6 @@ public final class Main {
 
   private static final Logger LOG = Logger.get(Main.class);
 
-  private ExceptionHandlerRegistry<ExitCode> exceptionHandlerRegistry;
-
   private static boolean isSessionLeader;
   private static PluginManager pluginManager;
   private static BuckModuleManager moduleManager;
@@ -442,9 +443,32 @@ public final class Main {
         console.printErrorText(e.getHumanReadableErrorMessage());
         augmentor = new HumanReadableExceptionAugmentor(ImmutableMap.of());
       }
-      exceptionHandlerRegistry =
-          ExceptionHandlerRegistryFactory.create(console, context, augmentor);
-      exitCode = exceptionHandlerRegistry.handleException(t);
+      ErrorLogger logger =
+          new ErrorLogger(
+              new LogImpl() {
+                @Override
+                public void logUserVisible(String message) {
+                  console.printFailure(message);
+                }
+
+                @Override
+                public void logUserVisibleInternalError(String message) {
+                  console.printFailure(message);
+                }
+
+                @Override
+                public void logVerbose(Throwable e) {
+                  String message = "Command failed:";
+                  if (e instanceof InterruptedException
+                      || e instanceof ClosedByInterruptException) {
+                    message = "Command was interrupted:";
+                  }
+                  LOG.warn(e, message);
+                }
+              },
+              augmentor);
+      logger.logException(t);
+      exitCode = ExceptionHandlerRegistryFactory.create().handleException(t);
     } finally {
       LOG.debug("Done.");
       LogConfig.flushLogs();
@@ -558,10 +582,17 @@ public final class Main {
     ImmutableList<String> args =
         BuckArgsMethods.expandAtFiles(unexpandedCommandLineArgs, rootCellMapping);
 
+    if (moduleManager == null) {
+      pluginManager = BuckPluginManagerFactory.createPluginManager();
+      moduleManager = new DefaultBuckModuleManager(pluginManager, new BuckModuleJarHashProvider());
+    }
+
     // Parse command line arguments
     BuckCommand command = new BuckCommand();
+    command.setPluginManager(pluginManager);
     // Parse the command line args.
-    AdditionalOptionsCmdLineParser cmdLineParser = new AdditionalOptionsCmdLineParser(command);
+    AdditionalOptionsCmdLineParser cmdLineParser =
+        new AdditionalOptionsCmdLineParser(pluginManager, command);
     try {
       cmdLineParser.parseArgument(args);
     } catch (CmdLineException e) {
@@ -582,12 +613,6 @@ public final class Main {
       if (!command.isReadOnly() && semaphore == null) {
         LOG.warn("Buck server was busy executing a command. Maybe retrying later will help.");
         return ExitCode.BUSY;
-      }
-
-      if (moduleManager == null) {
-        pluginManager = BuckPluginManagerFactory.createPluginManager();
-        moduleManager =
-            new DefaultBuckModuleManager(pluginManager, new BuckModuleJarHashProvider());
       }
 
       // statically configure Buck logging environment based on Buck config, usually buck-x.log
@@ -1322,11 +1347,13 @@ public final class Main {
       parserAndCaches =
           ParserAndCaches.of(
               new DefaultParser(
+                  new PerBuildStateFactory(
+                      typeCoercerFactory,
+                      new ConstructorArgMarshaller(typeCoercerFactory),
+                      knownBuildRuleTypesProvider,
+                      new ParserPythonInterpreterProvider(parserConfig, executableFinder)),
                   parserConfig,
                   typeCoercerFactory,
-                  new ConstructorArgMarshaller(typeCoercerFactory),
-                  knownBuildRuleTypesProvider,
-                  executableFinder,
                   new TargetSpecResolver()),
               typeCoercerFactory,
               new InstrumentedVersionedTargetGraphCache(

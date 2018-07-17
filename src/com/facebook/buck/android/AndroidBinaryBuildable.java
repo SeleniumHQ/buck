@@ -17,6 +17,8 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.apkmodule.APKModule;
+import com.facebook.buck.android.bundle.GenerateAssetsStep;
+import com.facebook.buck.android.bundle.GenerateNativeStep;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.redex.ReDexStep;
 import com.facebook.buck.android.redex.RedexOptions;
@@ -114,6 +116,8 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
 
   @AddToRuleKey private final ImmutableMap<APKModule, SourcePath> moduleResourceApkPaths;
 
+  private final boolean isApk;
+
   // These should be the only things not added to the rulekey.
   private final ProjectFilesystem filesystem;
   private final BuildTarget buildTarget;
@@ -141,7 +145,8 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
       ResourceFilesInfo resourceFilesInfo,
       ImmutableSortedSet<APKModule> apkModules,
       ImmutableMap<APKModule, SourcePath> moduleResourceApkPaths,
-      int apkCompressionLevel) {
+      int apkCompressionLevel,
+      boolean isApk) {
     this.filesystem = filesystem;
     this.buildTarget = buildTarget;
     this.androidSdkLocation = androidSdkLocation;
@@ -163,6 +168,7 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
     this.compressAssetLibraries = compressAssetLibraries;
     this.resourceFilesInfo = resourceFilesInfo;
     this.apkCompressionLevel = apkCompressionLevel;
+    this.isApk = isApk;
   }
 
   @SuppressWarnings("PMD.PrematureDeclaration")
@@ -295,22 +301,51 @@ class AndroidBinaryBuildable implements AddsToRuleKey {
             .stream()
             .map(resolver::getAbsolutePath)
             .collect(ImmutableSet.toImmutableSet());
+    if (isApk) {
+      steps.add(
+          new ApkBuilderStep(
+              getProjectFilesystem(),
+              pathResolver.getAbsolutePath(resourceFilesInfo.resourcesApkPath),
+              getSignedApkPath(),
+              pathResolver.getRelativePath(dexFilesInfo.primaryDexPath),
+              allAssetDirectories,
+              nativeLibraryDirectoriesBuilder.build(),
+              zipFiles.build(),
+              thirdPartyJars,
+              pathToKeystore,
+              keystoreProperties,
+              false,
+              javaRuntimeLauncher.getCommandPrefix(pathResolver),
+              apkCompressionLevel));
+    } else {
+      Path tempAssets =
+          BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "__assets__%s__.pb");
+      steps.add(new GenerateAssetsStep(getProjectFilesystem(), tempAssets, allAssetDirectories));
 
-    steps.add(
-        new ApkBuilderStep(
-            getProjectFilesystem(),
-            pathResolver.getAbsolutePath(resourceFilesInfo.resourcesApkPath),
-            getSignedApkPath(),
-            pathResolver.getRelativePath(dexFilesInfo.primaryDexPath),
-            allAssetDirectories,
-            nativeLibraryDirectoriesBuilder.build(),
-            zipFiles.build(),
-            thirdPartyJars,
-            pathToKeystore,
-            keystoreProperties,
-            false,
-            javaRuntimeLauncher.getCommandPrefix(pathResolver),
-            apkCompressionLevel));
+      Path tempNative =
+          BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "__native__%s__.pb");
+      steps.add(
+          new GenerateNativeStep(
+              getProjectFilesystem(), tempNative, nativeLibraryDirectoriesBuilder.build()));
+
+      steps.add(
+          new AabBuilderStep(
+              getProjectFilesystem(),
+              pathResolver.getAbsolutePath(resourceFilesInfo.resourcesApkPath),
+              getSignedApkPath(),
+              pathResolver.getRelativePath(dexFilesInfo.primaryDexPath),
+              allAssetDirectories,
+              tempAssets,
+              nativeLibraryDirectoriesBuilder.build(),
+              tempNative,
+              zipFiles.build(),
+              thirdPartyJars,
+              pathToKeystore,
+              keystoreProperties,
+              false,
+              javaRuntimeLauncher.getCommandPrefix(pathResolver),
+              apkCompressionLevel));
+    }
 
     // The `ApkBuilderStep` delegates to android tools to build a ZIP with timestamps in it, making
     // the output non-deterministic.  So use an additional scrubbing step to zero these out.

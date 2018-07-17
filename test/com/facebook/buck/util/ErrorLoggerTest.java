@@ -20,12 +20,18 @@ import static org.junit.Assert.*;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
+import com.facebook.buck.util.ErrorLogger.DeconstructedException;
 import com.facebook.buck.util.exceptions.BuckExecutionException;
+import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.UncheckedExecutionException;
+import java.io.IOException;
+import java.nio.channels.ClosedByInterruptException;
+import java.nio.file.FileSystemLoopException;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
 import javax.annotation.Nullable;
+import org.hamcrest.Matchers;
 import org.junit.Test;
 
 public class ErrorLoggerTest {
@@ -116,6 +122,98 @@ public class ErrorLoggerTest {
         logException(new BuckExecutionException(new RuntimeException(rawMessage), "context"));
     assertNull(errors.userVisible);
     assertEquals(expected, errors.userVisibleInternal);
+  }
+
+  @Test
+  public void testInterruptedException() {
+    LoggedErrors errors =
+        logException(
+            new BuckExecutionException(new InterruptedException("This has been interrupted.")));
+
+    assertEquals("Interrupted", errors.userVisible);
+    assertNull(errors.userVisibleInternal);
+  }
+
+  @Test
+  public void testClosedByInterruptedException() {
+    LoggedErrors errors =
+        logException(new BuckExecutionException(new ClosedByInterruptException()));
+
+    assertEquals("Interrupted", errors.userVisible);
+    assertNull(errors.userVisibleInternal);
+  }
+
+  @Test
+  public void testOutOfMemoryError() {
+    LoggedErrors errors =
+        logException(new BuckExecutionException(new OutOfMemoryError("No more memory!")));
+
+    assertNull(errors.userVisible);
+    assertEquals(
+        "Buck ran out of memory, you may consider increasing heap size with java args "
+            + "(see https://buckbuild.com/concept/buckjavaargs.html)\n"
+            + "java.lang.OutOfMemoryError: No more memory!",
+        errors.userVisibleInternal);
+  }
+
+  @Test
+  public void testFileSystemLoopException() {
+    LoggedErrors errors =
+        logException(new BuckExecutionException(new FileSystemLoopException("It's a loop!")));
+
+    assertNull(errors.userVisible);
+    assertEquals(
+        "Loop detected in your directory, which may be caused by circular symlink. "
+            + "You may consider running the command in a smaller directory.\n"
+            + "java.nio.file.FileSystemLoopException: It's a loop!",
+        errors.userVisibleInternal);
+  }
+
+  @Test
+  public void testNoSpaceLeftOnDevice() {
+    LoggedErrors errors =
+        logException(new BuckExecutionException(new IOException("No space left on device xyzzy.")));
+
+    assertEquals("No space left on device xyzzy.", errors.userVisible);
+    assertNull(errors.userVisibleInternal);
+  }
+
+  @Test
+  public void testBuckIsDying() {
+    LoggedErrors errors =
+        logException(
+            new BuckExecutionException(new BuckIsDyingException("It's all falling apart.")));
+
+    assertNull(errors.userVisible);
+    assertEquals("Failed because buck was already dying", errors.userVisibleInternal);
+  }
+
+  @Test
+  public void testCommandLineException() {
+    LoggedErrors errors =
+        logException(
+            new BuckExecutionException(new CommandLineException("--foo isn't an argument, silly")));
+
+    assertEquals("BAD ARGUMENTS: --foo isn't an argument, silly", errors.userVisible);
+    assertNull(errors.userVisibleInternal);
+  }
+
+  @Test
+  public void testDeconstruct() {
+    DeconstructedException deconstructed =
+        ErrorLogger.deconstruct(
+            new BuckExecutionException(
+                new BuckUncheckedExecutionException(
+                    new ExecutionException(new IOException("okay")) {}, "a little more context"),
+                "a little context"));
+
+    assertThat(
+        deconstructed.getAugmentedErrorWithContext(
+            false, "    ", new HumanReadableExceptionAugmentor(ImmutableMap.of())),
+        Matchers.allOf(
+            Matchers.startsWith("java.io.IOException: okay"),
+            Matchers.containsString("    a little more context"),
+            Matchers.containsString("    a little context")));
   }
 
   LoggedErrors logException(Exception e) {

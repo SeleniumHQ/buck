@@ -33,13 +33,13 @@ import com.facebook.buck.core.rules.pipeline.RulePipelineStateFactory;
 import com.facebook.buck.core.rules.pipeline.SupportsPipelining;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.core.HasJavaAbi;
+import com.facebook.buck.jvm.core.DefaultJavaAbiInfo;
+import com.facebook.buck.jvm.core.JavaAbiInfo;
+import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.step.Step;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSortedSet;
 import java.io.IOException;
 import java.util.SortedSet;
 import java.util.function.Predicate;
@@ -53,24 +53,24 @@ public class CalculateSourceAbi extends AbstractBuildRule
         SupportsPipelining<JavacPipelineState> {
 
   @AddToRuleKey private final JarBuildStepsFactory jarBuildStepsFactory;
-  @AddToRuleKey private final int seed = 1;
+
   // This will be added to the rule key by virtue of being returned from getBuildDeps.
   private final BuildDeps buildDeps;
-  private final JarContentsSupplier outputJarContents;
   private final BuildOutputInitializer<Object> buildOutputInitializer;
+  private final SourcePathRuleFinder ruleFinder;
+  private final DefaultJavaAbiInfo javaAbiInfo;
 
   public CalculateSourceAbi(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildDeps buildDeps,
-      SourcePathRuleFinder ruleFinder,
-      JarBuildStepsFactory jarBuildStepsFactory) {
+      JarBuildStepsFactory jarBuildStepsFactory,
+      SourcePathRuleFinder ruleFinder) {
     super(buildTarget, projectFilesystem);
     this.buildDeps = buildDeps;
     this.jarBuildStepsFactory = jarBuildStepsFactory;
-    this.outputJarContents =
-        new JarContentsSupplier(
-            DefaultSourcePathResolver.from(ruleFinder), getSourcePathToOutput());
+    this.ruleFinder = ruleFinder;
+    this.javaAbiInfo = new DefaultJavaAbiInfo(getBuildTarget(), getSourcePathToOutput());
     buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
   }
 
@@ -91,19 +91,19 @@ public class CalculateSourceAbi extends AbstractBuildRule
   }
 
   @Override
-  public ImmutableSortedSet<SourcePath> getJarContents() {
-    return outputJarContents.get();
+  public JavaAbiInfo getAbiInfo() {
+    return javaAbiInfo;
   }
 
   @Override
-  public boolean jarContains(String path) {
-    return outputJarContents.jarContains(path);
+  public void invalidateInitializeFromDiskState() {
+    javaAbiInfo.invalidate();
   }
 
   @Override
-  public Object initializeFromDisk() throws IOException {
+  public Object initializeFromDisk(SourcePathResolver pathResolver) throws IOException {
     // Warm up the jar contents. We just wrote the thing, so it should be in the filesystem cache
-    outputJarContents.load();
+    javaAbiInfo.load(pathResolver);
     return new Object();
   }
 
@@ -114,7 +114,7 @@ public class CalculateSourceAbi extends AbstractBuildRule
 
   @Override
   public boolean useRulePipelining() {
-    return !HasJavaAbi.isSourceOnlyAbiTarget(getBuildTarget());
+    return !JavaAbis.isSourceOnlyAbiTarget(getBuildTarget());
   }
 
   @Nullable
@@ -142,7 +142,7 @@ public class CalculateSourceAbi extends AbstractBuildRule
 
   @Override
   public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathResolver pathResolver) {
-    return jarBuildStepsFactory.getCoveredByDepFilePredicate(pathResolver);
+    return jarBuildStepsFactory.getCoveredByDepFilePredicate(pathResolver, ruleFinder);
   }
 
   @Override
@@ -154,6 +154,6 @@ public class CalculateSourceAbi extends AbstractBuildRule
   public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
       BuildContext context, CellPathResolver cellPathResolver) {
     return jarBuildStepsFactory.getInputsAfterBuildingLocally(
-        context, cellPathResolver, getBuildTarget());
+        context, ruleFinder, cellPathResolver, getBuildTarget());
   }
 }

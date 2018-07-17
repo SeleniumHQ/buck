@@ -18,9 +18,11 @@ package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.select.SelectorList;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.types.Pair;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
@@ -30,6 +32,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import javax.annotation.CheckReturnValue;
+import javax.annotation.Nullable;
 
 /**
  * Used to derive information from the constructor args returned by {@link
@@ -92,10 +95,18 @@ public class ConstructorArgMarshaller {
       info.setFromParams(cellRoots, filesystem, buildTarget, dtoAndBuild.getFirst(), instance);
     }
     T dto = dtoAndBuild.getSecond().apply(dtoAndBuild.getFirst());
-    ParamInfo deps = allParamInfo.get("deps");
+    collectDeclaredDeps(cellRoots, allParamInfo.get("deps"), declaredDeps, dto);
+    return dto;
+  }
+
+  private void collectDeclaredDeps(
+      CellPathResolver cellPathResolver,
+      @Nullable ParamInfo deps,
+      ImmutableSet.Builder<BuildTarget> declaredDeps,
+      Object dto) {
     if (deps != null && deps.isDep()) {
       deps.traverse(
-          cellRoots,
+          cellPathResolver,
           object -> {
             if (!(object instanceof BuildTarget)) {
               return;
@@ -104,6 +115,95 @@ public class ConstructorArgMarshaller {
           },
           dto);
     }
+  }
+
+  /**
+   * Creates a constructor argument using configured attributes.
+   *
+   * @param attributes configured attributes that cannot contain selectable values (instances of
+   *     {@link SelectorList})
+   */
+  public <T> T populateFromConfiguredAttributes(
+      CellPathResolver cellPathResolver,
+      BuildTarget buildTarget,
+      Class<T> dtoClass,
+      ImmutableSet.Builder<BuildTarget> declaredDeps,
+      ImmutableMap<String, ?> attributes) {
+    Pair<Object, Function<Object, T>> dtoAndBuild =
+        CoercedTypeCache.instantiateSkeleton(dtoClass, buildTarget);
+    ImmutableMap<String, ParamInfo> allParamInfo =
+        CoercedTypeCache.INSTANCE.getAllParamInfo(typeCoercerFactory, dtoClass);
+    for (ParamInfo info : allParamInfo.values()) {
+      Object argumentValue = attributes.get(info.getName());
+      if (argumentValue == null) {
+        continue;
+      }
+      Preconditions.checkArgument(
+          !(argumentValue instanceof SelectorList),
+          "Attribute \"%s\" is not resolved",
+          info.getName());
+      info.setCoercedValue(dtoAndBuild.getFirst(), argumentValue);
+    }
+    T dto = dtoAndBuild.getSecond().apply(dtoAndBuild.getFirst());
+    collectDeclaredDeps(cellPathResolver, allParamInfo.get("deps"), declaredDeps, dto);
     return dto;
+  }
+
+  /**
+   * Creates a map with coerced attributes using raw attributes.
+   *
+   * @param rawAttributes raw attributes that can contain selectable values (instances of {@link
+   *     SelectorList})
+   */
+  public ImmutableMap<String, Object> convertRawAttributes(
+      CellPathResolver cellRoots,
+      ProjectFilesystem filesystem,
+      BuildTarget buildTarget,
+      Class<?> dtoClass,
+      Map<String, Object> rawAttributes)
+      throws CoerceFailedException {
+    ImmutableMap<String, ParamInfo> allParamInfo =
+        CoercedTypeCache.INSTANCE.getAllParamInfo(typeCoercerFactory, dtoClass);
+    ImmutableMap.Builder<String, Object> populatedAttributesBuilder = ImmutableMap.builder();
+    for (Map.Entry<String, Object> rawAttribute : rawAttributes.entrySet()) {
+      String attributeName = rawAttribute.getKey();
+      ParamInfo paramInfo = allParamInfo.get(attributeName);
+      if (paramInfo == null) {
+        continue;
+      }
+      Object rawValue = rawAttribute.getValue();
+      Object value =
+          createCoercedAttributeWithSelectableValue(
+              cellRoots, filesystem, buildTarget, paramInfo, rawValue);
+      populatedAttributesBuilder.put(attributeName, value);
+    }
+    return populatedAttributesBuilder.build();
+  }
+
+  private Object createCoercedAttributeWithSelectableValue(
+      CellPathResolver cellRoots,
+      ProjectFilesystem filesystem,
+      BuildTarget buildTarget,
+      ParamInfo argumentInfo,
+      Object rawValue)
+      throws CoerceFailedException {
+    TypeCoercer<?> coercer;
+    // When an attribute value contains an instance of {@link
+    // com.google.devtools.build.lib.syntax.SelectorList} it's
+    // coerced by a coercer for {@link com.facebook.buck.core.select.SelectorList}.
+    // The reason why we cannot use coercer from {@code argumentInfo} because {@link
+    // com.google.devtools.build.lib.syntax.SelectorList} is not generic class, but an instance
+    // contains all necessry information to coerce the value into an instance of {@link
+    // com.facebook.buck.core.select.SelectorList} which is a generic class.
+    if (rawValue instanceof com.google.devtools.build.lib.syntax.SelectorList) {
+      coercer =
+          typeCoercerFactory.typeCoercerForParameterizedType(
+              "SelectorList",
+              SelectorList.class,
+              argumentInfo.getSetter().getGenericParameterTypes());
+    } else {
+      coercer = argumentInfo.getTypeCoercer();
+    }
+    return coercer.coerce(cellRoots, filesystem, buildTarget.getBasePath(), rawValue);
   }
 }
