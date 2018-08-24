@@ -39,6 +39,7 @@ import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.HasSources;
 import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.core.JavaLibrary;
+import com.facebook.buck.jvm.java.JarShape.Summary;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.ImmutableList;
@@ -59,7 +60,6 @@ public class JavaLibraryDescription
           Javadoc.DOC_JAR,
           JavaLibrary.SRC_JAR,
           JavaLibrary.MAVEN_JAR,
-          JavaLibrary.UBER_JAR,
           JavaAbis.CLASS_ABI_FLAVOR,
           JavaAbis.SOURCE_ABI_FLAVOR,
           JavaAbis.SOURCE_ONLY_ABI_FLAVOR,
@@ -97,6 +97,7 @@ public class JavaLibraryDescription
 
     ImmutableSortedSet<Flavor> flavors = buildTarget.getFlavors();
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
+
     JarShape shape;
     if (flavors.contains(JavaLibrary.MAVEN_JAR)) {
       shape = JarShape.MAVEN;
@@ -119,7 +120,6 @@ public class JavaLibraryDescription
               .map(rule -> ((HasSources) rule).getSources())
               .flatMap(Collection::stream)
               .collect(ImmutableSet.toImmutableSet());
-
 
       // In theory, the only deps we need are the ones that contribute to the sourcepaths. However,
       // javadoc wants to have classes being documented have all their deps be available somewhere.
@@ -150,29 +150,31 @@ public class JavaLibraryDescription
           sources);
     }
 
+    BuildTarget buildTargetWithMavenFlavor = buildTarget;
+    if (flavors.contains(JavaLibrary.MAVEN_JAR)) {
+
+      // Maven rules will depend upon their vanilla versions, so the latter have to be constructed
+      // without the maven flavor to prevent output-path conflict
+      buildTarget = buildTarget.withoutFlavors(JavaLibrary.MAVEN_JAR);
+    }
+
     if (flavors.contains(JavaLibrary.SRC_JAR)) {
       BuildTarget unflavored = ImmutableBuildTarget.of(buildTarget.getUnflavoredBuildTarget());
       BuildRule baseLibrary = graphBuilder.requireRule(unflavored);
 
-      JarShape.Summary summary = shape.gatherDeps(baseLibrary);
-      ImmutableSet<SourcePath> sources =
-          summary
-              .getPackagedRules()
-              .stream()
-              .filter(HasSources.class::isInstance)
-              .map(rule -> ((HasSources) rule).getSources())
-              .flatMap(Collection::stream)
-              .collect(ImmutableSet.toImmutableSet());
+      Summary summary = shape.gatherDeps(baseLibrary);
+      ImmutableSet<SourcePath> sources = summary.getPackagedRules()
+                        .stream()
+                        .filter(HasSources.class::isInstance)
+                        .map(rule -> ((HasSources) rule).getSources())
+                        .flatMap(Collection::stream)
+                        .collect(ImmutableSet.toImmutableSet());
 
-      ImmutableSortedSet.Builder<BuildRule> deps = ImmutableSortedSet.naturalOrder();
-      // Sourcepath deps
-      deps.addAll(ruleFinder.filterBuildRuleInputs(sources));
-      BuildRuleParams emptyParams = params.withDeclaredDeps(deps.build()).withoutExtraDeps();
 
       return new SourceJar(
           buildTarget,
           projectFilesystem,
-          emptyParams,
+          params,
           sources,
           args.getMavenCoords(),
           args.getMavenPomTemplate(),
@@ -218,7 +220,7 @@ public class JavaLibraryDescription
       graphBuilder.addToIndex(defaultJavaLibrary);
       return MavenUberJar.create(
           defaultJavaLibrary,
-          buildTarget.withFlavors(JavaLibrary.MAVEN_JAR),
+          buildTargetWithMavenFlavor,
           projectFilesystem,
           params,
           args.getMavenCoords(),
