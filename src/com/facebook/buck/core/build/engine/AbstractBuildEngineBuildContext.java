@@ -28,7 +28,6 @@ import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.core.rules.BuildStamp;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.collect.ImmutableMap;
 import org.immutables.value.Value;
@@ -47,8 +46,6 @@ abstract class AbstractBuildEngineBuildContext {
   protected abstract Clock getClock();
 
   protected abstract BuildId getBuildId();
-
-  protected abstract BuildStamp getBuildStamp();
 
   protected abstract ImmutableMap<String, String> getEnvironment();
 

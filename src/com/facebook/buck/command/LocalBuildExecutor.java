@@ -41,7 +41,6 @@ import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.core.rules.BuildStamp;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyFactories;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
@@ -118,7 +117,6 @@ public class LocalBuildExecutor implements BuildExecutor {
             args.getBuckConfig().getView(JavaBuckConfig.class).createDefaultJavaPackageFinder(),
             args.getClock(),
             executionContext,
-            args.getBuildStamp(),
             keepGoing);
   }
 
@@ -290,8 +288,6 @@ abstract class AbstractBuildExecutorArgs {
   public abstract Platform getPlatform();
 
   public abstract Clock getClock();
-
-  public abstract BuildStamp getBuildStamp();
 
   public abstract Cell getRootCell();
 

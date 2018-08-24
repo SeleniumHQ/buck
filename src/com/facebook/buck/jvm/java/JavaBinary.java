@@ -22,8 +22,6 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.rules.BuildStamp;
-import com.facebook.buck.core.rules.HasBuildStampingSteps;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
@@ -43,7 +41,6 @@ import com.facebook.buck.step.fs.SymlinkFileStep;
 import com.facebook.buck.util.PatternsMatcher;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
@@ -56,7 +53,7 @@ import javax.annotation.Nullable;
 
 @BuildsAnnotationProcessor
 public class JavaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
-    implements BinaryBuildRule, HasClasspathEntries, HasBuildStampingSteps {
+    implements BinaryBuildRule, HasClasspathEntries {
 
   // We're just propagating the runtime launcher through `getExecutable`, so don't add it to the
   // rule key.
@@ -179,17 +176,6 @@ public class JavaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
     buildableContext.recordArtifact(outputFile);
     return commands.build();
-  }
-
-  @Override
-  public ImmutableList<Step> getBuildStampingSteps(BuildContext buildContext, BuildStamp stamp) {
-    Builder<Step> steps = ImmutableList.builder();
-
-    steps.addAll(
-        ManifestBuildStamping.getBuildStampingSteps(
-            buildContext, stamp, getProjectFilesystem(), getSourcePathToOutput()));
-
-    return steps.build();
   }
 
   @Override

@@ -26,8 +26,6 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
-import com.facebook.buck.core.rules.BuildStamp;
-import com.facebook.buck.core.rules.HasBuildStampingSteps;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
 import com.facebook.buck.core.rules.attr.ExportDependencies;
@@ -48,12 +46,10 @@ import com.facebook.buck.jvm.core.JavaAbiInfo;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig.UnusedDependenciesAction;
 import com.facebook.buck.rules.modern.PipelinedModernBuildRule;
-import com.facebook.buck.step.Step;
 import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -90,7 +86,6 @@ import javax.annotation.Nullable;
 public class DefaultJavaLibrary
     extends PipelinedModernBuildRule<JavacPipelineState, DefaultJavaLibraryBuildable>
     implements JavaLibrary,
-        HasBuildStampingSteps,
         HasClasspathEntries,
         HasClasspathDeps,
         ExportDependencies,
@@ -450,24 +445,5 @@ public class DefaultJavaLibrary
   @Override
   public SupportsPipelining<JavacPipelineState> getPreviousRuleInPipeline() {
     return sourceAbi;
-  }
-
-  @Override
-  public ImmutableList<Step> getBuildStampingSteps(BuildContext buildContext, BuildStamp stamp) {
-    Builder<Step> steps = ImmutableList.builder();
-
-    // It only makes sense to actually stamp the jar itself and only if it's publishable
-    if (!getMavenCoords().isPresent()) {
-      return steps.build();
-    }
-
-    steps.addAll(
-        ManifestBuildStamping.getBuildStampingSteps(
-            buildContext,
-            stamp,
-            getProjectFilesystem(),
-            getSourcePathToOutput()));
-
-    return steps.build();
   }
 }

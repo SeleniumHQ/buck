@@ -631,7 +631,6 @@ public class TestCommand extends BuildCommand {
                         .createDefaultJavaPackageFinder(),
                     params.getClock(),
                     getExecutionContext(),
-                    params.getBuildStamp(),
                     isKeepGoing())) {
 
           // Build all of the test rules.

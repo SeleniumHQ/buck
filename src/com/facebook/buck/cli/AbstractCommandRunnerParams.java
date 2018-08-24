@@ -33,7 +33,6 @@ import com.facebook.buck.io.watchman.Watchman;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.parser.Parser;
-import com.facebook.buck.core.rules.BuildStamp;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
@@ -160,9 +159,6 @@ public abstract class AbstractCommandRunnerParams {
   public abstract PluginManager getPluginManager();
 
   @Value.Parameter
-  public abstract BuildStamp getBuildStamp();
-
-  @Value.Parameter
   public abstract BuckModuleManager getBuckModuleManager();
 
   @Value.Parameter
@@ -179,7 +175,6 @@ public abstract class AbstractCommandRunnerParams {
         .setBuckEventBus(getBuckEventBus())
         .setPlatform(getPlatform())
         .setClock(getClock())
-        .setBuildStamp(getBuildStamp())
         .setRootCell(getCell())
         .setExecutors(getExecutors())
         .setProjectFilesystemFactory(getProjectFilesystemFactory())

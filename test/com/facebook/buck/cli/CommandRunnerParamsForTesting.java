@@ -27,7 +27,6 @@ import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.actiongraph.computation.TestActionGraphProviderFactory;
 import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
-import com.facebook.buck.core.rules.BuildStamp.STAMP_KIND;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
@@ -152,7 +151,6 @@ public class CommandRunnerParamsForTesting {
         processExecutor,
         new ExecutableFinder(),
         pluginManager,
-        STAMP_KIND.STABLE.getBuildStamp(),
         TestBuckModuleManagerFactory.create(pluginManager),
         Main.getForkJoinPoolSupplier(config));
   }

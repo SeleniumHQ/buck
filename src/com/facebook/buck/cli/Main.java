@@ -109,8 +109,6 @@ import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.TargetSpecResolver;
-import com.facebook.buck.core.rules.BuildStamp;
-import com.facebook.buck.core.rules.BuildStamp.STAMP_KIND;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -753,18 +751,6 @@ public final class Main {
 
       ExecutableFinder executableFinder = new ExecutableFinder();
 
-      BuildStamp stamp =
-          command.getSubcommand()
-              .map(
-                  subcmd -> {
-                    if (subcmd instanceof BuildCommand) {
-                      return ((BuildCommand) subcmd).getBuildStamp();
-                    }
-                    return STAMP_KIND.STABLE;
-                  })
-              .orElse(STAMP_KIND.STABLE)
-              .getBuildStamp();
-
       ToolchainProviderFactory toolchainProviderFactory =
           new DefaultToolchainProviderFactory(
               pluginManager, clientEnvironment, processExecutor, executableFinder);
@@ -1247,7 +1233,6 @@ public final class Main {
                         processExecutor,
                         executableFinder,
                         pluginManager,
-                        stamp,
                         moduleManager,
                         getForkJoinPoolSupplier(buckConfig)));
           } catch (InterruptedException | ClosedByInterruptException e) {
