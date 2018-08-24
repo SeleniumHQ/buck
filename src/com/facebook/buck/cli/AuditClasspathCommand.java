@@ -16,10 +16,12 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -27,8 +29,8 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.graph.Dot;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.graph.Dot;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
@@ -92,7 +94,7 @@ public class AuditClasspathCommand extends AbstractCommand {
   public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
     // Create a TargetGraph that is composed of the transitive closure of all of the dependent
-    // BuildRules for the specified BuildTargets.
+    // BuildRules for the specified BuildTargetPaths.
     ImmutableSet<BuildTarget> targets =
         getArgumentsFormattedAsBuildTargets(params.getBuckConfig())
             .stream()
@@ -151,7 +153,7 @@ public class AuditClasspathCommand extends AbstractCommand {
       Dot.builder(targetGraph, "target_graph")
           .setNodeToName(
               targetNode -> "\"" + targetNode.getBuildTarget().getFullyQualifiedName() + "\"")
-          .setNodeToTypeName(targetNode -> targetNode.getBuildRuleType().getName())
+          .setNodeToTypeName(targetNode -> targetNode.getRuleType().getName())
           .build()
           .writeOutput(params.getConsole().getStdOut());
     } catch (IOException e) {
@@ -173,13 +175,21 @@ public class AuditClasspathCommand extends AbstractCommand {
 
     ActionGraphBuilder graphBuilder =
         Preconditions.checkNotNull(
-                new ActionGraphCache(params.getBuckConfig().getMaxActionGraphCacheEntries())
+                new ActionGraphProvider(
+                        new ActionGraphCache(
+                            params.getBuckConfig().getMaxActionGraphCacheEntries()))
                     .getFreshActionGraph(
                         params.getBuckEventBus(),
                         targetGraph,
                         params.getCell().getCellProvider(),
-                        params.getBuckConfig().getActionGraphParallelizationMode(),
-                        params.getBuckConfig().getShouldInstrumentActionGraph(),
+                        params
+                            .getBuckConfig()
+                            .getView(ActionGraphConfig.class)
+                            .getActionGraphParallelizationMode(),
+                        params
+                            .getBuckConfig()
+                            .getView(ActionGraphConfig.class)
+                            .getShouldInstrumentActionGraph(),
                         params.getPoolSupplier()))
             .getActionGraphBuilder();
     SourcePathResolver pathResolver =
@@ -218,13 +228,21 @@ public class AuditClasspathCommand extends AbstractCommand {
 
     ActionGraphBuilder graphBuilder =
         Preconditions.checkNotNull(
-                new ActionGraphCache(params.getBuckConfig().getMaxActionGraphCacheEntries())
+                new ActionGraphProvider(
+                        new ActionGraphCache(
+                            params.getBuckConfig().getMaxActionGraphCacheEntries()))
                     .getFreshActionGraph(
                         params.getBuckEventBus(),
                         targetGraph,
                         params.getCell().getCellProvider(),
-                        params.getBuckConfig().getActionGraphParallelizationMode(),
-                        params.getBuckConfig().getShouldInstrumentActionGraph(),
+                        params
+                            .getBuckConfig()
+                            .getView(ActionGraphConfig.class)
+                            .getActionGraphParallelizationMode(),
+                        params
+                            .getBuckConfig()
+                            .getView(ActionGraphConfig.class)
+                            .getShouldInstrumentActionGraph(),
                         params.getPoolSupplier()))
             .getActionGraphBuilder();
     SourcePathResolver pathResolver =

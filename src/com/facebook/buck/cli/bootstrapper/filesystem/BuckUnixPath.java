@@ -30,20 +30,17 @@ import java.nio.file.WatchEvent.Modifier;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Objects;
-import java.util.Set;
-import java.util.Stack;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 /** Buck-specific implementation of java.nio.file.Path optimized for memory footprint */
 public class BuckUnixPath implements Path {
   // Constant strings are already interned, but having the constant here makes it more obvious in
   // code below.
   private static final String DOTDOT = "..";
+  private static final String DOT = ".";
+  private static final String ROOT = "";
 
   // Java's memory layout is padded to 8 bytes on most implementations. Given that 12 bytes is
   // a class header, we can use up to 3 4-byte fields to fit into 24-byte object. Reference type
@@ -84,7 +81,7 @@ public class BuckUnixPath implements Path {
   }
 
   static BuckUnixPath rootOf(BuckFileSystem fs) {
-    return new BuckUnixPath(fs, new String[] {""});
+    return new BuckUnixPath(fs, new String[] {ROOT});
   }
 
   static BuckUnixPath emptyOf(BuckFileSystem fs) {
@@ -133,7 +130,7 @@ public class BuckUnixPath implements Path {
     }
     StringBuilder sb = new StringBuilder(input.length());
     if (off > 0) {
-      sb.append(input.substring(0, off));
+      sb.append(input, 0, off);
     }
     char prevChar = 0;
     for (int i = off; i < n; i++) {
@@ -297,7 +294,10 @@ public class BuckUnixPath implements Path {
   }
 
   private String[] concatSegments(String[] first, String[] second) {
-    return Stream.concat(Arrays.stream(first), Arrays.stream(second)).toArray(String[]::new);
+    String[] result = new String[first.length + second.length];
+    System.arraycopy(first, 0, result, 0, first.length);
+    System.arraycopy(second, 0, result, first.length, second.length);
+    return result;
   }
 
   @Override
@@ -310,7 +310,7 @@ public class BuckUnixPath implements Path {
 
     // can only relativize paths of the same type
     if (this.isAbsolute() != other.isAbsolute()) {
-      throw new IllegalArgumentException("'other' is different type of Path");
+      throw new IllegalArgumentException("Both paths should be either absolute paths or not");
     }
 
     // this path is the empty path
@@ -318,38 +318,31 @@ public class BuckUnixPath implements Path {
       return other;
     }
 
-    int nameCount = getNameCount();
-    int otherNameCount = other.getNameCount();
-
     // skip matching names
-    int minCount = (nameCount > otherNameCount) ? otherNameCount : nameCount;
+    int minCount =
+        (segments.length > other.segments.length) ? other.segments.length : segments.length;
+
     int i = 0;
-    while (i < minCount) {
-      if (!getName(i).equals(other.getName(i))) {
+    for (; i < minCount; i++) {
+      // intentional reference compare
+      if (segments[i] != other.segments[i]) {
         break;
       }
-      i++;
     }
 
-    int dotdots = nameCount - i;
-    if (i < otherNameCount) {
-      // remaining name components in other
-      BuckUnixPath remainder = other.subpath(i, otherNameCount);
-      if (dotdots == 0) {
-        return remainder;
-      }
-
-      // result is a  "../" for each remaining name in base
-      // followed by the remaining names in other. If the remainder is
-      // the empty path then we don't add the final trailing slash.
+    int dotdots = segments.length - i;
+    if (i >= other.segments.length) {
+      // no remaining sections in other so result is simply a sequence of ".."
       String[] newSegments = new String[dotdots];
       Arrays.fill(newSegments, DOTDOT);
-      return new BuckUnixPath(fs, concatSegments(newSegments, remainder.segments));
+      return new BuckUnixPath(fs, newSegments);
     }
 
-    // no remaining names in other so result is simply a sequence of ".."
-    String[] newSegments = new String[dotdots];
-    Arrays.fill(newSegments, DOTDOT);
+    // result is a  "../" for each remaining name in base
+    // followed by the remaining names in other.
+    String[] newSegments = new String[dotdots + other.segments.length - i];
+    Arrays.fill(newSegments, 0, dotdots, DOTDOT);
+    System.arraycopy(other.segments, i, newSegments, dotdots, other.segments.length - i);
     return new BuckUnixPath(fs, newSegments);
   }
 
@@ -359,32 +352,73 @@ public class BuckUnixPath implements Path {
       return this;
     }
 
-    Set<Integer> ignore = new HashSet<>();
-    Stack<Integer> realNames = new Stack<>();
+    // segments are interned, so using == instead of .equals() to compare strings for performance
+    // if different interner is used, this function will be broken!
 
-    for (int i = 0; i < segments.length; i++) {
-      String segment = segments[i];
-      if (segment.equals(".")) {
-        ignore.add(i);
-      } else if (segment.equals("..")) {
-        if (!realNames.empty()) {
-          ignore.add(realNames.pop());
-          ignore.add(i);
-        }
-      } else if (!segment.isEmpty()) {
-        realNames.push(i);
+    // first quick pass to check if anything needs to be normalized
+    int i = segments.length - 1;
+    for (; i >= 0; i--) {
+      // intentional reference compare
+      if (segments[i] == DOT || segments[i] == DOTDOT) {
+        break;
       }
     }
 
-    if (ignore.isEmpty()) {
+    if (i < 0) {
       return this;
     }
 
-    String[] filtered =
-        IntStream.range(0, segments.length)
-            .filter(i -> !ignore.contains(i))
-            .mapToObj(i -> segments[i])
-            .toArray(String[]::new);
+    // it seems there are symbols like ".." in the path that should be normalized
+
+    // have to allocate maximum length as some of the dots (leading ones) might not be removed
+    String[] filtered = new String[segments.length];
+
+    // copy the tail which is good
+    System.arraycopy(segments, i + 1, filtered, i + 1, segments.length - i - 1);
+
+    // continue going down the array removing non-meaningful segments
+    int dotdots = 0;
+    int j = i;
+    for (; i >= 0; i--) {
+      String segment = segments[i];
+
+      // intentional reference compare
+      if (segment == DOT) {
+        continue;
+      }
+
+      // intentional reference compare
+      if (segment == DOTDOT) {
+        dotdots++;
+        continue;
+      }
+
+      if (dotdots > 0) {
+        // ignore real segment because it is swallowed by following dotdot
+        dotdots--;
+        continue;
+      }
+
+      filtered[j] = segment;
+      j--;
+    }
+
+    if (dotdots > 0) {
+      // some leading dotdots left, so copy them to the resulting array
+      j -= dotdots;
+      Arrays.fill(filtered, j + 1, j + 1 + dotdots, DOTDOT);
+    }
+
+    if (isAbsolute() && (j + 1 >= filtered.length || filtered[j + 1] != ROOT)) {
+      // Root segment was removed by .., restore it back
+      filtered[j] = DOTDOT;
+      filtered[j - 1] = ROOT;
+      j -= 2;
+    }
+
+    if (j >= 0) {
+      filtered = Arrays.copyOfRange(filtered, j + 1, filtered.length);
+    }
 
     return new BuckUnixPath(fs, filtered);
   }
@@ -417,7 +451,8 @@ public class BuckUnixPath implements Path {
     int start = startOrEnd ? 0 : (segments.length - that.segments.length);
 
     for (int i = 0; i < that.segments.length; i++) {
-      if (!segments[i + start].equals(that.segments[i])) {
+      // intentional reference compare
+      if (segments[i + start] != that.segments[i]) {
         return false;
       }
     }
@@ -458,10 +493,23 @@ public class BuckUnixPath implements Path {
 
   @Override
   public boolean equals(Object ob) {
-    if ((ob instanceof BuckUnixPath)) {
-      return Arrays.equals(segments, ((BuckUnixPath) ob).segments);
+    if (!(ob instanceof BuckUnixPath)) {
+      return false;
     }
-    return false;
+
+    String[] otherSegments = ((BuckUnixPath) ob).segments;
+    if (segments.length != otherSegments.length) {
+      return false;
+    }
+
+    for (int i = 0; i < segments.length; i++) {
+      // intentional reference compare
+      if (segments[i] != otherSegments[i]) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   @Override

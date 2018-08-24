@@ -20,6 +20,8 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.util.string.MoreStrings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import java.util.regex.Pattern;
 import org.junit.Test;
@@ -89,6 +91,10 @@ public class MoreStringsTest {
         "The distance between 'test' and 'tset' should be 2 (e.g., 1 deletion + 1 insertion).",
         2,
         MoreStrings.getLevenshteinDistance("test", "tset"));
+    assertEquals(
+        "The distance between '' and 'BUILD' should be 5 (e.g., 5 insertions).",
+        5,
+        MoreStrings.getLevenshteinDistance("BUILD", ""));
   }
 
   @Test
@@ -122,5 +128,19 @@ public class MoreStringsTest {
 
     assertFalse(MoreStrings.endsWithIgnoreCase("string", "strin"));
     assertFalse(MoreStrings.endsWithIgnoreCase("strin", "string"));
+  }
+
+  @Test
+  public void testSpellingSuggestionsWithinDistance() {
+    assertEquals(
+        MoreStrings.getSpellingSuggestions("appl:", ImmutableList.of("apple", "foo"), 2),
+        ImmutableList.of("apple"));
+  }
+
+  @Test
+  public void testSpellingSuggestionsOutsideOfDistance() {
+    assertEquals(
+        MoreStrings.getSpellingSuggestions("ppl:", ImmutableList.of("apple", "foo"), 1),
+        ImmutableList.of());
   }
 }

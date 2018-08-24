@@ -19,15 +19,16 @@ package com.facebook.buck.cli;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.cli.OwnersReport.Builder;
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
@@ -104,8 +105,9 @@ public class QueryCommandTest {
         new PerBuildStateFactory(
                 typeCoercerFactory,
                 new ConstructorArgMarshaller(typeCoercerFactory),
-                params.getKnownBuildRuleTypesProvider(),
-                new ParserPythonInterpreterProvider(cell.getBuckConfig(), new ExecutableFinder()))
+                params.getKnownRuleTypesProvider(),
+                new ParserPythonInterpreterProvider(cell.getBuckConfig(), new ExecutableFinder()),
+                WatchmanFactory.NULL_WATCHMAN)
             .create(
                 params.getParser().getPermState(),
                 eventBus,

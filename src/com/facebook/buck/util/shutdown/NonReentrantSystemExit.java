@@ -21,39 +21,36 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * If a shutdown hook causes an unhandled exception and the unhandled exception handler calls
- * System.exit we end up deadlocking. This exists solely to prevent that scenario.
+ * If a shutdown hook causes an unhandled exception and the unhandled exception handler calls {@link
+ * System#exit} we end up deadlocking. This exists solely to prevent that scenario.
  */
 public class NonReentrantSystemExit {
 
-  private AtomicBoolean shutdownInitiated;
-  private AtomicInteger exitCode;
-  private CountDownLatch doExitLatch;
-  private Thread thread;
+  private final AtomicBoolean shutdownInitiated;
+  private final AtomicInteger exitCode;
+  private final CountDownLatch doExitLatch;
 
   public NonReentrantSystemExit() {
     this.shutdownInitiated = new AtomicBoolean(false);
     this.exitCode = new AtomicInteger(-1);
     this.doExitLatch = new CountDownLatch(1);
-    this.thread =
+    Thread thread =
         new Thread(NonReentrantSystemExit.class.getSimpleName()) {
           @Override
           public void run() {
-            while (doExitLatch.getCount() > 0) {
-              try {
-                doExitLatch.await();
-              } catch (InterruptedException e) {
-                // This is one of the rare cases where it's OK to ignore InterruptedException:
-                // - nobody should be joining on this thread, so it's not like the user will have
-                //   to wait longer or anything,
-                // - the shutdown hook depends on this thread running, exiting early will actually
-                //   break functionality.
-              }
+            try {
+              doExitLatch.await();
+            } catch (InterruptedException e) {
+              // This is one of the rare cases where it's OK to ignore InterruptedException:
+              // - nobody should be joining on this thread, so it's not like the user will have
+              //   to wait longer or anything,
+              // - the shutdown hook depends on this thread running, exiting early will actually
+              //   break functionality.
             }
             System.exit(exitCode.get());
           }
         };
-    this.thread.start();
+    thread.start();
   }
 
   public void shutdownSoon(int exitCode) {

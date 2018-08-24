@@ -20,7 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.Verbosity;
 import java.io.IOException;
@@ -52,7 +52,9 @@ public class StepFailedExceptionTest {
 
     assertEquals(step, exception.getStep());
     assertEquals(
-        "Command failed with exit code 17.\n" + "  When running <cp foo bar>.",
+        "Command failed with exit code 17."
+            + System.lineSeparator()
+            + "  When running <cp foo bar>.",
         exception.getMessage());
   }
 
@@ -67,7 +69,9 @@ public class StepFailedExceptionTest {
 
     assertEquals(step, exception.getStep());
     assertEquals(
-        "Command failed with exit code 17.\n" + "  When running <cp foo bar>.",
+        "Command failed with exit code 17."
+            + System.lineSeparator()
+            + "  When running <cp foo bar>.",
         exception.getMessage());
   }
 
@@ -83,7 +87,8 @@ public class StepFailedExceptionTest {
 
     assertEquals(step, exception.getStep());
     assertEquals(
-        "Command failed with exit code 17.\n" + "  When running <cp>.", exception.getMessage());
+        "Command failed with exit code 17." + System.lineSeparator() + "  When running <cp>.",
+        exception.getMessage());
   }
 
   @Test
@@ -98,7 +103,9 @@ public class StepFailedExceptionTest {
     assertEquals(step, exception.getStep());
     assertTrue(
         exception.getMessage(),
-        exception.getMessage().startsWith("Copy failed!\n" + "  When running <cp>."));
+        exception
+            .getMessage()
+            .startsWith("Copy failed!" + System.lineSeparator() + "  When running <cp>."));
   }
 
   @Test
@@ -112,6 +119,8 @@ public class StepFailedExceptionTest {
     assertEquals(step, exception.getStep());
     assertTrue(
         exception.getMessage(),
-        exception.getMessage().startsWith("Copy failed!\n" + "  When running <cp>."));
+        exception
+            .getMessage()
+            .startsWith("Copy failed!" + System.lineSeparator() + "  When running <cp>."));
   }
 }

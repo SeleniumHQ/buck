@@ -19,19 +19,19 @@ package com.facebook.buck.jvm.java;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -57,14 +57,14 @@ public class JavaBinaryTest {
         .build();
 
     // prebuilt_jar //third_party/guava:guava
-    TargetNode<?, ?> guavaNode =
+    TargetNode<?> guavaNode =
         PrebuiltJarBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//third_party/guava:guava"))
             .setBinaryJar(PATH_TO_GUAVA_JAR)
             .build();
 
     // java_library //java/com/facebook/base:base
-    TargetNode<?, ?> libraryNode =
+    TargetNode<?> libraryNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//java/com/facebook/base:base"))
             .addSrc(Paths.get("java/com/facebook/base/Base.java"))

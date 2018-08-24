@@ -16,20 +16,20 @@
 
 package com.facebook.buck.parser;
 
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.model.BuildFileTree;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.FilesystemBackedBuildFileTree;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.counters.Counter;
 import com.facebook.buck.counters.IntegerCounter;
 import com.facebook.buck.counters.TagSetCounter;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ParsingEvent;
-import com.facebook.buck.io.WatchmanOverflowEvent;
-import com.facebook.buck.io.WatchmanPathEvent;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildFileTree;
-import com.facebook.buck.model.FilesystemBackedBuildFileTree;
+import com.facebook.buck.io.watchman.WatchmanOverflowEvent;
+import com.facebook.buck.io.watchman.WatchmanPathEvent;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.facebook.buck.parser.thrift.RemoteDaemonicCellState;
@@ -214,7 +214,8 @@ public class DaemonicParserState {
       // invalidated mid-way through the parse).
       invalidateIfProjectBuildFileParserStateChanged(cell);
 
-      ImmutableSet.Builder<Map<String, Object>> withoutMetaIncludesBuilder = ImmutableSet.builder();
+      ImmutableSet.Builder<Map<String, Object>> withoutMetaIncludesBuilder =
+          ImmutableSet.builderWithExpectedSize(rawNodes.size());
       ImmutableSet.Builder<Path> dependentsOfEveryNode = ImmutableSet.builder();
       ImmutableMap<String, Optional<String>> env = ImmutableMap.of();
       for (Map<String, Object> rawNode : rawNodes) {
@@ -239,8 +240,7 @@ public class DaemonicParserState {
       Iterable<String> defaultIncludes =
           buckConfig.getView(ParserConfig.class).getDefaultIncludes();
       for (String include : defaultIncludes) {
-        dependentsOfEveryNode.add(
-            resolveIncludePath(cell, include, cell.getBuckConfig().getCellPathResolver()));
+        dependentsOfEveryNode.add(resolveIncludePath(cell, include, cell.getCellPathResolver()));
       }
 
       return getOrCreateCellState(cell)

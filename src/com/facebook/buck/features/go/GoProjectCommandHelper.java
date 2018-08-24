@@ -18,19 +18,20 @@ package com.facebook.buck.features.go;
 
 import com.facebook.buck.cli.BuildCommand;
 import com.facebook.buck.cli.CommandRunnerParams;
+import com.facebook.buck.cli.ProjectTestsMode;
 import com.facebook.buck.cli.parameter_extractors.ProjectGeneratorParameters;
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.ProjectTestsMode;
-import com.facebook.buck.config.resources.ResourcesConfig;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.description.arg.HasSrcs;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
 import com.facebook.buck.core.model.targetgraph.NoSuchTargetException;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
+import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -50,6 +51,7 @@ import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.versions.VersionException;
+import com.facebook.buck.versions.VersionedTargetGraphAndTargets;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -74,6 +76,7 @@ public class GoProjectCommandHelper {
   private final Console console;
   private final ListeningExecutorService executor;
   private final Parser parser;
+  private final GoBuckConfig goBuckConfig;
   private final BuckConfig buckConfig;
   private final Cell cell;
   private final boolean enableParserProfiling;
@@ -92,6 +95,7 @@ public class GoProjectCommandHelper {
     this.console = projectGeneratorParameters.getConsole();
     this.executor = executor;
     this.parser = projectGeneratorParameters.getParser();
+    this.goBuckConfig = new GoBuckConfig(params.getBuckConfig());
     this.buckConfig = params.getBuckConfig();
     this.cell = params.getCell();
     this.enableParserProfiling = enableParserProfiling;
@@ -156,7 +160,7 @@ public class GoProjectCommandHelper {
     }
 
     if (projectGeneratorParameters.isDryRun()) {
-      for (TargetNode<?, ?> targetNode : targetGraphAndTargets.getTargetGraph().getNodes()) {
+      for (TargetNode<?> targetNode : targetGraphAndTargets.getTargetGraph().getNodes()) {
         console.getStdOut().println(targetNode.toString());
       }
 
@@ -174,12 +178,12 @@ public class GoProjectCommandHelper {
                     16),
             ForkJoinPool::shutdownNow)) {
       return params
-          .getActionGraphCache()
+          .getActionGraphProvider()
           .getActionGraph(
               buckEventBus,
               targetGraph,
               cell.getCellProvider(),
-              buckConfig,
+              buckConfig.getView(ActionGraphConfig.class),
               params.getRuleKeyConfiguration(),
               forkJoinPoolSupplier);
     }
@@ -247,9 +251,9 @@ public class GoProjectCommandHelper {
     Path vendorPath;
     ProjectFilesystem projectFilesystem = cell.getFilesystem();
 
-    Optional<String> vendorConfig = buckConfig.getValue("go", "vendor_path");
-    if (vendorConfig.isPresent()) {
-      vendorPath = Paths.get(vendorConfig.get());
+    Optional<Path> projectPath = goBuckConfig.getProjectPath();
+    if (projectPath.isPresent()) {
+      vendorPath = projectPath.get();
     } else if (projectFilesystem.exists(Paths.get("src"))) {
       vendorPath = Paths.get("src", "vendor");
     } else {
@@ -259,15 +263,27 @@ public class GoProjectCommandHelper {
         Preconditions.checkNotNull(getActionGraph(targetGraphAndTargets.getTargetGraph()));
     DefaultSourcePathResolver sourcePathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(result.getActionGraphBuilder()));
+
+    // cleanup files from previous runs
     for (BuildTargetSourcePath sourcePath : generatedPackages.keySet()) {
       Path desiredPath = vendorPath.resolve(generatedPackages.get(sourcePath));
-      projectFilesystem.mkdirs(desiredPath);
-      for (Path path : projectFilesystem.getDirectoryContents(desiredPath)) {
-        if (projectFilesystem.isFile(path)) {
-          projectFilesystem.deleteFileAtPath(path);
+
+      if (projectFilesystem.isDirectory(desiredPath)) {
+        for (Path path : projectFilesystem.getDirectoryContents(desiredPath)) {
+          if (projectFilesystem.isFile(path)) {
+            projectFilesystem.deleteFileAtPath(path);
+          }
         }
+      } else {
+        projectFilesystem.mkdirs(desiredPath);
       }
+    }
+
+    // copy files generated in current run
+    for (BuildTargetSourcePath sourcePath : generatedPackages.keySet()) {
+      Path desiredPath = vendorPath.resolve(generatedPackages.get(sourcePath));
       Path generatedSrc = sourcePathResolver.getAbsolutePath(sourcePath);
+
       if (projectFilesystem.isDirectory(generatedSrc)) {
         projectFilesystem.copyFolder(generatedSrc, desiredPath);
       } else {
@@ -286,7 +302,7 @@ public class GoProjectCommandHelper {
   private Map<BuildTargetSourcePath, Path> findCodeGenerationTargets(
       TargetGraphAndTargets targetGraphAndTargets) {
     Map<BuildTargetSourcePath, Path> generatedPackages = new HashMap<>();
-    for (TargetNode<?, ?> targetNode : targetGraphAndTargets.getTargetGraph().getNodes()) {
+    for (TargetNode<?> targetNode : targetGraphAndTargets.getTargetGraph().getNodes()) {
       Object constructorArg = targetNode.getConstructorArg();
       if (constructorArg instanceof GoLibraryDescriptionArg) {
         Optional<String> packageNameArg =
@@ -294,9 +310,7 @@ public class GoProjectCommandHelper {
         Path pkgName =
             packageNameArg
                 .map(Paths::get)
-                .orElse(
-                    Paths.get(buckConfig.getValue("go", "prefix").orElse(""))
-                        .resolve(targetNode.getBuildTarget().getBasePath()));
+                .orElse(goBuckConfig.getDefaultPackageName(targetNode.getBuildTarget()));
         generatedPackages.putAll(
             ((HasSrcs) constructorArg)
                 .getSrcs()
@@ -360,7 +374,7 @@ public class GoProjectCommandHelper {
         TargetGraphAndTargets.create(graphRoots, projectGraph, isWithTests, explicitTestTargets);
     if (buckConfig.getBuildVersions()) {
       targetGraphAndTargets =
-          TargetGraphAndTargets.toVersionedTargetGraphAndTargets(
+          VersionedTargetGraphAndTargets.toVersionedTargetGraphAndTargets(
               targetGraphAndTargets,
               params.getVersionedTargetGraphCache(),
               buckEventBus,
@@ -378,8 +392,8 @@ public class GoProjectCommandHelper {
    */
   private ImmutableSet<BuildTarget> getExplicitTestTargets(
       ImmutableSet<BuildTarget> buildTargets, TargetGraph projectGraph) {
-    Iterable<TargetNode<?, ?>> projectRoots = projectGraph.getAll(buildTargets);
-    Iterable<TargetNode<?, ?>> nodes;
+    Iterable<TargetNode<?>> projectRoots = projectGraph.getAll(buildTargets);
+    Iterable<TargetNode<?>> nodes;
     if (isWithDependenciesTests()) {
       nodes = projectGraph.getSubgraph(projectRoots).getNodes();
     } else {

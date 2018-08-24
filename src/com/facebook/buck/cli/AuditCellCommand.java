@@ -16,7 +16,7 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.google.common.collect.ImmutableMap;
@@ -34,8 +34,15 @@ public class AuditCellCommand extends AbstractCommand {
   @Option(name = "--json", usage = "Output in JSON format")
   private boolean generateJsonOutput;
 
+  @Option(name = "--paths-only", usage = "Don't include the cell name in the output")
+  private boolean pathsOnly;
+
   public boolean shouldGenerateJsonOutput() {
     return generateJsonOutput;
+  }
+
+  public boolean shouldIncludeCellNameInOutput() {
+    return !pathsOnly;
   }
 
   @Argument private List<String> arguments = new ArrayList<>();
@@ -49,9 +56,9 @@ public class AuditCellCommand extends AbstractCommand {
       throws IOException, InterruptedException {
     ImmutableMap<String, Path> cellMap;
     if (getArguments().isEmpty()) {
-      cellMap = params.getBuckConfig().getCellPathResolver().getCellPaths();
+      cellMap = params.getCell().getCellPathResolver().getCellPaths();
     } else {
-      CellPathResolver cellPathResolver = params.getBuckConfig().getCellPathResolver();
+      CellPathResolver cellPathResolver = params.getCell().getCellPathResolver();
       ImmutableMap.Builder<String, Path> outputBuilder = ImmutableMap.builder();
       for (String arg : getArguments()) {
         Path cellPath = cellPathResolver.getCellPathOrThrow(Optional.of(arg));
@@ -70,16 +77,21 @@ public class AuditCellCommand extends AbstractCommand {
 
   private void printOutput(CommandRunnerParams params, ImmutableMap<String, Path> cellMap) {
     for (Map.Entry<String, Path> entry : cellMap.entrySet()) {
-      params
-          .getConsole()
-          .getStdOut()
-          .println(String.format("%s: %s", entry.getKey(), entry.getValue()));
+      String outputString =
+          shouldIncludeCellNameInOutput()
+              ? String.format("%s: %s", entry.getKey(), entry.getValue())
+              : entry.getValue().toString();
+      params.getConsole().getStdOut().println(outputString);
     }
   }
 
   private void printJsonOutput(CommandRunnerParams params, ImmutableMap<String, Path> cellMap)
       throws IOException {
-    ObjectMappers.WRITER.writeValue(params.getConsole().getStdOut(), cellMap);
+    if (shouldIncludeCellNameInOutput()) {
+      ObjectMappers.WRITER.writeValue(params.getConsole().getStdOut(), cellMap);
+    } else {
+      ObjectMappers.WRITER.writeValue(params.getConsole().getStdOut(), cellMap.values());
+    }
   }
 
   @Override

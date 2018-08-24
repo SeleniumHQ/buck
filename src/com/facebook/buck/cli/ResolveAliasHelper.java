@@ -16,8 +16,8 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -90,13 +90,13 @@ public class ResolveAliasHelper {
     }
 
     // Get all valid targets in our target directory by reading the build file.
-    ImmutableSet<TargetNode<?, ?>> targetNodes;
+    ImmutableSet<TargetNode<?>> targetNodes;
     targetNodes =
         parser.getAllTargetNodes(
             params.getBuckEventBus(), owningCell, enableProfiling, executor, buildFile);
 
     // Check that the given target is a valid target.
-    for (TargetNode<?, ?> candidate : targetNodes) {
+    for (TargetNode<?> candidate : targetNodes) {
       if (candidate.getBuildTarget().equals(buildTarget)) {
         return buildTarget.getFullyQualifiedName();
       }

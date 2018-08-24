@@ -18,9 +18,12 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.BuildStamp;
+import com.facebook.buck.core.rules.HasBuildStampingSteps;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
@@ -32,9 +35,6 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.core.rules.BuildStamp;
-import com.facebook.buck.core.rules.HasBuildStampingSteps;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -58,7 +58,7 @@ import javax.annotation.Nullable;
 public class JavaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements BinaryBuildRule, HasClasspathEntries, HasBuildStampingSteps {
 
-  // We're just propagating the runtime launcher through `getExecutiable`, so don't add it to the
+  // We're just propagating the runtime launcher through `getExecutable`, so don't add it to the
   // rule key.
   private final Tool javaRuntimeLauncher;
 
@@ -214,7 +214,7 @@ public class JavaBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   private Path getOutputDirectory() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s").getParent();
+    return BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s").getParent();
   }
 
   @Override

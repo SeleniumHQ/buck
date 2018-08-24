@@ -16,9 +16,12 @@
 
 package com.facebook.buck.cli;
 
-import static com.facebook.buck.util.MoreStringsForTests.normalizeNewlines;
+import static com.facebook.buck.util.string.MoreStrings.linesToText;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
@@ -42,6 +45,7 @@ import com.facebook.buck.util.ThriftRuleKeyDeserializer;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
@@ -55,7 +59,6 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.thrift.TException;
-import org.hamcrest.MatcherAssert;
 import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
@@ -78,6 +81,22 @@ public class TargetsCommandIntegrationTest {
   @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Test
+  public void testShowTargetsNamesWhenNoOptionsProvided() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "targets_command", tmp);
+    workspace.setUp();
+
+    ProcessResult resultAll =
+        workspace.runBuckCommand(
+            "targets", "-c", "parser.enable_configurable_attributes=true", "//:");
+    resultAll.assertSuccess();
+    assertEquals(
+        ImmutableSet.of("//:A", "//:B", "//:C", "//:test-library"),
+        ImmutableSet.copyOf(
+            Splitter.on(System.lineSeparator()).omitEmptyStrings().split(resultAll.getStdout())));
+  }
+
+  @Test
   public void testOutputPath() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "output_path", tmp);
@@ -87,13 +106,31 @@ public class TargetsCommandIntegrationTest {
         workspace.runBuckCommand("targets", "--show-output", "//:test", "//:another-test");
     result.assertSuccess();
     assertEquals(
-        "//:another-test "
-            + MorePaths.pathWithPlatformSeparators("buck-out/gen/another-test/test-output")
-            + "\n"
-            + "//:test "
-            + MorePaths.pathWithPlatformSeparators("buck-out/gen/test/test-output")
-            + "\n",
+        linesToText(
+            "//:another-test "
+                + MorePaths.pathWithPlatformSeparators("buck-out/gen/another-test/test-output"),
+            "//:test " + MorePaths.pathWithPlatformSeparators("buck-out/gen/test/test-output"),
+            ""),
         result.getStdout());
+  }
+
+  @Test
+  public void testConfigurationRulesNotIncludedInOutputPath() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "targets_command", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "targets", "-c", "parser.enable_configurable_attributes=true", "--show-output", "//:");
+    result.assertSuccess();
+    assertEquals(
+        linesToText(
+            "//:A " + MorePaths.pathWithPlatformSeparators("buck-out/gen/A/A.txt"),
+            "//:B " + MorePaths.pathWithPlatformSeparators("buck-out/gen/B/B.txt"),
+            "//:test-library "
+                + MorePaths.pathWithPlatformSeparators("buck-out/annotation/__test-library_gen__")),
+        result.getStdout().trim());
   }
 
   @Test
@@ -117,6 +154,19 @@ public class TargetsCommandIntegrationTest {
         workspace.runBuckCommand("targets", "--show-rulekey", "//:test", "//:another-test");
     result.assertSuccess();
     parseAndVerifyTargetsAndHashes(result.getStdout(), "//:another-test", "//:test");
+  }
+
+  @Test
+  public void testConfigurationRulesNotIncludedInRuleKey() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "targets_command", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "targets", "-c", "parser.enable_configurable_attributes=true", "--show-rulekey", "//:");
+    result.assertSuccess();
+    parseAndVerifyTargetsAndHashes(result.getStdout(), "//:A", "//:B", "//:test-library");
   }
 
   @Test
@@ -145,20 +195,17 @@ public class TargetsCommandIntegrationTest {
     ProcessResult result = workspace.runBuckCommand("targets", "--show-output", "...");
     result.assertSuccess();
     assertEquals(
-        "//:another-test "
-            + MorePaths.pathWithPlatformSeparators("buck-out/gen/another-test/test-output")
-            + "\n"
-            + "//:java_lib "
-            + MorePaths.pathWithPlatformSeparators(
-                "buck-out/gen/lib__java_lib__output/java_lib.jar")
-            + " "
-            + MorePaths.pathWithPlatformSeparators("buck-out/annotation/__java_lib_gen__")
-            + "\n"
-            + "//:plugin"
-            + "\n"
-            + "//:test "
-            + MorePaths.pathWithPlatformSeparators("buck-out/gen/test/test-output")
-            + "\n",
+        linesToText(
+            "//:another-test "
+                + MorePaths.pathWithPlatformSeparators("buck-out/gen/another-test/test-output"),
+            "//:java_lib "
+                + MorePaths.pathWithPlatformSeparators(
+                    "buck-out/gen/lib__java_lib__output/java_lib.jar")
+                + " "
+                + MorePaths.pathWithPlatformSeparators("buck-out/annotation/__java_lib_gen__"),
+            "//:plugin",
+            "//:test " + MorePaths.pathWithPlatformSeparators("buck-out/gen/test/test-output"),
+            ""),
         result.getStdout());
   }
 
@@ -173,8 +220,11 @@ public class TargetsCommandIntegrationTest {
     assertThat(
         result.getStdout().trim(),
         Matchers.matchesPattern(
-            "//:another-test [a-f0-9]{40}\n//:java_lib [a-f0-9]{40}\n"
-                + "//:plugin [a-f0-9]{40}\n//:test [a-f0-9]{40}"));
+            linesToText(
+                "//:another-test [a-f0-9]{40}",
+                "//:java_lib [a-f0-9]{40}",
+                "//:plugin [a-f0-9]{40}",
+                "//:test [a-f0-9]{40}")));
   }
 
   @Test
@@ -186,8 +236,33 @@ public class TargetsCommandIntegrationTest {
     ProcessResult result = workspace.runBuckCommand("targets", "--show-cell-path", "//:test");
     result.assertSuccess();
     assertEquals(
-        "//:test " + MorePaths.pathWithPlatformSeparators(tmp.getRoot().toRealPath()) + "\n",
+        "//:test "
+            + MorePaths.pathWithPlatformSeparators(tmp.getRoot().toRealPath())
+            + System.lineSeparator(),
         result.getStdout());
+  }
+
+  @Test
+  public void testConfigurationRulesIncludedInShowCellPath() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "targets_command", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "targets",
+            "-c",
+            "parser.enable_configurable_attributes=true",
+            "--show-cell-path",
+            "//:");
+    result.assertSuccess();
+    assertEquals(
+        linesToText(
+            "//:A " + MorePaths.pathWithPlatformSeparators(tmp.getRoot().toRealPath()),
+            "//:B " + MorePaths.pathWithPlatformSeparators(tmp.getRoot().toRealPath()),
+            "//:C " + MorePaths.pathWithPlatformSeparators(tmp.getRoot().toRealPath()),
+            "//:test-library " + MorePaths.pathWithPlatformSeparators(tmp.getRoot().toRealPath())),
+        result.getStdout().trim());
   }
 
   @Test
@@ -204,14 +279,15 @@ public class TargetsCommandIntegrationTest {
             + MorePaths.pathWithPlatformSeparators(tmp.getRoot().toRealPath())
             + " "
             + MorePaths.pathWithPlatformSeparators("buck-out/gen/test/test-output")
-            + "\n",
+            + System.lineSeparator(),
         result.getStdout());
   }
 
   private ImmutableList<String> parseAndVerifyTargetsAndHashes(
       String outputLine, String... targets) {
     List<String> lines =
-        Splitter.on('\n').splitToList(CharMatcher.whitespace().trimFrom(outputLine));
+        Splitter.on(System.lineSeparator())
+            .splitToList(CharMatcher.whitespace().trimFrom(outputLine));
     assertEquals(targets.length, lines.size());
     ImmutableList.Builder<String> hashes = ImmutableList.builder();
     for (int i = 0; i < targets.length; ++i) {
@@ -279,6 +355,23 @@ public class TargetsCommandIntegrationTest {
         workspace.runBuckCommand("targets", "--show-target-hash", "//:test", "//:another-test");
     result.assertSuccess();
     parseAndVerifyTargetsAndHashes(result.getStdout(), "//:another-test", "//:test");
+  }
+
+  @Test
+  public void testConfigurationRulesIncludedInShowTargetHash() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "targets_command", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "targets",
+            "-c",
+            "parser.enable_configurable_attributes=true",
+            "--show-target-hash",
+            "//:");
+    result.assertSuccess();
+    parseAndVerifyTargetsAndHashes(result.getStdout(), "//:A", "//:B", "//:C", "//:test-library");
   }
 
   @Test
@@ -397,7 +490,9 @@ public class TargetsCommandIntegrationTest {
     String hash = parseAndVerifyTargetAndHash(result.getStdout(), "//workspace:workspace");
 
     String fileName = "test/Test.m";
-    Files.write(workspace.getPath(fileName), "// This is not a test\n".getBytes(UTF_8));
+    Files.write(
+        workspace.getPath(fileName),
+        ("// This is not a test" + System.lineSeparator()).getBytes(UTF_8));
     ProcessResult result2 =
         workspace.runBuckCommand(
             "targets", "--show-target-hash", "--detect-test-changes", "//workspace:workspace");
@@ -427,7 +522,9 @@ public class TargetsCommandIntegrationTest {
             "//workspace:workspace");
 
     String fileName = "test/Test.m";
-    Files.write(workspace.getPath(fileName), "// This is not a test\n".getBytes(UTF_8));
+    Files.write(
+        workspace.getPath(fileName),
+        ("// This is not a test" + System.lineSeparator()).getBytes(UTF_8));
     ProcessResult result2 =
         workspace.runBuckCommand("targets", "...", "--show-target-hash", "--detect-test-changes");
     result2.assertSuccess();
@@ -510,7 +607,8 @@ public class TargetsCommandIntegrationTest {
             + "`buck targets` should succeed.");
     assertEquals(
         ImmutableSet.of("//libs:guava", "//libs:junit"),
-        ImmutableSet.copyOf(Splitter.on('\n').omitEmptyStrings().split(result.getStdout())));
+        ImmutableSet.copyOf(
+            Splitter.on(System.lineSeparator()).omitEmptyStrings().split(result.getStdout())));
   }
 
   @Test
@@ -569,18 +667,21 @@ public class TargetsCommandIntegrationTest {
     ProcessResult result =
         workspace.runBuckCommand("targets", "--json", "--show-output", "//:test");
 
-    // Parse the observed JSON.
-    JsonNode observed =
-        ObjectMappers.READER.readTree(ObjectMappers.createParser(result.getStdout()));
+    assertJsonMatches(workspace, result.getStdout(), "output_path_json.js");
+  }
 
-    System.out.println(observed);
+  @Test
+  public void testConfigurationRulesIncludedInJsonOutput() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "targets_command", tmp);
+    workspace.setUp();
 
-    String expectedJson = workspace.getFileContents("output_path_json.js");
-    JsonNode expected =
-        ObjectMappers.READER.readTree(ObjectMappers.createParser(normalizeNewlines(expectedJson)));
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "targets", "-c", "parser.enable_configurable_attributes=true", "--json", "//:");
+    result.assertSuccess();
 
-    MatcherAssert.assertThat(
-        "Output from targets command should match expected JSON.", observed, equalTo(expected));
+    assertJsonMatches(workspace, result.getStdout(), "output_path_json.js");
   }
 
   @Test
@@ -643,13 +744,17 @@ public class TargetsCommandIntegrationTest {
     assertEquals(
         ImmutableSet.of(
             "//bin:bin", "//bin:genrule", "//lib:lib", "//test:test", "//workspace:workspace"),
-        ImmutableSet.copyOf(Splitter.on('\n').omitEmptyStrings().split(resultAll.getStdout())));
+        ImmutableSet.copyOf(
+            Splitter.on(System.lineSeparator()).omitEmptyStrings().split(resultAll.getStdout())));
 
     ProcessResult resultSingle = workspace.runBuckCommand("targets", "//lib:lib");
     resultSingle.assertSuccess();
     assertEquals(
         ImmutableSet.of("//lib:lib#default,static"),
-        ImmutableSet.copyOf(Splitter.on('\n').omitEmptyStrings().split(resultSingle.getStdout())));
+        ImmutableSet.copyOf(
+            Splitter.on(System.lineSeparator())
+                .omitEmptyStrings()
+                .split(resultSingle.getStdout())));
   }
 
   @Test
@@ -669,7 +774,8 @@ public class TargetsCommandIntegrationTest {
             "//lib:lib#default,static",
             "//test:test",
             "//workspace:workspace"),
-        ImmutableSet.copyOf(Splitter.on('\n').omitEmptyStrings().split(resultAll.getStdout())));
+        ImmutableSet.copyOf(
+            Splitter.on(System.lineSeparator()).omitEmptyStrings().split(resultAll.getStdout())));
 
     ProcessResult resultSingle =
         workspace.runBuckCommand(
@@ -677,7 +783,10 @@ public class TargetsCommandIntegrationTest {
     resultSingle.assertSuccess();
     assertEquals(
         ImmutableSet.of("//lib:lib#default,static"),
-        ImmutableSet.copyOf(Splitter.on('\n').omitEmptyStrings().split(resultSingle.getStdout())));
+        ImmutableSet.copyOf(
+            Splitter.on(System.lineSeparator())
+                .omitEmptyStrings()
+                .split(resultSingle.getStdout())));
   }
 
   @Test
@@ -694,7 +803,8 @@ public class TargetsCommandIntegrationTest {
     assertEquals(
         ImmutableSet.of(
             "//bin:bin", "//bin:genrule", "//lib:lib", "//test:test", "//workspace:workspace"),
-        ImmutableSet.copyOf(Splitter.on('\n').omitEmptyStrings().split(resultAll.getStdout())));
+        ImmutableSet.copyOf(
+            Splitter.on(System.lineSeparator()).omitEmptyStrings().split(resultAll.getStdout())));
 
     ProcessResult resultSingle =
         workspace.runBuckCommand(
@@ -702,7 +812,10 @@ public class TargetsCommandIntegrationTest {
     resultSingle.assertSuccess();
     assertEquals(
         ImmutableSet.of("//lib:lib"),
-        ImmutableSet.copyOf(Splitter.on('\n').omitEmptyStrings().split(resultSingle.getStdout())));
+        ImmutableSet.copyOf(
+            Splitter.on(System.lineSeparator())
+                .omitEmptyStrings()
+                .split(resultSingle.getStdout())));
   }
 
   @Test
@@ -714,15 +827,7 @@ public class TargetsCommandIntegrationTest {
     ProcessResult result = workspace.runBuckCommand("targets", "--json", "--show-output", "...");
     result.assertSuccess();
 
-    // Parse the observed JSON.
-    JsonNode observed =
-        ObjectMappers.READER.readTree(ObjectMappers.createParser(result.getStdout()));
-
-    String expectedJson = workspace.getFileContents("output_path_json_all.js");
-    JsonNode expected =
-        ObjectMappers.READER.readTree(ObjectMappers.createParser(normalizeNewlines(expectedJson)));
-
-    assertEquals("Output from targets command should match expected JSON.", expected, observed);
+    assertJsonMatches(workspace, result.getStdout(), "output_path_json_all.js");
   }
 
   @Test
@@ -742,15 +847,7 @@ public class TargetsCommandIntegrationTest {
             "name");
     result.assertSuccess();
 
-    // Parse the observed JSON.
-    JsonNode observed =
-        ObjectMappers.READER.readTree(ObjectMappers.createParser(result.getStdout()));
-
-    String expectedJson = workspace.getFileContents("output_path_json_all_filtered.js");
-    JsonNode expected =
-        ObjectMappers.READER.readTree(ObjectMappers.createParser(normalizeNewlines(expectedJson)));
-
-    assertEquals("Output from targets command should match expected JSON.", expected, observed);
+    assertJsonMatches(workspace, result.getStdout(), "output_path_json_all_filtered.js");
   }
 
   @Test
@@ -767,7 +864,9 @@ public class TargetsCommandIntegrationTest {
             "targets", "--json", "--show-output", "...", "--output-attributes", "srcs");
     result.assertSuccess();
 
-    assertThat(result.getStdout(), equalTo("[\n{\n  \"srcs\" : [ \"Foo.java\" ]\n}\n]\n"));
+    assertThat(
+        result.getStdout(),
+        equalTo(linesToText("[", "{", "  \"srcs\" : [ \"Foo.java\" ]", "}", "]", "")));
   }
 
   @Test
@@ -787,7 +886,8 @@ public class TargetsCommandIntegrationTest {
 
     assertTrue(matcher.find());
     List<String> lines =
-        ImmutableList.copyOf(Splitter.on('\n').omitEmptyStrings().split(matcher.group("lines")));
+        ImmutableList.copyOf(
+            Splitter.on(System.lineSeparator()).omitEmptyStrings().split(matcher.group("lines")));
 
     // make a vague assertion that test1 depends on test2; do not overload the test
 
@@ -802,6 +902,33 @@ public class TargetsCommandIntegrationTest {
     // edge test1 -> test2
     Pattern edgePattern = Pattern.compile("test1.+->.+test2");
     assertEquals(1, lines.stream().filter(p -> edgePattern.matcher(p).find()).count());
+  }
+
+  @Test
+  public void testConfigurationRulesNotIncludedInDotOutput() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "targets_command", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "targets",
+            "-c",
+            "parser.enable_configurable_attributes=true",
+            "--dot",
+            "--show-rulekey",
+            "--show-transitive-rulekeys",
+            "//:");
+    result.assertSuccess();
+    String output = result.getStdout().trim();
+
+    assertThat(
+        output,
+        allOf(
+            containsString(":A"),
+            containsString(":B"),
+            containsString(":test-library"),
+            not(containsString(":C"))));
   }
 
   @Test
@@ -908,9 +1035,9 @@ public class TargetsCommandIntegrationTest {
     result.assertSuccess();
 
     String expected =
-        String.format(
-            "//:exported.txt %s\n",
-            workspace.getBuckPaths().getGenDir().resolve("exported.txt").resolve("exported.txt"));
+        "//:exported.txt "
+            + workspace.getBuckPaths().getGenDir().resolve("exported.txt").resolve("exported.txt")
+            + System.lineSeparator();
     assertEquals(expected, result.getStdout());
   }
 
@@ -924,7 +1051,21 @@ public class TargetsCommandIntegrationTest {
     result.assertExitCode(null, ExitCode.COMMANDLINE_ERROR);
     assertThat(
         result.getStderr(),
-        Matchers.containsString(
+        containsString(
             "Must specify at least one build target pattern. See https://buckbuild.com/concept/build_target_pattern.html"));
+  }
+
+  private void assertJsonMatches(
+      ProjectWorkspace workspace, String actualJson, String expectedJsonFileName)
+      throws IOException {
+    ObjectMapper mapper = new ObjectMapper();
+    Object observedValue = mapper.readValue(actualJson, Object.class);
+    String observed = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(observedValue);
+
+    String expectedJson = workspace.getFileContents(expectedJsonFileName);
+    Object expectedValue = mapper.readValue(expectedJson, Object.class);
+    String expected = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(expectedValue);
+
+    assertEquals("Output from targets command should match expected JSON.", expected, observed);
   }
 }

@@ -16,13 +16,14 @@
 
 package com.facebook.buck.features.go;
 
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.impl.SymlinkTree;
@@ -31,17 +32,16 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
-import com.facebook.buck.features.go.GoListStep.FileType;
+import com.facebook.buck.features.go.GoListStep.ListType;
 import com.facebook.buck.file.WriteFile;
-import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -54,6 +54,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import com.google.common.io.Files;
 import com.google.common.io.Resources;
 import java.io.IOException;
@@ -124,8 +125,8 @@ abstract class GoDescriptors {
       List<String> assemblerFlags,
       GoPlatform platform,
       Iterable<BuildTarget> deps,
-      Optional<BuildTarget> cgoBuildTarget,
-      List<FileType> goFileTypes) {
+      Iterable<BuildTarget> cgoDeps,
+      List<ListType> goListTypes) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
 
@@ -147,8 +148,8 @@ abstract class GoDescriptors {
     ImmutableList.Builder<SourcePath> extraAsmOutputsBuilder = ImmutableList.builder();
 
     ImmutableSet.Builder<SourcePath> generatedSrcBuilder = ImmutableSet.builder();
-    if (cgoBuildTarget.isPresent()) {
-      CGoLibrary lib = getCGoLibrary(graphBuilder, platform, cgoBuildTarget.get());
+    for (BuildTarget cgoBuildTarget : cgoDeps) {
+      CGoLibrary lib = getCGoLibrary(graphBuilder, platform, cgoBuildTarget);
       generatedSrcBuilder.addAll(lib.getGeneratedGoSource());
       extraAsmOutputsBuilder.add(lib.getOutput());
 
@@ -178,7 +179,7 @@ abstract class GoDescriptors {
         ImmutableList.copyOf(assemblerFlags),
         platform,
         extraAsmOutputsBuilder.build(),
-        goFileTypes);
+        goListTypes);
   }
 
   @VisibleForTesting
@@ -212,7 +213,8 @@ abstract class GoDescriptors {
       ActionGraphBuilder graphBuilder,
       CxxPlatform cxxPlatform,
       Iterable<BuildRule> deps,
-      Linker.LinkableDepType linkStyle) {
+      Linker.LinkableDepType linkStyle,
+      Iterable<Arg> externalLinkerFlags) {
 
     // find all the CGoLibraries being in direct or non direct dependency to
     // declared deps
@@ -241,7 +243,7 @@ abstract class GoDescriptors {
             r -> Optional.empty());
 
     // skip setting any arg if no linkable inputs are present
-    if (linkableInput.getArgs().size() == 0) {
+    if (linkableInput.getArgs().size() == 0 && Iterables.size(externalLinkerFlags) == 0) {
       return argsBuilder.build();
     }
 
@@ -254,6 +256,7 @@ abstract class GoDescriptors {
     // add all arguments needed to link in the C/C++ platform runtime.
     argsBuilder.addAll(StringArg.from(cxxPlatform.getRuntimeLdflags().get(linkStyle)));
     argsBuilder.addAll(linkableInput.getArgs());
+    argsBuilder.addAll(externalLinkerFlags);
 
     return argsBuilder.build();
   }
@@ -269,8 +272,8 @@ abstract class GoDescriptors {
       List<String> compilerFlags,
       List<String> assemblerFlags,
       List<String> linkerFlags,
-      GoPlatform platform,
-      Optional<BuildTarget> cgoBuildTarget) {
+      List<String> externalLinkerFlags,
+      GoPlatform platform) {
     BuildTarget libraryTarget =
         buildTarget.withAppendedFlavors(InternalFlavor.of("compile"), platform.getFlavor());
     GoCompile library =
@@ -291,8 +294,8 @@ abstract class GoDescriptors {
                 .stream()
                 .map(BuildRule::getBuildTarget)
                 .collect(ImmutableList.toImmutableList()),
-            cgoBuildTarget,
-            Arrays.asList(FileType.GoFiles));
+            ImmutableList.of(),
+            Arrays.asList(ListType.GoFiles));
     graphBuilder.addToIndex(library);
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
@@ -332,17 +335,19 @@ abstract class GoDescriptors {
                     .addAll(BuildableSupport.getDepsCollection(cxxLinker, ruleFinder))
                     .build())
             .withoutExtraDeps(),
-        Optional.of(cxxLinker),
-        getCxxLinkerArgs(
-            graphBuilder,
-            platform.getCxxPlatform(),
-            library.getBuildDeps(),
-            Linker.LinkableDepType.STATIC_PIC),
         resources,
         symlinkTree,
         library,
         platform.getLinker(),
+        cxxLinker,
         ImmutableList.copyOf(linkerFlags),
+        getCxxLinkerArgs(
+            graphBuilder,
+            platform.getCxxPlatform(),
+            library.getBuildDeps(),
+            Linker.LinkableDepType.STATIC_PIC,
+            StringArg.from(
+                Iterables.concat(platform.getExternalLinkerFlags(), externalLinkerFlags))),
         platform);
   }
 
@@ -352,8 +357,7 @@ abstract class GoDescriptors {
       BuildTarget sourceBuildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams sourceParams,
-      ActionGraphBuilder graphBuilder,
-      Optional<BuildTarget> cgoBuildTarget) {
+      ActionGraphBuilder graphBuilder) {
 
     Optional<Tool> configTool = goBuckConfig.getGoTestMainGenerator(graphBuilder);
     if (configTool.isPresent()) {
@@ -376,7 +380,7 @@ abstract class GoDescriptors {
                                   generatorSourceTarget,
                                   projectFilesystem,
                                   extractTestMainGenerator(),
-                                  BuildTargets.getGenPath(
+                                  BuildTargetPaths.getGenPath(
                                       projectFilesystem, generatorSourceTarget, "%s/main.go"),
                                   /* executable */ false));
 
@@ -393,8 +397,8 @@ abstract class GoDescriptors {
                   ImmutableList.of(),
                   ImmutableList.of(),
                   ImmutableList.of(),
-                  platform,
-                  cgoBuildTarget);
+                  ImmutableList.of(),
+                  platform);
             });
 
     return ((BinaryBuildRule) generator).getExecutableCommand();
@@ -469,18 +473,17 @@ abstract class GoDescriptors {
       SourcePathRuleFinder ruleFinder,
       SourcePathResolver pathResolver,
       ImmutableSet<GoLinkable> linkables) {
-    ImmutableMap.Builder<Path, SourcePath> treeMapBuilder = ImmutableMap.builder();
-    for (GoLinkable linkable : linkables) {
-      for (Map.Entry<Path, SourcePath> linkInput : linkable.getGoLinkInput().entrySet()) {
-        treeMapBuilder.put(
-            getPathInSymlinkTree(pathResolver, linkInput.getKey(), linkInput.getValue()),
-            linkInput.getValue());
-      }
-    }
 
     ImmutableMap<Path, SourcePath> treeMap;
     try {
-      treeMap = treeMapBuilder.build();
+      treeMap =
+          linkables
+              .stream()
+              .flatMap(linkable -> linkable.getGoLinkInput().entrySet().stream())
+              .collect(
+                  ImmutableMap.toImmutableMap(
+                      entry -> getPathInSymlinkTree(pathResolver, entry.getKey(), entry.getValue()),
+                      entry -> entry.getValue()));
     } catch (IllegalArgumentException ex) {
       throw new HumanReadableException(
           ex,
@@ -488,7 +491,7 @@ abstract class GoDescriptors {
           buildTarget.getFullyQualifiedName());
     }
 
-    Path root = BuildTargets.getScratchPath(projectFilesystem, buildTarget, "__%s__tree");
+    Path root = BuildTargetPaths.getScratchPath(projectFilesystem, buildTarget, "__%s__tree");
 
     return new SymlinkTree(
         "go_linkable",

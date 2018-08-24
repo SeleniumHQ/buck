@@ -40,23 +40,23 @@ public class MoreProjectFilesystems {
    *
    * @param pathToDesiredLinkUnderProjectRoot must reference a file, not a directory.
    * @param pathToExistingFileUnderProjectRoot must reference a file, not a directory.
-   * @return the relative path from the new symlink that was created to the existing file.
+   * @param projectFilesystem the projectFileSystem.
+   * @return Path to the newly created symlink (relative path on Unix absolute path on Windows).
    */
   public static Path createRelativeSymlink(
       Path pathToDesiredLinkUnderProjectRoot,
       Path pathToExistingFileUnderProjectRoot,
       ProjectFilesystem projectFilesystem)
       throws IOException {
-    return MorePaths.createRelativeSymlink(
-        pathToDesiredLinkUnderProjectRoot,
-        pathToExistingFileUnderProjectRoot,
-        projectFilesystem.getRootPath());
-  }
 
-  /** @return Whether the input path directs to a file in the buck generated files folder. */
-  public static boolean isGeneratedFile(
-      ProjectFilesystem filesystem, Path pathRelativeToProjectRoot) {
-    return pathRelativeToProjectRoot.startsWith(filesystem.getBuckPaths().getGenDir());
+    Path target =
+        MorePaths.getRelativePath(
+            pathToExistingFileUnderProjectRoot, pathToDesiredLinkUnderProjectRoot.getParent());
+
+    projectFilesystem.createSymLink(
+        projectFilesystem.getRootPath().resolve(pathToDesiredLinkUnderProjectRoot), target, false);
+
+    return target;
   }
 
   public static boolean fileContentsDiffer(

@@ -31,8 +31,7 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.features.project.intellij.model.IjModuleFactoryResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.AnnotationProcessingParams;
-import com.facebook.buck.jvm.java.CompilerParameters;
-import com.facebook.buck.jvm.java.DefaultJavaLibrary;
+import com.facebook.buck.jvm.java.CompilerOutputPaths;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.util.Optionals;
 import com.google.common.collect.ImmutableSet;
@@ -61,7 +60,7 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
   }
 
   @Override
-  public Optional<Path> getDummyRDotJavaPath(TargetNode<?, ?> targetNode) {
+  public Optional<Path> getDummyRDotJavaPath(TargetNode<?> targetNode) {
     BuildTarget dummyRDotJavaTarget =
         AndroidLibraryGraphEnhancer.getDummyRDotJavaTarget(targetNode.getBuildTarget());
     Optional<BuildRule> dummyRDotJavaRule = graphBuilder.getRuleOptional(dummyRDotJavaTarget);
@@ -74,7 +73,7 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
   }
 
   @Override
-  public Path getAndroidManifestPath(TargetNode<AndroidBinaryDescriptionArg, ?> targetNode) {
+  public Path getAndroidManifestPath(TargetNode<AndroidBinaryDescriptionArg> targetNode) {
     AndroidBinaryDescriptionArg arg = targetNode.getConstructorArg();
     Optional<SourcePath> manifestSourcePath = arg.getManifest();
     if (!manifestSourcePath.isPresent()) {
@@ -91,14 +90,13 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
 
   @Override
   public Optional<Path> getLibraryAndroidManifestPath(
-      TargetNode<AndroidLibraryDescription.CoreArg, ?> targetNode) {
+      TargetNode<AndroidLibraryDescription.CoreArg> targetNode) {
     Optional<SourcePath> manifestPath = targetNode.getConstructorArg().getManifest();
     return manifestPath.map(sourcePathResolver::getAbsolutePath).map(projectFilesystem::relativize);
   }
 
   @Override
-  public Optional<Path> getProguardConfigPath(
-      TargetNode<AndroidBinaryDescriptionArg, ?> targetNode) {
+  public Optional<Path> getProguardConfigPath(TargetNode<AndroidBinaryDescriptionArg> targetNode) {
     return targetNode
         .getConstructorArg()
         .getProguardConfig()
@@ -107,19 +105,19 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
 
   @Override
   public Optional<Path> getAndroidResourcePath(
-      TargetNode<AndroidResourceDescriptionArg, ?> targetNode) {
+      TargetNode<AndroidResourceDescriptionArg> targetNode) {
     return AndroidResourceDescription.getResDirectoryForProject(graphBuilder, targetNode)
         .map(this::getRelativePathAndRecordRule);
   }
 
   @Override
-  public Optional<Path> getAssetsPath(TargetNode<AndroidResourceDescriptionArg, ?> targetNode) {
+  public Optional<Path> getAssetsPath(TargetNode<AndroidResourceDescriptionArg> targetNode) {
     return AndroidResourceDescription.getAssetsDirectoryForProject(graphBuilder, targetNode)
         .map(this::getRelativePathAndRecordRule);
   }
 
   @Override
-  public Optional<Path> getAnnotationOutputPath(TargetNode<? extends JvmLibraryArg, ?> targetNode) {
+  public Optional<Path> getAnnotationOutputPath(TargetNode<? extends JvmLibraryArg> targetNode) {
     AnnotationProcessingParams annotationProcessingParams =
         targetNode
             .getConstructorArg()
@@ -129,13 +127,13 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
       return Optional.empty();
     }
 
-    return CompilerParameters.getAnnotationPath(projectFilesystem, targetNode.getBuildTarget());
+    return CompilerOutputPaths.getAnnotationPath(projectFilesystem, targetNode.getBuildTarget());
   }
 
   @Override
-  public Optional<Path> getCompilerOutputPath(TargetNode<? extends JvmLibraryArg, ?> targetNode) {
+  public Optional<Path> getCompilerOutputPath(TargetNode<? extends JvmLibraryArg> targetNode) {
     BuildTarget buildTarget = targetNode.getBuildTarget();
-    Path compilerOutputPath = DefaultJavaLibrary.getOutputJarPath(buildTarget, projectFilesystem);
+    Path compilerOutputPath = CompilerOutputPaths.getOutputJarPath(buildTarget, projectFilesystem);
     return Optional.of(compilerOutputPath);
   }
 

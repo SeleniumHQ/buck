@@ -18,9 +18,10 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
 import com.facebook.buck.core.rules.attr.InitializableFromDisk;
@@ -34,7 +35,6 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.DefaultJavaAbiInfo;
 import com.facebook.buck.jvm.core.JavaAbiInfo;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
@@ -55,7 +55,7 @@ public class CalculateClassAbi extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   private final Path outputPath;
   private BuildOutputInitializer<Object> buildOutputInitializer;
-  private final DefaultJavaAbiInfo javaAbiInfo;
+  private final JavaAbiInfo javaAbiInfo;
 
   public CalculateClassAbi(
       BuildTarget buildTarget,
@@ -67,7 +67,7 @@ public class CalculateClassAbi extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.binaryJar = binaryJar;
     this.compatibilityMode = compatibilityMode;
     this.outputPath = getAbiJarPath(getProjectFilesystem(), getBuildTarget());
-    this.javaAbiInfo = new DefaultJavaAbiInfo(getBuildTarget(), getSourcePathToOutput());
+    this.javaAbiInfo = new DefaultJavaAbiInfo(getSourcePathToOutput());
     this.buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
   }
 
@@ -99,7 +99,7 @@ public class CalculateClassAbi extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   public static Path getAbiJarPath(ProjectFilesystem filesystem, BuildTarget buildTarget) {
-    return BuildTargets.getGenPath(filesystem, buildTarget, "%s")
+    return BuildTargetPaths.getGenPath(filesystem, buildTarget, "%s")
         .resolve(String.format("%s-abi.jar", buildTarget.getShortName()));
   }
 

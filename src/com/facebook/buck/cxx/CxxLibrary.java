@@ -18,17 +18,18 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.android.packageable.AndroidPackageable;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
@@ -307,10 +308,7 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
     boolean delegateWantsArtifact =
         delegate
-            .map(
-                d ->
-                    d.getShouldProduceLibraryArtifact(
-                        getBuildTarget(), graphBuilder, cxxPlatform, type, forceLinkWhole))
+            .map(d -> d.getShouldProduceLibraryArtifact(getBuildTarget(), graphBuilder))
             .orElse(false);
     boolean headersOnly = headerOnly.test(cxxPlatform);
     boolean shouldProduceArtifact = (!headersOnly || delegateWantsArtifact) && propagateLinkables;
@@ -344,8 +342,10 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
                         ? CxxDescriptionEnhancer.STATIC_FLAVOR
                         : CxxDescriptionEnhancer.STATIC_PIC_FLAVOR);
         if (linkWhole || forceLinkWhole) {
+          SourcePathResolver pathResolver =
+              DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
           Linker linker = cxxPlatform.getLd().resolve(graphBuilder);
-          linkerArgsBuilder.addAll(linker.linkWhole(archive.toArg()));
+          linkerArgsBuilder.addAll(linker.linkWhole(archive.toArg(), pathResolver));
         } else {
           Arg libraryArg = archive.toArg();
           if (libraryArg instanceof SourcePathArg) {
@@ -386,7 +386,6 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions,
       ActionGraphBuilder graphBuilder) {
     NativeLinkableCacheKey key =
         NativeLinkableCacheKey.of(cxxPlatform.getFlavor(), type, forceLinkWhole, cxxPlatform);
@@ -411,12 +410,11 @@ public class CxxLibrary extends NoopBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Iterable<AndroidPackageable> getRequiredPackageables(BuildRuleResolver ruleResolver) {
+    // Both iterables we are concatting are ImmutableSets, so the returned iterator does not support
+    // remove
     return AndroidPackageableCollector.getPackageableRules(
-        RichStream.from(
-                Iterables.concat(
-                    deps.getForAllPlatforms(ruleResolver),
-                    exportedDeps.getForAllPlatforms(ruleResolver)))
-            .toImmutableList());
+        Iterables.concat(
+            deps.getForAllPlatforms(ruleResolver), exportedDeps.getForAllPlatforms(ruleResolver)));
   }
 
   @Override

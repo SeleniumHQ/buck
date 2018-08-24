@@ -19,6 +19,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -35,11 +36,11 @@ import com.facebook.buck.jvm.core.DefaultJavaAbiInfo;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.core.JavaAbiInfo;
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
+import com.facebook.buck.jvm.java.CompilerOutputPaths;
 import com.facebook.buck.jvm.java.CompilerParameters;
 import com.facebook.buck.jvm.java.JarDirectoryStep;
 import com.facebook.buck.jvm.java.JarParameters;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -48,6 +49,7 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
@@ -85,7 +87,7 @@ public class DummyRDotJava extends AbstractBuildRule
   @SuppressWarnings("PMD.UnusedPrivateField")
   private final ImmutableList<SourcePath> abiInputs;
 
-  private final DefaultJavaAbiInfo javaAbiInfo;
+  private final JavaAbiInfo javaAbiInfo;
 
   public DummyRDotJava(
       BuildTarget buildTarget,
@@ -147,7 +149,7 @@ public class DummyRDotJava extends AbstractBuildRule
     this.unionPackage = unionPackage;
     this.finalRName = finalRName;
     this.abiInputs = abiInputs;
-    this.javaAbiInfo = new DefaultJavaAbiInfo(getBuildTarget(), getSourcePathToOutput());
+    this.javaAbiInfo = new DefaultJavaAbiInfo(getSourcePathToOutput());
     buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
   }
 
@@ -256,18 +258,26 @@ public class DummyRDotJava extends AbstractBuildRule
             .setClasspathEntries(ImmutableSortedSet.of())
             .setSourceFilePaths(javaSourceFilePaths)
             .setScratchPaths(getBuildTarget(), getProjectFilesystem())
-            .setOutputDirectory(rDotJavaClassesFolder)
             .build();
+
+    Preconditions.checkState(
+        compilerParameters.getOutputPaths().getClassesDir().equals(rDotJavaClassesFolder));
+
     steps.add(
         MkdirStep.of(
             BuildCellRelativePath.fromCellRelativePath(
                 context.getBuildCellRootPath(),
                 getProjectFilesystem(),
-                compilerParameters.getPathToSourcesList().getParent())));
+                compilerParameters.getOutputPaths().getPathToSourcesList().getParent())));
 
     // Compile the .java files.
     compileStepFactory.createCompileStep(
-        context, getBuildTarget(), compilerParameters, steps, buildableContext);
+        context,
+        getProjectFilesystem(),
+        getBuildTarget(),
+        compilerParameters,
+        steps,
+        buildableContext);
     buildableContext.recordArtifact(rDotJavaClassesFolder);
 
     JarParameters jarParameters =
@@ -350,15 +360,15 @@ public class DummyRDotJava extends AbstractBuildRule
   }
 
   public static Path getRDotJavaSrcFolder(BuildTarget buildTarget, ProjectFilesystem filesystem) {
-    return BuildTargets.getScratchPath(filesystem, buildTarget, "__%s_rdotjava_src__");
+    return BuildTargetPaths.getScratchPath(filesystem, buildTarget, "__%s_rdotjava_src__");
   }
 
   public static Path getRDotJavaBinFolder(BuildTarget buildTarget, ProjectFilesystem filesystem) {
-    return BuildTargets.getScratchPath(filesystem, buildTarget, "__%s_rdotjava_bin__");
+    return CompilerOutputPaths.of(buildTarget, filesystem).getClassesDir();
   }
 
-  private static Path getPathToOutputDir(BuildTarget buildTarget, ProjectFilesystem filesystem) {
-    return BuildTargets.getGenPath(filesystem, buildTarget, "__%s_dummyrdotjava_output__");
+  public static Path getPathToOutputDir(BuildTarget buildTarget, ProjectFilesystem filesystem) {
+    return BuildTargetPaths.getGenPath(filesystem, buildTarget, "__%s_dummyrdotjava_output__");
   }
 
   private static Path getOutputJarPath(BuildTarget buildTarget, ProjectFilesystem filesystem) {

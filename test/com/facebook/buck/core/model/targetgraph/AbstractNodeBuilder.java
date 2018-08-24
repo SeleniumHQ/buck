@@ -18,9 +18,8 @@ package com.facebook.buck.core.model.targetgraph;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellPathResolver;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
@@ -28,18 +27,19 @@ import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.TestBuildRuleParams;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.query.QueryCache;
 import com.facebook.buck.rules.query.QueryUtils;
 import com.facebook.buck.rules.visibility.VisibilityPatternParser;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -166,7 +166,7 @@ public abstract class AbstractNodeBuilder<
     return rule;
   }
 
-  public TargetNode<TArg, TDescription> build(ProjectFilesystem filesystem) {
+  public TargetNode<TArg> build(ProjectFilesystem filesystem) {
     try {
       HashCode hash =
           rawHashCode == null
@@ -174,7 +174,7 @@ public abstract class AbstractNodeBuilder<
               : rawHashCode;
       TargetNodeFactory factory = new TargetNodeFactory(TYPE_COERCER_FACTORY);
       TArg populatedArg = getPopulatedArg();
-      TargetNode<TArg, TDescription> node =
+      TargetNode<TArg> node =
           factory
               .createFromObject(
                   // This hash will do in a pinch.
@@ -196,12 +196,12 @@ public abstract class AbstractNodeBuilder<
     }
   }
 
-  public TargetNode<TArg, TDescription> build() {
+  public TargetNode<TArg> build() {
     return build(filesystem);
   }
 
   public BuildRuleParams createBuildRuleParams(BuildRuleResolver resolver) {
-    TargetNode<?, ?> node = build();
+    TargetNode<?> node = build();
     return TestBuildRuleParams.create()
         .withDeclaredDeps(resolver.getAllRules(node.getDeclaredDeps()))
         .withExtraDeps(resolver.getAllRules(node.getExtraDeps()));

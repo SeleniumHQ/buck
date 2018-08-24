@@ -21,6 +21,7 @@ import com.facebook.buck.core.build.engine.BuildEngineResult;
 import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.DistBuildUtil;
 import com.facebook.buck.distributed.build_slave.HeartbeatService.HeartbeatCallback;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
@@ -28,10 +29,10 @@ import com.facebook.buck.distributed.thrift.GetWorkResponse;
 import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.log.CommandThreadFactory;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.log.GlobalStateManager;
 import com.facebook.buck.slb.ThriftException;
 import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.concurrent.CommandThreadFactory;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -114,7 +115,8 @@ public class MinionModeRunner extends AbstractDistBuildModeRunner {
         minionPollLoopIntervalMillis,
         minionBuildProgressTracker,
         MostExecutors.newMultiThreadExecutor(
-            new CommandThreadFactory("MinionBuilderThread"),
+            new CommandThreadFactory(
+                "MinionBuilderThread", GlobalStateManager.singleton().getThreadToCommandRegister()),
             capacityTracker.getMaxAvailableCapacity()),
         eventBus);
   }

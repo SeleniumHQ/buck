@@ -19,11 +19,11 @@ package com.facebook.buck.rules.keys;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rules.type.BuildRuleType;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.io.ArchiveMemberPath;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.keys.hasher.CountingRuleKeyHasher;
 import com.facebook.buck.rules.keys.hasher.GuavaRuleKeyHasher;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
@@ -205,19 +205,19 @@ public class CountingRuleKeyHasherTest {
         newGuavaHasher().putRuleKey(RULE_KEY_2).hash(),
         newCountHasher().putRuleKey(RULE_KEY_2).hash());
     assertEquals(
-        newGuavaHasher().putBuildRuleType(BuildRuleType.of("")).hash(),
-        newCountHasher().putBuildRuleType(BuildRuleType.of("")).hash());
+        newGuavaHasher().putRuleType(RuleType.of("", RuleType.Kind.BUILD)).hash(),
+        newCountHasher().putRuleType(RuleType.of("", RuleType.Kind.BUILD)).hash());
     assertEquals(
-        newGuavaHasher().putBuildRuleType(BuildRuleType.of("42")).hash(),
-        newCountHasher().putBuildRuleType(BuildRuleType.of("42")).hash());
+        newGuavaHasher().putRuleType(RuleType.of("42", RuleType.Kind.BUILD)).hash(),
+        newCountHasher().putRuleType(RuleType.of("42", RuleType.Kind.BUILD)).hash());
     assertEquals(
         newGuavaHasher()
-            .putBuildRuleType(BuildRuleType.of("4"))
-            .putBuildRuleType(BuildRuleType.of("2"))
+            .putRuleType(RuleType.of("4", RuleType.Kind.BUILD))
+            .putRuleType(RuleType.of("2", RuleType.Kind.BUILD))
             .hash(),
         newCountHasher()
-            .putBuildRuleType(BuildRuleType.of("4"))
-            .putBuildRuleType(BuildRuleType.of("2"))
+            .putRuleType(RuleType.of("4", RuleType.Kind.BUILD))
+            .putRuleType(RuleType.of("2", RuleType.Kind.BUILD))
             .hash());
     assertEquals(
         newGuavaHasher().putBuildTarget(TARGET_1).hash(),
@@ -366,9 +366,11 @@ public class CountingRuleKeyHasherTest {
     assertEquals(++count, hasher.getCount());
     hasher.putRuleKey(RULE_KEY_2).putRuleKey(RULE_KEY_1);
     assertEquals(count += 2, hasher.getCount());
-    hasher.putBuildRuleType(BuildRuleType.of(""));
+    hasher.putRuleType(RuleType.of("", RuleType.Kind.BUILD));
     assertEquals(++count, hasher.getCount());
-    hasher.putBuildRuleType(BuildRuleType.of("42")).putBuildRuleType(BuildRuleType.of("43"));
+    hasher
+        .putRuleType(RuleType.of("42", RuleType.Kind.BUILD))
+        .putRuleType(RuleType.of("43", RuleType.Kind.BUILD));
     assertEquals(count += 2, hasher.getCount());
     hasher.putBuildTarget(TARGET_1);
     assertEquals(++count, hasher.getCount());

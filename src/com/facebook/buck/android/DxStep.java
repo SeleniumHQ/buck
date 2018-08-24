@@ -23,7 +23,6 @@ import com.android.tools.r8.Diagnostic;
 import com.android.tools.r8.DiagnosticsHandler;
 import com.android.tools.r8.OutputMode;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.shell.ShellStep;
@@ -42,7 +41,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.PrintStream;
-import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -109,13 +107,11 @@ public class DxStep extends ShellStep {
    *     files, or a directory of .class files.
    */
   public DxStep(
-      BuildTarget target,
       ProjectFilesystem filesystem,
       AndroidPlatformTarget androidPlatformTarget,
       Path outputDexFile,
       Iterable<Path> filesToDex) {
     this(
-        target,
         filesystem,
         androidPlatformTarget,
         outputDexFile,
@@ -132,7 +128,6 @@ public class DxStep extends ShellStep {
    * @param dexTool the tool used to perform dexing.
    */
   public DxStep(
-      BuildTarget target,
       ProjectFilesystem filesystem,
       AndroidPlatformTarget androidPlatformTarget,
       Path outputDexFile,
@@ -140,7 +135,6 @@ public class DxStep extends ShellStep {
       EnumSet<Option> options,
       String dexTool) {
     this(
-        target,
         filesystem,
         androidPlatformTarget,
         outputDexFile,
@@ -160,7 +154,6 @@ public class DxStep extends ShellStep {
    * @param dexTool the tool used to perform dexing.
    */
   public DxStep(
-      BuildTarget buildTarget,
       ProjectFilesystem filesystem,
       AndroidPlatformTarget androidPlatformTarget,
       Path outputDexFile,
@@ -169,7 +162,7 @@ public class DxStep extends ShellStep {
       Optional<String> maxHeapSize,
       String dexTool,
       boolean intermediate) {
-    super(Optional.of(buildTarget), filesystem.getRootPath());
+    super(filesystem.getRootPath());
     this.filesystem = filesystem;
     this.androidPlatformTarget = androidPlatformTarget;
     this.outputDexFile = filesystem.resolve(outputDexFile);
@@ -183,7 +176,6 @@ public class DxStep extends ShellStep {
         !options.contains(Option.RUN_IN_PROCESS)
             || options.contains(Option.USE_CUSTOM_DX_IF_AVAILABLE),
         "In-process dexing is only supported with custom DX");
-
     Preconditions.checkArgument(
         !intermediate || dexTool.equals(D8), "Intermediate dexing is only supported with D8");
   }
@@ -192,7 +184,13 @@ public class DxStep extends ShellStep {
   protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
     CharsCountingStringList commandArgs = new CharsCountingStringList(10 + filesToDex.size());
 
+    // TODO: Support D8 for out of process dexing by respecting dexTool here
     String dx = androidPlatformTarget.getDxExecutable().toString();
+
+    if (dexTool.equals(D8)) {
+      context.postEvent(
+          ConsoleEvent.fine("Using %s instead of D8. D8 can only be used in-process.", dx));
+    }
 
     if (options.contains(Option.USE_CUSTOM_DX_IF_AVAILABLE)) {
       String customDx = Strings.emptyToNull(System.getProperty("buck.dx"));
@@ -238,6 +236,7 @@ public class DxStep extends ShellStep {
     final int splitPoint = commandArgs.size();
 
     for (Path fileToDex : filesToDex) {
+      // TODO: Does this need to also resolve directory entries as below when using D8?
       commandArgs.add(filesystem.resolve(fileToDex).toString());
     }
 
@@ -284,10 +283,7 @@ public class DxStep extends ShellStep {
           if (Files.isRegularFile(toDex)) {
             inputs.add(toDex);
           } else {
-            try (DirectoryStream<Path> directories =
-                Files.newDirectoryStream(toDex, path -> path.toFile().isFile())) {
-              directories.forEach(inputs::add);
-            }
+            Files.walk(toDex).filter(path -> path.toFile().isFile()).forEach(inputs::add);
           }
         }
 

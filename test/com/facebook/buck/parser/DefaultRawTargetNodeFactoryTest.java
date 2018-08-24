@@ -21,20 +21,19 @@ import static org.junit.Assert.assertEquals;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.model.targetgraph.RawAttributes;
 import com.facebook.buck.core.model.targetgraph.RawTargetNode;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesTestUtil;
-import com.facebook.buck.core.rules.type.BuildRuleType;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.core.select.Selector;
 import com.facebook.buck.core.select.SelectorKey;
 import com.facebook.buck.core.select.SelectorList;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.event.SimplePerfEvent;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.SubdirectoryBuildTargetPattern;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.visibility.BuildTargetVisibilityPattern;
@@ -52,25 +51,23 @@ public class DefaultRawTargetNodeFactoryTest {
 
   @Test
   public void testCreatePopulatesNode() {
+    KnownRuleTypesProvider knownRuleTypesProvider =
+        TestKnownRuleTypesProvider.create(BuckPluginManagerFactory.createPluginManager());
 
     DefaultRawTargetNodeFactory factory =
         new DefaultRawTargetNodeFactory(
+            knownRuleTypesProvider,
             new ConstructorArgMarshaller(new DefaultTypeCoercerFactory()),
             new VisibilityPatternFactory(),
             new BuiltTargetVerifier());
 
     Cell cell = new TestCellBuilder().build();
 
-    KnownBuildRuleTypesFactory knownBuildRuleTypesFactory =
-        KnownBuildRuleTypesTestUtil.createKnownBuildRuleTypesFactory();
-    KnownBuildRuleTypes knownBuildRuleTypes = knownBuildRuleTypesFactory.create(cell);
-
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//a/b:c");
 
     RawTargetNode rawTargetNode =
         factory.create(
             cell,
-            knownBuildRuleTypes,
             cell.getRoot().resolve("a/b/BUCK"),
             buildTarget,
             ImmutableMap.<String, Object>builder()
@@ -93,7 +90,7 @@ public class DefaultRawTargetNodeFactoryTest {
                 .build(),
             (id) -> SimplePerfEvent.scope(Optional.empty(), null, null));
 
-    assertEquals(BuildRuleType.of("java_library"), rawTargetNode.getBuildRuleType());
+    assertEquals(RuleType.of("java_library", RuleType.Kind.BUILD), rawTargetNode.getRuleType());
     assertEquals(buildTarget, rawTargetNode.getBuildTarget());
 
     RawAttributes attributes = rawTargetNode.getAttributes();

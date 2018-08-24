@@ -17,11 +17,12 @@ package com.facebook.buck.features.haskell;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
@@ -33,7 +34,6 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -120,6 +120,9 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   @AddToRuleKey(stringify = true)
   Path ghciCpp;
 
+  @AddToRuleKey(stringify = true)
+  Path ghciPackager;
+
   private HaskellGhciRule(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
@@ -145,7 +148,8 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
       Path ghciLib,
       Path ghciCxx,
       Path ghciCc,
-      Path ghciCpp) {
+      Path ghciCpp,
+      Path ghciPackager) {
     super(buildTarget, projectFilesystem, params);
     this.srcs = srcs;
     this.compilerFlags = compilerFlags;
@@ -169,6 +173,7 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.ghciCxx = ghciCxx;
     this.ghciCc = ghciCc;
     this.ghciCpp = ghciCpp;
+    this.ghciPackager = ghciPackager;
   }
 
   @Override
@@ -214,7 +219,8 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
       Path ghciLib,
       Path ghciCxx,
       Path ghciCc,
-      Path ghciCpp) {
+      Path ghciCpp,
+      Path ghciPackager) {
 
     ImmutableSet.Builder<BuildRule> extraDeps = ImmutableSet.builder();
 
@@ -257,11 +263,12 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
         ghciLib,
         ghciCxx,
         ghciCc,
-        ghciCpp);
+        ghciCpp,
+        ghciPackager);
   }
 
   private Path getOutputDir() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s");
+    return BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s");
   }
 
   @Override
@@ -546,6 +553,7 @@ public class HaskellGhciRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
       templateArgs.put("cxx_path", ghciCxx.toRealPath().toString());
       templateArgs.put("cc_path", ghciCc.toRealPath().toString());
       templateArgs.put("cpp_path", ghciCpp.toRealPath().toString());
+      templateArgs.put("ghc_pkg_path", ghciPackager.toRealPath().toString());
       if (iservScript.isPresent()) {
         templateArgs.put("iserv_path", dir.relativize(iservScript.get()).toString());
       }

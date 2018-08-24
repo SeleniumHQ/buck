@@ -18,13 +18,13 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.testutil.ParameterizedTests;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -52,33 +52,26 @@ public class CxxDependencyFileIntegrationTest {
   private BuildTarget target;
   private BuildTarget compileTarget;
 
-  @Parameterized.Parameters(name = "sandbox_sources={0},buckd={1}")
+  @Parameterized.Parameters(name = "buckd={0}")
   public static Collection<Object[]> data() {
-    return ParameterizedTests.getPermutations(
-        ImmutableList.of(false, true), ImmutableList.of(false, true));
+    return ParameterizedTests.getPermutations(ImmutableList.of(false, true));
   }
 
   @Parameterized.Parameter(value = 0)
-  public boolean sandboxSource;
-
-  @Parameterized.Parameter(value = 1)
   public boolean buckd;
 
   @Before
   public void setUp() throws IOException {
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "depfiles", tmp);
     workspace.setUp();
-    String sandboxSourcesConfig = "  sandbox_sources = " + sandboxSource + "\n";
     String posix_config =
         "[cxx]\n"
-            + sandboxSourcesConfig
             + "  cppflags = -Wall -Werror\n"
             + "  cxxppflags = -Wall -Werror\n"
             + "  cflags = -Wall -Werror\n"
             + "  cxxflags = -Wall -Werror\n";
     String windows_config =
         "[cxx]\n"
-            + "  sandbox_sources = true\n"
             + "  cc=\"C:/Program Files (x86)/Microsoft Visual Studio 14.0/VC/bin/amd64/cl.exe\"\n"
             + "  cc_type=windows\n"
             + "  cpp=\"C:/Program Files (x86)/Microsoft Visual Studio 14.0/VC/bin/amd64/cl.exe\"\n"

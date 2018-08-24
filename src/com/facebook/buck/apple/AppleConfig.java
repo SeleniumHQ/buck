@@ -17,8 +17,8 @@
 package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.toolchain.ApplePlatform;
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.ConfigView;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.ConfigView;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
@@ -26,8 +26,8 @@ import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.BinaryBuildRuleToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor.Option;
@@ -294,6 +294,14 @@ public class AppleConfig implements ConfigView<BuckConfig> {
 
   public boolean shouldVerifyBundleResources() {
     return delegate.getBooleanValue(APPLE_SECTION, "verify_bundle_resources", false);
+  }
+
+  public boolean shouldAddLinkedLibrariesAsFlags() {
+    return delegate.getBooleanValue(APPLE_SECTION, "link_libraries_as_flags", false);
+  }
+
+  public boolean shouldIncludeSharedLibraryResources() {
+    return delegate.getBooleanValue(APPLE_SECTION, "include_shared_lib_resources", false);
   }
 
   public boolean shouldAddLinkerFlagsForLinkWholeLibraries() {

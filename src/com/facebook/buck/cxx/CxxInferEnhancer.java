@@ -16,7 +16,7 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorConvertible;
@@ -25,17 +25,16 @@ import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.rules.impl.SymlinkTree;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.cxx.toolchain.PicType;
-import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Preconditions;
@@ -283,8 +282,7 @@ public final class CxxInferEnhancer {
       CellPathResolver cellRoots,
       CxxPlatform cxxPlatform,
       CxxBinaryDescription.CommonArg args,
-      HeaderSymlinkTree headerSymlinkTree,
-      Optional<SymlinkTree> sandboxTree) {
+      HeaderSymlinkTree headerSymlinkTree) {
     ImmutableSet<BuildRule> deps = args.getCxxDeps().get(graphBuilder, cxxPlatform);
     return CxxDescriptionEnhancer.collectCxxPreprocessorInput(
         target,
@@ -308,8 +306,6 @@ public final class CxxInferEnhancer {
             cxxPlatform,
             graphBuilder,
             RichStream.from(deps).filter(CxxPreprocessorDep.class::isInstance).toImmutableList()),
-        args.getIncludeDirs(),
-        sandboxTree,
         args.getRawHeaders());
   }
 
@@ -349,10 +345,6 @@ public final class CxxInferEnhancer {
             headers,
             HeaderVisibility.PRIVATE,
             shouldCreateHeadersSymlinks);
-    Optional<SymlinkTree> sandboxTree = Optional.empty();
-    if (cxxBuckConfig.sandboxSources()) {
-      sandboxTree = CxxDescriptionEnhancer.createSandboxTree(target, graphBuilder, cxxPlatform);
-    }
 
     ImmutableList<CxxPreprocessorInput> preprocessorInputs;
 
@@ -363,8 +355,7 @@ public final class CxxInferEnhancer {
               cellRoots,
               cxxPlatform,
               (CxxBinaryDescription.CommonArg) args,
-              headerSymlinkTree,
-              sandboxTree);
+              headerSymlinkTree);
     } else if (args instanceof CxxLibraryDescription.CommonArg) {
       preprocessorInputs =
           CxxLibraryDescription.getPreprocessorInputsForBuildingLibrarySources(
@@ -376,8 +367,7 @@ public final class CxxInferEnhancer {
               cxxPlatform,
               args.getCxxDeps().get(graphBuilder, cxxPlatform),
               CxxLibraryDescription.TransitiveCxxPreprocessorInputFunction.fromLibraryRule(),
-              ImmutableList.of(headerSymlinkTree),
-              sandboxTree);
+              ImmutableList.of(headerSymlinkTree));
     } else {
       throw new IllegalStateException("Only Binary and Library args supported.");
     }
@@ -404,8 +394,7 @@ public final class CxxInferEnhancer {
                         target, cellRoots, graphBuilder, cxxPlatform, f)),
             args.getPrefixHeader(),
             args.getPrecompiledHeader(),
-            PicType.PDC,
-            sandboxTree);
+            PicType.PDC);
     return factory.requireInferCaptureBuildRules(sources, inferBuckConfig);
   }
 }

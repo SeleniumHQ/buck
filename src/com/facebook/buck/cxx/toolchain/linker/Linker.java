@@ -16,12 +16,13 @@
 
 package com.facebook.buck.cxx.toolchain.linker;
 
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.file.FileScrubber;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -47,7 +48,7 @@ public interface Linker extends Tool {
    * @return the platform-specific way to specify that the library represented by the given argument
    *     should be linked whole.
    */
-  Iterable<Arg> linkWhole(Arg input);
+  Iterable<Arg> linkWhole(Arg input, SourcePathResolver resolver);
 
   /**
    * @return the platform-specific way to specify that linker should use the given soname when

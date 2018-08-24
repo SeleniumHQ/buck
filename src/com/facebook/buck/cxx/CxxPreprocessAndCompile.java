@@ -17,9 +17,10 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
@@ -34,7 +35,6 @@ import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
 import com.facebook.buck.rules.modern.Buildable;
@@ -82,7 +82,7 @@ public class CxxPreprocessAndCompile extends ModernBuildRule<CxxPreprocessAndCom
             inputType,
             sanitizer));
     this.output =
-        BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/" + outputName);
+        BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/" + outputName);
     if (precompiledHeaderRule.isPresent()) {
       Preconditions.checkState(
           preprocessDelegate.isPresent(),
@@ -210,25 +210,6 @@ public class CxxPreprocessAndCompile extends ModernBuildRule<CxxPreprocessAndCom
     return (SourcePath path) -> false;
   }
 
-  // see com.facebook.buck.cxx.AbstractCxxSourceRuleFactory.getSandboxedCxxSource()
-  private SourcePath getOriginalInput(BuildContext context) {
-    // The current logic of handling depfiles for cxx requires that all headers files and source
-    // files are "deciphered' from links from symlink tree to original locations.
-    // It already happens in Depfiles.parseAndOutputBuckCompatibleDepfile via header normalizer.
-    // This special case is for applying the same logic for an input cxx file in the case
-    // when cxx.sandbox_sources=true.
-    if (getPreprocessorDelegate().isPresent()) {
-      Path absPath = context.getSourcePathResolver().getAbsolutePath(getInput());
-      HeaderPathNormalizer headerPathNormalizer =
-          getPreprocessorDelegate().get().getHeaderPathNormalizer(context);
-      Optional<Path> original = headerPathNormalizer.getAbsolutePathForUnnormalizedPath(absPath);
-      if (original.isPresent()) {
-        return headerPathNormalizer.getSourcePathForAbsolutePath(original.get());
-      }
-    }
-    return getInput();
-  }
-
   @Override
   public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
       BuildContext context, CellPathResolver cellPathResolver) throws IOException {
@@ -266,7 +247,7 @@ public class CxxPreprocessAndCompile extends ModernBuildRule<CxxPreprocessAndCom
     }
 
     // Add the input.
-    inputs.add(getOriginalInput(context));
+    inputs.add(getInput());
 
     return inputs.build();
   }

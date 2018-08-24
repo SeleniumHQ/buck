@@ -19,13 +19,13 @@ package com.facebook.buck.android;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
 import java.nio.file.Paths;
 import org.junit.Test;
 
@@ -34,13 +34,13 @@ public class AndroidLibraryTest {
   @Test
   public void testAndroidAnnotation() {
     BuildTarget processorTarget = BuildTargetFactory.newInstance("//java/processor:processor");
-    TargetNode<?, ?> processorNode =
+    TargetNode<?> processorNode =
         JavaLibraryBuilder.createBuilder(processorTarget)
             .addSrc(Paths.get("java/processor/processor.java"))
             .build();
 
     BuildTarget libTarget = BuildTargetFactory.newInstance("//java/lib:lib");
-    TargetNode<?, ?> libraryNode =
+    TargetNode<?> libraryNode =
         AndroidLibraryBuilder.createBuilder(libTarget)
             .addProcessor("MyProcessor")
             .addProcessorBuildTarget(processorNode.getBuildTarget())

@@ -23,15 +23,15 @@ import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.modern.HasCustomInputsLogic;
 import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.CustomFieldInputs;
 import com.facebook.buck.util.function.ThrowingConsumer;
@@ -71,6 +71,12 @@ public class InputsVisitorTest extends AbstractValueVisitorTest {
 
   @Override
   @Test
+  public void sortedSet() {
+    apply(new WithSortedSet());
+  }
+
+  @Override
+  @Test
   public void addsToRuleKey() {
     inputsConsumer.accept(anyObject());
     expectLastCall().times(3);
@@ -95,6 +101,14 @@ public class InputsVisitorTest extends AbstractValueVisitorTest {
     WithNonHashableSourcePathContainer value = new WithNonHashableSourcePathContainer();
     inputsConsumer.accept(value.container.getSourcePath());
     apply(value);
+  }
+
+  @Override
+  @Test
+  public void map() throws Exception {
+    inputsConsumer.accept(anyObject());
+    expectLastCall().times(2);
+    apply(new WithMap());
   }
 
   @Override

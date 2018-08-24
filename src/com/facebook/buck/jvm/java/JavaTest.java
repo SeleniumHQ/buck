@@ -18,12 +18,13 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.ExportDependencies;
 import com.facebook.buck.core.rules.attr.HasPostBuildSteps;
@@ -36,14 +37,13 @@ import com.facebook.buck.core.test.rule.ExternalTestRunnerRule;
 import com.facebook.buck.core.test.rule.ExternalTestRunnerTestSpec;
 import com.facebook.buck.core.test.rule.TestRule;
 import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
@@ -106,7 +106,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
   private static final Path TESTRUNNER_CLASSES =
       Paths.get(
           System.getProperty(
-              "buck.testrunner_classes", new File("build/testrunner/classes").getAbsolutePath()));
+              "buck.testrunner_classes", new File("ant-out/testrunner/classes").getAbsolutePath()));
 
   private final JavaLibrary compiledTestsLibrary;
 
@@ -212,13 +212,14 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     return contacts;
   }
 
-  /** @param context That may be useful in producing the bootclasspath entries. */
-  protected ImmutableSet<Path> getBootClasspathEntries(ExecutionContext context) {
+  /** */
+  protected ImmutableSet<Path> getBootClasspathEntries() {
     return ImmutableSet.of();
   }
 
   private Path getClassPathFile() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/classpath-file");
+    return BuildTargetPaths.getGenPath(
+        getProjectFilesystem(), getBuildTarget(), "%s/classpath-file");
   }
 
   private JUnitStep getJUnitStep(
@@ -264,7 +265,6 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
             .build();
 
     return new JUnitStep(
-        getBuildTarget(),
         getProjectFilesystem(),
         nativeLibsEnvironment,
         testRuleTimeoutMs,
@@ -392,7 +392,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Path getPathToTestOutputDirectory() {
-    return BuildTargets.getGenPath(
+    return BuildTargetPaths.getGenPath(
         getProjectFilesystem(), getBuildTarget(), "__java_test_%s_output__");
   }
 
@@ -640,7 +640,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
             // It's possible that the user added some tool as a dependency, so make sure we promote
             // this rules first-order deps to runtime deps, so that these potential tools are
             // available when this test runs.
-            compiledTestsLibrary.getBuildDeps().stream())
+            getBuildDeps().stream())
         .map(BuildRule::getBuildTarget);
   }
 
@@ -709,7 +709,7 @@ public class JavaTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
                                                 .getAbsolutePath(e.getLeft())
                                             : e.getRight())
                                 .collect(ImmutableSet.toImmutableSet()))
-                        .addAll(getBootClasspathEntries(context))
+                        .addAll(getBootClasspathEntries())
                         .build();
                 getProjectFilesystem()
                     .writeLinesToPath(

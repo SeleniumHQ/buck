@@ -15,9 +15,9 @@
  */
 package com.facebook.buck.core.rules.resolver.impl;
 
+import com.facebook.buck.core.description.BaseDescription;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -56,18 +56,18 @@ final class ActionGraphBuilderMetadataCache {
       extends CacheLoader<Pair<BuildTarget, Class<?>>, Optional<?>> {
     @Override
     public Optional<?> load(Pair<BuildTarget, Class<?>> key) {
-      TargetNode<?, ?> node = targetGraph.get(key.getFirst());
+      TargetNode<?> node = targetGraph.get(key.getFirst());
       return load(node, key.getSecond());
     }
 
     @SuppressWarnings("unchecked")
-    private <T, U> Optional<U> load(TargetNode<T, ?> node, Class<U> metadataClass) {
+    private <T, U> Optional<U> load(TargetNode<T> node, Class<U> metadataClass) {
       T arg = node.getConstructorArg();
       if (metadataClass.isAssignableFrom(arg.getClass())) {
         return Optional.of(metadataClass.cast(arg));
       }
 
-      DescriptionWithTargetGraph<?> description = node.getDescription();
+      BaseDescription<?> description = node.getDescription();
       if (!(description instanceof MetadataProvidingDescription)) {
         return Optional.empty();
       }

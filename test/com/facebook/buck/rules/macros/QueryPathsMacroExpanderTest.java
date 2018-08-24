@@ -18,8 +18,11 @@ package com.facebook.buck.rules.macros;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellBuilder;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.macros.MacroException;
+import com.facebook.buck.core.macros.MacroMatchResult;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -29,9 +32,6 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.macros.MacroException;
-import com.facebook.buck.model.macros.MacroMatchResult;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -66,13 +66,13 @@ public class QueryPathsMacroExpanderTest {
 
   @Test
   public void sourcePathsToOutputsGivenByDefault() throws MacroException {
-    TargetNode<?, ?> depNode =
+    TargetNode<?> depNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:dep"), filesystem)
             .addSrc(Paths.get("Dep.java"))
             .build();
 
-    TargetNode<?, ?> targetNode =
+    TargetNode<?> targetNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:target"),
                 filesystem)
@@ -115,7 +115,7 @@ public class QueryPathsMacroExpanderTest {
 
   @Test
   public void canReturnInputsToRulesViaInputQueryFunction() throws MacroException {
-    TargetNode<?, ?> node =
+    TargetNode<?> node =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:dep"), filesystem)
             .addSrc(Paths.get("Dep.java"))
@@ -140,13 +140,13 @@ public class QueryPathsMacroExpanderTest {
 
   @Test
   public void shouldDeclareDeps() {
-    TargetNode<?, ?> dep =
+    TargetNode<?> dep =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:dep"), filesystem)
             .addSrc(Paths.get("Dep.java"))
             .build();
 
-    TargetNode<?, ?> target =
+    TargetNode<?> target =
         GenruleBuilder.newGenruleBuilder(
                 BuildTargetFactory.newInstance(filesystem.getRootPath(), "//some:target"),
                 filesystem)

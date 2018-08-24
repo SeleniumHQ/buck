@@ -20,6 +20,7 @@ import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -29,14 +30,13 @@ import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
-import java.util.Set;
+import java.util.Collection;
 import java.util.SortedSet;
 import java.util.function.Supplier;
 
@@ -85,13 +85,14 @@ public class AndroidManifest extends AbstractBuildRule {
       SourcePathRuleFinder finder,
       SourcePath skeletonFile,
       APKModule module,
-      Set<SourcePath> manifestFiles) {
+      Collection<SourcePath> manifestFiles) {
     super(buildTarget, projectFilesystem);
     this.skeletonFile = skeletonFile;
     this.module = module;
     this.manifestFiles = ImmutableSortedSet.copyOf(manifestFiles);
     this.pathToOutputFile =
-        BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "AndroidManifest__%s__.xml");
+        BuildTargetPaths.getGenPath(
+            getProjectFilesystem(), buildTarget, "AndroidManifest__%s__.xml");
     this.buildDepsSupplier = BuildableSupport.buildDepsSupplier(this, finder);
   }
 
@@ -129,7 +130,7 @@ public class AndroidManifest extends AbstractBuildRule {
             context.getSourcePathResolver().getRelativePath(getSourcePathToOutput()),
             getProjectFilesystem()
                 .resolve(
-                    BuildTargets.getScratchPath(
+                    BuildTargetPaths.getScratchPath(
                         getProjectFilesystem(), getBuildTarget(), "%s/merge-report.txt"))));
 
     buildableContext.recordArtifact(pathToOutputFile);

@@ -19,6 +19,7 @@ package com.facebook.buck.android;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -30,7 +31,6 @@ import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.BashStep;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -154,7 +154,8 @@ public class ResourcesFilter extends AbstractBuildRule
 
   private ImmutableList<Path> getRawResDirectories() {
     Path resDestinationBasePath =
-        BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "__filtered__%s__");
+        BuildTargetPaths.getScratchPath(
+            getProjectFilesystem(), getBuildTarget(), "__filtered__%s__");
 
     return IntStream.range(0, resDirectories.size())
         .mapToObj(count -> resDestinationBasePath.resolve(String.valueOf(count)))
@@ -254,7 +255,7 @@ public class ResourcesFilter extends AbstractBuildRule
   }
 
   private Path getStringFilesPath() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/string_files");
+    return BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/string_files");
   }
 
   private void maybeAddPostFilterCmdStep(
@@ -289,11 +290,11 @@ public class ResourcesFilter extends AbstractBuildRule
     commandLineBuilder.add(Escaper.escapeAsBashString(getFilterResourcesDataPath()));
     commandLineBuilder.add(Escaper.escapeAsBashString(getRDotJsonPath()));
     String commandLine = Joiner.on(' ').join(commandLineBuilder.build());
-    steps.add(new BashStep(getBuildTarget(), getProjectFilesystem().getRootPath(), commandLine));
+    steps.add(new BashStep(getProjectFilesystem().getRootPath(), commandLine));
   }
 
   private Path getFilterResourcesDataPath() {
-    return BuildTargets.getGenPath(
+    return BuildTargetPaths.getGenPath(
         getProjectFilesystem(), getBuildTarget(), "%s/post_filter_resources_data.json");
   }
 
@@ -306,7 +307,7 @@ public class ResourcesFilter extends AbstractBuildRule
   }
 
   private Path getRDotJsonPath() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/R.json");
+    return BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s/R.json");
   }
 
   @VisibleForTesting
@@ -339,7 +340,6 @@ public class ResourcesFilter extends AbstractBuildRule
       ImmutableBiMap<Path, Path> resSourceToDestDirMap) {
     FilterResourcesSteps.Builder filterResourcesStepBuilder =
         FilterResourcesSteps.builder()
-            .setTarget(getBuildTarget())
             .setProjectFilesystem(getProjectFilesystem())
             .setInResToOutResDirMap(resSourceToDestDirMap)
             .setResourceFilter(resourceFilter);

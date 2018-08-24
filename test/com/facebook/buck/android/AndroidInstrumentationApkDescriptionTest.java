@@ -25,20 +25,20 @@ import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.DxToolchain;
 import com.facebook.buck.android.toolchain.ndk.impl.TestNdkCxxPlatformsProviderFactory;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -51,21 +51,21 @@ public class AndroidInstrumentationApkDescriptionTest {
   @Test
   public void testNoDxRulesBecomeFirstOrderDeps() {
     // Build up the original APK rule.
-    TargetNode<?, ?> transitiveDepNode =
+    TargetNode<?> transitiveDepNode =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//exciting:dep"))
             .addSrc(Paths.get("Dep.java"))
             .build();
-    TargetNode<?, ?> dep =
+    TargetNode<?> dep =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//exciting:target"))
             .addSrc(Paths.get("Other.java"))
             .addDep(transitiveDepNode.getBuildTarget())
             .build();
-    TargetNode<?, ?> keystore =
+    TargetNode<?> keystore =
         KeystoreBuilder.createBuilder(BuildTargetFactory.newInstance("//:keystore"))
             .setStore(FakeSourcePath.of("store"))
             .setProperties(FakeSourcePath.of("properties"))
             .build();
-    TargetNode<?, ?> androidBinary =
+    TargetNode<?> androidBinary =
         AndroidBinaryBuilder.createBuilder(BuildTargetFactory.newInstance("//:apk"))
             .setManifest(FakeSourcePath.of("manifest.xml"))
             .setKeystore(keystore.getBuildTarget())
@@ -73,7 +73,7 @@ public class AndroidInstrumentationApkDescriptionTest {
             .setOriginalDeps(ImmutableSortedSet.of(dep.getBuildTarget()))
             .build();
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-    TargetNode<?, ?> androidInstrumentationApk =
+    TargetNode<?> androidInstrumentationApk =
         AndroidInstrumentationApkBuilder.createBuilder(target)
             .setManifest(FakeSourcePath.of("manifest.xml"))
             .setApk(androidBinary.getBuildTarget())

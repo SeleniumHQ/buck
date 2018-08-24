@@ -16,13 +16,15 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
+import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildRules;
@@ -37,8 +39,6 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.ImmutableBuildTarget;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
@@ -164,7 +164,6 @@ public abstract class PreInclude extends NoopBuildRuleWithDeclaredAndExtraDeps
       CxxPlatform cxxPlatform,
       Linker.LinkableDepType type,
       boolean forceLinkWhole,
-      ImmutableSet<LanguageExtensions> languageExtensions,
       ActionGraphBuilder graphBuilder) {
     return NativeLinkableInput.of();
   }
@@ -273,7 +272,6 @@ public abstract class PreInclude extends NoopBuildRuleWithDeclaredAndExtraDeps
             getIncludes(cxxPlatform, graphBuilder),
             getFrameworks(cxxPlatform, graphBuilder)),
         CxxDescriptionEnhancer.frameworkPathToSearchPath(cxxPlatform, pathResolver),
-        /* getSandboxTree() */ Optional.empty(),
         /* leadingIncludePaths */ Optional.empty(),
         Optional.empty(),
         ImmutableSortedSet.of());
@@ -323,7 +321,7 @@ public abstract class PreInclude extends NoopBuildRuleWithDeclaredAndExtraDeps
               // course in
               // our case we'll only have the ".gch" file, which is alright; the ".h" isn't
               // truly needed.
-              Path output = BuildTargets.getGenPath(getProjectFilesystem(), target, "%s.h.gch");
+              Path output = BuildTargetPaths.getGenPath(getProjectFilesystem(), target, "%s.h.gch");
 
               CompilerDelegate compilerDelegate =
                   new CompilerDelegate(

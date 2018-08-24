@@ -495,7 +495,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   /** Allows {@link Files#isDirectory} to be faked in tests. */
   @Override
   public boolean isDirectory(Path child, LinkOption... linkOptions) {
-    return Files.isDirectory(resolve(child), linkOptions);
+    return MorePaths.isDirectory(getPathForRelativePath(child), linkOptions);
   }
 
   /** Allows {@link Files#isExecutable} to be faked in tests. */
@@ -867,12 +867,8 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
     if (force) {
       MostFiles.deleteRecursivelyIfExists(symLink);
     }
-    if (Platform.detect() == Platform.WINDOWS) {
-      realFile = MorePaths.normalize(symLink.getParent().resolve(realFile));
-      winFSInstance.createSymbolicLink(symLink, realFile, isDirectory(realFile));
-    } else {
-      Files.createSymbolicLink(symLink, realFile);
-    }
+
+    MorePaths.createSymLink(winFSInstance, symLink, realFile);
   }
 
   /**
@@ -910,7 +906,7 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   }
 
   @Override
-  public long getFileAttributesForZipEntry(Path path) throws IOException {
+  public long getPosixFileMode(Path path) throws IOException {
     long mode = 0;
     // Support executable files.  If we detect this file is executable, store this
     // information as 0100 in the field typically used in zip implementations for
@@ -936,7 +932,12 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
     // Propagate any additional permissions
     mode |= MorePosixFilePermissions.toMode(getPosixFilePermissions(path));
 
-    return mode << 16;
+    return mode;
+  }
+
+  @Override
+  public long getFileAttributesForZipEntry(Path path) throws IOException {
+    return getPosixFileMode(path) << 16;
   }
 
   @Override

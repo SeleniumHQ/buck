@@ -18,6 +18,7 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -27,7 +28,6 @@ import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.LocationMacro;
 import org.hamcrest.Matchers;
@@ -39,7 +39,7 @@ public class CxxLocationMacroExpanderTest {
   public void expandCxxGenrule() throws Exception {
     CxxGenruleBuilder builder =
         new CxxGenruleBuilder(BuildTargetFactory.newInstance("//:rule")).setOut("out.txt");
-    TargetNode<?, ?> node = builder.build();
+    TargetNode<?> node = builder.build();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(node);
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
     SourcePathResolver pathResolver =

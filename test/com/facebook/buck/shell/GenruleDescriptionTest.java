@@ -21,8 +21,9 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -30,9 +31,9 @@ import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.macros.ClasspathMacro;
@@ -40,7 +41,6 @@ import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.rules.visibility.VisibilityPattern;
 import com.facebook.buck.sandbox.NoSandboxExecutionStrategy;
 import com.facebook.buck.testutil.AllExistingProjectFilesystem;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -84,7 +84,7 @@ public class GenruleDescriptionTest {
             GenruleDescriptionArg.class,
             declaredDeps,
             instance);
-    TargetNode<GenruleDescriptionArg, GenruleDescription> targetNode =
+    TargetNode<GenruleDescriptionArg> targetNode =
         new TargetNodeFactory(new DefaultTypeCoercerFactory())
             .createFromObject(
                 Hashing.sha1().hashString(buildTarget.getFullyQualifiedName(), UTF_8),
@@ -108,16 +108,16 @@ public class GenruleDescriptionTest {
 
   @Test
   public void testClasspathTransitiveDepsBecomeFirstOrderDeps() {
-    TargetNode<?, ?> transitiveDepNode =
+    TargetNode<?> transitiveDepNode =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//exciting:dep"))
             .addSrc(Paths.get("Dep.java"))
             .build();
-    TargetNode<?, ?> depNode =
+    TargetNode<?> depNode =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//exciting:target"))
             .addSrc(Paths.get("Other.java"))
             .addDep(transitiveDepNode.getBuildTarget())
             .build();
-    TargetNode<?, ?> genruleNode =
+    TargetNode<?> genruleNode =
         GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setOut("out")
             .setCmd(StringWithMacrosUtils.format("%s", ClasspathMacro.of(depNode.getBuildTarget())))

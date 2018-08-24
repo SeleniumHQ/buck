@@ -17,8 +17,7 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
@@ -30,9 +29,11 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxFlags;
 import com.facebook.buck.cxx.FrameworkDependencies;
@@ -41,7 +42,6 @@ import com.facebook.buck.cxx.toolchain.HasSystemFrameworkAndLibraries;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableList;
@@ -80,14 +80,14 @@ public class PrebuiltAppleFrameworkDescription
     FlavorDomain<AppleCxxPlatform> appleCxxPlatformsFlavorDomain =
         getAppleCxxPlatformsFlavorDomain();
     return RichStream.from(flavors)
-            .filter(flavor -> !declaredPlatforms.contains(flavor))
-            .filter(flavor -> !appleCxxPlatformsFlavorDomain.getFlavors().contains(flavor))
-            .filter(flavor -> !appleCxxPlatformsFlavorDomain.getFlavors().contains(flavor))
-            .filter(flavor -> !AppleDebugFormat.FLAVOR_DOMAIN.getFlavors().contains(flavor))
-            .filter(flavor -> !AppleDescriptions.INCLUDE_FRAMEWORKS.getFlavors().contains(flavor))
-            .filter(flavor -> !StripStyle.FLAVOR_DOMAIN.getFlavors().contains(flavor))
-            .count()
-        == 0;
+        .allMatch(
+            flavor ->
+                declaredPlatforms.contains(flavor)
+                    || appleCxxPlatformsFlavorDomain.getFlavors().contains(flavor)
+                    || appleCxxPlatformsFlavorDomain.getFlavors().contains(flavor)
+                    || AppleDebugFormat.FLAVOR_DOMAIN.getFlavors().contains(flavor)
+                    || AppleDescriptions.INCLUDE_FRAMEWORKS.getFlavors().contains(flavor)
+                    || StripStyle.FLAVOR_DOMAIN.getFlavors().contains(flavor));
   }
 
   @Override

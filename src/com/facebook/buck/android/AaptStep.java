@@ -18,16 +18,15 @@ package com.facebook.buck.android;
 
 import com.android.common.sdklib.build.ApkBuilder;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.MoreIterables;
-import com.facebook.buck.util.MoreStrings;
+import com.facebook.buck.util.string.MoreStrings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.UnmodifiableIterator;
 import java.nio.file.Path;
-import java.util.Optional;
 
 /**
  * Runs the Android Asset Packaging Tool ({@code aapt}), which creates an {@code .apk} file.
@@ -78,7 +77,6 @@ public class AaptStep extends ShellStep {
   private final ManifestEntries manifestEntries;
 
   public AaptStep(
-      BuildTarget buildTarget,
       AndroidPlatformTarget androidPlatformTarget,
       Path workingDirectory,
       Path androidManifest,
@@ -91,7 +89,7 @@ public class AaptStep extends ShellStep {
       boolean isCrunchPngFiles,
       boolean includesVectorDrawables,
       ManifestEntries manifestEntries) {
-    super(Optional.of(buildTarget), workingDirectory);
+    super(workingDirectory);
     this.androidPlatformTarget = androidPlatformTarget;
     this.androidManifest = androidManifest;
     this.resDirectories = resDirectories;
@@ -178,8 +176,13 @@ public class AaptStep extends ShellStep {
       builder.add("--no-version-vectors");
     }
 
-    for (Path path : pathToDependecyResourceApks) {
-      builder.add("--feature-of", path.toString());
+    UnmodifiableIterator<Path> iterator = pathToDependecyResourceApks.iterator();
+    if (iterator.hasNext()) {
+      builder.add("--feature-of", iterator.next().toString());
+    }
+
+    while (iterator.hasNext()) {
+      builder.add("--feature-after", iterator.next().toString());
     }
 
     return builder.build();

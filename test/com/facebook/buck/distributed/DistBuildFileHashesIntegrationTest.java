@@ -19,19 +19,22 @@ package com.facebook.buck.distributed;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
-import com.facebook.buck.config.ActionGraphParallelizationMode;
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.config.IncrementalActionGraphMode;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphParallelizationMode;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
+import com.facebook.buck.core.model.actiongraph.computation.IncrementalActionGraphMode;
+import com.facebook.buck.core.model.actiongraph.computation.TestActionGraphProviderFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.distributed.thrift.BuildJobState;
@@ -43,25 +46,21 @@ import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
-import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.TargetSpecResolver;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
-import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.CloseableMemoizedSupplier;
-import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
@@ -80,6 +79,7 @@ import java.util.stream.Collectors;
 import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.Test;
+import org.pf4j.PluginManager;
 
 public class DistBuildFileHashesIntegrationTest {
 
@@ -105,12 +105,9 @@ public class DistBuildFileHashesIntegrationTest {
     BuckConfig rootCellConfig = FakeBuckConfig.builder().setFilesystem(rootFs).build();
     Cell rootCell =
         new TestCellBuilder().setBuckConfig(rootCellConfig).setFilesystem(rootFs).build();
-    KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
-        KnownBuildRuleTypesProvider.of(
-            DefaultKnownBuildRuleTypesFactory.of(
-                new DefaultProcessExecutor(new TestConsole()),
-                BuckPluginManagerFactory.createPluginManager(),
-                new TestSandboxExecutionStrategyFactory()));
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
+    KnownRuleTypesProvider knownRuleTypesProvider =
+        TestKnownRuleTypesProvider.create(pluginManager);
 
     ParserConfig parserConfig = rootCellConfig.getView(ParserConfig.class);
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
@@ -121,11 +118,13 @@ public class DistBuildFileHashesIntegrationTest {
             new PerBuildStateFactory(
                 typeCoercerFactory,
                 constructorArgMarshaller,
-                knownBuildRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder())),
+                knownRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder()),
+                WatchmanFactory.NULL_WATCHMAN),
             rootCellConfig.getView(ParserConfig.class),
             typeCoercerFactory,
-            new TargetSpecResolver());
+            new TargetSpecResolver(),
+            WatchmanFactory.NULL_WATCHMAN);
     TargetGraph targetGraph =
         parser.buildTargetGraph(
             BuckEventBusForTests.newInstance(),
@@ -184,12 +183,9 @@ public class DistBuildFileHashesIntegrationTest {
             .build();
     Cell rootCell =
         new TestCellBuilder().setBuckConfig(rootCellConfig).setFilesystem(rootFs).build();
-    KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
-        KnownBuildRuleTypesProvider.of(
-            DefaultKnownBuildRuleTypesFactory.of(
-                new DefaultProcessExecutor(new TestConsole()),
-                BuckPluginManagerFactory.createPluginManager(),
-                new TestSandboxExecutionStrategyFactory()));
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
+    KnownRuleTypesProvider knownRuleTypesProvider =
+        TestKnownRuleTypesProvider.create(pluginManager);
 
     ParserConfig parserConfig = rootCellConfig.getView(ParserConfig.class);
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
@@ -200,11 +196,13 @@ public class DistBuildFileHashesIntegrationTest {
             new PerBuildStateFactory(
                 typeCoercerFactory,
                 constructorArgMarshaller,
-                knownBuildRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder())),
+                knownRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder()),
+                WatchmanFactory.NULL_WATCHMAN),
             parserConfig,
             typeCoercerFactory,
-            new TargetSpecResolver());
+            new TargetSpecResolver(),
+            WatchmanFactory.NULL_WATCHMAN);
     TargetGraph targetGraph =
         parser.buildTargetGraph(
             BuckEventBusForTests.newInstance(),
@@ -242,8 +240,9 @@ public class DistBuildFileHashesIntegrationTest {
 
   private DistBuildFileHashes createDistBuildFileHashes(TargetGraph targetGraph, Cell rootCell)
       throws InterruptedException {
-    ActionGraphCache cache =
-        new ActionGraphCache(rootCell.getBuckConfig().getMaxActionGraphCacheEntries());
+    ActionGraphProvider cache =
+        TestActionGraphProviderFactory.create(
+            rootCell.getBuckConfig().getMaxActionGraphCacheEntries());
     ActionGraphAndBuilder actionGraphAndBuilder =
         cache.getActionGraph(
             BuckEventBusForTests.newInstance(),

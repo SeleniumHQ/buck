@@ -20,8 +20,9 @@ import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
@@ -31,6 +32,7 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -53,8 +55,6 @@ import com.facebook.buck.features.python.toolchain.PythonEnvironment;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonVersion;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
@@ -232,16 +232,17 @@ public class CxxPythonExtensionDescriptionTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildTarget target = BuildTargetFactory.newInstance("//:target");
     CxxPythonExtensionDescription desc =
-        new CxxPythonExtensionBuilder(
-                target,
-                FlavorDomain.of(
-                    "Python Platform",
-                    createPy2Platform(Optional.of(PYTHON2_DEP_TARGET)),
-                    createPy3Platform(Optional.of(PYTHON3_DEP_TARGET))),
-                new CxxBuckConfig(FakeBuckConfig.builder().build()),
-                CxxTestUtils.createDefaultPlatforms())
-            .build()
-            .getDescription();
+        (CxxPythonExtensionDescription)
+            new CxxPythonExtensionBuilder(
+                    target,
+                    FlavorDomain.of(
+                        "Python Platform",
+                        createPy2Platform(Optional.of(PYTHON2_DEP_TARGET)),
+                        createPy3Platform(Optional.of(PYTHON3_DEP_TARGET))),
+                    new CxxBuckConfig(FakeBuckConfig.builder().build()),
+                    CxxTestUtils.createDefaultPlatforms())
+                .build()
+                .getDescription();
     CxxPythonExtensionDescriptionArg constructorArg =
         CxxPythonExtensionDescriptionArg.builder().setName("target").build();
     ImmutableSortedSet.Builder<BuildTarget> builder = ImmutableSortedSet.naturalOrder();

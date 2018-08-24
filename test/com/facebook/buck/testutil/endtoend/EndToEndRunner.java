@@ -73,7 +73,7 @@ public class EndToEndRunner extends ParentRunner<EndToEndTestDescriptor> {
       FrameworkMethod environmentMethod) {
     try {
       Object methodResult = environmentMethod.getMethod().invoke(getTestClass());
-      EndToEndEnvironment environment = EndToEndEnvironment.class.cast(methodResult);
+      EndToEndEnvironment environment = (EndToEndEnvironment) methodResult;
       return Optional.of(environment);
     } catch (IllegalAccessException | InvocationTargetException e) {
       // Should not get an exception as we validate beforehand that the return types are
@@ -412,6 +412,7 @@ public class EndToEndRunner extends ParentRunner<EndToEndTestDescriptor> {
     validateTestAnnotations(errors);
   }
 
+  @Override
   protected boolean isIgnored(EndToEndTestDescriptor child) {
     return child.getMethod().getAnnotation(Ignore.class) != null;
   }

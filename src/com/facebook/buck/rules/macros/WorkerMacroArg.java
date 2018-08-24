@@ -16,8 +16,10 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.macros.MacroException;
+import com.facebook.buck.core.macros.MacroMatchResult;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
@@ -25,8 +27,6 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
-import com.facebook.buck.model.macros.MacroException;
-import com.facebook.buck.model.macros.MacroMatchResult;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.ProxyArg;
 import com.facebook.buck.shell.WorkerTool;
@@ -78,7 +78,7 @@ public class WorkerMacroArg extends ProxyArg {
       }
     }
 
-    // extract the BuildTargets referenced in any macros
+    // extract the BuildTargetPaths referenced in any macros
     ImmutableList.Builder<BuildTarget> targetsBuilder = new ImmutableList.Builder<>();
     macroHandler.extractParseTimeDeps(
         target, cellNames, unexpanded, targetsBuilder, new ImmutableSet.Builder<>());

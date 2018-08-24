@@ -24,19 +24,19 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.Hint;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
@@ -65,8 +65,7 @@ public class TargetNodeTest {
   public void testIgnoreNonBuildTargetOrPathOrSourcePathArgument()
       throws NoSuchBuildTargetException {
 
-    TargetNode<ExampleDescriptionArg, ExampleDescription> targetNode =
-        createTargetNode(TARGET_THREE);
+    TargetNode<ExampleDescriptionArg> targetNode = createTargetNode(TARGET_THREE);
 
     assertTrue(targetNode.getExtraDeps().isEmpty());
     assertTrue(targetNode.getDeclaredDeps().isEmpty());
@@ -94,7 +93,7 @@ public class TargetNodeTest {
             "source",
             "AnotherClass.java");
 
-    TargetNode<ExampleDescriptionArg, ExampleDescription> targetNode =
+    TargetNode<ExampleDescriptionArg> targetNode =
         createTargetNode(TARGET_THREE, depsTargets, rawNode);
 
     assertThat(
@@ -122,13 +121,11 @@ public class TargetNodeTest {
 
     ProjectFilesystem rootOne = FakeProjectFilesystem.createJavaOnlyFilesystem("/one");
     BuildTarget buildTargetOne = BuildTargetFactory.newInstance(rootOne.getRootPath(), "//foo:bar");
-    TargetNode<ExampleDescriptionArg, ExampleDescription> targetNodeOne =
-        createTargetNode(buildTargetOne);
+    TargetNode<ExampleDescriptionArg> targetNodeOne = createTargetNode(buildTargetOne);
 
     ProjectFilesystem rootTwo = FakeProjectFilesystem.createJavaOnlyFilesystem("/two");
     BuildTarget buildTargetTwo = BuildTargetFactory.newInstance(rootTwo.getRootPath(), "//foo:bar");
-    TargetNode<ExampleDescriptionArg, ExampleDescription> targetNodeTwo =
-        createTargetNode(buildTargetTwo);
+    TargetNode<ExampleDescriptionArg> targetNodeTwo = createTargetNode(buildTargetTwo);
 
     boolean isVisible = targetNodeOne.isVisibleTo(targetNodeTwo);
 
@@ -185,8 +182,8 @@ public class TargetNodeTest {
     }
   }
 
-  private static TargetNode<ExampleDescriptionArg, ExampleDescription> createTargetNode(
-      BuildTarget buildTarget) throws NoSuchBuildTargetException {
+  private static TargetNode<ExampleDescriptionArg> createTargetNode(BuildTarget buildTarget)
+      throws NoSuchBuildTargetException {
     ImmutableMap<String, Object> rawNode =
         ImmutableMap.of(
             "name",
@@ -203,7 +200,7 @@ public class TargetNodeTest {
     return createTargetNode(buildTarget, ImmutableSet.of(), rawNode);
   }
 
-  private static TargetNode<ExampleDescriptionArg, ExampleDescription> createTargetNode(
+  private static TargetNode<ExampleDescriptionArg> createTargetNode(
       BuildTarget buildTarget,
       ImmutableSet<BuildTarget> declaredDeps,
       ImmutableMap<String, Object> rawNode)

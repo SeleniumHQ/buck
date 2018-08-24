@@ -21,11 +21,13 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
@@ -33,16 +35,12 @@ import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.DefaultProcessExecutor;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
@@ -50,6 +48,7 @@ import java.util.concurrent.Executors;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
+import org.pf4j.PluginManager;
 
 public class IntraCellIntegrationTest {
 
@@ -69,12 +68,9 @@ public class IntraCellIntegrationTest {
 
     // We don't need to do a build. It's enough to just parse these things.
     Cell cell = workspace.asCell();
-    KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
-        KnownBuildRuleTypesProvider.of(
-            DefaultKnownBuildRuleTypesFactory.of(
-                new DefaultProcessExecutor(new TestConsole()),
-                BuckPluginManagerFactory.createPluginManager(),
-                new TestSandboxExecutionStrategyFactory()));
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
+    KnownRuleTypesProvider knownRuleTypesProvider =
+        TestKnownRuleTypesProvider.create(pluginManager);
 
     TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory();
     ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
@@ -83,11 +79,13 @@ public class IntraCellIntegrationTest {
             new PerBuildStateFactory(
                 coercerFactory,
                 new ConstructorArgMarshaller(coercerFactory),
-                knownBuildRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder())),
+                knownRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder()),
+                WatchmanFactory.NULL_WATCHMAN),
             parserConfig,
             coercerFactory,
-            new TargetSpecResolver());
+            new TargetSpecResolver(),
+            WatchmanFactory.NULL_WATCHMAN);
 
     // This parses cleanly
     parser.buildTargetGraph(

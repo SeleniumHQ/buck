@@ -21,11 +21,11 @@ import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.replay;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -44,9 +44,9 @@ public class DepsFunctionTest {
 
   @Test
   public void testFilterArgumentDoesNotLimitDeps() throws Exception {
-    TargetNode<?, ?> b =
+    TargetNode<?> b =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:b")).build();
-    TargetNode<?, ?> a =
+    TargetNode<?> a =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:a"))
             .addDep(b.getBuildTarget())
             .build();
@@ -67,13 +67,13 @@ public class DepsFunctionTest {
 
   @Test
   public void testFilterArgumentLimitsDeps() throws Exception {
-    TargetNode<?, ?> c =
+    TargetNode<?> c =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//foo:c")).build();
-    TargetNode<?, ?> b =
+    TargetNode<?> b =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//bar:b"))
             .addDep(c.getBuildTarget())
             .build();
-    TargetNode<?, ?> a =
+    TargetNode<?> a =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//foo:a"))
             .addDep(b.getBuildTarget())
             .build();

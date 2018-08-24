@@ -15,7 +15,7 @@
  */
 package com.facebook.buck.features.project.intellij;
 
-import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.features.project.intellij.aggregation.AggregationMode;
 import com.facebook.buck.features.project.intellij.model.IjProjectConfig;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
@@ -128,9 +128,6 @@ public class IjProjectBuckConfig {
                 INTELLIJ_BUCK_CONFIG_SECTION, "extra_compiler_output_modules_path", false))
         .setMinAndroidSdkVersion(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "default_min_android_sdk_version"))
-        .setRawSourcesForLibrariesEnabled(
-            buckConfig.getBooleanValue(
-                INTELLIJ_BUCK_CONFIG_SECTION, "enable_raw_sources_for_libraries", false))
         .build();
   }
 

@@ -23,13 +23,17 @@ import static org.junit.Assume.assumeThat;
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
 import com.facebook.buck.apple.FakeAppleRuleDescriptions;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.FakeTargetNodeBuilder;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.targetgraph.TestBuildRuleCreationContextFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -40,12 +44,8 @@ import com.facebook.buck.cxx.CxxLink;
 import com.facebook.buck.cxx.FakeCxxLibrary;
 import com.facebook.buck.cxx.HeaderSymlinkTreeWithHeaderMap;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
@@ -85,7 +85,7 @@ public class SwiftLibraryIntegrationTest {
     BuildTarget symlinkTarget = BuildTargetFactory.newInstance("//:symlink");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem(tmpDir.getRoot());
     Path symlinkTreeRoot =
-        BuildTargets.getGenPath(projectFilesystem, symlinkTarget, "%s/symlink-tree-root");
+        BuildTargetPaths.getGenPath(projectFilesystem, symlinkTarget, "%s/symlink-tree-root");
 
     // Setup the map representing the link tree.
     ImmutableMap<Path, SourcePath> links = ImmutableMap.of();

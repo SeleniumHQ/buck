@@ -19,8 +19,8 @@ package com.facebook.buck.jvm.java;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.pipeline.RulePipelineState;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.CapturingPrintStream;
 import com.facebook.buck.util.Verbosity;
@@ -48,8 +48,6 @@ public class JavacPipelineState implements RulePipelineState {
   private final CompilerParameters compilerParameters;
   private final JavacOptions javacOptions;
   private final BuildTarget invokingRule;
-  private final SourcePathResolver resolver;
-  private final ProjectFilesystem filesystem;
   private final Javac javac;
   private final ClasspathChecker classpathChecker;
   @Nullable private final JarParameters abiJarParameters;
@@ -65,8 +63,6 @@ public class JavacPipelineState implements RulePipelineState {
       Javac javac,
       JavacOptions javacOptions,
       BuildTarget invokingRule,
-      SourcePathResolver resolver,
-      ProjectFilesystem filesystem,
       ClasspathChecker classpathChecker,
       CompilerParameters compilerParameters,
       @Nullable JarParameters abiJarParameters,
@@ -74,8 +70,6 @@ public class JavacPipelineState implements RulePipelineState {
     this.javac = javac;
     this.javacOptions = javacOptions;
     this.invokingRule = invokingRule;
-    this.resolver = resolver;
-    this.filesystem = filesystem;
     this.classpathChecker = classpathChecker;
     this.compilerParameters = compilerParameters;
     this.abiJarParameters = abiJarParameters;
@@ -86,7 +80,10 @@ public class JavacPipelineState implements RulePipelineState {
     return invocation != null;
   }
 
-  public Javac.Invocation getJavacInvocation(ExecutionContext context) throws IOException {
+  /** Get the invocation instance. */
+  public Javac.Invocation getJavacInvocation(
+      SourcePathResolver resolver, ProjectFilesystem filesystem, ExecutionContext context)
+      throws IOException {
     if (invocation == null) {
       javacOptions.validateOptions(classpathChecker::validateClasspath);
 
@@ -119,7 +116,7 @@ public class JavacPipelineState implements RulePipelineState {
           ImmutableList.copyOf(
               javacOptions
                   .getAnnotationProcessingParams()
-                  .getAnnotationProcessors(this.filesystem, resolver)
+                  .getAnnotationProcessors(filesystem, resolver)
                   .stream()
                   .map(ResolvedJavacPluginProperties::getJavacPluginJsr199Fields)
                   .collect(Collectors.toList()));
@@ -130,11 +127,12 @@ public class JavacPipelineState implements RulePipelineState {
                   javacExecutionContext,
                   resolver,
                   invokingRule,
-                  getOptions(context, compilerParameters.getClasspathEntries()),
+                  getOptions(
+                      context, compilerParameters.getClasspathEntries(), filesystem, resolver),
                   pluginFields,
                   compilerParameters.getSourceFilePaths(),
-                  compilerParameters.getPathToSourcesList(),
-                  compilerParameters.getWorkingDirectory(),
+                  compilerParameters.getOutputPaths().getPathToSourcesList(),
+                  compilerParameters.getOutputPaths().getWorkingDirectory(),
                   compilerParameters.shouldTrackClassUsage(),
                   compilerParameters.shouldTrackJavacPhaseEvents(),
                   abiJarParameters,
@@ -184,18 +182,20 @@ public class JavacPipelineState implements RulePipelineState {
    * Returns a list of command-line options to pass to javac. These options reflect the
    * configuration of this javac command.
    *
-   * @param context the ExecutionContext with in which javac will run
    * @return list of String command-line options.
    */
   @VisibleForTesting
   ImmutableList<String> getOptions(
-      ExecutionContext context, ImmutableSortedSet<Path> buildClasspathEntries) {
+      ExecutionContext context,
+      ImmutableSortedSet<Path> buildClasspathEntries,
+      ProjectFilesystem filesystem,
+      SourcePathResolver resolver) {
     return getOptions(
         javacOptions,
         filesystem,
         resolver,
-        compilerParameters.getOutputDirectory(),
-        CompilerParameters.getAnnotationPath(filesystem, invokingRule).get(),
+        compilerParameters.getOutputPaths().getClassesDir(),
+        compilerParameters.getOutputPaths().getAnnotationPath(),
         context,
         buildClasspathEntries);
   }

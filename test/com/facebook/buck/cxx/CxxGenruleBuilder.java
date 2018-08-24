@@ -16,18 +16,18 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.sandbox.NoSandboxExecutionStrategy;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 
 public class CxxGenruleBuilder
     extends AbstractNodeBuilder<
@@ -60,6 +60,11 @@ public class CxxGenruleBuilder
 
   public CxxGenruleBuilder setCmd(StringWithMacros cmd) {
     getArgForPopulating().setCmd(cmd);
+    return this;
+  }
+
+  public CxxGenruleBuilder setCacheable(boolean cacheable) {
+    getArgForPopulating().setCacheable(cacheable);
     return this;
   }
 }

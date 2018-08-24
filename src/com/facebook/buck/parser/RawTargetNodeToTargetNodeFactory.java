@@ -17,13 +17,13 @@
 package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.description.BaseDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.RawTargetNode;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.select.SelectorList;
 import com.facebook.buck.core.select.SelectorListResolver;
 import com.facebook.buck.event.PerfEventId;
@@ -39,18 +39,21 @@ import java.util.function.Function;
 /** Creates {@link TargetNode} from {@link RawTargetNode}. */
 public class RawTargetNodeToTargetNodeFactory implements ParserTargetNodeFactory<RawTargetNode> {
 
+  private final KnownRuleTypesProvider knownRuleTypesProvider;
   private final ConstructorArgMarshaller marshaller;
   private final TargetNodeFactory targetNodeFactory;
   private final PackageBoundaryChecker packageBoundaryChecker;
-  private final TargetNodeListener<TargetNode<?, ?>> nodeListener;
+  private final TargetNodeListener<TargetNode<?>> nodeListener;
   private final SelectorListResolver selectorListResolver;
 
   public RawTargetNodeToTargetNodeFactory(
+      KnownRuleTypesProvider knownRuleTypesProvider,
       ConstructorArgMarshaller marshaller,
       TargetNodeFactory targetNodeFactory,
       PackageBoundaryChecker packageBoundaryChecker,
-      TargetNodeListener<TargetNode<?, ?>> nodeListener,
+      TargetNodeListener<TargetNode<?>> nodeListener,
       SelectorListResolver selectorListResolver) {
+    this.knownRuleTypesProvider = knownRuleTypesProvider;
     this.marshaller = marshaller;
     this.targetNodeFactory = targetNodeFactory;
     this.packageBoundaryChecker = packageBoundaryChecker;
@@ -59,16 +62,15 @@ public class RawTargetNodeToTargetNodeFactory implements ParserTargetNodeFactory
   }
 
   @Override
-  public TargetNode<?, ?> createTargetNode(
+  public TargetNode<?> createTargetNode(
       Cell cell,
-      KnownBuildRuleTypes knownBuildRuleTypes,
       Path buildFile,
       BuildTarget target,
       RawTargetNode rawTargetNode,
       Function<PerfEventId, Scope> perfEventScope) {
 
-    DescriptionWithTargetGraph<?> description =
-        knownBuildRuleTypes.getDescription(rawTargetNode.getBuildRuleType());
+    BaseDescription<?> description =
+        knownRuleTypesProvider.get(cell).getDescription(rawTargetNode.getRuleType());
     Cell targetCell = cell.getCell(target);
     ImmutableSet.Builder<BuildTarget> declaredDeps = ImmutableSet.builder();
 
@@ -81,7 +83,7 @@ public class RawTargetNodeToTargetNodeFactory implements ParserTargetNodeFactory
             configureRawTargetNodeAttributes(
                 selectorListResolver, target, rawTargetNode.getAttributes().getAll()));
 
-    TargetNode<?, ?> targetNode =
+    TargetNode<?> targetNode =
         targetNodeFactory.createFromObject(
             rawTargetNode.getHashCode(),
             description,

@@ -20,26 +20,25 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeFalse;
 
-import com.facebook.buck.config.ActionGraphParallelizationMode;
+import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphParallelizationMode;
+import com.facebook.buck.core.model.actiongraph.computation.TestActionGraphProviderFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
-import com.facebook.buck.jvm.java.KeystoreDescription;
 import com.facebook.buck.jvm.java.KeystoreDescriptionArg;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
@@ -77,13 +76,13 @@ public class DuplicateResourcesTest {
 
   private FakeProjectFilesystem filesystem;
 
-  private TargetNode<AndroidResourceDescriptionArg, AndroidResourceDescription> mainRes;
-  private TargetNode<AndroidResourceDescriptionArg, AndroidResourceDescription> directDepRes;
-  private TargetNode<AndroidResourceDescriptionArg, AndroidResourceDescription> transitiveDepRes;
-  private TargetNode<AndroidResourceDescriptionArg, AndroidResourceDescription> bottomDepRes;
-  private TargetNode<AndroidLibraryDescriptionArg, AndroidLibraryDescription> transitiveDepLib;
-  private TargetNode<AndroidLibraryDescriptionArg, AndroidLibraryDescription> library;
-  private TargetNode<KeystoreDescriptionArg, KeystoreDescription> keystore;
+  private TargetNode<AndroidResourceDescriptionArg> mainRes;
+  private TargetNode<AndroidResourceDescriptionArg> directDepRes;
+  private TargetNode<AndroidResourceDescriptionArg> transitiveDepRes;
+  private TargetNode<AndroidResourceDescriptionArg> bottomDepRes;
+  private TargetNode<AndroidLibraryDescriptionArg> transitiveDepLib;
+  private TargetNode<AndroidLibraryDescriptionArg> library;
+  private TargetNode<KeystoreDescriptionArg> keystore;
 
   /*
    * Builds up the following dependency graph, which an android_binary can depend on how it likes:
@@ -159,7 +158,7 @@ public class DuplicateResourcesTest {
   public void testDuplicateResoucesFavorCloserDependencyWithLibraryDep() {
     assumeFalse("Android SDK paths don't work on Windows", Platform.detect() == Platform.WINDOWS);
 
-    TargetNode<AndroidBinaryDescriptionArg, AndroidBinaryDescription> binary =
+    TargetNode<AndroidBinaryDescriptionArg> binary =
         makeBinaryWithDeps(ImmutableSortedSet.of(mainResTarget, androidLibraryTarget));
 
     ImmutableList<String> command = getAaptStepShellCommand(binary);
@@ -171,7 +170,7 @@ public class DuplicateResourcesTest {
   public void testDuplicateResoucesFavorCloserDependencyWithTwoLibraryDeps() {
     assumeFalse("Android SDK paths don't work on Windows", Platform.detect() == Platform.WINDOWS);
 
-    TargetNode<AndroidBinaryDescriptionArg, AndroidBinaryDescription> binary =
+    TargetNode<AndroidBinaryDescriptionArg> binary =
         makeBinaryWithDeps(
             ImmutableSortedSet.of(mainResTarget, androidLibraryTarget, transitiveDepLibTarget));
 
@@ -184,7 +183,7 @@ public class DuplicateResourcesTest {
   public void testDuplicateResoucesFavorCloserDependencyWithResourceDep() {
     assumeFalse("Android SDK paths don't work on Windows", Platform.detect() == Platform.WINDOWS);
 
-    TargetNode<AndroidBinaryDescriptionArg, AndroidBinaryDescription> binary =
+    TargetNode<AndroidBinaryDescriptionArg> binary =
         makeBinaryWithDeps(ImmutableSortedSet.of(mainResTarget, directDepResTarget));
 
     ImmutableList<String> command = getAaptStepShellCommand(binary);
@@ -196,7 +195,7 @@ public class DuplicateResourcesTest {
   public void testDuplicateResoucesFavorCloserDependencyWithOnlyResourceDep() {
     assumeFalse("Android SDK paths don't work on Windows", Platform.detect() == Platform.WINDOWS);
 
-    TargetNode<AndroidBinaryDescriptionArg, AndroidBinaryDescription> binary =
+    TargetNode<AndroidBinaryDescriptionArg> binary =
         makeBinaryWithDeps(ImmutableSortedSet.of(directDepResTarget));
 
     ImmutableList<String> command = getAaptStepShellCommand(binary);
@@ -226,7 +225,7 @@ public class DuplicateResourcesTest {
         Matchers.contains(expectedSubslice));
   }
 
-  private TargetNode<AndroidBinaryDescriptionArg, AndroidBinaryDescription> makeBinaryWithDeps(
+  private TargetNode<AndroidBinaryDescriptionArg> makeBinaryWithDeps(
       ImmutableSortedSet<BuildTarget> deps) {
     return AndroidBinaryBuilder.createBuilder(androidBinaryTarget)
         .setOriginalDeps(deps)
@@ -236,7 +235,7 @@ public class DuplicateResourcesTest {
   }
 
   private ImmutableList<String> getAaptStepShellCommand(
-      TargetNode<AndroidBinaryDescriptionArg, AndroidBinaryDescription> binary) {
+      TargetNode<AndroidBinaryDescriptionArg> binary) {
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(
             binary,
@@ -249,7 +248,7 @@ public class DuplicateResourcesTest {
             keystore);
 
     ActionGraphAndBuilder actionGraphAndBuilder =
-        new ActionGraphCache(1)
+        TestActionGraphProviderFactory.create(1)
             .getFreshActionGraph(
                 BuckEventBusForTests.newInstance(
                     new IncrementingFakeClock(TimeUnit.SECONDS.toNanos(1))),

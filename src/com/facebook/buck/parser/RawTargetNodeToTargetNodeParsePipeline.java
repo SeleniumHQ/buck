@@ -18,16 +18,14 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.model.targetgraph.RawTargetNode;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.event.SimplePerfEvent.Scope;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.ImmutableBuildTarget;
 import com.facebook.buck.parser.PipelineNodeCache.Cache;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.google.common.collect.ImmutableSet;
@@ -39,25 +37,23 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 public class RawTargetNodeToTargetNodeParsePipeline
-    extends ConvertingPipelineWithPerfEventScope<RawTargetNode, TargetNode<?, ?>> {
+    extends ConvertingPipelineWithPerfEventScope<RawTargetNode, TargetNode<?>> {
 
   private static final Logger LOG = Logger.get(RawTargetNodeToTargetNodeParsePipeline.class);
 
   private final boolean speculativeDepsTraversal;
   private final RawTargetNodePipeline rawTargetNodePipeline;
-  private final RawTargetNodeToTargetNodeFactory rawTargetNodeToTargetNodeFactory;
+  private final ParserTargetNodeFactory<RawTargetNode> rawTargetNodeToTargetNodeFactory;
   private final SimplePerfEvent.Scope targetNodePipelineLifetimeEventScope;
-  private final KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
 
   /** Create new pipeline for parsing Buck files. */
   public RawTargetNodeToTargetNodeParsePipeline(
-      Cache<BuildTarget, TargetNode<?, ?>> cache,
+      Cache<BuildTarget, TargetNode<?>> cache,
       ListeningExecutorService executorService,
       RawTargetNodePipeline rawTargetNodePipeline,
       BuckEventBus eventBus,
       boolean speculativeDepsTraversal,
-      RawTargetNodeToTargetNodeFactory rawTargetNodeToTargetNodeFactory,
-      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider) {
+      ParserTargetNodeFactory<RawTargetNode> rawTargetNodeToTargetNodeFactory) {
     super(
         executorService,
         cache,
@@ -71,7 +67,6 @@ public class RawTargetNodeToTargetNodeParsePipeline
         SimplePerfEvent.scope(
             eventBus, PerfEventId.of("configured_raw_target_node_parse_pipeline"));
     this.rawTargetNodeToTargetNodeFactory = rawTargetNodeToTargetNodeFactory;
-    this.knownBuildRuleTypesProvider = knownBuildRuleTypesProvider;
   }
 
   @Override
@@ -81,18 +76,17 @@ public class RawTargetNodeToTargetNodeParsePipeline
   }
 
   @Override
-  protected TargetNode<?, ?> computeNodeInScope(
+  @SuppressWarnings("CheckReturnValue") // submit result is not used
+  protected TargetNode<?> computeNodeInScope(
       Cell cell,
-      KnownBuildRuleTypes knownBuildRuleTypes,
       BuildTarget buildTarget,
       RawTargetNode rawNode,
       AtomicLong processedBytes,
       Function<PerfEventId, Scope> perfEventScopeFunction)
       throws BuildTargetException {
-    TargetNode<?, ?> targetNode =
+    TargetNode<?> targetNode =
         rawTargetNodeToTargetNodeFactory.createTargetNode(
             cell,
-            knownBuildRuleTypes,
             cell.getAbsolutePathToBuildFile(buildTarget),
             buildTarget,
             rawNode,
@@ -103,16 +97,14 @@ public class RawTargetNodeToTargetNodeParsePipeline
           () -> {
             for (BuildTarget depTarget : targetNode.getParseDeps()) {
               Cell depCell = cell.getCellIgnoringVisibilityCheck(depTarget.getCellPath());
-              KnownBuildRuleTypes depKnownBuildRuleTypes = knownBuildRuleTypesProvider.get(depCell);
               try {
                 if (depTarget.isFlavored()) {
                   getNodeJob(
                       depCell,
-                      depKnownBuildRuleTypes,
                       ImmutableBuildTarget.of(depTarget.getUnflavoredBuildTarget()),
                       processedBytes);
                 }
-                getNodeJob(depCell, depKnownBuildRuleTypes, depTarget, processedBytes);
+                getNodeJob(depCell, depTarget, processedBytes);
               } catch (BuildTargetException e) {
                 // No biggie, we'll hit the error again in the non-speculative path.
                 LOG.info(e, "Could not schedule speculative parsing for %s", depTarget);
@@ -125,20 +117,14 @@ public class RawTargetNodeToTargetNodeParsePipeline
 
   @Override
   protected ListenableFuture<ImmutableSet<RawTargetNode>> getItemsToConvert(
-      Cell cell, KnownBuildRuleTypes knownBuildRuleTypes, Path buildFile, AtomicLong processedBytes)
-      throws BuildTargetException {
-    return rawTargetNodePipeline.getAllNodesJob(
-        cell, knownBuildRuleTypes, buildFile, processedBytes);
+      Cell cell, Path buildFile, AtomicLong processedBytes) throws BuildTargetException {
+    return rawTargetNodePipeline.getAllNodesJob(cell, buildFile, processedBytes);
   }
 
   @Override
   protected ListenableFuture<RawTargetNode> getItemToConvert(
-      Cell cell,
-      KnownBuildRuleTypes knownBuildRuleTypes,
-      BuildTarget buildTarget,
-      AtomicLong processedBytes)
-      throws BuildTargetException {
-    return rawTargetNodePipeline.getNodeJob(cell, knownBuildRuleTypes, buildTarget, processedBytes);
+      Cell cell, BuildTarget buildTarget, AtomicLong processedBytes) throws BuildTargetException {
+    return rawTargetNodePipeline.getNodeJob(cell, buildTarget, processedBytes);
   }
 
   @Override

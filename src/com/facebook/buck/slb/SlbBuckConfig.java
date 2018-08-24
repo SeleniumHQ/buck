@@ -16,7 +16,8 @@
 
 package com.facebook.buck.slb;
 
-import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.base.Preconditions;
@@ -24,8 +25,13 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import java.net.URI;
 import java.util.Optional;
+import okhttp3.Connection;
+import okhttp3.OkHttpClient;
+import okhttp3.Response;
 
 public class SlbBuckConfig {
+
+  private static final Logger LOG = Logger.get(SlbBuckConfig.class);
 
   // SLB BuckConfig keys.
   private static final String SERVER_POOL = "slb_server_pool";
@@ -37,6 +43,7 @@ public class SlbBuckConfig {
   private static final String LATENCY_CHECK_TIME_RANGE_MILLIS =
       "slb_latency_check_time_range_millis";
   private static final String MAX_ACCEPTABLE_LATENCY_MILLIS = "slb_max_acceptable_latency_millis";
+  private static final String MIN_SAMPLES_TO_REPORT_ERROR = "slb_min_samples_to_report_error";
 
   private final String parentSection;
   private final BuckConfig buckConfig;
@@ -65,19 +72,44 @@ public class SlbBuckConfig {
   }
 
   public ClientSideSlb createClientSideSlb(Clock clock, BuckEventBus eventBus) {
-    return new ClientSideSlb(createConfig(clock, eventBus));
+    return new ClientSideSlb(createConfig(clock, eventBus), createOkHttpClientBuilder());
   }
 
   public Optional<ClientSideSlb> tryCreatingClientSideSlb(Clock clock, BuckEventBus eventBus) {
     ClientSideSlbConfig config = createConfig(clock, eventBus);
     return ClientSideSlb.isSafeToCreate(config)
-        ? Optional.of(new ClientSideSlb(config))
+        ? Optional.of(new ClientSideSlb(config, createOkHttpClientBuilder()))
         : Optional.empty();
+  }
+
+  private OkHttpClient.Builder createOkHttpClientBuilder() {
+    OkHttpClient.Builder clientBuilder = new OkHttpClient().newBuilder();
+    clientBuilder
+        .networkInterceptors()
+        .add(
+            chain -> {
+              String remoteAddress = null;
+              Connection connection = chain.connection();
+              if (connection != null) {
+                remoteAddress = connection.socket().getRemoteSocketAddress().toString();
+              } else {
+                LOG.warn("No available connection.");
+              }
+              Response response = chain.proceed(chain.request());
+              if (response.code() != 200 && remoteAddress != null) {
+                LOG.warn(
+                    String.format(
+                        "Connection to %s failed with code %d", remoteAddress, response.code()));
+              }
+              return response;
+            });
+    return clientBuilder;
   }
 
   private ClientSideSlbConfig createConfig(Clock clock, BuckEventBus eventBus) {
     ClientSideSlbConfig.Builder configBuilder =
         ClientSideSlbConfig.builder()
+            .setServerPoolName("buckconfig_" + parentSection)
             .setClock(clock)
             .setServerPool(getServerPool())
             .setEventBus(eventBus);
@@ -116,6 +148,10 @@ public class SlbBuckConfig {
           buckConfig.getFloat(parentSection, MAX_ERROR_PERCENTAGE).get());
     }
 
+    if (buckConfig.getValue(parentSection, MIN_SAMPLES_TO_REPORT_ERROR).isPresent()) {
+      configBuilder.setMinSamplesToReportError(
+          buckConfig.getInteger(parentSection, MIN_SAMPLES_TO_REPORT_ERROR).getAsInt());
+    }
     return configBuilder.build();
   }
 }

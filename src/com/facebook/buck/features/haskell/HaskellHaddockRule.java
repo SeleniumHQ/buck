@@ -18,10 +18,11 @@ package com.facebook.buck.features.haskell;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
@@ -29,10 +30,9 @@ import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -47,7 +47,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import java.nio.file.Path;
-import java.util.Optional;
 import java.util.function.Supplier;
 
 public class HaskellHaddockRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
@@ -112,7 +111,7 @@ public class HaskellHaddockRule extends AbstractBuildRuleWithDeclaredAndExtraDep
   }
 
   private Path getOutputDir() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s");
+    return BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s");
   }
 
   @Override
@@ -136,7 +135,7 @@ public class HaskellHaddockRule extends AbstractBuildRuleWithDeclaredAndExtraDep
         MakeCleanDirectoryStep.of(
             BuildCellRelativePath.fromCellRelativePath(
                 context.getBuildCellRootPath(), getProjectFilesystem(), dir)));
-    steps.add(new HaddockStep(getBuildTarget(), getProjectFilesystem().getRootPath(), context));
+    steps.add(new HaddockStep(getProjectFilesystem().getRootPath(), context));
 
     // Copy the generated data from dependencies into our output directory
     for (SourcePath odir : outputDirs) {
@@ -156,8 +155,8 @@ public class HaskellHaddockRule extends AbstractBuildRuleWithDeclaredAndExtraDep
 
     private BuildContext buildContext;
 
-    public HaddockStep(BuildTarget buildTarget, Path rootPath, BuildContext buildContext) {
-      super(Optional.of(buildTarget), rootPath);
+    public HaddockStep(Path rootPath, BuildContext buildContext) {
+      super(rootPath);
       this.buildContext = buildContext;
     }
 

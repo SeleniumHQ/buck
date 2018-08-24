@@ -23,31 +23,29 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.artifact_cache.CacheResult;
-import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.build.engine.BuildResult;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildEngine;
 import com.facebook.buck.rules.FakeTestRule;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.shell.GenruleDescription;
 import com.facebook.buck.shell.GenruleDescriptionArg;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
@@ -109,13 +107,13 @@ public class TestRunningTest {
   public void testGeneratedSourceFile() {
     BuildTarget genSrcTarget = BuildTargetFactory.newInstance("//:gensrc");
 
-    TargetNode<GenruleDescriptionArg, GenruleDescription> sourceGenerator =
+    TargetNode<GenruleDescriptionArg> sourceGenerator =
         GenruleBuilder.newGenruleBuilder(genSrcTarget)
             .setOut("com/facebook/GeneratedFile.java")
             .build();
 
     BuildTarget javaLibraryTarget = BuildTargetFactory.newInstance("//:lib");
-    TargetNode<JavaLibraryDescriptionArg, JavaLibraryDescription> javaLibraryNode =
+    TargetNode<JavaLibraryDescriptionArg> javaLibraryNode =
         JavaLibraryBuilder.createBuilder(javaLibraryTarget).addSrcTarget(genSrcTarget).build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(sourceGenerator, javaLibraryNode);
@@ -150,7 +148,7 @@ public class TestRunningTest {
     Path pathToNonGenFile = Paths.get("package/src/SourceFile1.java");
 
     BuildTarget javaLibraryTarget = BuildTargetFactory.newInstance("//foo:bar");
-    TargetNode<JavaLibraryDescriptionArg, JavaLibraryDescription> javaLibraryNode =
+    TargetNode<JavaLibraryDescriptionArg> javaLibraryNode =
         JavaLibraryBuilder.createBuilder(javaLibraryTarget).addSrc(pathToNonGenFile).build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(javaLibraryNode);
@@ -179,7 +177,7 @@ public class TestRunningTest {
     Path pathToNonGenFile = Paths.get("package/src/SourceFile1.java");
 
     BuildTarget javaLibraryTarget = BuildTargetFactory.newInstance("//foo:bar");
-    TargetNode<JavaLibraryDescriptionArg, JavaLibraryDescription> javaLibraryNode =
+    TargetNode<JavaLibraryDescriptionArg> javaLibraryNode =
         JavaLibraryBuilder.createBuilder(javaLibraryTarget).addSrc(pathToNonGenFile).build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(javaLibraryNode);
@@ -203,7 +201,7 @@ public class TestRunningTest {
     Path pathToNonGenFile = Paths.get("java/package/src/SourceFile1.java");
 
     BuildTarget javaLibraryTarget = BuildTargetFactory.newInstance("//foo:bar");
-    TargetNode<JavaLibraryDescriptionArg, JavaLibraryDescription> javaLibraryNode =
+    TargetNode<JavaLibraryDescriptionArg> javaLibraryNode =
         JavaLibraryBuilder.createBuilder(javaLibraryTarget).addSrc(pathToNonGenFile).build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(javaLibraryNode);
@@ -235,7 +233,7 @@ public class TestRunningTest {
   public void testMixedSourceFile() {
     BuildTarget genSrcTarget = BuildTargetFactory.newInstance("//:gensrc");
 
-    TargetNode<GenruleDescriptionArg, GenruleDescription> sourceGenerator =
+    TargetNode<GenruleDescriptionArg> sourceGenerator =
         GenruleBuilder.newGenruleBuilder(genSrcTarget)
             .setOut("com/facebook/GeneratedFile.java")
             .build();
@@ -244,7 +242,7 @@ public class TestRunningTest {
     Path pathToNonGenFile2 = Paths.get("package/src-gen/SourceFile2.java");
 
     BuildTarget javaLibraryTarget = BuildTargetFactory.newInstance("//foo:bar");
-    TargetNode<JavaLibraryDescriptionArg, JavaLibraryDescription> javaLibraryNode =
+    TargetNode<JavaLibraryDescriptionArg> javaLibraryNode =
         JavaLibraryBuilder.createBuilder(javaLibraryTarget)
             .addSrc(pathToNonGenFile1)
             .addSrc(pathToNonGenFile2)

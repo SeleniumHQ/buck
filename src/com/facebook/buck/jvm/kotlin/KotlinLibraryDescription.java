@@ -16,7 +16,6 @@
 
 package com.facebook.buck.jvm.kotlin;
 
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
@@ -24,6 +23,8 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaAbis;
@@ -39,7 +40,6 @@ import com.facebook.buck.jvm.java.MavenUberJar;
 import com.facebook.buck.jvm.java.SourceJar;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.maven.aether.AetherUtil;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -158,8 +158,24 @@ public class KotlinLibraryDescription
     }
   }
 
+  public enum AnnotationProcessingTool {
+    /**
+     * Default tool for Kotlin modules. Allows to run Java annotation processors against Kotlin
+     * sources while backporting it for Java sources too.
+     */
+    KAPT,
+
+    /**
+     * Works only against Java sources, Kotlin sources won't have access to generated classes at
+     * compile time.
+     */
+    JAVAC,
+  }
+
   public interface CoreArg extends JavaLibraryDescription.CoreArg {
     ImmutableList<String> getExtraKotlincArguments();
+
+    Optional<AnnotationProcessingTool> getAnnotationProcessingTool();
   }
 
   @BuckStyleImmutable

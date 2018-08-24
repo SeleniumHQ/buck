@@ -16,19 +16,26 @@
 
 package com.facebook.buck.android;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.android.bundle.Config.BundleConfig;
+import com.android.bundle.Config.Bundletool;
+import com.android.bundle.Config.Compression;
+import com.android.bundle.Config.Optimizations;
+import com.android.bundle.Config.SplitDimension;
+import com.android.bundle.Config.SplitsConfig;
 import com.android.bundle.Files.Assets;
 import com.android.bundle.Files.NativeLibraries;
 import com.android.bundle.Files.TargetedAssetsDirectory;
 import com.android.bundle.Files.TargetedNativeDirectory;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -51,7 +58,7 @@ import org.junit.rules.ExpectedException;
 public class AndroidAppBundleIntegrationTest extends AbiCompilationModeTest {
 
   private ProjectWorkspace workspace;
-  @Rule public TemporaryPaths tmpFolder = new TemporaryPaths(true);
+  @Rule public TemporaryPaths tmpFolder = new TemporaryPaths();
   private ProjectFilesystem filesystem;
   @Rule public ExpectedException thrown = ExpectedException.none();
 
@@ -76,7 +83,8 @@ public class AndroidAppBundleIntegrationTest extends AbiCompilationModeTest {
     // Iterate over each of the entries, expecting to see all zeros in the time fields.
     Path aab =
         workspace.getPath(
-            BuildTargets.getGenPath(filesystem, BuildTargetFactory.newInstance(target), "%s.apk"));
+            BuildTargetPaths.getGenPath(
+                filesystem, BuildTargetFactory.newInstance(target), "%s.signed.apk"));
     Date dosEpoch = new Date(ZipUtil.dosToJavaTime(ZipConstants.DOS_FAKE_TIME));
     try (ZipInputStream is = new ZipInputStream(Files.newInputStream(aab))) {
       for (ZipEntry entry = is.getNextEntry(); entry != null; entry = is.getNextEntry()) {
@@ -85,6 +93,7 @@ public class AndroidAppBundleIntegrationTest extends AbiCompilationModeTest {
     }
 
     ZipInspector zipInspector = new ZipInspector(aab);
+    zipInspector.assertFileExists("BundleConfig.pb");
     zipInspector.assertFileExists("base/dex/classes.dex");
     zipInspector.assertFileExists("base/assets.pb");
     zipInspector.assertFileExists("base/resources.pb");
@@ -92,9 +101,11 @@ public class AndroidAppBundleIntegrationTest extends AbiCompilationModeTest {
     zipInspector.assertFileExists("base/assets/asset_file.txt");
     zipInspector.assertFileExists("base/res/drawable/tiny_black.png");
     zipInspector.assertFileExists("base/native.pb");
-
+    zipInspector.assertFileExists("base/lib/armeabi-v7a/libnative_cxx_lib.so");
+    zipInspector.assertFileExists("base/assets/secondary-program-dex-jars/secondary-1.dex.jar");
     NativeLibraries nativeLibraries =
         NativeLibraries.parseFrom(zipInspector.getFileContents("base/native.pb"));
+    assertEquals(3, nativeLibraries.getDirectoryList().size());
     for (TargetedNativeDirectory targetedNativeDirectory : nativeLibraries.getDirectoryList()) {
       assertTrue(targetedNativeDirectory.hasTargeting());
       assertTrue(targetedNativeDirectory.getTargeting().hasAbi());
@@ -103,8 +114,45 @@ public class AndroidAppBundleIntegrationTest extends AbiCompilationModeTest {
     Assets assets = Assets.parseFrom(zipInspector.getFileContents("base/assets.pb"));
     for (TargetedAssetsDirectory targetedAssetsDirectory : assets.getDirectoryList()) {
       assertTrue(targetedAssetsDirectory.hasTargeting());
-      assertTrue(targetedAssetsDirectory.getTargeting().hasLanguage());
+      assertTrue(targetedAssetsDirectory.getTargeting().hasAbi());
     }
+
+    BundleConfig bundleConfig =
+        BundleConfig.parseFrom(zipInspector.getFileContents("BundleConfig.pb"));
+
+    assertTrue(bundleConfig.hasBundletool());
+    assertBundletool(bundleConfig.getBundletool());
+
+    assertTrue(bundleConfig.hasOptimizations());
+    assertOptimizations(bundleConfig.getOptimizations());
+
+    assertTrue(bundleConfig.hasCompression());
+    assertCompression(bundleConfig.getCompression());
+  }
+
+  public void assertSplitDimension(SplitDimension splitdimension, int index) {
+    assertEquals(index + 1, splitdimension.getValueValue());
+    assertEquals(index != 0, splitdimension.getNegate());
+  }
+
+  public void assertSplitsConfig(SplitsConfig splitsconfig) {
+    assertEquals(3, splitsconfig.getSplitDimensionCount());
+    for (int i = 0; i < 3; i++) {
+      assertSplitDimension(splitsconfig.getSplitDimension(i), i);
+    }
+  }
+
+  public void assertOptimizations(Optimizations optimizations) {
+    assertTrue(optimizations.hasSplitsConfig());
+    assertSplitsConfig(optimizations.getSplitsConfig());
+  }
+
+  public void assertCompression(Compression compression) {
+    assertEquals(0, compression.getUncompressedGlobCount());
+  }
+
+  public void assertBundletool(Bundletool bundletool) {
+    assertEquals("", bundletool.getVersion());
   }
 
   @Test
@@ -116,5 +164,29 @@ public class AndroidAppBundleIntegrationTest extends AbiCompilationModeTest {
         "Android App Bundle can only be built with aapt2, but " + target + " is using aapt1.");
 
     workspace.runBuckBuild(target);
+  }
+
+  @Test
+  public void testAppBundleWithMultipleModules() throws IOException {
+    String target = "//apps/sample:app_modular_debug";
+    ProcessResult result = workspace.runBuckCommand("build", target);
+    result.assertSuccess();
+
+    Path aab =
+        workspace.getPath(
+            BuildTargetPaths.getGenPath(
+                filesystem, BuildTargetFactory.newInstance(target), "%s.signed.apk"));
+
+    ZipInspector zipInspector = new ZipInspector(aab);
+    zipInspector.assertFileExists("small_with_no_resource_deps/assets.pb");
+    zipInspector.assertFileExists("small_with_no_resource_deps/native.pb");
+    zipInspector.assertFileExists(
+        "small_with_no_resource_deps/assets/small_with_no_resource_deps/metadata.txt");
+    zipInspector.assertFileExists(
+        "small_with_no_resource_deps/assets/small_with_no_resource_deps/libs.xzs");
+    zipInspector.assertFileExists("base/dex/classes.dex");
+    zipInspector.assertFileExists("base/dex/classes2.dex");
+    zipInspector.assertFileExists("small_with_no_resource_deps/manifest/AndroidManifest.xml");
+    zipInspector.assertFileExists("small_with_no_resource_deps/resources.pb");
   }
 }

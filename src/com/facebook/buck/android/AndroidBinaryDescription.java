@@ -21,9 +21,8 @@ import static com.facebook.buck.android.AndroidBinaryResourcesGraphEnhancer.PACK
 import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
 import com.facebook.buck.android.dalvik.ZipSplitter.DexSplitStrategy;
 import com.facebook.buck.android.exopackage.ExopackageMode;
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasTests;
@@ -36,14 +35,15 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.rules.macros.StringWithMacros;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -197,32 +197,18 @@ public class AndroidBinaryDescription
         args.getMinimizePrimaryDexSize()
             ? DexSplitStrategy.MINIMIZE_PRIMARY_DEX_SIZE
             : DexSplitStrategy.MAXIMIZE_PRIMARY_DEX_SIZE;
-    ImmutableList<String> primaryDexPatterns;
-    if (args.isAllowRDotJavaInSecondaryDex()) {
-      primaryDexPatterns = args.getPrimaryDexPatterns();
-    } else {
-      primaryDexPatterns =
-          ImmutableList.<String>builder()
-              .addAll(args.getPrimaryDexPatterns())
-              .add(
-                  "/R^",
-                  "/R$",
-                  // Pin this to the primary for test apps with no primary dex classes.
-                  // The exact match makes it fairly efficient.
-                  "^com/facebook/buck_generated/AppWithoutResourcesStub^")
-              .build();
-    }
     return new DexSplitMode(
         args.getUseSplitDex(),
         dexSplitStrategy,
         args.getDexCompression().orElse(defaultDexStore),
         args.getLinearAllocHardLimit(),
-        primaryDexPatterns,
+        args.getPrimaryDexPatterns(),
         args.getPrimaryDexClassesFile(),
         args.getPrimaryDexScenarioFile(),
         args.isPrimaryDexScenarioOverflowAllowed(),
         args.getSecondaryDexHeadClassesFile(),
-        args.getSecondaryDexTailClassesFile());
+        args.getSecondaryDexTailClassesFile(),
+        args.isAllowRDotJavaInSecondaryDex());
   }
 
   @Override

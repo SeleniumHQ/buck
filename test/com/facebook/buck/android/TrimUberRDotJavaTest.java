@@ -17,23 +17,23 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
+import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.cell.TestCellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
@@ -99,7 +99,7 @@ public class TrimUberRDotJavaTest {
             + "  }\n"
             + "}\n";
     Path rDotJavaDir =
-        BuildTargets.getGenPath(
+        BuildTargetPaths.getGenPath(
             filesystem,
             BuildTargetFactory.newInstance("//:aapt#aapt_package_resources"),
             "%s/__r_java_srcs__/R.java");

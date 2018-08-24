@@ -30,8 +30,13 @@ import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.xml.XmlDomParser;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Streams;
+import com.google.common.io.Files;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
 import org.hamcrest.Matchers;
 import org.junit.Assume;
 import org.junit.Before;
@@ -40,8 +45,8 @@ import org.junit.Test;
 import org.w3c.dom.Node;
 
 public class ProjectIntegrationTest {
-
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
+  @Rule public TemporaryPaths temporaryFolder2 = new TemporaryPaths();
 
   @Before
   public void setUp() throws Exception {
@@ -304,38 +309,6 @@ public class ProjectIntegrationTest {
         "//project1/lib:lib");
   }
 
-  // This test is identical to testProjectWithProjectRoot, except
-  // one of the dependencies follows the proper source root structure.
-  // This should cause the corresponding file under .idea/libraries/
-  // to create SOURCES entries for IntelliJ.
-  @Test
-  public void testProjectWithSourceRoot() throws InterruptedException, IOException {
-    runBuckProjectAndVerify(
-        "project_with_source_root",
-        "--intellij-project-root",
-        "project1",
-        "--intellij-include-transitive-dependencies",
-        "--intellij-module-group-name",
-        "",
-        "//project1/lib:lib");
-  }
-
-  // This test is identical to testProjectWithSourceRoot, except
-  // .buckconfig is missing the 'enable_raw_sources_for_libraries' option.
-  // Not including this option should cause source roots to not be included
-  // in the library XML files.
-  @Test
-  public void testProjectWithSourceRootExcluded() throws InterruptedException, IOException {
-    runBuckProjectAndVerify(
-        "project_with_source_root_excluded",
-        "--intellij-project-root",
-        "project1",
-        "--intellij-include-transitive-dependencies",
-        "--intellij-module-group-name",
-        "",
-        "//project1/lib:lib");
-  }
-
   @Test
   public void testProjectWithBinaryInputs() throws InterruptedException, IOException {
     runBuckProjectAndVerify("project_with_binary_inputs");
@@ -385,6 +358,91 @@ public class ProjectIntegrationTest {
   @Test
   public void testIgnoredPathAddedToExcludedFolders() throws InterruptedException, IOException {
     runBuckProjectAndVerify("ignored_excluded");
+  }
+
+  @Test
+  public void testOutputDir() throws IOException, InterruptedException {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "min_sdk_version_from_binary_manifest", temporaryFolder);
+    workspace.setUp();
+
+    workspace.runBuckCommand("project").assertSuccess("buck project should exit cleanly");
+    Path outPath = temporaryFolder2.getRoot();
+    workspace
+        .runBuckCommand("project", "--output-dir", outPath.toString())
+        .assertSuccess("buck project should exit cleanly");
+
+    // Check every file in output-dir matches one in project
+    for (File outFile : Files.fileTreeTraverser().children(outPath.toFile())) {
+      Path relativePath = outPath.relativize(Paths.get(outFile.getPath()));
+      File projFile = temporaryFolder.getRoot().resolve(relativePath).toFile();
+      assertTrue(projFile.exists());
+      if (projFile.isFile()) {
+        assertTrue(Files.asByteSource(projFile).contentEquals(Files.asByteSource(outFile)));
+      }
+    }
+  }
+
+  Iterable<File> recursePath(Path path) {
+    return Files.fileTreeTraverser().breadthFirstTraversal(path.toFile());
+  }
+
+  @Test
+  public void testOutputDirNoProjectWrite() throws IOException, InterruptedException {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "min_sdk_version_from_binary_manifest", temporaryFolder);
+    workspace.setUp();
+
+    Path projPath = temporaryFolder.getRoot();
+    Path outPath = temporaryFolder2.getRoot();
+
+    long lastModifiedProject =
+        Streams.stream(recursePath(projPath)).map(File::lastModified).max(Long::compare).get();
+    ProcessResult result = workspace.runBuckCommand("project", "--output-dir", outPath.toString());
+    result.assertSuccess("buck project should exit cleanly");
+
+    for (File file : recursePath(projPath)) {
+      if (!(file.isDirectory()
+          || file.getPath().contains("log")
+          || file.getName().equals(".progressestimations.json"))) {
+        assertTrue(file.lastModified() <= lastModifiedProject);
+      }
+    }
+  }
+
+  @Test
+  public void testDifferentOutputDirSameProject() throws InterruptedException, IOException {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "min_sdk_version_from_binary_manifest", temporaryFolder);
+    workspace.setUp();
+
+    Path out1Path = temporaryFolder2.newFolder("project1");
+    // Make sure buck project creates a dir if it doesn't exist
+    Path out2Path = temporaryFolder2.getRoot().resolve("project2/subdir");
+    workspace
+        .runBuckCommand("project", "--output-dir", out1Path.toString())
+        .assertSuccess("buck project should exit cleanly");
+    workspace
+        .runBuckCommand("project", "--output-dir", out2Path.toString())
+        .assertSuccess("buck project should exit cleanly");
+
+    List<File> out1Files = Lists.newArrayList(recursePath(out1Path));
+    List<File> out2Files = Lists.newArrayList(recursePath(out2Path));
+    assertEquals(out1Files.size(), out2Files.size());
+    for (File file1 : out1Files) {
+      Path relativePath = out1Path.relativize(Paths.get(file1.getPath()));
+      File file2 = out2Path.resolve(relativePath).toFile();
+      assertTrue(file2.exists());
+      if (file1.isFile()) {
+        assertTrue(Files.asByteSource(file1).contentEquals(Files.asByteSource(file2)));
+      }
+    }
   }
 
   @Test
@@ -438,6 +496,30 @@ public class ProjectIntegrationTest {
             "project", "--intellij-aggregation-mode=none", "--update", "//modules/extra:extra")
         .assertSuccess();
     workspace.verify();
+  }
+
+  @Test
+  public void testBuckModuleRegenerateWithExportedLibs() throws Exception {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+                this, "incrementalProject", temporaryFolder.newFolder())
+            .setUp();
+    final String libraryFilePath = ".idea/libraries/__modules_lib_guava.xml";
+    final File libraryFile = workspace.getPath(libraryFilePath).toFile();
+    workspace
+        .runBuckCommand("project", "--intellij-aggregation-mode=none", "//modules/tip:tip")
+        .assertSuccess();
+    assertFalse(libraryFile.exists());
+    // Run regenerate and we should see the library file get created
+    workspace
+        .runBuckCommand(
+            "project",
+            "--intellij-aggregation-mode=none",
+            "--update",
+            "//modules/tip:tipwithexports")
+        .assertSuccess();
+    assertTrue(libraryFile.exists());
   }
 
   @Test

@@ -19,17 +19,17 @@ package com.facebook.buck.shell;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.sandbox.SandboxConfig;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.VersionRoot;
 import java.util.Optional;
 import org.immutables.value.Value;
@@ -126,14 +126,6 @@ public class GenruleDescription extends AbstractGenruleDescription<GenruleDescri
     String getOut();
 
     Optional<Boolean> getExecutable();
-
-    /**
-     * This functionality only exists to get around the lack of extensibility in our current build
-     * rule / build file apis. It may go away at some point. Also, make sure that you understand
-     * what {@link BuildRule.isCacheable} does with respect to caching if you decide to use this
-     * attribute
-     */
-    Optional<Boolean> getCacheable();
 
     /**
      * This functionality only exists to facilitate migration of projects to distributed building.

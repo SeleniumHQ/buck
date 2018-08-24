@@ -18,9 +18,9 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.apple.toolchain.AppleDeveloperDirectoryForTestsProvider;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.TeeInputStream;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
@@ -211,8 +211,7 @@ class XctoolRunTestsStep implements Step {
   }
 
   public ImmutableMap<String, String> getEnv(ExecutionContext context) {
-    Map<String, String> environment = new HashMap<>();
-    environment.putAll(context.getEnvironment());
+    Map<String, String> environment = new HashMap<>(context.getEnvironment());
     Path xcodeDeveloperDir =
         appleDeveloperDirectoryForTestsProvider.getAppleDeveloperDirectoryForTests();
     environment.put("DEVELOPER_DIR", xcodeDeveloperDir.toString());

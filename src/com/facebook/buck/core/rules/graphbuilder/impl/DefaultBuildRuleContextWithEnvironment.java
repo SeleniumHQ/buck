@@ -16,7 +16,7 @@
 
 package com.facebook.buck.core.rules.graphbuilder.impl;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.graph.transformation.TransformationEnvironment;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -25,8 +25,8 @@ import com.facebook.buck.core.rules.BuildRuleCreationContext;
 import com.facebook.buck.core.rules.graphbuilder.BuildRuleContextWithEnvironment;
 import com.facebook.buck.core.rules.graphbuilder.BuildRuleKey;
 import com.facebook.buck.core.rules.provider.BuildRuleInfoProviderCollection;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -50,7 +50,7 @@ public abstract class DefaultBuildRuleContextWithEnvironment
   }
 
   /** @return the {@link TargetNode} of the current desired {@link BuildRule} */
-  protected TargetNode<?, ?> getCurrentNode() {
+  protected TargetNode<?> getCurrentNode() {
     return getKey().getTargetNode();
   }
 

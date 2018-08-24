@@ -16,7 +16,6 @@
 
 package com.facebook.buck.features.haskell;
 
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.model.BuildTarget;
@@ -24,8 +23,11 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxHeadersDir;
 import com.facebook.buck.cxx.CxxPreprocessables;
@@ -44,7 +46,6 @@ import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import org.immutables.value.Value;
 
@@ -131,7 +132,6 @@ public class HaskellPrebuiltLibraryDescription
           CxxPlatform cxxPlatform,
           Linker.LinkableDepType type,
           boolean forceLinkWhole,
-          ImmutableSet<LanguageExtensions> languageExtensions,
           ActionGraphBuilder graphBuilder) {
         NativeLinkableInput.Builder builder = NativeLinkableInput.builder();
         builder.addAllArgs(StringArg.from(args.getExportedLinkerFlags()));
@@ -143,9 +143,11 @@ public class HaskellPrebuiltLibraryDescription
               SourcePathArg.from(
                   args.isEnableProfiling() ? args.getProfiledStaticLibs() : args.getStaticLibs());
           if (forceLinkWhole) {
+            DefaultSourcePathResolver pathResolver =
+                DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
             libArgs =
                 RichStream.from(libArgs)
-                    .flatMap(lib -> RichStream.from(linker.linkWhole(lib)))
+                    .flatMap(lib -> RichStream.from(linker.linkWhole(lib, pathResolver)))
                     .toImmutableList();
           }
           builder.addAllArgs(libArgs);

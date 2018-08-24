@@ -19,11 +19,11 @@ package com.facebook.buck.rules.keys.hasher;
 import static com.facebook.buck.log.thrift.rulekeys.Value._Fields.STRING_VALUE;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rules.type.BuildRuleType;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.ArchiveMemberPath;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.log.thrift.rulekeys.ByteArray;
 import com.facebook.buck.log.thrift.rulekeys.FullRuleKey;
@@ -159,10 +159,10 @@ public class ThriftRuleKeyHasher implements RuleKeyHasher<FullRuleKey> {
   }
 
   @Override
-  public RuleKeyHasher<FullRuleKey> putBuildRuleType(BuildRuleType buildRuleType) {
+  public RuleKeyHasher<FullRuleKey> putRuleType(RuleType ruleType) {
     push(
         Value.buildRuleType(
-            new com.facebook.buck.log.thrift.rulekeys.BuildRuleType(buildRuleType.getName())));
+            new com.facebook.buck.log.thrift.rulekeys.BuildRuleType(ruleType.getName())));
     return this;
   }
 

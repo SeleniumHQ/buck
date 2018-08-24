@@ -22,6 +22,7 @@ import static org.junit.Assert.fail;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.event.BuckEventBusForTests;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.parser.api.BuildFileManifest;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.util.concurrent.AssertScopeExclusiveAccess;
@@ -40,6 +41,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
@@ -56,11 +58,12 @@ import org.junit.Test;
 public class ProjectBuildFileParserPoolTest {
 
   public static final BuildFileManifest EMPTY_BUILD_FILE_MANIFEST =
-      BuildFileManifest.builder()
-          .setTargets(ImmutableSet.of())
-          .setIncludes(ImmutableSortedSet.of())
-          .setConfigs(ImmutableMap.of())
-          .build();
+      BuildFileManifest.of(
+          ImmutableSet.of(),
+          ImmutableSortedSet.of(),
+          ImmutableMap.of(),
+          Optional.empty(),
+          ImmutableMap.of());
 
   private ProjectBuildFileParserPool createParserPool(
       int maxParsersPerCell, ProjectBuildFileParserFactory parserFactory) {
@@ -80,7 +83,7 @@ public class ProjectBuildFileParserPoolTest {
     try (ProjectBuildFileParserPool parserPool =
         createParserPool(
             maxParsers,
-            (eventBus, input) -> {
+            (eventBus, input, watchman) -> {
               createCount.incrementAndGet();
               return createMockParser(
                   () -> {
@@ -136,7 +139,7 @@ public class ProjectBuildFileParserPoolTest {
     try (ProjectBuildFileParserPool parserPool =
         createParserPool(
             parsersCount,
-            (eventBus, input) -> {
+            (eventBus, input, watchman) -> {
               parserCount.incrementAndGet();
 
               ProjectBuildFileParser parser = EasyMock.createMock(ProjectBuildFileParser.class);
@@ -196,7 +199,7 @@ public class ProjectBuildFileParserPoolTest {
     try (ProjectBuildFileParserPool parserPool =
         createParserPool(
             parsersCount,
-            (eventBus, input) -> {
+            (eventBus, input, watchman) -> {
               AtomicInteger sleepCallCount = new AtomicInteger(0);
               return createMockParser(
                   () -> {
@@ -352,6 +355,7 @@ public class ProjectBuildFileParserPoolTest {
           pool.getBuildFileManifest(
               BuckEventBusForTests.newInstance(),
               cell,
+              WatchmanFactory.NULL_WATCHMAN,
               Paths.get("BUCK"),
               new AtomicLong(),
               executorService));
@@ -379,7 +383,7 @@ public class ProjectBuildFileParserPoolTest {
 
   private ProjectBuildFileParserFactory createMockParserFactory(
       IAnswer<BuildFileManifest> parseFn) {
-    return (eventBus, input) -> {
+    return (eventBus, input, watchman) -> {
       AssertScopeExclusiveAccess exclusiveAccess = new AssertScopeExclusiveAccess();
       return createMockParser(
           () -> {

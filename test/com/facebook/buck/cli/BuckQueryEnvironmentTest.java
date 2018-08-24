@@ -21,17 +21,19 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
-import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.BuckEventBusForTests.CapturingConsoleEventListener;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
@@ -40,19 +42,15 @@ import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetSpecResolver;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.TemporaryPaths;
-import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.DefaultProcessExecutor;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -66,6 +64,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.pf4j.PluginManager;
 
 public class BuckQueryEnvironmentTest {
 
@@ -97,12 +96,9 @@ public class BuckQueryEnvironmentTest {
             .setFilesystem(TestProjectFilesystems.createProjectFilesystem(workspace.getDestPath()))
             .build();
 
-    KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
-        KnownBuildRuleTypesProvider.of(
-            DefaultKnownBuildRuleTypesFactory.of(
-                new DefaultProcessExecutor(new TestConsole()),
-                BuckPluginManagerFactory.createPluginManager(),
-                new TestSandboxExecutionStrategyFactory()));
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
+    KnownRuleTypesProvider knownRuleTypesProvider =
+        TestKnownRuleTypesProvider.create(pluginManager);
 
     ExecutableFinder executableFinder = new ExecutableFinder();
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
@@ -111,11 +107,16 @@ public class BuckQueryEnvironmentTest {
         new PerBuildStateFactory(
             typeCoercerFactory,
             new ConstructorArgMarshaller(typeCoercerFactory),
-            knownBuildRuleTypesProvider,
-            new ParserPythonInterpreterProvider(parserConfig, executableFinder));
+            knownRuleTypesProvider,
+            new ParserPythonInterpreterProvider(parserConfig, executableFinder),
+            WatchmanFactory.NULL_WATCHMAN);
     Parser parser =
         new DefaultParser(
-            perBuildStateFactory, parserConfig, typeCoercerFactory, new TargetSpecResolver());
+            perBuildStateFactory,
+            parserConfig,
+            typeCoercerFactory,
+            new TargetSpecResolver(),
+            WatchmanFactory.NULL_WATCHMAN);
     parserState =
         perBuildStateFactory.create(
             parser.getPermState(),

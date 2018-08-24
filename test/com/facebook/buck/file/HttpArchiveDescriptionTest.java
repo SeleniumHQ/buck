@@ -16,10 +16,12 @@
 
 package com.facebook.buck.file;
 
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.model.targetgraph.TestBuildRuleCreationContextFactory;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.SingleThreadedActionGraphBuilder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
@@ -27,8 +29,6 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.unarchive.ArchiveFormat;
 import com.google.common.collect.ImmutableList;
@@ -178,8 +178,8 @@ public class HttpArchiveDescriptionTest {
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(
         "Could not determine file type from urls of //foo/bar:baz. One url must end "
-            + "with one of .tar, .tar.bz2, .tar.gz, .tar.xz, .zip, or type must be set to one of "
-            + "tar, tar.bz2, tar.gz, tar.xz, zip");
+            + "with one of .tar, .tar.bz2, .tar.gz, .tar.xz, .tar.zst, .zip, or type must be set "
+            + "to one of tar, tar.bz2, tar.gz, tar.xz, tar.zst, zip");
     createDescrptionFromArgs(
         "//foo/bar:baz",
         HttpArchiveDescriptionArg.builder()
@@ -197,7 +197,7 @@ public class HttpArchiveDescriptionTest {
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage(
         "invalid.ext is not a valid type of archive for //foo/bar:baz. type must be one of "
-            + "tar, tar.bz2, tar.gz, tar.xz, zip");
+            + "tar, tar.bz2, tar.gz, tar.xz, tar.zst, zip");
     createDescrptionFromArgs(
         "//foo/bar:baz",
         HttpArchiveDescriptionArg.builder()

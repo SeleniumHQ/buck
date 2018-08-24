@@ -21,6 +21,7 @@ import com.facebook.buck.core.build.engine.BuildRuleStatus;
 import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.DistBuildStatus;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.distributed.build_client.DistBuildRemoteProgressEvent;
@@ -36,7 +37,6 @@ import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
 import com.facebook.buck.test.TestRuleEvent;
@@ -48,7 +48,6 @@ import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
@@ -75,7 +74,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
@@ -233,7 +231,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
   protected String formatElapsedTime(long elapsedTimeMs) {
     long minutes = elapsedTimeMs / 60_000L;
     String seconds = TIME_FORMATTER.format(locale, elapsedTimeMs / 1000.0 - (minutes * 60));
-    return String.format(minutes == 0 ? "%s" : "%2$dm %1$s", seconds, minutes);
+    return minutes == 0 ? String.valueOf(seconds) : String.format("%2$dm %1$s", seconds, minutes);
   }
 
   protected Optional<Double> getApproximateDistBuildProgress() {
@@ -513,20 +511,15 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
     if (!formattedLine.isEmpty()) {
       // Split log messages at newlines and add each line individually to keep the line count
       // consistent.
-      lines.addAll(Splitter.on("\n").split(formattedLine));
+      lines.addAll(Splitter.on(System.lineSeparator()).split(formattedLine));
     }
   }
 
   @Subscribe
   public void commandStartedEvent(CommandEvent.Started startedEvent) {
-    try {
-      LOG.warn("Command.Started event received at %d", System.currentTimeMillis());
-      progressEstimator.ifPresent(
-          estimator ->
-              estimator.setCurrentCommand(startedEvent.getCommandName(), startedEvent.getArgs()));
-    } finally {
-      LOG.warn("Command.Started event done processing at %d", System.currentTimeMillis());
-    }
+    progressEstimator.ifPresent(
+        estimator ->
+            estimator.setCurrentCommand(startedEvent.getCommandName(), startedEvent.getArgs()));
   }
 
   public static void aggregateStartedEvent(
@@ -662,7 +655,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
               locale,
               "%d " + convertToAllCapsIfNeeded("updated"),
               cacheRateStats.getUpdatedRulesCount()));
-      jobSummary = Joiner.on(", ").join(columns);
+      jobSummary = String.join(", ", columns);
     }
 
     return Strings.isNullOrEmpty(jobSummary) ? Optional.empty() : Optional.of(jobSummary);
@@ -704,7 +697,7 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
               "%.1f%% " + convertToAllCapsIfNeeded("cache errors"),
               cacheRateStats.getCacheErrorRate()));
     }
-    return parseLine + " " + Joiner.on(", ").join(columns);
+    return parseLine + " " + String.join(", ", columns);
   }
 
   @Subscribe
@@ -917,7 +910,8 @@ public abstract class AbstractConsoleEventBusListener implements BuckEventListen
       }
     }
     ImmutableList<String> slowRulesLogs = slowRulesLogsBuilder.build();
-    LOG.info(slowRulesLogs.stream().collect(Collectors.joining("\n")));
+    LOG.info(String.join(System.lineSeparator(), slowRulesLogs));
+
     if (showSlowRulesInConsole) {
       lines.addAll(slowRulesLogs);
     }

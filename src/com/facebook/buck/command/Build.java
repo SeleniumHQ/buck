@@ -17,7 +17,6 @@
 package com.facebook.buck.command;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.engine.BuildEngine;
 import com.facebook.buck.core.build.engine.BuildEngineBuildContext;
@@ -25,24 +24,25 @@ import com.facebook.buck.core.build.engine.BuildEngineResult;
 import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.ExceptionWithHumanReadableMessage;
 import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildStamp;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.ThrowableConsoleEvent;
 import com.facebook.buck.io.filesystem.BuckPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.core.rules.BuildStamp;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.util.CleanBuildShutdownException;
@@ -51,6 +51,7 @@ import com.facebook.buck.util.ErrorLogger;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.Threads;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.string.MoreStrings;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -125,6 +126,7 @@ public class Build implements Closeable {
                 .setBuildCellRootPath(rootCell.getRoot())
                 .setJavaPackageFinder(javaPackageFinder)
                 .setEventBus(executionContext.getBuckEventBus())
+                .setShouldDeleteTemporaries(rootCell.getBuckConfig().getShouldDeleteTemporaries())
                 .build())
         .setClock(clock)
         .setArtifactCache(artifactCache)
@@ -209,7 +211,7 @@ public class Build implements Closeable {
   }
 
   /**
-   * * Converts given BuildTargets into BuildRules
+   * * Converts given BuildTargetPaths into BuildRules
    *
    * @param targetish
    * @return
@@ -370,7 +372,17 @@ public class Build implements Closeable {
               ? "Failure report is empty."
               :
               // Remove trailing newline from build report.
-              buildReportText.substring(0, buildReportText.length() - 1);
+              // Note: In error cases the buildReportText doesn't end with new-line character,
+              // but with '.'.
+              buildReportText.endsWith(System.lineSeparator())
+                  ? MoreStrings.withoutSuffix(buildReportText, System.lineSeparator())
+                  :
+                  // The error message always gets a '.' at the end, so, to avoid duplication
+                  // remove the trailing '.' if one is present.
+                  buildReportText.endsWith(".")
+                      ? MoreStrings.withoutSuffix(buildReportText, ".")
+                      : buildReportText;
+
       eventBus.post(ConsoleEvent.info(buildReportText));
       exitCode = buildExecutionResult.getFailures().isEmpty() ? 0 : 1;
       if (exitCode != 0) {

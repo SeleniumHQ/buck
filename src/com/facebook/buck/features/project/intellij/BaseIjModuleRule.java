@@ -17,6 +17,7 @@ package com.facebook.buck.features.project.intellij;
 
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -35,7 +36,6 @@ import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
-import com.facebook.buck.model.BuildTargets;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
@@ -125,7 +125,7 @@ public abstract class BaseIjModuleRule<T extends CommonDescriptionArg> implement
   private void addDepsAndFolder(
       IJFolderFactory folderFactory,
       DependencyType dependencyType,
-      TargetNode<T, ?> targetNode,
+      TargetNode<T> targetNode,
       boolean wantsPackagePrefix,
       ModuleBuildContext context,
       ImmutableSet<Path> resourcePaths) {
@@ -156,7 +156,7 @@ public abstract class BaseIjModuleRule<T extends CommonDescriptionArg> implement
   private void addDepsAndFolder(
       IJFolderFactory folderFactory,
       DependencyType dependencyType,
-      TargetNode<T, ?> targetNode,
+      TargetNode<T> targetNode,
       boolean wantsPackagePrefix,
       ModuleBuildContext context) {
     addDepsAndFolder(
@@ -164,7 +164,7 @@ public abstract class BaseIjModuleRule<T extends CommonDescriptionArg> implement
   }
 
   protected void addDepsAndSources(
-      TargetNode<T, ?> targetNode,
+      TargetNode<T> targetNode,
       boolean wantsPackagePrefix,
       ModuleBuildContext context,
       ImmutableSet<Path> resourcePaths) {
@@ -178,13 +178,13 @@ public abstract class BaseIjModuleRule<T extends CommonDescriptionArg> implement
   }
 
   protected void addDepsAndSources(
-      TargetNode<T, ?> targetNode, boolean wantsPackagePrefix, ModuleBuildContext context) {
+      TargetNode<T> targetNode, boolean wantsPackagePrefix, ModuleBuildContext context) {
     addDepsAndFolder(
         SourceFolder.FACTORY, DependencyType.PROD, targetNode, wantsPackagePrefix, context);
   }
 
   protected void addDepsAndTestSources(
-      TargetNode<T, ?> targetNode,
+      TargetNode<T> targetNode,
       boolean wantsPackagePrefix,
       ModuleBuildContext context,
       ImmutableSet<Path> resourcePaths) {
@@ -198,7 +198,7 @@ public abstract class BaseIjModuleRule<T extends CommonDescriptionArg> implement
   }
 
   protected void addDepsAndTestSources(
-      TargetNode<T, ?> targetNode, boolean wantsPackagePrefix, ModuleBuildContext context) {
+      TargetNode<T> targetNode, boolean wantsPackagePrefix, ModuleBuildContext context) {
     addDepsAndFolder(
         TestFolder.FACTORY, DependencyType.TEST, targetNode, wantsPackagePrefix, context);
   }
@@ -257,7 +257,7 @@ public abstract class BaseIjModuleRule<T extends CommonDescriptionArg> implement
 
   private void addDeps(
       ImmutableMultimap<Path, Path> foldersToInputsIndex,
-      TargetNode<T, ?> targetNode,
+      TargetNode<T> targetNode,
       DependencyType dependencyType,
       ModuleBuildContext context) {
     context.addDeps(foldersToInputsIndex.keySet(), targetNode.getBuildDeps(), dependencyType);
@@ -265,9 +265,9 @@ public abstract class BaseIjModuleRule<T extends CommonDescriptionArg> implement
 
   @SuppressWarnings("unchecked")
   private void addAnnotationOutputIfNeeded(
-      IJFolderFactory folderFactory, TargetNode<T, ?> targetNode, ModuleBuildContext context) {
-    TargetNode<? extends JvmLibraryArg, ?> jvmLibraryTargetNode =
-        (TargetNode<? extends JvmLibraryArg, ?>) targetNode;
+      IJFolderFactory folderFactory, TargetNode<T> targetNode, ModuleBuildContext context) {
+    TargetNode<? extends JvmLibraryArg> jvmLibraryTargetNode =
+        (TargetNode<? extends JvmLibraryArg>) targetNode;
 
     Optional<Path> annotationOutput =
         moduleFactoryResolver.getAnnotationOutputPath(jvmLibraryTargetNode);
@@ -282,7 +282,7 @@ public abstract class BaseIjModuleRule<T extends CommonDescriptionArg> implement
   }
 
   private void addGeneratedOutputIfNeeded(
-      IJFolderFactory folderFactory, TargetNode<T, ?> targetNode, ModuleBuildContext context) {
+      IJFolderFactory folderFactory, TargetNode<T> targetNode, ModuleBuildContext context) {
 
     ImmutableSet<Path> generatedSourcePaths = findConfiguredGeneratedSourcePaths(targetNode);
 
@@ -293,7 +293,7 @@ public abstract class BaseIjModuleRule<T extends CommonDescriptionArg> implement
     }
   }
 
-  private ImmutableSet<Path> findConfiguredGeneratedSourcePaths(TargetNode<T, ?> targetNode) {
+  private ImmutableSet<Path> findConfiguredGeneratedSourcePaths(TargetNode<T> targetNode) {
     ImmutableSet.Builder<Path> generatedSourcePaths = ImmutableSet.builder();
 
     generatedSourcePaths.addAll(findConfiguredGeneratedSourcePathsUsingLabels(targetNode));
@@ -302,7 +302,7 @@ public abstract class BaseIjModuleRule<T extends CommonDescriptionArg> implement
   }
 
   private ImmutableSet<Path> findConfiguredGeneratedSourcePathsUsingLabels(
-      TargetNode<T, ?> targetNode) {
+      TargetNode<T> targetNode) {
     BuildTarget buildTarget = targetNode.getBuildTarget();
     ImmutableMap<String, String> labelToGeneratedSourcesMap =
         projectConfig.getLabelToGeneratedSourcesMap();
@@ -314,12 +314,12 @@ public abstract class BaseIjModuleRule<T extends CommonDescriptionArg> implement
         .map(labelToGeneratedSourcesMap::get)
         .filter(Objects::nonNull)
         .map(pattern -> pattern.replaceAll("%name%", buildTarget.getShortNameAndFlavorPostfix()))
-        .map(path -> BuildTargets.getGenPath(projectFilesystem, buildTarget, path))
+        .map(path -> BuildTargetPaths.getGenPath(projectFilesystem, buildTarget, path))
         .collect(ImmutableSet.toImmutableSet());
   }
 
   @Override
-  public void applyDuringAggregation(AggregationContext context, TargetNode<T, ?> targetNode) {
+  public void applyDuringAggregation(AggregationContext context, TargetNode<T> targetNode) {
     context.setModuleType(detectModuleType(targetNode));
   }
 }

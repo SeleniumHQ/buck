@@ -16,8 +16,7 @@
 
 package com.facebook.buck.features.haskell;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDepsQuery;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -27,15 +26,18 @@ import com.facebook.buck.core.model.FlavorConvertible;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.SymlinkTree;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDeps;
@@ -46,15 +48,13 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.linker.Linkers;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.query.QueryUtils;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.VersionRoot;
@@ -199,7 +199,7 @@ public class HaskellBinaryDescription
     // Add the binary as the first argument.
     executableBuilder.addArg(SourcePathArg.of(DefaultBuildTargetSourcePath.of(binaryTarget)));
 
-    Path outputDir = BuildTargets.getGenPath(projectFilesystem, binaryTarget, "%s").getParent();
+    Path outputDir = BuildTargetPaths.getGenPath(projectFilesystem, binaryTarget, "%s").getParent();
     Path outputPath = outputDir.resolve(binaryTarget.getShortName());
 
     Path absBinaryDir = buildTarget.getCellPath().resolve(outputDir);
@@ -378,8 +378,8 @@ public class HaskellBinaryDescription
   interface AbstractHaskellBinaryDescriptionArg extends CommonDescriptionArg, HasDepsQuery {
 
     @Value.Default
-    default SourceList getSrcs() {
-      return SourceList.EMPTY;
+    default SourceSortedSet getSrcs() {
+      return SourceSortedSet.EMPTY;
     }
 
     ImmutableList<String> getCompilerFlags();

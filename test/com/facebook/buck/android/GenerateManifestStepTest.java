@@ -40,7 +40,7 @@ import org.junit.Rule;
 import org.junit.Test;
 
 public class GenerateManifestStepTest {
-  @Rule public TemporaryPaths tmpFolder = new TemporaryPaths(true);
+  @Rule public TemporaryPaths tmpFolder = new TemporaryPaths();
 
   @Before
   public void setUp() throws InterruptedException, IOException {
@@ -67,7 +67,7 @@ public class GenerateManifestStepTest {
         new GenerateManifestStep(
             filesystem,
             skeletonPath,
-            APKModule.of(APKModuleGraph.ROOT_APKMODULE_NAME),
+            APKModule.of(APKModuleGraph.ROOT_APKMODULE_NAME, true),
             libraryManifestFiles,
             outputPath,
             mergeReportPath);
@@ -106,7 +106,7 @@ public class GenerateManifestStepTest {
         new GenerateManifestStep(
             filesystem,
             skeletonPath,
-            APKModule.of("MODULE_NAME"),
+            APKModule.of("MODULE_NAME", false),
             libraryManifestFiles,
             outputPath,
             mergeReportPath);

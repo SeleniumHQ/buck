@@ -16,10 +16,11 @@
 
 package com.facebook.buck.apple;
 
-import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.description.DescriptionCreationContext;
 import com.facebook.buck.core.model.targetgraph.DescriptionProvider;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.cxx.CxxBinaryFactory;
 import com.facebook.buck.cxx.CxxBinaryFlavored;
 import com.facebook.buck.cxx.CxxBinaryImplicitFlavors;
@@ -32,7 +33,6 @@ import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.InferBuckConfig;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftLibraryDescription;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import java.util.Arrays;
 import java.util.Collection;
 import org.pf4j.Extension;
@@ -69,9 +69,13 @@ public class AppleDescriptionProvider implements DescriptionProvider {
     SwiftLibraryDescription swiftLibraryDescription =
         new SwiftLibraryDescription(toolchainProvider, cxxBuckConfig, swiftBuckConfig);
 
+    XCodeDescriptions xcodeDescriptions =
+        XCodeDescriptionsFactory.create(context.getPluginManager());
+
     AppleLibraryDescription appleLibraryDescription =
         new AppleLibraryDescription(
             toolchainProvider,
+            xcodeDescriptions,
             swiftLibraryDescription,
             appleConfig,
             swiftBuckConfig,
@@ -83,8 +87,10 @@ public class AppleDescriptionProvider implements DescriptionProvider {
     AppleBinaryDescription appleBinaryDescription =
         new AppleBinaryDescription(
             toolchainProvider,
+            xcodeDescriptions,
             swiftLibraryDescription,
             appleConfig,
+            swiftBuckConfig,
             cxxBinaryImplicitFlavors,
             cxxBinaryFactory,
             cxxBinaryMetadataFactory,
@@ -94,7 +100,6 @@ public class AppleDescriptionProvider implements DescriptionProvider {
         new AppleAssetCatalogDescription(),
         new AppleResourceDescription(),
         new CoreDataModelDescription(),
-        new XcodeWorkspaceConfigDescription(),
         new XcodePrebuildScriptDescription(),
         new XcodePostbuildScriptDescription(),
         appleLibraryDescription,
@@ -103,8 +108,18 @@ public class AppleDescriptionProvider implements DescriptionProvider {
         new ApplePackageDescription(
             toolchainProvider, context.getSandboxExecutionStrategy(), appleConfig),
         new AppleBundleDescription(
-            toolchainProvider, appleBinaryDescription, appleLibraryDescription, appleConfig),
-        new AppleTestDescription(toolchainProvider, appleConfig, appleLibraryDescription),
+            toolchainProvider,
+            xcodeDescriptions,
+            appleBinaryDescription,
+            appleLibraryDescription,
+            appleConfig,
+            swiftBuckConfig),
+        new AppleTestDescription(
+            toolchainProvider,
+            xcodeDescriptions,
+            appleConfig,
+            swiftBuckConfig,
+            appleLibraryDescription),
         new SceneKitAssetsDescription());
   }
 }

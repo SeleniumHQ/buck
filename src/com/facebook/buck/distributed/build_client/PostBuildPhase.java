@@ -20,9 +20,10 @@ import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientSt
 import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientStat.POST_DISTRIBUTED_BUILD_LOCAL_STEPS;
 import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientStat.PUBLISH_BUILD_SLAVE_FINISHED_STATS;
 
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.ClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildService;
-import com.facebook.buck.distributed.ExitCode;
+import com.facebook.buck.distributed.DistributedExitCode;
 import com.facebook.buck.distributed.build_client.BuildSlaveStats.Builder;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildSlaveFinishedStats;
@@ -30,7 +31,6 @@ import com.facebook.buck.distributed.thrift.BuildSlaveInfo;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.BuildSlaveStatus;
 import com.facebook.buck.distributed.thrift.BuildStatus;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.Futures;
@@ -70,7 +70,7 @@ public class PostBuildPhase {
   }
 
   /** Run all the local steps required after the build. */
-  public DistBuildController.ExecutionResult runPostDistBuildLocalSteps(
+  public StampedeExecutionResult runPostDistBuildLocalSteps(
       ListeningExecutorService networkExecutorService,
       List<BuildSlaveStatus> buildSlaveStatusList,
       BuildJob finalJob,
@@ -114,11 +114,10 @@ public class PostBuildPhase {
       consoleEventsDispatcher.postDistBuildStatusEvent(finalJob, buildSlaveStatusList, "FAILED");
     }
 
-    return new DistBuildController.ExecutionResult(
-        finalJob.getStampedeId(),
+    return StampedeExecutionResult.of(
         finalJob.getStatus().equals(BuildStatus.FINISHED_SUCCESSFULLY)
-            ? 0
-            : ExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE.getCode());
+            ? DistributedExitCode.SUCCESSFUL
+            : DistributedExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE);
   }
 
   private void materializeSlaveLogDirs(BuildJob job) {

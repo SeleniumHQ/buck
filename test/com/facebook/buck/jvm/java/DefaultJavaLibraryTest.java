@@ -29,24 +29,30 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.facebook.buck.android.AndroidLibraryBuilder;
+import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.cell.TestCellBuilder;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
@@ -54,12 +60,7 @@ import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.InputBasedRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
@@ -74,7 +75,6 @@ import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.RichStream;
@@ -159,9 +159,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     List<Step> steps = javaLibrary.getBuildSteps(context, new FakeBuildableContext());
 
     // Find the JavacStep and verify its bootclasspath.
-    Step step = Iterables.find(steps, command -> command instanceof JavacStep);
-    assertNotNull("Expected a JavacStep in the steplist.", step);
-    JavacStep javac = (JavacStep) step;
+    JavacStep javac = getJavacStep(steps);
     assertEquals(
         "Should compile Main.java rather than generated R.java.",
         ImmutableSet.of(src),
@@ -284,20 +282,20 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     BuildTarget libraryOneTarget = BuildTargetFactory.newInstance("//:libone");
-    TargetNode<?, ?> libraryOne =
+    TargetNode<?> libraryOne =
         createJavaLibraryBuilder(libraryOneTarget)
             .addSrc(Paths.get("java/src/com/libone/Bar.java"))
             .build();
 
     BuildTarget libraryTwoTarget = BuildTargetFactory.newInstance("//:libtwo");
-    TargetNode<?, ?> libraryTwo =
+    TargetNode<?> libraryTwo =
         createJavaLibraryBuilder(libraryTwoTarget)
             .addSrc(Paths.get("java/src/com/libtwo/Foo.java"))
             .addDep(libraryOne.getBuildTarget())
             .build();
 
     BuildTarget parentTarget = BuildTargetFactory.newInstance("//:parent");
-    TargetNode<?, ?> parent =
+    TargetNode<?> parent =
         createJavaLibraryBuilder(parentTarget)
             .addSrc(Paths.get("java/src/com/parent/Meh.java"))
             .addDep(libraryTwo.getBuildTarget())
@@ -314,29 +312,31 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     Path root = libraryOneRule.getProjectFilesystem().getRootPath();
     assertEquals(
         ImmutableSet.of(
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget, filesystem)),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryTwoTarget, filesystem)),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(parentTarget, filesystem))),
+            root.resolve(
+                AbstractCompilerOutputPaths.getOutputJarPath(libraryOneTarget, filesystem)),
+            root.resolve(
+                AbstractCompilerOutputPaths.getOutputJarPath(libraryTwoTarget, filesystem)),
+            root.resolve(AbstractCompilerOutputPaths.getOutputJarPath(parentTarget, filesystem))),
         resolve(parentRule.getTransitiveClasspaths(), pathResolver));
   }
 
   @Test
   public void testGetClasspathDeps() {
     BuildTarget libraryOneTarget = BuildTargetFactory.newInstance("//:libone");
-    TargetNode<?, ?> libraryOne =
+    TargetNode<?> libraryOne =
         createJavaLibraryBuilder(libraryOneTarget)
             .addSrc(Paths.get("java/src/com/libone/Bar.java"))
             .build();
 
     BuildTarget libraryTwoTarget = BuildTargetFactory.newInstance("//:libtwo");
-    TargetNode<?, ?> libraryTwo =
+    TargetNode<?> libraryTwo =
         createJavaLibraryBuilder(libraryTwoTarget)
             .addSrc(Paths.get("java/src/com/libtwo/Foo.java"))
             .addDep(libraryOne.getBuildTarget())
             .build();
 
     BuildTarget parentTarget = BuildTargetFactory.newInstance("//:parent");
-    TargetNode<?, ?> parent =
+    TargetNode<?> parent =
         createJavaLibraryBuilder(parentTarget)
             .addSrc(Paths.get("java/src/com/parent/Meh.java"))
             .addDep(libraryTwo.getBuildTarget())
@@ -361,13 +361,13 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
   @Test
   public void testClasspathForJavacCommand() {
     BuildTarget libraryOneTarget = BuildTargetFactory.newInstance("//:libone");
-    TargetNode<?, ?> libraryOne =
+    TargetNode<?> libraryOne =
         createJavaLibraryBuilder(libraryOneTarget)
             .addSrc(Paths.get("java/src/com/libone/Bar.java"))
             .build();
 
     BuildTarget libraryTwoTarget = BuildTargetFactory.newInstance("//:libtwo");
-    TargetNode<?, ?> libraryTwo =
+    TargetNode<?> libraryTwo =
         createJavaLibraryBuilder(libraryTwoTarget)
             .addSrc(Paths.get("java/src/com/libtwo/Foo.java"))
             .addDep(libraryOne.getBuildTarget())
@@ -480,73 +480,73 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
   @Test
   public void testBuildDeps() {
     BuildTarget sourceDepExportFileTarget = BuildTargetFactory.newInstance("//:source_dep");
-    TargetNode<?, ?> sourceDepExportFileNode =
+    TargetNode<?> sourceDepExportFileNode =
         new ExportFileBuilder(sourceDepExportFileTarget).build();
 
     BuildTarget depExportFileTarget = BuildTargetFactory.newInstance("//:dep_file");
-    TargetNode<?, ?> depExportFileNode = new ExportFileBuilder(depExportFileTarget).build();
+    TargetNode<?> depExportFileNode = new ExportFileBuilder(depExportFileTarget).build();
 
     BuildTarget depLibraryExportedDepTarget =
         BuildTargetFactory.newInstance("//:dep_library_exported_dep");
-    TargetNode<?, ?> depLibraryExportedDepNode =
+    TargetNode<?> depLibraryExportedDepNode =
         createJavaLibraryBuilder(depLibraryExportedDepTarget)
             .addSrc(Paths.get("DepExportedDep.java"))
             .build();
     BuildTarget depLibraryTarget = BuildTargetFactory.newInstance("//:dep_library");
-    TargetNode<?, ?> depLibraryNode =
+    TargetNode<?> depLibraryNode =
         createJavaLibraryBuilder(depLibraryTarget)
             .addSrc(Paths.get("Dep.java"))
             .addExportedDep(depLibraryExportedDepTarget)
             .build();
     BuildTarget depProvidedDepLibraryTarget =
         BuildTargetFactory.newInstance("//:dep_provided_dep_library");
-    TargetNode<?, ?> depProvidedDepLibraryNode =
+    TargetNode<?> depProvidedDepLibraryNode =
         createJavaLibraryBuilder(depProvidedDepLibraryTarget)
             .addSrc(Paths.get("DepProvidedDep.java"))
             .build();
 
     BuildTarget exportedDepLibraryExportedDepTarget =
         BuildTargetFactory.newInstance("//:exported_dep_library_exported_dep");
-    TargetNode<?, ?> exportedDepLibraryExportedDepNode =
+    TargetNode<?> exportedDepLibraryExportedDepNode =
         createJavaLibraryBuilder(exportedDepLibraryExportedDepTarget)
             .addSrc(Paths.get("ExportedDepExportedDep.java"))
             .build();
     BuildTarget exportedDepLibraryTarget =
         BuildTargetFactory.newInstance("//:exported_dep_library");
-    TargetNode<?, ?> exportedDepLibraryNode =
+    TargetNode<?> exportedDepLibraryNode =
         createJavaLibraryBuilder(exportedDepLibraryTarget)
             .addSrc(Paths.get("ExportedDep.java"))
             .addExportedDep(exportedDepLibraryExportedDepTarget)
             .build();
     BuildTarget exportedProvidedDepLibraryTarget =
         BuildTargetFactory.newInstance("//:exported_provided_dep_library");
-    TargetNode<?, ?> exportedProvidedDepLibraryNode =
+    TargetNode<?> exportedProvidedDepLibraryNode =
         createJavaLibraryBuilder(exportedProvidedDepLibraryTarget)
             .addSrc(Paths.get("ExportedProvidedDep.java"))
             .build();
 
     BuildTarget providedDepLibraryExportedDepTarget =
         BuildTargetFactory.newInstance("//:provided_dep_library_exported_dep");
-    TargetNode<?, ?> providedDepLibraryExportedDepNode =
+    TargetNode<?> providedDepLibraryExportedDepNode =
         createJavaLibraryBuilder(providedDepLibraryExportedDepTarget)
             .addSrc(Paths.get("ProvidedDepExportedDep.java"))
             .build();
     BuildTarget providedDepLibraryTarget =
         BuildTargetFactory.newInstance("//:provided_dep_library");
-    TargetNode<?, ?> providedDepLibraryNode =
+    TargetNode<?> providedDepLibraryNode =
         createJavaLibraryBuilder(providedDepLibraryTarget)
             .addSrc(Paths.get("ProvidedDep.java"))
             .addExportedDep(providedDepLibraryExportedDepTarget)
             .build();
 
     BuildTarget resourceDepPrebuiltJarTarget = BuildTargetFactory.newInstance("//:resource_dep");
-    TargetNode<?, ?> resourceDepPrebuiltJarNode =
+    TargetNode<?> resourceDepPrebuiltJarNode =
         PrebuiltJarBuilder.createBuilder(resourceDepPrebuiltJarTarget)
             .setBinaryJar(Paths.get("binary.jar"))
             .build();
 
     BuildTarget libraryTarget = BuildTargetFactory.newInstance("//:lib");
-    TargetNode<?, ?> libraryNode =
+    TargetNode<?> libraryNode =
         createJavaLibraryBuilder(libraryTarget)
             .addSrc(DefaultBuildTargetSourcePath.of(sourceDepExportFileTarget))
             .addDep(depLibraryTarget)
@@ -581,7 +581,6 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     Set<BuildRule> expectedDeps = new TreeSet<>();
     addAbiAndMaybeFullJar(depLibraryTarget, expectedDeps);
     addAbiAndMaybeFullJar(depProvidedDepLibraryTarget, expectedDeps);
-    expectedDeps.add(graphBuilder.getRule(depExportFileTarget));
     addAbiAndMaybeFullJar(depLibraryExportedDepTarget, expectedDeps);
     addAbiAndMaybeFullJar(providedDepLibraryTarget, expectedDeps);
     addAbiAndMaybeFullJar(providedDepLibraryExportedDepTarget, expectedDeps);
@@ -636,19 +635,19 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     BuildTarget nonIncludedTarget = BuildTargetFactory.newInstance("//:not_included");
-    TargetNode<?, ?> notIncludedNode =
+    TargetNode<?> notIncludedNode =
         createJavaLibraryBuilder(nonIncludedTarget)
             .addSrc(Paths.get("java/src/com/not_included/Raz.java"))
             .build();
 
     BuildTarget includedTarget = BuildTargetFactory.newInstance("//:included");
-    TargetNode<?, ?> includedNode =
+    TargetNode<?> includedNode =
         createJavaLibraryBuilder(includedTarget)
             .addSrc(Paths.get("java/src/com/included/Rofl.java"))
             .build();
 
     BuildTarget libraryOneTarget = BuildTargetFactory.newInstance("//:libone");
-    TargetNode<?, ?> libraryOneNode =
+    TargetNode<?> libraryOneNode =
         createJavaLibraryBuilder(libraryOneTarget)
             .addDep(notIncludedNode.getBuildTarget())
             .addDep(includedNode.getBuildTarget())
@@ -657,7 +656,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             .build();
 
     BuildTarget libraryTwoTarget = BuildTargetFactory.newInstance("//:libtwo");
-    TargetNode<?, ?> libraryTwoNode =
+    TargetNode<?> libraryTwoNode =
         createJavaLibraryBuilder(libraryTwoTarget)
             .addSrc(Paths.get("java/src/com/libtwo/Foo.java"))
             .addDep(libraryOneNode.getBuildTarget())
@@ -665,7 +664,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             .build();
 
     BuildTarget parentTarget = BuildTargetFactory.newInstance("//:parent");
-    TargetNode<?, ?> parentNode =
+    TargetNode<?> parentNode =
         createJavaLibraryBuilder(parentTarget)
             .addSrc(Paths.get("java/src/com/parent/Meh.java"))
             .addDep(libraryTwoNode.getBuildTarget())
@@ -689,30 +688,35 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         "A java_library that depends on //:libone should include only libone.jar in its "
             + "classpath when compiling itself.",
         ImmutableSet.of(
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(nonIncludedTarget, filesystem))),
+            root.resolve(
+                AbstractCompilerOutputPaths.getOutputJarPath(nonIncludedTarget, filesystem))),
         resolve(getJavaLibrary(notIncluded).getOutputClasspaths(), pathResolver));
 
     assertEquals(
         ImmutableSet.of(
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget, filesystem))),
+            root.resolve(AbstractCompilerOutputPaths.getOutputJarPath(includedTarget, filesystem))),
         resolve(getJavaLibrary(included).getOutputClasspaths(), pathResolver));
 
     assertEquals(
         ImmutableSet.of(
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget, filesystem)),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget, filesystem)),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget, filesystem))),
+            root.resolve(AbstractCompilerOutputPaths.getOutputJarPath(includedTarget, filesystem)),
+            root.resolve(
+                AbstractCompilerOutputPaths.getOutputJarPath(libraryOneTarget, filesystem)),
+            root.resolve(AbstractCompilerOutputPaths.getOutputJarPath(includedTarget, filesystem))),
         resolve(getJavaLibrary(libraryOne).getOutputClasspaths(), pathResolver));
 
     assertEquals(
         "//:libtwo exports its deps, so a java_library that depends on //:libtwo should include "
             + "both libone.jar and libtwo.jar in its classpath when compiling itself.",
         ImmutableSet.of(
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget, filesystem)),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget, filesystem)),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget, filesystem)),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryTwoTarget, filesystem)),
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget, filesystem))),
+            root.resolve(
+                AbstractCompilerOutputPaths.getOutputJarPath(libraryOneTarget, filesystem)),
+            root.resolve(AbstractCompilerOutputPaths.getOutputJarPath(includedTarget, filesystem)),
+            root.resolve(
+                AbstractCompilerOutputPaths.getOutputJarPath(libraryOneTarget, filesystem)),
+            root.resolve(
+                AbstractCompilerOutputPaths.getOutputJarPath(libraryTwoTarget, filesystem)),
+            root.resolve(AbstractCompilerOutputPaths.getOutputJarPath(includedTarget, filesystem))),
         resolve(getJavaLibrary(libraryTwo).getOutputClasspaths(), pathResolver));
 
     assertEquals(
@@ -720,11 +724,16 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             + "parent.jar.",
         ImmutableSet.<Path>builder()
             .add(
-                root.resolve(DefaultJavaLibrary.getOutputJarPath(includedTarget, filesystem)),
-                root.resolve(DefaultJavaLibrary.getOutputJarPath(nonIncludedTarget, filesystem)),
-                root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryOneTarget, filesystem)),
-                root.resolve(DefaultJavaLibrary.getOutputJarPath(libraryTwoTarget, filesystem)),
-                root.resolve(DefaultJavaLibrary.getOutputJarPath(parentTarget, filesystem)))
+                root.resolve(
+                    AbstractCompilerOutputPaths.getOutputJarPath(includedTarget, filesystem)),
+                root.resolve(
+                    AbstractCompilerOutputPaths.getOutputJarPath(nonIncludedTarget, filesystem)),
+                root.resolve(
+                    AbstractCompilerOutputPaths.getOutputJarPath(libraryOneTarget, filesystem)),
+                root.resolve(
+                    AbstractCompilerOutputPaths.getOutputJarPath(libraryTwoTarget, filesystem)),
+                root.resolve(
+                    AbstractCompilerOutputPaths.getOutputJarPath(parentTarget, filesystem)))
             .build(),
         resolve(getJavaLibrary(parent).getTransitiveClasspaths(), pathResolver));
 
@@ -743,7 +752,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
         "A java_library that depends on //:parent should include only parent.jar in its "
             + "-classpath when compiling itself.",
         ImmutableSet.of(
-            root.resolve(DefaultJavaLibrary.getOutputJarPath(parentTarget, filesystem))),
+            root.resolve(AbstractCompilerOutputPaths.getOutputJarPath(parentTarget, filesystem))),
         resolve(getJavaLibrary(parent).getOutputClasspaths(), pathResolver));
   }
 
@@ -922,11 +931,11 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // Setup a Java library which builds against another Java library dep.
-    TargetNode<JavaLibraryDescriptionArg, ?> depNode =
+    TargetNode<JavaLibraryDescriptionArg> depNode =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//:dep"), filesystem)
             .addSrc(Paths.get("Source.java"))
             .build();
-    TargetNode<?, ?> libraryNode =
+    TargetNode<?> libraryNode =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//:lib"), filesystem)
             .addDep(depNode.getBuildTarget())
             .build();
@@ -1009,15 +1018,15 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     // Setup a Java library which builds against another Java library dep exporting another Java
     // library dep.
 
-    TargetNode<JavaLibraryDescriptionArg, ?> exportedDepNode =
+    TargetNode<JavaLibraryDescriptionArg> exportedDepNode =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//:edep"), filesystem)
             .addSrc(Paths.get("Source1.java"))
             .build();
-    TargetNode<?, ?> depNode =
+    TargetNode<?> depNode =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//:dep"), filesystem)
             .addExportedDep(exportedDepNode.getBuildTarget())
             .build();
-    TargetNode<?, ?> libraryNode =
+    TargetNode<?> libraryNode =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//:lib"), filesystem)
             .addDep(depNode.getBuildTarget())
             .build();
@@ -1104,19 +1113,19 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
 
     // Setup a Java library which builds against another Java library dep exporting another Java
     // library dep.
-    TargetNode<JavaLibraryDescriptionArg, ?> exportedDepNode =
+    TargetNode<JavaLibraryDescriptionArg> exportedDepNode =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//:edep"), filesystem)
             .addSrc(Paths.get("Source1.java"))
             .build();
-    TargetNode<?, ?> dep2Node =
+    TargetNode<?> dep2Node =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//:dep2"), filesystem)
             .addExportedDep(exportedDepNode.getBuildTarget())
             .build();
-    TargetNode<?, ?> dep1Node =
+    TargetNode<?> dep1Node =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//:dep1"), filesystem)
             .addExportedDep(dep2Node.getBuildTarget())
             .build();
-    TargetNode<?, ?> libraryNode =
+    TargetNode<?> libraryNode =
         createJavaLibraryBuilder(BuildTargetFactory.newInstance("//:lib"), filesystem)
             .addDep(dep1Node.getBuildTarget())
             .build();
@@ -1330,19 +1339,20 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
                 DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder))),
             new FakeBuildableContext());
 
-    assertEquals(12, steps.size());
-    assertTrue(((JavacStep) steps.get(8)).getJavac() instanceof Jsr199Javac);
+    assertEquals(26, steps.size());
+    JavacStep javac = getJavacStep(steps);
+    assertTrue(javac.getJavac() instanceof Jsr199Javac);
   }
 
   @Test
   public void testWhenJavacJarIsProvidedAJavacInMemoryStepIsAdded() {
     BuildTarget libraryOneTarget = BuildTargetFactory.newInstance("//:libone");
     BuildTarget javacTarget = BuildTargetFactory.newInstance("//langtools:javac");
-    TargetNode<?, ?> javacNode =
+    TargetNode<?> javacNode =
         PrebuiltJarBuilder.createBuilder(javacTarget)
             .setBinaryJar(Paths.get("java/src/com/libone/JavacJar.jar"))
             .build();
-    TargetNode<?, ?> ruleNode =
+    TargetNode<?> ruleNode =
         createJavaLibraryBuilder(libraryOneTarget)
             .addSrc(Paths.get("java/src/com/libone/Bar.java"))
             .setCompiler(DefaultBuildTargetSourcePath.of(javacTarget))
@@ -1362,10 +1372,10 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             FakeBuildContext.withSourcePathResolver(
                 DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder))),
             new FakeBuildableContext());
-    assertEquals(12, steps.size());
-    Javac javacStep = ((JavacStep) steps.get(8)).getJavac();
-    assertTrue(javacStep instanceof Jsr199Javac);
-    JarBackedJavac jsrJavac = ((JarBackedJavac) javacStep);
+    assertEquals(26, steps.size());
+    JavacStep javacStep = getJavacStep(steps);
+    assertTrue(javacStep.getJavac() instanceof Jsr199Javac);
+    JarBackedJavac jsrJavac = ((JarBackedJavac) javacStep.getJavac());
     assertEquals(
         RichStream.from(jsrJavac.getCompilerClassPath())
             .map(pathResolver::getRelativePath)
@@ -1376,6 +1386,12 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
   // Utilities
   private JavaLibrary getJavaLibrary(BuildRule rule) {
     return (JavaLibrary) rule;
+  }
+
+  public JavacStep getJavacStep(Iterable<Step> steps) {
+    Step step = Iterables.find(steps, command -> command instanceof JavacStep);
+    assertNotNull("Expected a JavacStep in the steplist.", step);
+    return (JavacStep) step;
   }
 
   private JavaLibraryBuilder createJavaLibraryBuilder(BuildTarget target) {

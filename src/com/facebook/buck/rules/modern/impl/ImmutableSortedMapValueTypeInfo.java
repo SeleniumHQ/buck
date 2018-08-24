@@ -35,11 +35,11 @@ public class ImmutableSortedMapValueTypeInfo<K, V>
   @Override
   public <E extends Exception> void visit(ImmutableSortedMap<K, V> value, ValueVisitor<E> visitor)
       throws E {
-    visitor.visitMap(value, keyType, valueType);
+    visitor.visitSortedMap(value, keyType, valueType);
   }
 
   @Override
   public <E extends Exception> ImmutableSortedMap<K, V> create(ValueCreator<E> creator) throws E {
-    return creator.createMap(keyType, valueType);
+    return creator.createSortedMap(keyType, valueType);
   }
 }

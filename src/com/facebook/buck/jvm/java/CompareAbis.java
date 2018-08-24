@@ -18,9 +18,10 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
 import com.facebook.buck.core.rules.attr.InitializableFromDisk;
 import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
@@ -32,7 +33,6 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.DefaultJavaAbiInfo;
 import com.facebook.buck.jvm.core.JavaAbiInfo;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -49,7 +49,7 @@ public class CompareAbis extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   private final Path outputPath;
   private final BuildOutputInitializer<Object> buildOutputInitializer;
-  private final DefaultJavaAbiInfo javaAbiInfo;
+  private final JavaAbiInfo javaAbiInfo;
 
   public CompareAbis(
       BuildTarget buildTarget,
@@ -64,10 +64,10 @@ public class CompareAbis extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.verificationMode = verificationMode;
 
     this.outputPath =
-        BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s")
+        BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s")
             .resolve(String.format("%s-abi.jar", getBuildTarget().getShortName()));
 
-    this.javaAbiInfo = new DefaultJavaAbiInfo(getBuildTarget(), getSourcePathToOutput());
+    this.javaAbiInfo = new DefaultJavaAbiInfo(getSourcePathToOutput());
     buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
   }
 

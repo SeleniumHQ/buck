@@ -16,11 +16,11 @@
 
 package com.facebook.buck.distributed.build_slave;
 
-import com.facebook.buck.config.ActionGraphParallelizationMode;
-import com.facebook.buck.config.IncrementalActionGraphMode;
 import com.facebook.buck.core.cell.CellProvider;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphParallelizationMode;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
+import com.facebook.buck.core.model.actiongraph.computation.IncrementalActionGraphMode;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildState;
@@ -46,7 +46,7 @@ abstract class AbstractDelegateAndGraphsInitializerArgs {
 
   public abstract InstrumentedVersionedTargetGraphCache getVersionedTargetGraphCache();
 
-  public abstract ActionGraphCache getActionGraphCache();
+  public abstract ActionGraphProvider getActionGraphProvider();
 
   public abstract Parser getParser();
 
@@ -62,7 +62,7 @@ abstract class AbstractDelegateAndGraphsInitializerArgs {
 
   public abstract FileContentsProvider getProvider();
 
-  public abstract KnownBuildRuleTypesProvider getKnownBuildRuleTypesProvider();
+  public abstract KnownRuleTypesProvider getKnownRuleTypesProvider();
 
   public abstract boolean getShouldInstrumentActionGraph();
 

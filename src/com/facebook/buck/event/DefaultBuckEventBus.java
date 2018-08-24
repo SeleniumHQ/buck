@@ -16,12 +16,12 @@
 package com.facebook.buck.event;
 
 import com.facebook.buck.core.model.BuildId;
-import com.facebook.buck.log.CommandThreadFactory;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
+import com.facebook.buck.log.GlobalStateManager;
 import com.facebook.buck.util.Threads;
+import com.facebook.buck.util.concurrent.CommandThreadFactory;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.util.timing.Clock;
-import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -29,10 +29,7 @@ import com.google.common.eventbus.EventBus;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 /** Thin wrapper around guava event bus. */
@@ -44,7 +41,6 @@ public class DefaultBuckEventBus implements com.facebook.buck.event.BuckEventBus
 
   private static final Supplier<Long> DEFAULT_THREAD_ID_SUPPLIER =
       () -> Thread.currentThread().getId();
-  private static final long DEADLOCK_MONITOR_TIME_MS = 2000;
 
   private final Clock clock;
   private final ExecutorService executorService;
@@ -52,10 +48,6 @@ public class DefaultBuckEventBus implements com.facebook.buck.event.BuckEventBus
   private final Supplier<Long> threadIdSupplier;
   private final BuildId buildId;
   private final int shutdownTimeoutMillis;
-
-  // TODO(bobyf) remove when printing issue diagnosed
-  private final ScheduledExecutorService deadLockDetectorThread;
-  private final AtomicReference<Pair<BuckEvent, Long>> currentEvent = new AtomicReference<>();
 
   // synchronization variables to ensure proper shutdown
   private volatile int activeTasks = 0;
@@ -72,22 +64,10 @@ public class DefaultBuckEventBus implements com.facebook.buck.event.BuckEventBus
     this.executorService =
         async
             ? MostExecutors.newSingleThreadExecutor(
-                new CommandThreadFactory(BuckEventBus.class.getSimpleName()))
+                new CommandThreadFactory(
+                    BuckEventBus.class.getSimpleName(),
+                    GlobalStateManager.singleton().getThreadToCommandRegister()))
             : MoreExecutors.newDirectExecutorService();
-    this.deadLockDetectorThread = new ScheduledThreadPoolExecutor(1);
-    this.deadLockDetectorThread.schedule(
-        () -> {
-          // Assumes Single Threaded event bus dispatching
-          Pair<BuckEvent, Long> current = currentEvent.get();
-          if (current != null
-              && System.currentTimeMillis() - current.getSecond() > DEADLOCK_MONITOR_TIME_MS) {
-            LOG.warn(
-                "Sending event %s took longer than %d ms",
-                current.getFirst(), DEADLOCK_MONITOR_TIME_MS);
-          }
-        },
-        DEFAULT_SHUTDOWN_TIMEOUT_MS,
-        TimeUnit.MILLISECONDS);
     this.eventBus = new EventBus("buck-build-events");
     this.threadIdSupplier = DEFAULT_THREAD_ID_SUPPLIER;
     this.buildId = buildId;
@@ -103,10 +83,8 @@ public class DefaultBuckEventBus implements com.facebook.buck.event.BuckEventBus
     executorService.submit(
         () -> {
           try {
-            currentEvent.set(new Pair<>(event, System.currentTimeMillis()));
             eventBus.post(event);
           } finally {
-            currentEvent.set(null);
             // event bus should not throw but just in case wrap with try-finally
             synchronized (lock) {
               activeTasks--;
@@ -198,7 +176,6 @@ public class DefaultBuckEventBus implements com.facebook.buck.event.BuckEventBus
                     executorService.toString()));
         executorService.shutdownNow();
       }
-      deadLockDetectorThread.shutdownNow();
     } catch (InterruptedException e) {
       Threads.interruptCurrentThread();
     }

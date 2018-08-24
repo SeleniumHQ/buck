@@ -16,7 +16,7 @@
 
 package com.facebook.buck.rules.coercer;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.select.SelectorList;
@@ -26,7 +26,7 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetPattern;
+import com.facebook.buck.parser.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.macros.CcFlagsMacro;
 import com.facebook.buck.rules.macros.CcMacro;
@@ -121,8 +121,6 @@ public class DefaultTypeCoercerFactory implements TypeCoercerFactory {
     TypeCoercer<SourceWithFlags> sourceWithFlagsTypeCoercer =
         new SourceWithFlagsTypeCoercer(
             sourcePathTypeCoercer, new ListTypeCoercer<>(stringTypeCoercer));
-    TypeCoercer<OcamlSource> ocamlSourceTypeCoercer =
-        new OcamlSourceTypeCoercer(sourcePathTypeCoercer);
     TypeCoercer<Integer> intTypeCoercer = new NumberTypeCoercer<>(Integer.class);
     TypeCoercer<NeededCoverageSpec> neededCoverageSpecTypeCoercer =
         new NeededCoverageSpecTypeCoercer(
@@ -153,12 +151,12 @@ public class DefaultTypeCoercerFactory implements TypeCoercerFactory {
 
           // other simple
           sourceWithFlagsTypeCoercer,
-          ocamlSourceTypeCoercer,
           new BuildConfigFieldsTypeCoercer(),
           new UriTypeCoercer(),
           new FrameworkPathTypeCoercer(sourcePathTypeCoercer),
           new SourceWithFlagsListTypeCoercer(stringTypeCoercer, sourceWithFlagsTypeCoercer),
-          new SourceListTypeCoercer(stringTypeCoercer, sourcePathTypeCoercer),
+          new SourceSetTypeCoercer(stringTypeCoercer, sourcePathTypeCoercer),
+          new SourceSortedSetTypeCoercer(stringTypeCoercer, sourcePathTypeCoercer),
           new LogLevelTypeCoercer(),
           new ManifestEntriesTypeCoercer(),
           patternTypeCoercer,
@@ -384,7 +382,7 @@ public class DefaultTypeCoercerFactory implements TypeCoercerFactory {
       return new SelectorListCoercer<>(
           new BuildTargetTypeCoercer(),
           typeCoercerForType(getSingletonTypeParameter(typeName, actualTypeArguments)),
-          new SelectorListFactory(new SelectorFactory()));
+          new SelectorListFactory(new SelectorFactory(new BuildTargetTypeCoercer()::coerce)));
     } else {
       throw new IllegalArgumentException("Unhandled type: " + typeName);
     }

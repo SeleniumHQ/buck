@@ -19,7 +19,6 @@ package com.facebook.buck.parser;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
 import com.facebook.buck.parser.TargetSpecResolver.TargetNodeProviderForSpecResolver;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
@@ -32,69 +31,61 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class PerBuildState implements AutoCloseable {
 
-  private final AtomicLong parseProcessedBytes = new AtomicLong();
-
-  private final KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
+  private final AtomicLong parseProcessedBytes;
   private final CellManager cellManager;
   private final RawNodeParsePipeline rawNodeParsePipeline;
-  private final TargetNodeParsePipeline targetNodeParsePipeline;
+  private final ParsePipeline<TargetNode<?>> targetNodeParsePipeline;
 
-  private final TargetNodeProviderForSpecResolver<TargetNode<?, ?>>
-      targetNodeProviderForSpecResolver =
-          new TargetNodeProviderForSpecResolver<TargetNode<?, ?>>() {
-            @Override
-            public ListenableFuture<TargetNode<?, ?>> getTargetNodeJob(BuildTarget target)
-                throws BuildTargetException {
-              return PerBuildState.this.getTargetNodeJob(target);
-            }
+  private final TargetNodeProviderForSpecResolver<TargetNode<?>> targetNodeProviderForSpecResolver =
+      new TargetNodeProviderForSpecResolver<TargetNode<?>>() {
+        @Override
+        public ListenableFuture<TargetNode<?>> getTargetNodeJob(BuildTarget target)
+            throws BuildTargetException {
+          return PerBuildState.this.getTargetNodeJob(target);
+        }
 
-            @Override
-            public ListenableFuture<ImmutableSet<TargetNode<?, ?>>> getAllTargetNodesJob(
-                Cell cell, Path buildFile) throws BuildTargetException {
-              return PerBuildState.this.getAllTargetNodesJob(cell, buildFile);
-            }
-          };
+        @Override
+        public ListenableFuture<ImmutableSet<TargetNode<?>>> getAllTargetNodesJob(
+            Cell cell, Path buildFile) throws BuildTargetException {
+          return PerBuildState.this.getAllTargetNodesJob(cell, buildFile);
+        }
+      };
 
   PerBuildState(
-      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
+      AtomicLong parseProcessedBytes,
       CellManager cellManager,
       RawNodeParsePipeline rawNodeParsePipeline,
-      TargetNodeParsePipeline targetNodeParsePipeline) {
-    this.knownBuildRuleTypesProvider = knownBuildRuleTypesProvider;
+      ParsePipeline<TargetNode<?>> targetNodeParsePipeline) {
+    this.parseProcessedBytes = parseProcessedBytes;
     this.cellManager = cellManager;
     this.rawNodeParsePipeline = rawNodeParsePipeline;
     this.targetNodeParsePipeline = targetNodeParsePipeline;
   }
 
-  TargetNode<?, ?> getTargetNode(BuildTarget target) throws BuildFileParseException {
+  TargetNode<?> getTargetNode(BuildTarget target) throws BuildFileParseException {
     Cell owningCell = cellManager.getCell(target);
 
-    return targetNodeParsePipeline.getNode(
-        owningCell, knownBuildRuleTypesProvider.get(owningCell), target, parseProcessedBytes);
+    return targetNodeParsePipeline.getNode(owningCell, target, parseProcessedBytes);
   }
 
-  ListenableFuture<TargetNode<?, ?>> getTargetNodeJob(BuildTarget target)
-      throws BuildTargetException {
+  ListenableFuture<TargetNode<?>> getTargetNodeJob(BuildTarget target) throws BuildTargetException {
     Cell owningCell = cellManager.getCell(target);
 
-    return targetNodeParsePipeline.getNodeJob(
-        owningCell, knownBuildRuleTypesProvider.get(owningCell), target, parseProcessedBytes);
+    return targetNodeParsePipeline.getNodeJob(owningCell, target, parseProcessedBytes);
   }
 
-  ImmutableSet<TargetNode<?, ?>> getAllTargetNodes(Cell cell, Path buildFile)
+  ImmutableSet<TargetNode<?>> getAllTargetNodes(Cell cell, Path buildFile)
       throws BuildFileParseException {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
 
-    return targetNodeParsePipeline.getAllNodes(
-        cell, knownBuildRuleTypesProvider.get(cell), buildFile, parseProcessedBytes);
+    return targetNodeParsePipeline.getAllNodes(cell, buildFile, parseProcessedBytes);
   }
 
-  ListenableFuture<ImmutableSet<TargetNode<?, ?>>> getAllTargetNodesJob(Cell cell, Path buildFile)
+  ListenableFuture<ImmutableSet<TargetNode<?>>> getAllTargetNodesJob(Cell cell, Path buildFile)
       throws BuildTargetException {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
 
-    return targetNodeParsePipeline.getAllNodesJob(
-        cell, knownBuildRuleTypesProvider.get(cell), buildFile, parseProcessedBytes);
+    return targetNodeParsePipeline.getAllNodesJob(cell, buildFile, parseProcessedBytes);
   }
 
   ImmutableSet<Map<String, Object>> getAllRawNodes(Cell cell, Path buildFile)
@@ -102,15 +93,14 @@ public class PerBuildState implements AutoCloseable {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
 
     // The raw nodes are just plain JSON blobs, and so we don't need to check for symlinks
-    return rawNodeParsePipeline.getAllNodes(
-        cell, knownBuildRuleTypesProvider.get(cell), buildFile, parseProcessedBytes);
+    return rawNodeParsePipeline.getAllNodes(cell, buildFile, parseProcessedBytes);
   }
 
   long getParseProcessedBytes() {
     return parseProcessedBytes.get();
   }
 
-  TargetNodeProviderForSpecResolver<TargetNode<?, ?>> getTargetNodeProviderForSpecResolver() {
+  TargetNodeProviderForSpecResolver<TargetNode<?>> getTargetNodeProviderForSpecResolver() {
     return targetNodeProviderForSpecResolver;
   }
 

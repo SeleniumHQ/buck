@@ -16,8 +16,7 @@
 
 package com.facebook.buck.features.python;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
@@ -30,18 +29,19 @@ import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonPlatformsProvider;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.collect.ImmutableList;
@@ -206,26 +206,26 @@ public class PythonLibraryDescription
 
   interface CoreArg extends CommonDescriptionArg, HasDeclaredDeps, HasTests {
     @Value.Default
-    default SourceList getSrcs() {
-      return SourceList.EMPTY;
+    default SourceSortedSet getSrcs() {
+      return SourceSortedSet.EMPTY;
     }
 
-    Optional<VersionMatchedCollection<SourceList>> getVersionedSrcs();
+    Optional<VersionMatchedCollection<SourceSortedSet>> getVersionedSrcs();
 
     @Value.Default
-    default PatternMatchedCollection<SourceList> getPlatformSrcs() {
+    default PatternMatchedCollection<SourceSortedSet> getPlatformSrcs() {
       return PatternMatchedCollection.of();
     }
 
     @Value.Default
-    default SourceList getResources() {
-      return SourceList.EMPTY;
+    default SourceSortedSet getResources() {
+      return SourceSortedSet.EMPTY;
     }
 
-    Optional<VersionMatchedCollection<SourceList>> getVersionedResources();
+    Optional<VersionMatchedCollection<SourceSortedSet>> getVersionedResources();
 
     @Value.Default
-    default PatternMatchedCollection<SourceList> getPlatformResources() {
+    default PatternMatchedCollection<SourceSortedSet> getPlatformResources() {
       return PatternMatchedCollection.of();
     }
 

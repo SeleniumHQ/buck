@@ -15,9 +15,9 @@
  */
 package com.facebook.buck.rules.visibility;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
-import com.facebook.buck.model.BuildTargetPattern;
+import com.facebook.buck.parser.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.google.common.annotations.VisibleForTesting;
 import org.immutables.value.Value;
@@ -45,7 +45,7 @@ public class VisibilityPatternParser {
     abstract BuildTargetPattern getViewerPattern();
 
     @Override
-    public boolean checkVisibility(ObeysVisibility viewer, ObeysVisibility viewed) {
+    public boolean checkVisibility(ObeysVisibility viewer) {
       return getViewerPattern().matches(viewer.getBuildTarget());
     }
 
@@ -60,7 +60,7 @@ public class VisibilityPatternParser {
   static class AbstractPublicVisibilityPattern implements VisibilityPattern {
 
     @Override
-    public boolean checkVisibility(ObeysVisibility viewer, ObeysVisibility viewed) {
+    public boolean checkVisibility(ObeysVisibility viewer) {
       return true;
     }
 

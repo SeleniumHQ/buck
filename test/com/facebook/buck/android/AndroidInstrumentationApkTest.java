@@ -19,28 +19,28 @@ package com.facebook.buck.android;
 import static com.facebook.buck.jvm.java.JavaCompilationConstants.DEFAULT_JAVA_CONFIG;
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
+import com.facebook.buck.core.model.targetgraph.TestBuildRuleCreationContextFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import org.junit.Test;
@@ -141,11 +141,11 @@ public class AndroidInstrumentationApkTest {
     assertEquals(
         "//apps:app should have three JAR files to dex.",
         ImmutableSet.of(
-            BuildTargets.getGenPath(
+            BuildTargetPaths.getGenPath(
                 javaLibrary1.getProjectFilesystem(), javaLibrary1.getBuildTarget(), "%s.jar"),
-            BuildTargets.getGenPath(
+            BuildTargetPaths.getGenPath(
                 javaLibrary2.getProjectFilesystem(), javaLibrary2.getBuildTarget(), "%s.jar"),
-            BuildTargets.getGenPath(
+            BuildTargetPaths.getGenPath(
                 javaLibrary3.getProjectFilesystem(), javaLibrary3.getBuildTarget(), "%s.jar")),
         androidBinary
             .getAndroidPackageableCollection()
@@ -156,7 +156,7 @@ public class AndroidInstrumentationApkTest {
     assertEquals(
         "//apps:instrumentation should have one JAR file to dex.",
         ImmutableSet.of(
-            BuildTargets.getGenPath(
+            BuildTargetPaths.getGenPath(
                 javaLibrary4.getProjectFilesystem(), javaLibrary4.getBuildTarget(), "%s.jar")),
         androidInstrumentationApk
             .getAndroidPackageableCollection()

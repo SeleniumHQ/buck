@@ -24,7 +24,6 @@ import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.runner.FileClassPathRunner;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -34,7 +33,6 @@ import com.facebook.buck.util.Verbosity;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -61,7 +59,7 @@ public class JUnitStepTest {
     String modulePathArg = String.format("-Dcom.facebook.buck.moduleBasePath=%s", modulePath);
 
     Path directoryForTestResults = Paths.get("buck-out/gen/theresults/");
-    Path testRunnerClasspath = Paths.get("build/classes/junit");
+    Path testRunnerClasspath = Paths.get("ant-out/classes/junit");
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     Path classpathFile = filesystem.resolve("foo");
 
@@ -79,7 +77,6 @@ public class JUnitStepTest {
 
     JUnitStep junit =
         new JUnitStep(
-            BuildTargetFactory.newInstance("//dummy:target"),
             filesystem,
             /* nativeLibsEnvironment */ ImmutableMap.of(),
             /* testRuleTimeoutMs */ Optional.empty(),
@@ -101,6 +98,7 @@ public class JUnitStepTest {
         ImmutableList.of(
             "/foo/bar/custom/java",
             "-Dbuck.testrunner_classes=" + testRunnerClasspath,
+            "-Dbuck.classpath_file=" + classpathFile,
             buildIdArg,
             modulePathArg,
             "-Dapple.awt.UIElement=true",
@@ -108,10 +106,7 @@ public class JUnitStepTest {
             vmArg2,
             "-verbose",
             "-classpath",
-            "@"
-                + classpathFile
-                + File.pathSeparator
-                + MorePaths.pathWithPlatformSeparators("build/classes/junit"),
+            MorePaths.pathWithPlatformSeparators("ant-out/classes/junit"),
             FileClassPathRunner.class.getName(),
             "com.facebook.buck.testrunner.JUnitMain",
             "--output",
@@ -129,7 +124,7 @@ public class JUnitStepTest {
     Path modulePath = Paths.get("module/submodule");
 
     Path directoryForTestResults = Paths.get("buck-out/gen/theresults/");
-    Path testRunnerClasspath = Paths.get("build/classes/junit");
+    Path testRunnerClasspath = Paths.get("ant-out/classes/junit");
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     Path classpathFile = filesystem.resolve("foo");
 
@@ -147,7 +142,6 @@ public class JUnitStepTest {
 
     JUnitStep junit =
         new JUnitStep(
-            BuildTargetFactory.newInstance("//dummy:target"),
             filesystem,
             /* nativeLibsEnvironment */ ImmutableMap.of(),
             /* testRuleTimeoutMs */ Optional.empty(),
@@ -178,7 +172,7 @@ public class JUnitStepTest {
     String modulePathArg = String.format("-Dcom.facebook.buck.moduleBasePath=%s", modulePath);
 
     Path directoryForTestResults = Paths.get("buck-out/gen/theresults/");
-    Path testRunnerClasspath = Paths.get("build/classes/junit");
+    Path testRunnerClasspath = Paths.get("ant-out/classes/junit");
 
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     Path classpathFile = filesystem.resolve("foo");
@@ -198,7 +192,6 @@ public class JUnitStepTest {
 
     JUnitStep junit =
         new JUnitStep(
-            BuildTargetFactory.newInstance("//dummy:target"),
             filesystem,
             ImmutableMap.of(),
             /* testRuleTimeoutMs */ Optional.empty(),
@@ -216,6 +209,7 @@ public class JUnitStepTest {
         ImmutableList.of(
             "/foo/bar/custom/java",
             "-Dbuck.testrunner_classes=" + testRunnerClasspath,
+            "-Dbuck.classpath_file=" + classpathFile,
             buildIdArg,
             modulePathArg,
             "-Dapple.awt.UIElement=true",
@@ -224,10 +218,7 @@ public class JUnitStepTest {
             vmArg2,
             "-verbose",
             "-classpath",
-            "@"
-                + classpathFile
-                + File.pathSeparator
-                + MorePaths.pathWithPlatformSeparators("build/classes/junit"),
+            MorePaths.pathWithPlatformSeparators("ant-out/classes/junit"),
             FileClassPathRunner.class.getName(),
             "com.facebook.buck.testrunner.JUnitMain",
             "--output",

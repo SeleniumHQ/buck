@@ -41,53 +41,55 @@ import com.facebook.buck.apple.toolchain.impl.AppleCxxPlatformsProviderFactory;
 import com.facebook.buck.apple.toolchain.impl.AppleDeveloperDirectoryProviderFactory;
 import com.facebook.buck.apple.toolchain.impl.AppleSdkLocationFactory;
 import com.facebook.buck.apple.toolchain.impl.AppleToolchainProviderFactory;
-import com.facebook.buck.config.ActionGraphParallelizationMode;
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphParallelizationMode;
+import com.facebook.buck.core.model.actiongraph.computation.TestActionGraphProviderFactory;
+import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
+import com.facebook.buck.core.model.impl.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.core.toolchain.ToolchainCreationContext;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.FakeBuckEventListener;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.io.WatchmanOverflowEvent;
-import com.facebook.buck.io.WatchmanPathEvent;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.watchman.WatchmanFactory;
+import com.facebook.buck.io.watchman.WatchmanOverflowEvent;
+import com.facebook.buck.io.watchman.WatchmanPathEvent;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.ImmutableBuildTarget;
-import com.facebook.buck.model.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.MissingBuildFileException;
 import com.facebook.buck.parser.thrift.RemoteDaemonicCellState;
 import com.facebook.buck.parser.thrift.RemoteDaemonicParserState;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
-import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.shell.GenruleDescriptionArg;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.toolchain.ToolchainCreationContext;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.CloseableMemoizedSupplier;
+import com.facebook.buck.util.CreateSymlinksForTests;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.config.ConfigBuilder;
@@ -128,6 +130,7 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
+import org.pf4j.PluginManager;
 
 @RunWith(Parameterized.class)
 public class DefaultParserTest {
@@ -147,7 +150,7 @@ public class DefaultParserTest {
   private Path cellRoot;
   private BuckEventBus eventBus;
   private Cell cell;
-  private KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
+  private KnownRuleTypesProvider knownRuleTypesProvider;
   private ParseEventStartedCounter counter;
   private ListeningExecutorService executorService;
   private ExecutableFinder executableFinder;
@@ -180,7 +183,7 @@ public class DefaultParserTest {
       TypeCoercerFactory typeCoercerFactory,
       BuckEventBus eventBus,
       Cell cell,
-      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
+      KnownRuleTypesProvider knownRuleTypesProvider,
       boolean enableProfiling,
       ListeningExecutorService executor,
       ExecutableFinder executableFinder,
@@ -190,8 +193,9 @@ public class DefaultParserTest {
         new PerBuildStateFactory(
                 typeCoercerFactory,
                 new ConstructorArgMarshaller(typeCoercerFactory),
-                knownBuildRuleTypesProvider,
-                new ParserPythonInterpreterProvider(cell.getBuckConfig(), executableFinder))
+                knownRuleTypesProvider,
+                new ParserPythonInterpreterProvider(cell.getBuckConfig(), executableFinder),
+                WatchmanFactory.NULL_WATCHMAN)
             .create(
                 parser.getPermState(),
                 eventBus,
@@ -301,12 +305,8 @@ public class DefaultParserTest {
                 AppleCxxPlatformsProvider.DEFAULT_NAME, provider));
 
     cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
-    knownBuildRuleTypesProvider =
-        KnownBuildRuleTypesProvider.of(
-            DefaultKnownBuildRuleTypesFactory.of(
-                processExecutor,
-                BuckPluginManagerFactory.createPluginManager(),
-                new TestSandboxExecutionStrategyFactory()));
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
+    knownRuleTypesProvider = TestKnownRuleTypesProvider.create(pluginManager);
     ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
 
     typeCoercerFactory = new DefaultTypeCoercerFactory();
@@ -315,11 +315,13 @@ public class DefaultParserTest {
             new PerBuildStateFactory(
                 typeCoercerFactory,
                 new ConstructorArgMarshaller(typeCoercerFactory),
-                knownBuildRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, executableFinder)),
+                knownRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, executableFinder),
+                WatchmanFactory.NULL_WATCHMAN),
             parserConfig,
             typeCoercerFactory,
-            new TargetSpecResolver());
+            new TargetSpecResolver(),
+            WatchmanFactory.NULL_WATCHMAN);
 
     counter = new ParseEventStartedCounter();
     eventBus.register(counter);
@@ -653,7 +655,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -674,7 +676,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -693,7 +695,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -713,7 +715,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -732,7 +734,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -752,7 +754,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -771,7 +773,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -791,7 +793,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -810,7 +812,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -832,7 +834,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -851,7 +853,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -871,7 +873,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -890,7 +892,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -910,7 +912,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -929,7 +931,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -949,7 +951,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -968,7 +970,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -988,7 +990,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1007,7 +1009,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1027,7 +1029,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1046,7 +1048,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1066,7 +1068,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1085,7 +1087,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1105,7 +1107,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1125,7 +1127,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1145,7 +1147,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1178,7 +1180,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1198,7 +1200,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1217,7 +1219,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1237,7 +1239,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1257,7 +1259,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1277,7 +1279,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1296,7 +1298,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1316,7 +1318,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1335,7 +1337,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1355,7 +1357,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1374,7 +1376,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1394,7 +1396,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1413,7 +1415,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1433,7 +1435,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1452,7 +1454,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1472,7 +1474,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1491,7 +1493,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1511,7 +1513,7 @@ public class DefaultParserTest {
         typeCoercerFactory,
         eventBus,
         cell,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         false,
         executorService,
         executableFinder,
@@ -1669,11 +1671,13 @@ public class DefaultParserTest {
             new PerBuildStateFactory(
                 typeCoercerFactory,
                 new ConstructorArgMarshaller(typeCoercerFactory),
-                knownBuildRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, executableFinder)),
+                knownRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, executableFinder),
+                WatchmanFactory.NULL_WATCHMAN),
             parserConfig,
             typeCoercerFactory,
-            new TargetSpecResolver());
+            new TargetSpecResolver(),
+            WatchmanFactory.NULL_WATCHMAN);
     Path testFooJavaFile = tempDir.newFile("foo/Foo.java");
     Files.write(testFooJavaFile, "// Ceci n'est pas une Javafile\n".getBytes(UTF_8));
     HashCode updated = buildTargetGraphAndGetHashCodes(parser, fooLibTarget).get(fooLibTarget);
@@ -1791,11 +1795,13 @@ public class DefaultParserTest {
             new PerBuildStateFactory(
                 typeCoercerFactory,
                 new ConstructorArgMarshaller(typeCoercerFactory),
-                knownBuildRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, executableFinder)),
+                knownRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, executableFinder),
+                WatchmanFactory.NULL_WATCHMAN),
             cell.getBuckConfig().getView(ParserConfig.class),
             typeCoercerFactory,
-            new TargetSpecResolver());
+            new TargetSpecResolver(),
+            WatchmanFactory.NULL_WATCHMAN);
     Files.write(
         testFooBuckFile,
         ("java_library(name = 'lib', deps = [], visibility=['PUBLIC'])\njava_library("
@@ -1822,12 +1828,12 @@ public class DefaultParserTest {
 
     // First, only load one target from the build file so the file is parsed, but only one of the
     // TargetNodes will be cached.
-    TargetNode<?, ?> targetNode =
+    TargetNode<?> targetNode =
         parser.getTargetNode(eventBus, cell, false, executorService, fooLib1Target);
     assertThat(targetNode.getBuildTarget(), equalTo(fooLib1Target));
 
     // Now, try to load the entire build file and get all TargetNodes.
-    ImmutableSet<TargetNode<?, ?>> targetNodes =
+    ImmutableSet<TargetNode<?>> targetNodes =
         parser.getAllTargetNodes(eventBus, cell, false, executorService, testFooBuckFile);
     assertThat(targetNodes.size(), equalTo(2));
     assertThat(
@@ -1846,7 +1852,7 @@ public class DefaultParserTest {
     Files.write(testFooBuckFile, "java_library(name = 'lib')\n".getBytes(UTF_8));
     BuildTarget fooLibTarget = BuildTargetFactory.newInstance(cellRoot, "//foo", "lib");
 
-    TargetNode<?, ?> targetNode =
+    TargetNode<?> targetNode =
         parser.getTargetNode(eventBus, cell, false, executorService, fooLibTarget);
     assertThat(targetNode.getBuildTarget(), equalTo(fooLibTarget));
 
@@ -1867,7 +1873,7 @@ public class DefaultParserTest {
     tempDir.newFile("bar/Bar.java");
     tempDir.newFolder("foo");
     Path rootPath = tempDir.getRoot().toRealPath();
-    Files.createSymbolicLink(rootPath.resolve("foo/bar"), rootPath.resolve("bar"));
+    CreateSymlinksForTests.createSymLink(rootPath.resolve("foo/bar"), rootPath.resolve("bar"));
 
     Path testBuckFile = rootPath.resolve("foo").resolve("BUCK");
     Files.write(
@@ -1919,7 +1925,7 @@ public class DefaultParserTest {
     tempDir.newFolder("foo");
     Path bazSourceFile = tempDir.newFile("bar/Baz.java");
     Path rootPath = tempDir.getRoot().toRealPath();
-    Files.createSymbolicLink(rootPath.resolve("foo/bar"), rootPath.resolve("bar"));
+    CreateSymlinksForTests.createSymLink(rootPath.resolve("foo/bar"), rootPath.resolve("bar"));
 
     Path testBuckFile = rootPath.resolve("foo").resolve("BUCK");
     Files.write(
@@ -1983,7 +1989,7 @@ public class DefaultParserTest {
     tempDir.newFile("bar/Bar.java");
     tempDir.newFolder("foo");
     Path rootPath = tempDir.getRoot().toRealPath();
-    Files.createSymbolicLink(rootPath.resolve("foo/bar"), rootPath.resolve("bar"));
+    CreateSymlinksForTests.createSymLink(rootPath.resolve("foo/bar"), rootPath.resolve("bar"));
 
     Path testBuckFile = rootPath.resolve("foo").resolve("BUCK");
     Files.write(
@@ -2012,7 +2018,7 @@ public class DefaultParserTest {
     tempDir.newFile("bar/Bar.java");
     tempDir.newFolder("foo");
 
-    Files.createSymbolicLink(rootPath.resolve("foo/bar"), rootPath.resolve("bar"));
+    CreateSymlinksForTests.createSymLink(rootPath.resolve("foo/bar"), rootPath.resolve("bar"));
 
     Path testBuckFile = rootPath.resolve("foo").resolve("BUCK");
     Files.write(
@@ -2080,11 +2086,13 @@ public class DefaultParserTest {
             new PerBuildStateFactory(
                 typeCoercerFactory,
                 new ConstructorArgMarshaller(typeCoercerFactory),
-                knownBuildRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, executableFinder)),
+                knownRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, executableFinder),
+                WatchmanFactory.NULL_WATCHMAN),
             parserConfig,
             typeCoercerFactory,
-            new TargetSpecResolver());
+            new TargetSpecResolver(),
+            WatchmanFactory.NULL_WATCHMAN);
     // Restore state.
     parser.getPermState().restoreState(remote, cell);
     // Try to use the restored target graph.
@@ -2145,10 +2153,10 @@ public class DefaultParserTest {
     BuckConfig config = FakeBuckConfig.builder().setFilesystem(filesystem).build();
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
-    TargetNode<GenruleDescriptionArg, ?> node =
-        parser
-            .getTargetNode(eventBus, cell, false, executorService, buildTarget)
-            .castArg(GenruleDescriptionArg.class)
+    TargetNode<GenruleDescriptionArg> node =
+        TargetNodes.castArg(
+                parser.getTargetNode(eventBus, cell, false, executorService, buildTarget),
+                GenruleDescriptionArg.class)
             .get();
 
     assertThat(node.getConstructorArg().getOut(), is(equalTo("default.txt")));
@@ -2632,7 +2640,7 @@ public class DefaultParserTest {
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
 
-    ImmutableSet<TargetNode<?, ?>> targetNodes =
+    ImmutableSet<TargetNode<?>> targetNodes =
         parser.getAllTargetNodes(eventBus, cell, false, executorService, buckFile);
     assertEquals(1, targetNodes.size());
     // in Skylark the type of str is "string" and in Python DSL it's "<type 'str'>"
@@ -2642,7 +2650,7 @@ public class DefaultParserTest {
   private ActionGraphBuilder buildActionGraph(
       BuckEventBus eventBus, TargetGraph targetGraph, Cell cell) {
     return Preconditions.checkNotNull(
-            new ActionGraphCache(1)
+            TestActionGraphProviderFactory.create(1)
                 .getFreshActionGraph(
                     eventBus,
                     targetGraph,
@@ -2693,7 +2701,7 @@ public class DefaultParserTest {
         parser.buildTargetGraph(eventBus, cell, false, executorService, buildTargetsList);
 
     ImmutableMap.Builder<BuildTarget, HashCode> toReturn = ImmutableMap.builder();
-    for (TargetNode<?, ?> node : targetGraph.getNodes()) {
+    for (TargetNode<?> node : targetGraph.getNodes()) {
       toReturn.put(node.getBuildTarget(), node.getRawInputsHashCode());
     }
 

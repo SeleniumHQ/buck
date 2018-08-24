@@ -5,13 +5,13 @@
   <property name="aosp.src.dir" value="third-party/java/aosp/src" />
   <property name="test.dir" value="${basedir}/test" />
   <property name="third-party.dir" value="${basedir}/third-party" />
-  <property name="build.dir" value="${basedir}/build" />
+  <property name="build.dir" value="${basedir}/ant-out" />
   <property name="build.successful.file" value="${build.dir}/successful-build" />
   <property name="classes.dir.name" value="classes" />
   <property name="classes.dir" value="${build.dir}/${classes.dir.name}" />
   <property name="buck.modules.classes.dir.name" value="buck-modules-classes" />
   <property name="buck.modules.classes.dir" value="${build.dir}/${buck.modules.classes.dir.name}" />
-  <property name="buck.modules.annotation.processor.src.dir" value="com/facebook/buck/module/annotationprocessor" />
+  <property name="buck.modules.annotation.processor.src.dir" value="com/facebook/buck/core/module/annotationprocessor" />
   <property name="buck.modules.ap.classes.dir.name" value="buck-modules-ap-classes" />
   <property name="buck.modules.annotation.processor.classes.dir" value="${build.dir}/${buck.modules.ap.classes.dir.name}" />
   <property name="buck.modules.annotation.processor.jar" value="${build.dir}/buck-modules-ap.jar" />
@@ -85,7 +85,7 @@
   <property name="modules.resources.dir.name" value="buck-modules-resources" />
 
   <property name="ecj.compiler" value="org.eclipse.jdt.core.JDTCompilerAdapter" />
-  <property name="ecj.compiler.path" value="${eclipse.dir}/ecj-4.7.1.jar" />
+  <property name="ecj.compiler.path" value="${eclipse.dir}/ecj-4.8.jar" />
   <property name="error.prone.compiler" value="com.google.errorprone.ErrorProneAntCompilerAdapter" />
   <property name="error.prone.compiler.path" value="${third-party.dir}/java/errorprone/error_prone_ant-2.2.0.jar" />
   <!-- Control whether ErrorProne compiler is enabled. Disabled by default. -->
@@ -134,25 +134,26 @@
     <include name="android/layoutlib-api-25.3.0.jar" />
     <include name="android/sdk-common-25.3.0.jar" />
     <include name="aopalliance/aopalliance.jar" />
+    <include name="aosp/apksig.jar" />
     <include name="asm/asm*-6.0.jar" />
     <include name="bazel/skylark-lang_deploy.jar" />
     <include name="bundletool/bundle.jar" />
     <include name="closure-templates/soy-excluding-deps.jar" />
-    <include name="commons-compress/commons-compress-1.8.1.jar" />
+    <include name="commons-compress/commons-compress-1.17.jar" />
     <include name="commons-logging/commons-logging-1.2.jar" />
     <include name="concurrent-locks/concurrent-locks-1.0.0.jar" />
     <include name="d8/d8.jar" />
     <include name="dd-plist/dd-plist.jar" />
-    <include name="eclipse/org.eclipse.core.contenttype_3.5.100.v20160418-1621.jar"/>
-    <include name="eclipse/org.eclipse.core.jobs_3.8.0.v20160319-0610.jar"/>
-    <include name="eclipse/org.eclipse.core.resources_3.11.0.v20160422-0304.jar"/>
-    <include name="eclipse/org.eclipse.core.runtime_3.12.0.v20160427-1901.jar"/>
-    <include name="eclipse/org.eclipse.equinox.common_3.8.0.v20160422-1942.jar"/>
-    <include name="eclipse/org.eclipse.equinox.preferences_3.6.0.v20160120-1756.jar"/>
-    <include name="eclipse/org.eclipse.jdt.core_3.12.0.v20160426-1326.jar"/>
-    <include name="eclipse/org.eclipse.osgi_3.11.0.v20160427-2120.jar"/>
+    <include name="eclipse/org.eclipse.core.contenttype_3.7.0.v20180426-1644.jar"/>
+    <include name="eclipse/org.eclipse.core.jobs_3.10.0.v20180427-1454.jar"/>
+    <include name="eclipse/org.eclipse.core.resources_3.13.0.v20180512-1138.jar"/>
+    <include name="eclipse/org.eclipse.core.runtime_3.14.0.v20180417-0825.jar"/>
+    <include name="eclipse/org.eclipse.equinox.common_3.10.0.v20180412-1130.jar"/>
+    <include name="eclipse/org.eclipse.equinox.preferences_3.7.100.v20180510-1129.jar"/>
+    <include name="eclipse/org.eclipse.jdt.core_3.14.0.v20180528-0519.jar"/>
+    <include name="eclipse/org.eclipse.osgi_3.13.0.v20180409-1500.jar"/>
     <include name="eden/eden.jar" />
-    <include name="eden/java-thrift-dependencies.jar" />
+    <include name="fbthrift/java-thrift-dependencies.jar" />
     <include name="errorprone/error_prone_annotations-2.0.19.jar" />
     <include name="fastutil/fastutil-7.2.0.jar" />
     <include name="guava/guava-20.0.jar" />
@@ -179,9 +180,10 @@
     <include name="jimfs/jimfs-1.1.jar" />
     <include name="jopt-simple/jopt-simple-4.6.jar" />
     <include name="json-simple/json-simple-1.1.1.jar" />
+    <include name="kotlinx-metadata-jvm/kotlinx-metadata-jvm-0.0.3.jar" />
     <include name="jsr/javax.inject-1.jar" />
     <include name="jsr/jsr305.jar" />
-    <include name="nuprocess/nuprocess-1.1.0.jar" />
+    <include name="nuprocess/nuprocess-1.2.4.jar" />
     <include name="objenesis/objenesis-1.2.jar" />
     <include name="okhttp/okhttp-3.9.0.jar" />
     <include name="okio/okio-1.13.0.jar" />
@@ -196,6 +198,7 @@
     <include name="stringtemplate/ST-4.0.8.jar" />
     <include name="thrift/libthrift-0.10.0-patched.jar" />
     <include name="xz-java-1.5/xz-1.5.jar" />
+    <include name="zstd-jni/zstd-jni-1.3.5-2.jar" />
 
     <!-- maven interop -->
     <include name="aether/aether-api-1.0.2.v20150114.jar" />
@@ -505,12 +508,12 @@
             and are deliberately isolated from Buck's core.
           -->
           <exclude name="com/facebook/buck/cli/bootstrapper/**" />
+          <exclude name="com/facebook/buck/core/module/annotationprocessor/**" />
           <exclude name="com/facebook/buck/event/api/**" />
           <exclude name="com/facebook/buck/features/**" />
           <exclude name="com/facebook/buck/jvm/java/abi/source/**" />
           <exclude name="com/facebook/buck/jvm/java/lang/model/**" />
           <exclude name="com/facebook/buck/jvm/java/plugin/adapter/**" />
-          <exclude name="com/facebook/buck/module/annotationprocessor/**" />
           <exclude name="com/facebook/buck/testrunner/**" />
           <exclude name="org/openqa/**" />
         </patternset>
@@ -533,7 +536,7 @@
       </fileset>
       <zipfileset src="${basedir}/third-party/java/stringtemplate/ST-4.0.8.jar" />
       <service type="javax.annotation.processing.Processor"
-        provider="com.facebook.buck.module.annotationprocessor.BuckModuleAnnotationProcessor"/>
+        provider="com.facebook.buck.core.module.annotationprocessor.BuckModuleAnnotationProcessor"/>
     </jar>
   </target>
 
@@ -544,12 +547,15 @@
                                         build-module-filegroup,
                                         build-module-go,
                                         build-module-gwt,
+                                        build-module-halide,
                                         build-module-haskell,
                                         build-module-intellij,
+                                        build-module-js,
                                         build-module-lua,
                                         build-module-ocaml,
                                         build-module-python,
                                         build-module-rust,
+                                        build-module-xcode,
                                         build-module-ziprules
                                        "/>
 
@@ -607,6 +613,14 @@
     </build-buck-module-jar>
   </target>
 
+  <target name="build-module-halide" depends="compile">
+    <build-buck-module-jar module-name="halide">
+      <module-javac-params>
+        <include name="com/facebook/buck/features/halide/**/*.java" />
+      </module-javac-params>
+    </build-buck-module-jar>
+  </target>
+
   <target name="build-module-haskell" depends="compile">
     <build-buck-module-jar module-name="haskell">
       <module-javac-params>
@@ -624,6 +638,14 @@
         <include name="com/facebook/buck/features/project/intellij/templates/*.st"/>
       </module-resources>
     </build-buck-module-jar-with-resources>
+  </target>
+
+  <target name="build-module-js" depends="compile">
+    <build-buck-module-jar module-name="js">
+      <module-javac-params>
+        <include name="com/facebook/buck/features/js/**/*.java" />
+      </module-javac-params>
+    </build-buck-module-jar>
   </target>
 
   <target name="build-module-lua" depends="compile, build-module-python">
@@ -673,6 +695,21 @@
         <include name="com/facebook/buck/features/rust/**/*.java" />
       </module-javac-params>
     </build-buck-module-jar>
+  </target>
+
+  <target name="build-module-xcode" depends="compile, build-module-halide, build-module-js">
+    <build-buck-module-jar-with-resources module-name="xcode">
+      <module-javac-params>
+        <include name="com/facebook/buck/features/apple/project/*.java" />
+      </module-javac-params>
+      <module-resources>
+        <include name="com/facebook/buck/features/apple/project/*.st"/>
+      </module-resources>
+      <additional-classpath-entries>
+        <include name="js.jar"/>
+        <include name="halide.jar"/>
+      </additional-classpath-entries>
+    </build-buck-module-jar-with-resources>
   </target>
 
   <target name="build-module-ziprules" depends="compile, build-module-filebundler">
@@ -753,7 +790,6 @@
   <target name="copy-resources" description="Copy resources used by Buck at runtime to the build directory">
     <copy todir="${classes.dir}">
       <fileset dir="${src.dir}">
-        <include name="com/facebook/buck/apple/project_generator/*.st"/>
         <include name="com/facebook/buck/httpserver/*.stg"/>
         <include name="com/facebook/buck/httpserver/resources/static/*"/>
         <include name="com/facebook/buck/maven/build-file.st"/>

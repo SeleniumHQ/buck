@@ -16,8 +16,13 @@
 
 package com.facebook.buck.rules.macros;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.macros.MacroException;
+import com.facebook.buck.core.macros.MacroFinder;
+import com.facebook.buck.core.macros.MacroMatchResult;
+import com.facebook.buck.core.macros.MacroReplacer;
+import com.facebook.buck.core.macros.StringMacroCombiner;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
@@ -27,11 +32,6 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.model.macros.MacroException;
-import com.facebook.buck.model.macros.MacroFinder;
-import com.facebook.buck.model.macros.MacroMatchResult;
-import com.facebook.buck.model.macros.MacroReplacer;
-import com.facebook.buck.model.macros.StringMacroCombiner;
 import com.facebook.buck.rules.args.Arg;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -172,7 +172,7 @@ public class MacroHandler {
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder)
       throws MacroException {
 
-    // Iterate over all macros found in the string, collecting all `BuildTargets` each expander
+    // Iterate over all macros found in the string, collecting all `BuildTargetPaths` each expander
     // extract for their respective macros.
     for (MacroMatchResult matchResult : getMacroMatchResults(blob)) {
       getExpander(matchResult.getMacroType())
@@ -195,7 +195,7 @@ public class MacroHandler {
 
     ImmutableList.Builder<Object> targets = ImmutableList.builder();
 
-    // Iterate over all macros found in the string, collecting all `BuildTargets` each expander
+    // Iterate over all macros found in the string, collecting all `BuildTargetPaths` each expander
     // extract for their respective macros.
     for (MacroMatchResult matchResult : getMacroMatchResults(blob)) {
       MacroExpander expander = getExpander(matchResult.getMacroType());

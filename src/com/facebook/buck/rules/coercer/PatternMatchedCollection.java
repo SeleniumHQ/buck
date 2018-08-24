@@ -16,8 +16,8 @@
 
 package com.facebook.buck.rules.coercer;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.model.BuildTargetPattern;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.parser.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Pair;
@@ -99,6 +99,21 @@ public class PatternMatchedCollection<T>
   @Override
   public int hashCode() {
     return values.hashCode();
+  }
+
+  /**
+   * @return a single {@link PatternMatchedCollection} formed by combining the given input {@link
+   *     PatternMatchedCollection}s.
+   */
+  public static <T> PatternMatchedCollection<T> concat(
+      Iterable<PatternMatchedCollection<T>> collections) {
+    PatternMatchedCollection.Builder<T> builder = PatternMatchedCollection.builder();
+    collections.forEach(
+        collection ->
+            collection
+                .getPatternsAndValues()
+                .forEach(pair -> builder.add(pair.getFirst(), pair.getSecond())));
+    return builder.build();
   }
 
   public static <T> Builder<T> builder() {

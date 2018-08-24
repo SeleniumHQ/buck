@@ -16,12 +16,11 @@
 
 package com.facebook.buck.cxx;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
-import com.facebook.buck.core.description.DescriptionCache;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.description.attr.ImplicitFlavorsInferringDescription;
+import com.facebook.buck.core.description.impl.DescriptionCache;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -33,7 +32,7 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.impl.SymlinkTree;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
@@ -43,7 +42,7 @@ import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.Version;
@@ -75,7 +74,6 @@ public class CxxLibraryDescription
   public enum Type implements FlavorConvertible {
     HEADERS(CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR),
     EXPORTED_HEADERS(CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR),
-    SANDBOX_TREE(CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR),
     SHARED(CxxDescriptionEnhancer.SHARED_FLAVOR),
     SHARED_INTERFACE(InternalFlavor.of("shared-interface")),
     STATIC_PIC(CxxDescriptionEnhancer.STATIC_PIC_FLAVOR),
@@ -163,8 +161,7 @@ public class CxxLibraryDescription
       CxxPlatform cxxPlatform,
       ImmutableSet<BuildRule> deps,
       TransitiveCxxPreprocessorInputFunction transitivePreprocessorInputs,
-      ImmutableList<HeaderSymlinkTree> headerSymlinkTrees,
-      Optional<SymlinkTree> sandboxTree) {
+      ImmutableList<HeaderSymlinkTree> headerSymlinkTrees) {
     return CxxDescriptionEnhancer.collectCxxPreprocessorInput(
         target,
         cxxPlatform,
@@ -195,8 +192,6 @@ public class CxxLibraryDescription
                         ? CxxDeps.of()
                         : args.getPrivateCxxDeps()))
             .toOnceIterable(),
-        args.getIncludeDirs(),
-        sandboxTree,
         args.getRawHeaders());
   }
 
@@ -286,7 +281,7 @@ public class CxxLibraryDescription
   public ImmutableSortedSet<Flavor> addImplicitFlavors(
       ImmutableSortedSet<Flavor> argDefaultFlavors) {
     return cxxLibraryImplicitFlavors.addImplicitFlavorsForRuleTypes(
-        argDefaultFlavors, DescriptionCache.getBuildRuleType(this));
+        argDefaultFlavors, DescriptionCache.getRuleType(this));
   }
 
   @Override
@@ -338,8 +333,7 @@ public class CxxLibraryDescription
           // Nothing to add.
           return inputs.values().stream();
         } else {
-          Map<BuildTarget, CxxPreprocessorInput> result = new LinkedHashMap<>();
-          result.putAll(inputs);
+          Map<BuildTarget, CxxPreprocessorInput> result = new LinkedHashMap<>(inputs);
           for (CxxPreprocessorDep dep : privateDepsForPlatform) {
             result.putAll(dep.getTransitiveCxxPreprocessorInput(cxxPlatform, graphBuilder));
           }
@@ -375,8 +369,8 @@ public class CxxLibraryDescription
 
   public interface CommonArg extends LinkableCxxConstructorArg {
     @Value.Default
-    default SourceList getExportedHeaders() {
-      return SourceList.EMPTY;
+    default SourceSortedSet getExportedHeaders() {
+      return SourceSortedSet.EMPTY;
     }
 
     @Value.Check
@@ -400,7 +394,7 @@ public class CxxLibraryDescription
     }
 
     @Value.Default
-    default PatternMatchedCollection<SourceList> getExportedPlatformHeaders() {
+    default PatternMatchedCollection<SourceSortedSet> getExportedPlatformHeaders() {
       return PatternMatchedCollection.of();
     }
 

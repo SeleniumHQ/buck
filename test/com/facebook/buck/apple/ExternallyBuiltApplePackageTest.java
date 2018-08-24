@@ -16,7 +16,6 @@
 
 package com.facebook.buck.apple;
 
-import static com.facebook.buck.apple.FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_I386_PLATFORM;
 import static org.hamcrest.Matchers.endsWith;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasEntry;
@@ -26,19 +25,19 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.android.TestAndroidPlatformTargetFactory;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
@@ -61,21 +60,26 @@ import org.junit.Test;
 
 public class ExternallyBuiltApplePackageTest {
 
-  private String bundleLocation = "Fake/Bundle/Location";
-  private BuildTarget buildTarget =
-      BuildTargetFactory.newInstance(Paths.get("."), "//foo", "package");
-  private ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-  private BuildRuleParams params = TestBuildRuleParams.create();
-  private ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
-  private ApplePackageConfigAndPlatformInfo config =
-      ApplePackageConfigAndPlatformInfo.of(
-          ApplePackageConfig.of("echo $SDKROOT $OUT", "api"),
-          StringArg::of,
-          DEFAULT_IPHONEOS_I386_PLATFORM);
+  private String bundleLocation;
+  private BuildTarget buildTarget;
+  private ProjectFilesystem projectFilesystem;
+  private BuildRuleParams params;
+  private ActionGraphBuilder graphBuilder;
+  private ApplePackageConfigAndPlatformInfo config;
 
   @Before
   public void setUp() {
     assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
+    bundleLocation = "Fake/Bundle/Location";
+    buildTarget = BuildTargetFactory.newInstance(Paths.get("."), "//foo", "package");
+    projectFilesystem = new FakeProjectFilesystem();
+    params = TestBuildRuleParams.create();
+    graphBuilder = new TestActionGraphBuilder();
+    config =
+        ApplePackageConfigAndPlatformInfo.of(
+            ApplePackageConfig.of("echo $SDKROOT $OUT", "api"),
+            StringArg::of,
+            FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_I386_PLATFORM);
   }
 
   @Test
@@ -107,7 +111,11 @@ public class ExternallyBuiltApplePackageTest {
     assertThat(
         step.getEnvironmentVariables(TestExecutionContext.newInstance()),
         hasEntry(
-            "SDKROOT", DEFAULT_IPHONEOS_I386_PLATFORM.getAppleSdkPaths().getSdkPath().toString()));
+            "SDKROOT",
+            FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_I386_PLATFORM
+                .getAppleSdkPaths()
+                .getSdkPath()
+                .toString()));
   }
 
   @Test

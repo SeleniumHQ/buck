@@ -17,7 +17,6 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.Hint;
@@ -25,6 +24,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.google.common.collect.ImmutableSet;
 import java.util.List;
@@ -50,6 +50,8 @@ public class AndroidAppModularityDescription
         new APKModuleGraph(
             Optional.of(args.getApplicationModuleConfigs()),
             args.getApplicationModuleDependencies(),
+            args.getApplicationModuleBlacklist(),
+            ImmutableSet.of(),
             context.getTargetGraph(),
             buildTarget);
 
@@ -74,6 +76,9 @@ public class AndroidAppModularityDescription
     Map<String, List<BuildTarget>> getApplicationModuleConfigs();
 
     Optional<Map<String, List<String>>> getApplicationModuleDependencies();
+
+    @Hint(isDep = false)
+    Optional<List<BuildTarget>> getApplicationModuleBlacklist();
 
     @Hint(isDep = false)
     ImmutableSet<BuildTarget> getNoDx();

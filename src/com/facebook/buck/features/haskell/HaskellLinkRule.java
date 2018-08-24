@@ -18,9 +18,9 @@ package com.facebook.buck.features.haskell;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -39,7 +39,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import java.nio.file.Path;
-import java.util.Optional;
 
 public class HaskellLinkRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
@@ -95,7 +94,7 @@ public class HaskellLinkRule extends AbstractBuildRuleWithDeclaredAndExtraDeps {
                         buildContext.getBuildCellRootPath(), getProjectFilesystem(), getOutput()))
                 .withRecursive(true))
         .add(
-            new ShellStep(Optional.of(getBuildTarget()), getProjectFilesystem().getRootPath()) {
+            new ShellStep(getProjectFilesystem().getRootPath()) {
 
               @Override
               public ImmutableMap<String, String> getEnvironmentVariables(

@@ -23,13 +23,18 @@ import static org.junit.Assert.assertNotEquals;
 
 import com.facebook.buck.apple.clang.ModuleMap;
 import com.facebook.buck.apple.clang.ModuleMap.SwiftMode;
+import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -38,11 +43,6 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
@@ -105,7 +105,7 @@ public class HeaderSymlinkTreeWithModuleMapTest {
 
     // The output path used by the buildable for the link tree.
     symlinkTreeRoot =
-        BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s/symlink-tree-root");
+        BuildTargetPaths.getGenPath(projectFilesystem, buildTarget, "%s/symlink-tree-root");
 
     ruleResolver = new TestActionGraphBuilder(TargetGraph.EMPTY);
     ruleFinder = new SourcePathRuleFinder(ruleResolver);
@@ -140,7 +140,7 @@ public class HeaderSymlinkTreeWithModuleMapTest {
             .add(
                 new ModuleMapStep(
                     projectFilesystem,
-                    BuildTargets.getGenPath(
+                    BuildTargetPaths.getGenPath(
                         projectFilesystem, buildTarget, "%s/SomeModule/module.modulemap"),
                     new ModuleMap("SomeModule", SwiftMode.NO_SWIFT)))
             .build();
@@ -169,7 +169,7 @@ public class HeaderSymlinkTreeWithModuleMapTest {
     ModuleMapStep moduleMapStep =
         new ModuleMapStep(
             projectFilesystem,
-            BuildTargets.getGenPath(
+            BuildTargetPaths.getGenPath(
                 projectFilesystem, buildTarget, "%s/SomeModule/module.modulemap"),
             new ModuleMap("SomeModule", SwiftMode.INCLUDE_SWIFT_HEADER));
     assertThat(actualBuildSteps, hasItem(moduleMapStep));

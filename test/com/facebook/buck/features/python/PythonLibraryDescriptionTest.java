@@ -19,8 +19,9 @@ package com.facebook.buck.features.python;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
@@ -28,6 +29,7 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.cxx.CxxGenrule;
@@ -36,11 +38,9 @@ import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkStrategy;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -72,7 +72,7 @@ public class PythonLibraryDescriptionTest {
     // base name.
     PythonLibraryBuilder normalBuilder =
         new PythonLibraryBuilder(target)
-            .setSrcs(SourceList.ofUnnamedSources(ImmutableSortedSet.of(source)));
+            .setSrcs(SourceSortedSet.ofUnnamedSources(ImmutableSortedSet.of(source)));
     TargetGraph normalTargetGraph = TargetGraphFactory.newInstance(normalBuilder.build());
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(normalTargetGraph);
     PythonLibrary normal = normalBuilder.build(graphBuilder, filesystem, normalTargetGraph);
@@ -87,7 +87,7 @@ public class PythonLibraryDescriptionTest {
     String baseModule = "blah";
     PythonLibraryBuilder withBaseModuleBuilder =
         new PythonLibraryBuilder(target)
-            .setSrcs(SourceList.ofUnnamedSources(ImmutableSortedSet.of(source)))
+            .setSrcs(SourceSortedSet.ofUnnamedSources(ImmutableSortedSet.of(source)))
             .setBaseModule(baseModule);
     TargetGraph withBaseModuleTargetGraph =
         TargetGraphFactory.newInstance(withBaseModuleBuilder.build());
@@ -112,17 +112,18 @@ public class PythonLibraryDescriptionTest {
     PythonLibraryBuilder builder =
         new PythonLibraryBuilder(target)
             .setPlatformSrcs(
-                PatternMatchedCollection.<SourceList>builder()
+                PatternMatchedCollection.<SourceSortedSet>builder()
                     .add(
                         Pattern.compile("^" + PythonTestUtils.PYTHON_PLATFORM.getFlavor() + "$"),
-                        SourceList.ofUnnamedSources(ImmutableSortedSet.of(pyPlatformMatchedSource)))
+                        SourceSortedSet.ofUnnamedSources(
+                            ImmutableSortedSet.of(pyPlatformMatchedSource)))
                     .add(
                         Pattern.compile("^" + CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor() + "$"),
-                        SourceList.ofUnnamedSources(
+                        SourceSortedSet.ofUnnamedSources(
                             ImmutableSortedSet.of(cxxPlatformMatchedSource)))
                     .add(
                         Pattern.compile("won't match anything"),
-                        SourceList.ofUnnamedSources(ImmutableSortedSet.of(unmatchedSource)))
+                        SourceSortedSet.ofUnnamedSources(ImmutableSortedSet.of(unmatchedSource)))
                     .build());
     TargetGraph targetGraph = TargetGraphFactory.newInstance(builder.build());
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
@@ -146,17 +147,18 @@ public class PythonLibraryDescriptionTest {
     PythonLibraryBuilder builder =
         new PythonLibraryBuilder(target)
             .setPlatformResources(
-                PatternMatchedCollection.<SourceList>builder()
+                PatternMatchedCollection.<SourceSortedSet>builder()
                     .add(
                         Pattern.compile("^" + PythonTestUtils.PYTHON_PLATFORM.getFlavor() + "$"),
-                        SourceList.ofUnnamedSources(ImmutableSortedSet.of(pyPlatformMatchedSource)))
+                        SourceSortedSet.ofUnnamedSources(
+                            ImmutableSortedSet.of(pyPlatformMatchedSource)))
                     .add(
                         Pattern.compile("^" + CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor() + "$"),
-                        SourceList.ofUnnamedSources(
+                        SourceSortedSet.ofUnnamedSources(
                             ImmutableSortedSet.of(cxxPlatformMatchedSource)))
                     .add(
                         Pattern.compile("won't match anything"),
-                        SourceList.ofUnnamedSources(ImmutableSortedSet.of(unmatchedSource)))
+                        SourceSortedSet.ofUnnamedSources(ImmutableSortedSet.of(unmatchedSource)))
                     .build());
     TargetGraph targetGraph = TargetGraphFactory.newInstance(builder.build());
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
@@ -186,13 +188,13 @@ public class PythonLibraryDescriptionTest {
     PythonLibraryBuilder builder =
         new PythonLibraryBuilder(target)
             .setVersionedSrcs(
-                VersionMatchedCollection.<SourceList>builder()
+                VersionMatchedCollection.<SourceSortedSet>builder()
                     .add(
                         ImmutableMap.of(depBuilder.getTarget(), Version.of("1.0")),
-                        SourceList.ofUnnamedSources(ImmutableSortedSet.of(matchedSource)))
+                        SourceSortedSet.ofUnnamedSources(ImmutableSortedSet.of(matchedSource)))
                     .add(
                         ImmutableMap.of(depBuilder.getTarget(), Version.of("2.0")),
-                        SourceList.ofUnnamedSources(ImmutableSortedSet.of(unmatchedSource)))
+                        SourceSortedSet.ofUnnamedSources(ImmutableSortedSet.of(unmatchedSource)))
                     .build());
     TargetGraph targetGraph =
         VersionedTargetGraphBuilder.transform(
@@ -234,13 +236,13 @@ public class PythonLibraryDescriptionTest {
     PythonLibraryBuilder builder =
         new PythonLibraryBuilder(target)
             .setVersionedResources(
-                VersionMatchedCollection.<SourceList>builder()
+                VersionMatchedCollection.<SourceSortedSet>builder()
                     .add(
                         ImmutableMap.of(depBuilder.getTarget(), Version.of("1.0")),
-                        SourceList.ofUnnamedSources(ImmutableSortedSet.of(matchedSource)))
+                        SourceSortedSet.ofUnnamedSources(ImmutableSortedSet.of(matchedSource)))
                     .add(
                         ImmutableMap.of(depBuilder.getTarget(), Version.of("2.0")),
-                        SourceList.ofUnnamedSources(ImmutableSortedSet.of(unmatchedSource)))
+                        SourceSortedSet.ofUnnamedSources(ImmutableSortedSet.of(unmatchedSource)))
                     .build());
     TargetGraph targetGraph =
         VersionedTargetGraphBuilder.transform(
@@ -273,7 +275,7 @@ public class PythonLibraryDescriptionTest {
     PythonLibraryBuilder libraryBuilder =
         new PythonLibraryBuilder(BuildTargetFactory.newInstance("//:lib"))
             .setSrcs(
-                SourceList.ofUnnamedSources(
+                SourceSortedSet.ofUnnamedSources(
                     ImmutableSortedSet.of(
                         DefaultBuildTargetSourcePath.of(srcBuilder.getTarget()))));
     TargetGraph targetGraph =

@@ -15,10 +15,10 @@
  */
 package com.facebook.buck.parser;
 
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.ConfigView;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.ConfigView;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.io.WatchmanWatcher;
+import com.facebook.buck.io.watchman.WatchmanWatcher;
 import com.facebook.buck.parser.api.Syntax;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
@@ -293,5 +293,10 @@ abstract class AbstractParserConfig implements ConfigView<BuckConfig> {
   @Value.Lazy
   public int getParserTargetThreshold() {
     return getDelegate().getInteger("parser", "target_threshold").orElse(TARGET_PARSER_THRESHOLD);
+  }
+
+  @Value.Lazy
+  public boolean getEnableConfigurableAttributes() {
+    return getDelegate().getBooleanValue("parser", "enable_configurable_attributes", false);
   }
 }

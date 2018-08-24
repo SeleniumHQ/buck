@@ -21,13 +21,15 @@ import static org.junit.Assert.assertEquals;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.model.targetgraph.RawAttributes;
 import com.facebook.buck.core.model.targetgraph.RawTargetNode;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.ImmutableRawTargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesTestUtil;
-import com.facebook.buck.core.rules.type.BuildRuleType;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
+import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.core.select.TestSelectableResolver;
 import com.facebook.buck.core.select.impl.DefaultSelectorListResolver;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
@@ -35,7 +37,6 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -65,23 +66,23 @@ public class RawTargetNodeToTargetNodeFactoryTest {
     RawTargetNode node =
         ImmutableRawTargetNode.of(
             buildTarget,
-            BuildRuleType.of("java_library"),
+            RuleType.of("java_library", RuleType.Kind.BUILD),
             attributes,
             ImmutableSet.of(),
             ImmutableSet.of());
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     RawTargetNodeToTargetNodeFactory factory =
         new RawTargetNodeToTargetNodeFactory(
+            TestKnownRuleTypesProvider.create(BuckPluginManagerFactory.createPluginManager()),
             new ConstructorArgMarshaller(typeCoercerFactory),
             new TargetNodeFactory(typeCoercerFactory),
             new NoopPackageBoundaryChecker(),
             (file, targetNode) -> {},
             new DefaultSelectorListResolver(new TestSelectableResolver()));
 
-    TargetNode<?, ?> targetNode =
+    TargetNode<?> targetNode =
         factory.createTargetNode(
             cell,
-            KnownBuildRuleTypesTestUtil.createKnownBuildRuleTypesFactory().create(cell),
             Paths.get("a/b/BUCK"),
             buildTarget,
             node,

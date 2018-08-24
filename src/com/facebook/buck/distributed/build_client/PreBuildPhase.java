@@ -25,6 +25,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.graph.ActionAndTargetGraphs;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.ArtifactCacheByBuildRule;
 import com.facebook.buck.distributed.ClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildArtifactCacheImpl;
@@ -42,7 +43,6 @@ import com.facebook.buck.distributed.thrift.MinionRequirements;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableList;
@@ -92,6 +92,8 @@ public class PreBuildPhase {
     this.buildLabel = buildLabel;
   }
 
+  // TODO(shivanker): Add unit-tests for this class (decoupled from DistBuildControllerTest).
+
   /** Run all steps required before the build. */
   public Pair<StampedeId, ListenableFuture<Void>> runPreDistBuildLocalStepsAsync(
       ListeningExecutorService networkExecutorService,
@@ -136,7 +138,7 @@ public class PreBuildPhase {
     List<ListenableFuture<?>> asyncJobs = new LinkedList<>();
 
     asyncJobs.add(
-        Futures.transform(
+        Futures.transformAsync(
             asyncJobState,
             jobState -> {
               LOG.info("Uploading local changes.");

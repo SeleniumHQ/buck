@@ -23,12 +23,12 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.BuckConfigTestUtils;
-import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.BuckConfigTestUtils;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.io.WatchmanWatcher.CursorType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.watchman.WatchmanWatcher.CursorType;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.base.Joiner;
@@ -178,8 +178,7 @@ public class ParserConfigTest {
             .build()
             .getView(ParserConfig.class);
 
-    thrown.expect(HumanReadableException.class);
-    parserConfig.getReadOnlyPaths();
+    assertTrue(parserConfig.getReadOnlyPaths().get().isEmpty());
   }
 
   @Test

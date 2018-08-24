@@ -16,16 +16,16 @@
 
 package com.facebook.buck.rules.query;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.exceptions.BuildTargetParseException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.jvm.core.HasClasspathDeps;
-import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.parser.BuildTargetParseException;
 import com.facebook.buck.parser.BuildTargetParser;
+import com.facebook.buck.parser.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.query.AttrFilterFunction;
 import com.facebook.buck.query.DepsFunction;
@@ -121,7 +121,7 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
 
   @Override
   public Set<QueryTarget> getInputs(QueryTarget target) {
-    TargetNode<?, ?> node = getNode(target);
+    TargetNode<?> node = getNode(target);
     return node.getInputs()
         .stream()
         .map(path -> PathSourcePath.of(node.getFilesystem(), path))
@@ -141,7 +141,7 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
 
   @Override
   public String getTargetKind(QueryTarget target) {
-    return getNode(target).getBuildRuleType().getName();
+    return getNode(target).getRuleType().getName();
   }
 
   @Override
@@ -172,7 +172,7 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
         typeCoercerFactory, getNode(target), attribute, predicate);
   }
 
-  private TargetNode<?, ?> getNode(QueryTarget target) {
+  private TargetNode<?> getNode(QueryTarget target) {
     Preconditions.checkState(target instanceof QueryBuildTarget);
     Preconditions.checkArgument(targetGraph.isPresent());
     BuildTarget buildTarget = ((QueryBuildTarget) target).getBuildTarget();

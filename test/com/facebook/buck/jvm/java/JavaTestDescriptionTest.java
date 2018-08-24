@@ -18,6 +18,7 @@ package com.facebook.buck.jvm.java;
 
 import static org.hamcrest.junit.MatcherAssert.assertThat;
 
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -26,7 +27,6 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
-import com.facebook.buck.model.BuildTargetFactory;
 import java.nio.file.Paths;
 import java.util.SortedSet;
 import org.hamcrest.Matchers;
@@ -44,18 +44,18 @@ public class JavaTestDescriptionTest extends AbiCompilationModeTest {
 
   @Test
   public void rulesExportedFromDepsBecomeFirstOrderDeps() {
-    TargetNode<?, ?> exportedNode =
+    TargetNode<?> exportedNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:exported_rule"), javaBuckConfig)
             .addSrc(Paths.get("java/src/com/exported_rule/foo.java"))
             .build();
-    TargetNode<?, ?> exportingNode =
+    TargetNode<?> exportingNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:exporting_rule"), javaBuckConfig)
             .addSrc(Paths.get("java/src/com/exporting_rule/bar.java"))
             .addExportedDep(exportedNode.getBuildTarget())
             .build();
-    TargetNode<?, ?> javaTestNode =
+    TargetNode<?> javaTestNode =
         JavaTestBuilder.createBuilder(BuildTargetFactory.newInstance("//:rule"), javaBuckConfig)
             .addDep(exportingNode.getBuildTarget())
             .build();
@@ -79,18 +79,18 @@ public class JavaTestDescriptionTest extends AbiCompilationModeTest {
 
   @Test
   public void rulesExportedFromProvidedDepsBecomeFirstOrderDeps() {
-    TargetNode<?, ?> exportedNode =
+    TargetNode<?> exportedNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:exported_rule"), javaBuckConfig)
             .addSrc(Paths.get("java/src/com/exported_rule/foo.java"))
             .build();
-    TargetNode<?, ?> exportingNode =
+    TargetNode<?> exportingNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:exporting_rule"), javaBuckConfig)
             .addSrc(Paths.get("java/src/com/exporting_rule/bar.java"))
             .addExportedDep(exportedNode.getBuildTarget())
             .build();
-    TargetNode<?, ?> javaTestNode =
+    TargetNode<?> javaTestNode =
         JavaTestBuilder.createBuilder(BuildTargetFactory.newInstance("//:rule"), javaBuckConfig)
             .addProvidedDep(exportingNode.getBuildTarget())
             .build();

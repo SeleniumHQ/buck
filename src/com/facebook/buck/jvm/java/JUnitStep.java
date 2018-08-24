@@ -16,10 +16,9 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.ProcessExecutor;
@@ -51,7 +50,6 @@ public class JUnitStep extends ShellStep {
   private boolean hasTimedOut = false;
 
   public JUnitStep(
-      BuildTarget buildTarget,
       ProjectFilesystem filesystem,
       Map<String, String> nativeLibsEnvironment,
       Optional<Long> testRuleTimeoutMs,
@@ -59,7 +57,7 @@ public class JUnitStep extends ShellStep {
       ImmutableMap<String, String> env,
       ImmutableList<String> javaRuntimeLauncher,
       JUnitJvmArgs junitJvmArgs) {
-    super(Optional.of(buildTarget), filesystem.getRootPath());
+    super(filesystem.getRootPath());
     this.filesystem = filesystem;
     this.javaRuntimeLauncher = javaRuntimeLauncher;
     this.nativeLibsEnvironment = ImmutableMap.copyOf(nativeLibsEnvironment);

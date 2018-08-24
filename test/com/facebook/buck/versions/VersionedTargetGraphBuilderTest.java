@@ -19,11 +19,11 @@ package com.facebook.buck.versions;
 import static org.hamcrest.junit.MatcherAssert.assertThat;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -53,7 +53,7 @@ public class VersionedTargetGraphBuilderTest {
         ImmutableSortedMap.of(BuildTargetFactory.newInstance(dep), Version.of(version)));
   }
 
-  private static void assertEquals(TargetNode<?, ?> expected, TargetNode<?, ?> actual) {
+  private static void assertEquals(TargetNode<?> expected, TargetNode<?> actual) {
     assertThat(actual.getBuildTarget(), Matchers.equalTo(expected.getBuildTarget()));
     assertThat(
         String.format("%s: declared deps: ", expected.getBuildTarget()),
@@ -81,19 +81,19 @@ public class VersionedTargetGraphBuilderTest {
   }
 
   private static void assertEquals(TargetGraph expected, TargetGraph actual) {
-    ImmutableMap<BuildTarget, TargetNode<?, ?>> expectedNodes =
+    ImmutableMap<BuildTarget, TargetNode<?>> expectedNodes =
         Maps.uniqueIndex(expected.getNodes(), TargetNode::getBuildTarget);
-    ImmutableMap<BuildTarget, TargetNode<?, ?>> actualNodes =
+    ImmutableMap<BuildTarget, TargetNode<?>> actualNodes =
         Maps.uniqueIndex(actual.getNodes(), TargetNode::getBuildTarget);
     assertThat(actualNodes.keySet(), Matchers.equalTo(expectedNodes.keySet()));
-    for (Map.Entry<BuildTarget, TargetNode<?, ?>> ent : expectedNodes.entrySet()) {
+    for (Map.Entry<BuildTarget, TargetNode<?>> ent : expectedNodes.entrySet()) {
       assertEquals(ent.getValue(), actualNodes.get(ent.getKey()));
     }
   }
 
   @Test
   public void singleRootNode() throws Exception {
-    TargetNode<?, ?> root = new VersionRootBuilder("//:root").build();
+    TargetNode<?> root = new VersionRootBuilder("//:root").build();
     TargetGraph graph = TargetGraphFactory.newInstanceExact(root);
     VersionedTargetGraphBuilder builder =
         new VersionedTargetGraphBuilder(

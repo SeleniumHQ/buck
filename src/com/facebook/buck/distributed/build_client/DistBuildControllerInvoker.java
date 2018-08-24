@@ -22,5 +22,5 @@ import java.io.IOException;
  * class or any of its invocation arguments.
  */
 public interface DistBuildControllerInvoker {
-  int runDistBuildAndReturnExitCode() throws IOException, InterruptedException;
+  StampedeExecutionResult runDistBuildAndReturnExitCode() throws IOException, InterruptedException;
 }

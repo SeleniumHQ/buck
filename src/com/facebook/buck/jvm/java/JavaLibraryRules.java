@@ -16,32 +16,28 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.build.buildable.context.BuildableContext;
-import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
-import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.facebook.buck.model.BuildTargets;
+import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Ordering;
 import com.google.common.hash.HashCode;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import javax.annotation.Nullable;
 
 /** Common utilities for working with {@link JavaLibrary} objects. */
 public class JavaLibraryRules {
@@ -50,25 +46,13 @@ public class JavaLibraryRules {
   private JavaLibraryRules() {}
 
   static void addAccumulateClassNamesStep(
-      BuildTarget target,
+      BuildCellRelativePathFactory cellRelativePathFactory,
       ProjectFilesystem filesystem,
-      @Nullable SourcePath sourcePathToOutput,
-      BuildableContext buildableContext,
-      BuildContext buildContext,
-      ImmutableList.Builder<Step> steps) {
-
-    Path pathToClassHashes = JavaLibraryRules.getPathToClassHashes(target, filesystem);
-    steps.add(
-        MkdirStep.of(
-            BuildCellRelativePath.fromCellRelativePath(
-                buildContext.getBuildCellRootPath(), filesystem, pathToClassHashes.getParent())));
-    steps.add(
-        new AccumulateClassNamesStep(
-            filesystem,
-            Optional.ofNullable(sourcePathToOutput)
-                .map(buildContext.getSourcePathResolver()::getRelativePath),
-            pathToClassHashes));
-    buildableContext.recordArtifact(pathToClassHashes);
+      Builder<Step> steps,
+      Optional<Path> pathToClasses,
+      Path pathToClassHashes) {
+    steps.add(MkdirStep.of(cellRelativePathFactory.from(pathToClassHashes.getParent())));
+    steps.add(new AccumulateClassNamesStep(filesystem, pathToClasses, pathToClassHashes));
   }
 
   static JavaLibrary.Data initializeFromDisk(BuildTarget buildTarget, ProjectFilesystem filesystem)
@@ -80,8 +64,8 @@ public class JavaLibraryRules {
     return new JavaLibrary.Data(classHashes);
   }
 
-  private static Path getPathToClassHashes(BuildTarget buildTarget, ProjectFilesystem filesystem) {
-    return BuildTargets.getGenPath(filesystem, buildTarget, "%s.classes.txt");
+  static Path getPathToClassHashes(BuildTarget buildTarget, ProjectFilesystem filesystem) {
+    return BuildTargetPaths.getGenPath(filesystem, buildTarget, "%s.classes.txt");
   }
 
   /**
@@ -98,9 +82,9 @@ public class JavaLibraryRules {
         graphBuilder,
         deps,
         r ->
-            r instanceof JavaLibrary || r instanceof CalculateAbi
-                ? Optional.of(r.getBuildDeps())
-                : Optional.empty(),
+            r instanceof JavaLibrary
+                ? Optional.of(((JavaLibrary) r).getDepsForTransitiveClasspathEntries())
+                : r instanceof CalculateAbi ? Optional.of(r.getBuildDeps()) : Optional.empty(),
         true);
   }
 
@@ -135,14 +119,5 @@ public class JavaLibraryRules {
       }
     }
     return abiRules.build();
-  }
-
-  public static ZipArchiveDependencySupplier getAbiClasspath(
-      ActionGraphBuilder graphBuilder, Iterable<BuildRule> inputs) {
-    return new ZipArchiveDependencySupplier(
-        getAbiRules(graphBuilder, inputs)
-            .stream()
-            .map(BuildRule::getSourcePathToOutput)
-            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())));
   }
 }

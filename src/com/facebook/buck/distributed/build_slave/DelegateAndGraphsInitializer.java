@@ -25,11 +25,11 @@ import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.DistBuildCachingEngineDelegate;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildTargetGraphCodec;
 import com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTracker.SlaveEvents;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
@@ -120,8 +120,7 @@ public class DelegateAndGraphsInitializer {
           Preconditions.checkNotNull(
               codec.createTargetGraph(
                   args.getState().getRemoteState().getTargetGraph(),
-                  key -> Preconditions.checkNotNull(cells.get(key)),
-                  args.getKnownBuildRuleTypesProvider()));
+                  key -> Preconditions.checkNotNull(cells.get(key))));
 
       try {
         if (args.getState().getRemoteRootCellConfig().getBuildVersions()) {
@@ -156,7 +155,7 @@ public class DelegateAndGraphsInitializer {
               "Parallel action graph mode: [%s]. Parallel action graph threads [%d]",
               args.getActionGraphParallelizationMode(), args.getMaxActionGraphParallelism()));
       ActionGraphAndBuilder actionGraphAndBuilder =
-          args.getActionGraphCache()
+          args.getActionGraphProvider()
               .getActionGraph(
                   args.getBuckEventBus(),
                   /* checkActionGraphs */ false,
@@ -243,6 +242,7 @@ public class DelegateAndGraphsInitializer {
         new DefaultTypeCoercerFactory(PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY);
     ParserTargetNodeFactory<Map<String, Object>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
+            args.getKnownRuleTypesProvider(),
             new ConstructorArgMarshaller(typeCoercerFactory),
             new TargetNodeFactory(typeCoercerFactory),
             new VisibilityPatternFactory(),

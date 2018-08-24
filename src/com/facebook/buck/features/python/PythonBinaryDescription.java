@@ -16,8 +16,7 @@
 
 package com.facebook.buck.features.python;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasTests;
@@ -27,15 +26,19 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.SymlinkTree;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
@@ -45,12 +48,9 @@ import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonPlatformsProvider;
 import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.versions.HasVersionUniverse;
 import com.facebook.buck.versions.VersionRoot;
@@ -103,7 +103,8 @@ public class PythonBinaryDescription
       ProjectFilesystem projectFilesystem,
       ActionGraphBuilder graphBuilder) {
     BuildTarget emptyInitTarget = getEmptyInitTarget(buildTarget);
-    Path emptyInitPath = BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s/__init__.py");
+    Path emptyInitPath =
+        BuildTargetPaths.getGenPath(projectFilesystem, buildTarget, "%s/__init__.py");
     WriteFile rule =
         graphBuilder.addToIndex(
             new WriteFile(
@@ -157,7 +158,7 @@ public class PythonBinaryDescription
     components = components.withModules(addMissingInitModules(components.getModules(), emptyInit));
 
     BuildTarget linkTreeTarget = buildTarget.withAppendedFlavors(InternalFlavor.of("link-tree"));
-    Path linkTreeRoot = BuildTargets.getGenPath(projectFilesystem, linkTreeTarget, "%s");
+    Path linkTreeRoot = BuildTargetPaths.getGenPath(projectFilesystem, linkTreeTarget, "%s");
     SymlinkTree linkTree =
         graphBuilder.addToIndex(
             new SymlinkTree(

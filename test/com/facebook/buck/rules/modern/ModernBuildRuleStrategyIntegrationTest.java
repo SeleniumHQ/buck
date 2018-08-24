@@ -22,22 +22,22 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assume.assumeFalse;
 
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypes;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.modern.builders.grpc.server.GrpcServer;
 import com.facebook.buck.rules.modern.config.ModernBuildRuleConfig;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -81,12 +81,17 @@ public class ModernBuildRuleStrategyIntegrationTest {
   public static Collection<Object[]> data() {
     ImmutableList.Builder<Object[]> dataBuilder = ImmutableList.builder();
     for (ModernBuildRuleConfig.Strategy strategy : ModernBuildRuleConfig.Strategy.values()) {
+      if (strategy.equals(ModernBuildRuleConfig.Strategy.THRIFT_REMOTE)) {
+        // TODO(shivanker): We don't have a dummy implementation for Thrift in this repository.
+        // Probably add this in the future to be able to have unit tests.
+        continue;
+      }
       dataBuilder.add(new Object[] {strategy});
     }
     return dataBuilder.build();
   }
 
-  @Rule public TemporaryPaths tmpFolder = new TemporaryPaths(true);
+  @Rule public TemporaryPaths tmpFolder = new TemporaryPaths();
 
   private final ModernBuildRuleConfig.Strategy strategy;
   private Optional<GrpcServer> server = Optional.empty();
@@ -229,15 +234,18 @@ public class ModernBuildRuleStrategyIntegrationTest {
     workspace =
         TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
             this, "strategies", tmpFolder);
-    workspace.setKnownBuildRuleTypesFactoryFactory(
-        (processExecutor, pluginManager, sandboxExecutionStrategyFactory) ->
+    workspace.setKnownRuleTypesFactoryFactory(
+        (executor,
+            pluginManager,
+            sandboxExecutionStrategyFactory,
+            knownConfigurationDescriptions) ->
             cell ->
-                KnownBuildRuleTypes.builder()
-                    .addDescriptions(
+                KnownRuleTypes.of(
+                    ImmutableList.of(
                         new TouchOutputDescription(),
                         new LargeDynamicsDescription(),
-                        new FailingRuleDescription())
-                    .build());
+                        new FailingRuleDescription()),
+                    knownConfigurationDescriptions));
     workspace.setUp();
     workspace.addBuckConfigLocalOption("modern_build_rule", "strategy", strategy.toString());
     workspace.addBuckConfigLocalOption(

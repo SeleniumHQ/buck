@@ -18,10 +18,11 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
@@ -37,7 +38,6 @@ import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.step.Step;
@@ -227,7 +227,6 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
     if (archiver.isRanLibStepRequired()) {
       builder.add(
           new RanlibStep(
-              getBuildTarget(),
               getProjectFilesystem(),
               ranlib.get().getEnvironment(resolver),
               ranlib.get().getCommandPrefix(resolver),
@@ -243,7 +242,7 @@ public class Archive extends AbstractBuildRule implements SupportsInputBasedRule
   }
 
   private Path getScratchPath() {
-    return BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-tmp");
+    return BuildTargetPaths.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-tmp");
   }
 
   /**

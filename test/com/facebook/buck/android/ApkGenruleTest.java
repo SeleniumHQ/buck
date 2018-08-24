@@ -17,32 +17,36 @@
 package com.facebook.buck.android;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
+import com.facebook.buck.core.model.targetgraph.TestBuildRuleCreationContextFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.Keystore;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TestBuildRuleCreationContextFactory;
-import com.facebook.buck.rules.TestBuildRuleParams;
+import com.facebook.buck.rules.coercer.SourceSet;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.sandbox.NoSandboxExecutionStrategy;
 import com.facebook.buck.shell.AbstractGenruleStep;
@@ -54,8 +58,6 @@ import com.facebook.buck.step.fs.RmStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -66,6 +68,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import org.hamcrest.Matchers;
 import org.junit.Test;
 
 public class ApkGenruleTest {
@@ -130,11 +133,13 @@ public class ApkGenruleTest {
             .setCmdExe(StringWithMacrosUtils.format(""))
             .setOut("signed_fb4a.apk")
             .setSrcs(
-                ImmutableList.of(
-                    PathSourcePath.of(
-                        projectFilesystem, fileSystem.getPath("src/com/facebook/signer.py")),
-                    PathSourcePath.of(
-                        projectFilesystem, fileSystem.getPath("src/com/facebook/key.properties"))))
+                SourceSet.ofUnnamedSources(
+                    ImmutableSortedSet.of(
+                        PathSourcePath.of(
+                            projectFilesystem, fileSystem.getPath("src/com/facebook/signer.py")),
+                        PathSourcePath.of(
+                            projectFilesystem,
+                            fileSystem.getPath("src/com/facebook/key.properties")))))
             .build();
     BuildRuleParams params = TestBuildRuleParams.create();
     ApkGenrule apkGenrule =
@@ -163,13 +168,11 @@ public class ApkGenruleTest {
     BuildContext buildContext =
         FakeBuildContext.withSourcePathResolver(pathResolver)
             .withBuildCellRootPath(projectFilesystem.getRootPath());
-    Iterable<Path> expectedInputsToCompareToOutputs =
-        ImmutableList.of(
+    assertThat(
+        pathResolver.filterInputsToCompareToOutput(apkGenrule.getSrcs().getPaths()),
+        Matchers.containsInAnyOrder(
             fileSystem.getPath("src/com/facebook/signer.py"),
-            fileSystem.getPath("src/com/facebook/key.properties"));
-    MoreAsserts.assertIterablesEquals(
-        expectedInputsToCompareToOutputs,
-        pathResolver.filterInputsToCompareToOutput(apkGenrule.getSrcs()));
+            fileSystem.getPath("src/com/facebook/key.properties")));
 
     // Verify that the shell commands that the genrule produces are correct.
     List<Step> steps = apkGenrule.getBuildSteps(buildContext, new FakeBuildableContext());
@@ -261,7 +264,7 @@ public class ApkGenruleTest {
             .put(
                 "APK",
                 projectFilesystem
-                    .resolve(BuildTargets.getGenPath(projectFilesystem, apkTarget, "%s.apk"))
+                    .resolve(BuildTargetPaths.getGenPath(projectFilesystem, apkTarget, "%s.apk"))
                     .toString())
             .put("OUT", expectedApkOutput.toString())
             .build(),

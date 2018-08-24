@@ -23,11 +23,12 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.build.engine.BuildEngineBuildContext;
 import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.google.common.collect.ImmutableMap;

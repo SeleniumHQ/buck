@@ -18,16 +18,19 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
 import com.facebook.buck.core.rules.attr.InitializableFromDisk;
 import com.facebook.buck.core.rules.attr.SupportsDependencyFileRuleKey;
 import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
-import com.facebook.buck.core.rules.common.BuildDeps;
+import com.facebook.buck.core.rules.common.BuildableSupport;
+import com.facebook.buck.core.rules.common.BuildableSupport.DepsSupplier;
+import com.facebook.buck.core.rules.common.RecordArtifactVerifier;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.rules.pipeline.RulePipelineStateFactory;
 import com.facebook.buck.core.rules.pipeline.SupportsPipelining;
@@ -51,43 +54,55 @@ public class CalculateSourceAbi extends AbstractBuildRule
         SupportsDependencyFileRuleKey,
         SupportsInputBasedRuleKey,
         SupportsPipelining<JavacPipelineState> {
-
   @AddToRuleKey private final JarBuildStepsFactory jarBuildStepsFactory;
 
   // This will be added to the rule key by virtue of being returned from getBuildDeps.
-  private final BuildDeps buildDeps;
+  private final DepsSupplier buildDepsSupplier;
   private final BuildOutputInitializer<Object> buildOutputInitializer;
   private final SourcePathRuleFinder ruleFinder;
-  private final DefaultJavaAbiInfo javaAbiInfo;
+  private final JavaAbiInfo javaAbiInfo;
+
+  private final SourcePath sourcePathToOutput;
 
   public CalculateSourceAbi(
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
-      BuildDeps buildDeps,
       JarBuildStepsFactory jarBuildStepsFactory,
       SourcePathRuleFinder ruleFinder) {
     super(buildTarget, projectFilesystem);
-    this.buildDeps = buildDeps;
+    this.buildDepsSupplier = BuildableSupport.buildDepsSupplier(this, ruleFinder);
     this.jarBuildStepsFactory = jarBuildStepsFactory;
     this.ruleFinder = ruleFinder;
-    this.javaAbiInfo = new DefaultJavaAbiInfo(getBuildTarget(), getSourcePathToOutput());
-    buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
+    this.buildOutputInitializer = new BuildOutputInitializer<>(getBuildTarget(), this);
+    this.sourcePathToOutput =
+        Preconditions.checkNotNull(
+            jarBuildStepsFactory.getSourcePathToOutput(getBuildTarget(), getProjectFilesystem()));
+    this.javaAbiInfo = new DefaultJavaAbiInfo(getSourcePathToOutput());
   }
 
   @Override
   public SortedSet<BuildRule> getBuildDeps() {
-    return buildDeps;
+    return buildDepsSupplier.get();
+  }
+
+  @Override
+  public void updateBuildRuleResolver(
+      BuildRuleResolver ruleResolver,
+      SourcePathRuleFinder ruleFinder,
+      SourcePathResolver pathResolver) {
+    buildDepsSupplier.updateRuleFinder(ruleFinder);
   }
 
   @Override
   public ImmutableList<Step> getBuildSteps(
       BuildContext context, BuildableContext buildableContext) {
-    return jarBuildStepsFactory.getBuildStepsForAbiJar(context, buildableContext, getBuildTarget());
+    return jarBuildStepsFactory.getBuildStepsForAbiJar(
+        context, getProjectFilesystem(), getArtifactVerifier(buildableContext), getBuildTarget());
   }
 
   @Override
   public SourcePath getSourcePathToOutput() {
-    return Preconditions.checkNotNull(jarBuildStepsFactory.getSourcePathToOutput(getBuildTarget()));
+    return Preconditions.checkNotNull(sourcePathToOutput);
   }
 
   @Override
@@ -127,7 +142,19 @@ public class CalculateSourceAbi extends AbstractBuildRule
   public ImmutableList<? extends Step> getPipelinedBuildSteps(
       BuildContext context, BuildableContext buildableContext, JavacPipelineState state) {
     return jarBuildStepsFactory.getPipelinedBuildStepsForAbiJar(
-        getBuildTarget(), context, buildableContext, state);
+        getBuildTarget(),
+        context,
+        getProjectFilesystem(),
+        getArtifactVerifier(buildableContext),
+        state);
+  }
+
+  private RecordArtifactVerifier getArtifactVerifier(BuildableContext buildableContext) {
+    CompilerOutputPaths outputPaths =
+        CompilerOutputPaths.of(getBuildTarget(), getProjectFilesystem());
+    return new RecordArtifactVerifier(
+        ImmutableList.of(outputPaths.getOutputJarDirPath(), outputPaths.getAnnotationPath()),
+        buildableContext);
   }
 
   @Override
@@ -154,6 +181,6 @@ public class CalculateSourceAbi extends AbstractBuildRule
   public ImmutableList<SourcePath> getInputsAfterBuildingLocally(
       BuildContext context, CellPathResolver cellPathResolver) {
     return jarBuildStepsFactory.getInputsAfterBuildingLocally(
-        context, ruleFinder, cellPathResolver, getBuildTarget());
+        context, getProjectFilesystem(), ruleFinder, cellPathResolver, getBuildTarget());
   }
 }

@@ -19,16 +19,16 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellPathResolver;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargetPattern;
+import com.facebook.buck.parser.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -54,7 +54,7 @@ public class TargetNodeTranslatorTest {
     BuildTarget b = BuildTargetFactory.newInstance("//:b");
     BuildTarget c = BuildTargetFactory.newInstance("//:c");
     BuildTarget d = BuildTargetFactory.newInstance("//:d");
-    TargetNode<CxxLibraryDescriptionArg, ?> node =
+    TargetNode<CxxLibraryDescriptionArg> node =
         new CxxLibraryBuilder(a)
             .setDeps(ImmutableSortedSet.of(b))
             .setExportedDeps(ImmutableSortedSet.of(c))
@@ -72,7 +72,7 @@ public class TargetNodeTranslatorTest {
             return Optional.empty();
           }
         };
-    Optional<TargetNode<CxxLibraryDescriptionArg, ?>> translated = translator.translateNode(node);
+    Optional<TargetNode<CxxLibraryDescriptionArg>> translated = translator.translateNode(node);
     assertThat(translated.get().getBuildTarget(), Matchers.equalTo(d));
     assertThat(translated.get().getDeclaredDeps(), Matchers.equalTo(ImmutableSet.of(d)));
     assertThat(translated.get().getExtraDeps(), Matchers.equalTo(ImmutableSet.of(d)));
@@ -88,7 +88,7 @@ public class TargetNodeTranslatorTest {
     BuildTarget a = BuildTargetFactory.newInstance("//:a");
     BuildTarget b = BuildTargetFactory.newInstance("//:b");
     BuildTarget c = BuildTargetFactory.newInstance("//:c");
-    TargetNode<CxxLibraryDescriptionArg, ?> node =
+    TargetNode<CxxLibraryDescriptionArg> node =
         new CxxLibraryBuilder(a)
             .setDeps(ImmutableSortedSet.of(b))
             .setExportedDeps(ImmutableSortedSet.of(c))
@@ -106,14 +106,13 @@ public class TargetNodeTranslatorTest {
             return Optional.empty();
           }
         };
-    Optional<TargetNode<CxxLibraryDescriptionArg, ?>> translated = translator.translateNode(node);
+    Optional<TargetNode<CxxLibraryDescriptionArg>> translated = translator.translateNode(node);
     assertFalse(translated.isPresent());
   }
 
   @Test
   public void selectedVersions() {
-    TargetNode<VersionPropagatorDescriptionArg, ?> node =
-        new VersionPropagatorBuilder("//:a").build();
+    TargetNode<VersionPropagatorDescriptionArg> node = new VersionPropagatorBuilder("//:a").build();
     ImmutableMap<BuildTarget, Version> selectedVersions =
         ImmutableMap.of(BuildTargetFactory.newInstance("//:b"), Version.of("1.0"));
     TargetNodeTranslator translator =
@@ -129,7 +128,7 @@ public class TargetNodeTranslatorTest {
             return Optional.of(selectedVersions);
           }
         };
-    Optional<TargetNode<VersionPropagatorDescriptionArg, ?>> translated =
+    Optional<TargetNode<VersionPropagatorDescriptionArg>> translated =
         translator.translateNode(node);
     assertTrue(translated.isPresent());
     assertThat(

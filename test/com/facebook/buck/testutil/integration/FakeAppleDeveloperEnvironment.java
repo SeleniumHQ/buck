@@ -23,7 +23,7 @@ import com.facebook.buck.apple.toolchain.ProvisioningProfileMetadata;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
 import com.facebook.buck.apple.toolchain.impl.CodeSignIdentityStoreFactory;
 import com.facebook.buck.apple.toolchain.impl.ProvisioningProfileStoreFactory;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.MoreSuppliers;
@@ -77,11 +77,6 @@ public class FakeAppleDeveloperEnvironment {
   }
 
   public static boolean supportsCodeSigning() {
-    if (numCodeSigningIdentities >= Integer.MIN_VALUE) {
-      // Temporarily disable all code signing tests because there are environmental issues where we
-      // run them.
-      return false;
-    }
     return (numCodeSigningIdentities > 0);
   }
 

@@ -16,13 +16,13 @@
 
 package com.facebook.buck.cxx.toolchain;
 
-import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.model.UserFlavor;
 import com.facebook.buck.core.rules.schedule.RuleScheduleInfo;
-import com.facebook.buck.core.rules.type.BuildRuleType;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
@@ -59,6 +59,7 @@ public class CxxBuckConfig {
   private static final String BOOST_TEST_DEP = "boost_test_dep";
   private static final String HOST_PLATFORM = "host_platform";
   private static final String ARCHIVER_PLATFORM = "archiver_platform";
+  private static final String ARCHIVER_TYPE = "archiver_type";
   private static final String MAX_TEST_OUTPUT_SIZE = "max_test_output_size";
   private static final String LINKER_PLATFORM = "linker_platform";
   private static final String UNTRACKED_HEADERS = "untracked_headers";
@@ -70,7 +71,6 @@ public class CxxBuckConfig {
   private static final String CACHE_LINKS = "cache_links";
   private static final String CACHE_BINARIES = "cache_binaries";
   private static final String PCH_ENABLED = "pch_enabled";
-  private static final String SANDBOX_SOURCES = "sandbox_sources";
   private static final String ARCHIVE_CONTENTS = "archive_contents";
   private static final String DEBUG_PATH_SANITIZER_LIMIT = "debug_path_sanitizer_limit";
   private static final String SHOULD_REMAP_HOST_PLATFORM = "should_remap_host_platform";
@@ -265,11 +265,13 @@ public class CxxBuckConfig {
   public Optional<ArchiverProvider> getArchiverProvider(Platform defaultPlatform) {
     Optional<ToolProvider> toolProvider =
         delegate.getView(ToolConfig.class).getToolProvider(cxxSection, AR);
+    Optional<ArchiverProvider.Type> type =
+        delegate.getEnum(cxxSection, ARCHIVER_TYPE, ArchiverProvider.Type.class);
     return toolProvider.map(
         archiver -> {
           Optional<Platform> archiverPlatform =
               delegate.getEnum(cxxSection, ARCHIVER_PLATFORM, Platform.class);
-          return ArchiverProvider.from(archiver, archiverPlatform.orElse(defaultPlatform));
+          return ArchiverProvider.from(archiver, archiverPlatform.orElse(defaultPlatform), type);
         });
   }
 
@@ -409,17 +411,13 @@ public class CxxBuckConfig {
     return delegate.getBooleanValue(cxxSection, PCH_ENABLED, true);
   }
 
-  public boolean sandboxSources() {
-    return delegate.getBooleanValue(cxxSection, SANDBOX_SOURCES, false);
-  }
-
   public ArchiveContents getArchiveContents() {
     return delegate
         .getEnum(cxxSection, ARCHIVE_CONTENTS, ArchiveContents.class)
         .orElse(ArchiveContents.NORMAL);
   }
 
-  public ImmutableMap<String, Flavor> getDefaultFlavorsForRuleType(BuildRuleType type) {
+  public ImmutableMap<String, Flavor> getDefaultFlavorsForRuleType(RuleType type) {
     return ImmutableMap.copyOf(
         Maps.transformValues(
             delegate.getEntriesForSection("defaults." + type.getName()), InternalFlavor::of));

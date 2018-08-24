@@ -18,6 +18,7 @@ package com.facebook.buck.android;
 
 import static org.hamcrest.junit.MatcherAssert.assertThat;
 
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -28,7 +29,6 @@ import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
-import com.facebook.buck.model.BuildTargetFactory;
 import java.nio.file.Paths;
 import org.hamcrest.Matchers;
 import org.junit.Before;
@@ -45,18 +45,18 @@ public class RobolectricTestDescriptionTest extends AbiCompilationModeTest {
 
   @Test
   public void rulesExportedFromDepsBecomeFirstOrderDeps() {
-    TargetNode<?, ?> exportedNode =
+    TargetNode<?> exportedNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:exported_rule"), javaBuckConfig)
             .addSrc(Paths.get("java/src/com/exported_rule/foo.java"))
             .build();
-    TargetNode<?, ?> exportingNode =
+    TargetNode<?> exportingNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:exporting_rule"), javaBuckConfig)
             .addSrc(Paths.get("java/src/com/exporting_rule/bar.java"))
             .addExportedDep(exportedNode.getBuildTarget())
             .build();
-    TargetNode<?, ?> robolectricTestNode =
+    TargetNode<?> robolectricTestNode =
         RobolectricTestBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:rule"), javaBuckConfig)
             .addDep(exportingNode.getBuildTarget())
@@ -84,18 +84,18 @@ public class RobolectricTestDescriptionTest extends AbiCompilationModeTest {
 
   @Test
   public void rulesExportedFromProvidedDepsBecomeFirstOrderDeps() {
-    TargetNode<?, ?> exportedNode =
+    TargetNode<?> exportedNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:exported_rule"), javaBuckConfig)
             .addSrc(Paths.get("java/src/com/exported_rule/foo.java"))
             .build();
-    TargetNode<?, ?> exportingNode =
+    TargetNode<?> exportingNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:exporting_rule"), javaBuckConfig)
             .addSrc(Paths.get("java/src/com/exporting_rule/bar.java"))
             .addExportedDep(exportedNode.getBuildTarget())
             .build();
-    TargetNode<?, ?> robolectricTestNode =
+    TargetNode<?> robolectricTestNode =
         RobolectricTestBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:rule"), javaBuckConfig)
             .addProvidedDep(exportingNode.getBuildTarget())

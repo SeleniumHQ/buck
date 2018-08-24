@@ -17,20 +17,21 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
 import com.facebook.buck.command.BuildExecutorArgs;
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
 import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
+import com.facebook.buck.core.module.BuckModuleManager;
 import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
+import com.facebook.buck.io.watchman.Watchman;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.module.BuckModuleManager;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.core.rules.BuildStamp;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -70,6 +71,9 @@ public abstract class AbstractCommandRunnerParams {
 
   @Value.Parameter
   public abstract Cell getCell();
+
+  @Value.Parameter
+  public abstract Watchman getWatchman();
 
   @Value.Parameter
   public abstract InstrumentedVersionedTargetGraphCache getVersionedTargetGraphCache();
@@ -126,10 +130,10 @@ public abstract class AbstractCommandRunnerParams {
   public abstract BuildEnvironmentDescription getBuildEnvironmentDescription();
 
   @Value.Parameter
-  public abstract ActionGraphCache getActionGraphCache();
+  public abstract ActionGraphProvider getActionGraphProvider();
 
   @Value.Parameter
-  public abstract KnownBuildRuleTypesProvider getKnownBuildRuleTypesProvider();
+  public abstract KnownRuleTypesProvider getKnownRuleTypesProvider();
 
   @Value.Parameter
   public abstract BuildInfoStoreManager getBuildInfoStoreManager();

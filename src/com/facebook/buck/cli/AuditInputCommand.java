@@ -16,15 +16,15 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.util.graph.AbstractBottomUpTraversal;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.graph.AbstractBottomUpTraversal;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
@@ -74,7 +74,7 @@ public class AuditInputCommand extends AbstractCommand {
   public ExitCode runWithoutHelp(CommandRunnerParams params)
       throws IOException, InterruptedException {
     // Create a TargetGraph that is composed of the transitive closure of all of the dependent
-    // TargetNodes for the specified BuildTargets.
+    // TargetNodes for the specified BuildTargetPaths.
     ImmutableSet<String> fullyQualifiedBuildTargets =
         ImmutableSet.copyOf(getArgumentsFormattedAsBuildTargets(params.getBuckConfig()));
 
@@ -129,10 +129,10 @@ public class AuditInputCommand extends AbstractCommand {
   ExitCode printJsonInputs(CommandRunnerParams params, TargetGraph graph) throws IOException {
     SortedMap<String, ImmutableSortedSet<Path>> targetToInputs = new TreeMap<>();
 
-    new AbstractBottomUpTraversal<TargetNode<?, ?>, RuntimeException>(graph) {
+    new AbstractBottomUpTraversal<TargetNode<?>, RuntimeException>(graph) {
 
       @Override
-      public void visit(TargetNode<?, ?> node) {
+      public void visit(TargetNode<?> node) {
         Optional<Cell> cellRoot = params.getCell().getCellIfKnown(node.getBuildTarget());
         Cell cell = cellRoot.isPresent() ? cellRoot.get() : params.getCell();
         LOG.debug("Looking at inputs for %s", node.getBuildTarget().getFullyQualifiedName());
@@ -165,12 +165,12 @@ public class AuditInputCommand extends AbstractCommand {
     // Traverse the TargetGraph and print out all of the inputs used to produce each TargetNode.
     // Keep track of the inputs that have been displayed to ensure that they are not displayed more
     // than once.
-    new AbstractBottomUpTraversal<TargetNode<?, ?>, RuntimeException>(graph) {
+    new AbstractBottomUpTraversal<TargetNode<?>, RuntimeException>(graph) {
 
       final Set<Path> inputs = new HashSet<>();
 
       @Override
-      public void visit(TargetNode<?, ?> node) {
+      public void visit(TargetNode<?> node) {
         Optional<Cell> cellRoot = params.getCell().getCellIfKnown(node.getBuildTarget());
         Cell cell = cellRoot.isPresent() ? cellRoot.get() : params.getCell();
         for (Path input : node.getInputs()) {

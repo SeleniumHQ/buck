@@ -21,7 +21,7 @@ import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 
 public interface TargetNodeToBuildRuleTransformer {
 
@@ -29,5 +29,5 @@ public interface TargetNodeToBuildRuleTransformer {
       ToolchainProvider toolchainProvider,
       TargetGraph targetGraph,
       ActionGraphBuilder graphBuilder,
-      TargetNode<T, U> targetNode);
+      TargetNode<T> targetNode);
 }

@@ -20,6 +20,7 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
@@ -27,13 +28,12 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.DependencyAggregation;
-import com.facebook.buck.core.rules.impl.SymlinkTree;
-import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.Compiler;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxFlavorSanitizer;
@@ -44,8 +44,6 @@ import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -128,9 +126,6 @@ abstract class AbstractCxxSourceRuleFactory {
   @Value.Parameter
   protected abstract PicType getPicType();
 
-  @Value.Parameter
-  protected abstract Optional<SymlinkTree> getSandboxTree();
-
   @Value.Check
   protected void checkPrefixAndPrecompiledHeaderArgs() {
     if (getPrefixHeader().isPresent() && getPrecompiledHeader().isPresent()) {
@@ -164,8 +159,6 @@ abstract class AbstractCxxSourceRuleFactory {
             getBaseBuildTarget(),
             getActionGraphBuilder(),
             getPathResolver(),
-            getRuleFinder(),
-            getCxxPlatform(),
             getPrefixHeader(),
             getPrecompiledHeader())
         .getPreInclude();
@@ -181,11 +174,6 @@ abstract class AbstractCxxSourceRuleFactory {
       builder.addAll(
           getRuleFinder().filterBuildRuleInputs(getPreInclude().get().getHeaderSourcePath()));
       builder.addAll(getPreInclude().get().getBuildDeps());
-    }
-    if (getSandboxTree().isPresent()) {
-      SymlinkTree tree = getSandboxTree().get();
-      builder.add(tree);
-      builder.addAll(getRuleFinder().filterBuildRuleInputs(tree.getLinks().values()));
     }
     return builder.build();
   }
@@ -236,7 +224,6 @@ abstract class AbstractCxxSourceRuleFactory {
                             getFrameworks()),
                         CxxDescriptionEnhancer.frameworkPathToSearchPath(
                             getCxxPlatform(), getPathResolver()),
-                        getSandboxTree(),
                         /* leadingIncludePaths */ Optional.empty(),
                         Optional.of(aggregatedDeps),
                         getCxxPlatform().getConflictingHeaderBasenameWhitelist());
@@ -288,7 +275,7 @@ abstract class AbstractCxxSourceRuleFactory {
   /** @return the output path for an object file compiled from the source with the given name. */
   @VisibleForTesting
   Path getCompileOutputPath(BuildTarget target, String name) {
-    return BuildTargets.getGenPath(getProjectFilesystem(), target, "%s")
+    return BuildTargetPaths.getGenPath(getProjectFilesystem(), target, "%s")
         .resolve(getCompileOutputName(name));
   }
 
@@ -667,8 +654,6 @@ abstract class AbstractCxxSourceRuleFactory {
                   CxxSourceTypes.isPreprocessableType(source.getType())
                       || CxxSourceTypes.isCompilableType(source.getType()));
 
-              source = getSandboxedCxxSource(source);
-
               // If it's a preprocessable source, use a combine preprocess-and-compile build rule.
               // Otherwise, use a regular compile rule.
               if (CxxSourceTypes.isPreprocessableType(source.getType())) {
@@ -680,21 +665,6 @@ abstract class AbstractCxxSourceRuleFactory {
         .collect(
             ImmutableMap.toImmutableMap(
                 Function.identity(), CxxPreprocessAndCompile::getSourcePathToOutput));
-  }
-
-  private CxxSource getSandboxedCxxSource(CxxSource source) {
-    if (getSandboxTree().isPresent()) {
-      SymlinkTree sandboxTree = getSandboxTree().get();
-      Path sourcePath =
-          Paths.get(getPathResolver().getSourcePathName(getBaseBuildTarget(), source.getPath()));
-      Path sandboxPath =
-          BuildTargets.getGenPath(getProjectFilesystem(), sandboxTree.getBuildTarget(), "%s");
-      ExplicitBuildTargetSourcePath path =
-          ExplicitBuildTargetSourcePath.of(
-              sandboxTree.getBuildTarget(), sandboxPath.resolve(sourcePath));
-      source = source.withPath(path);
-    }
-    return source;
   }
 
   private DebugPathSanitizer getSanitizerForSourceType(CxxSource.Type type) {

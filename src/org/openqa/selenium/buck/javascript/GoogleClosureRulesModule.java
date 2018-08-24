@@ -16,7 +16,7 @@
 
 package org.openqa.selenium.buck.javascript;
 
-import com.facebook.buck.module.BuckModule;
+import com.facebook.buck.core.module.BuckModule;
 
 @BuckModule()
 public class GoogleClosureRulesModule {

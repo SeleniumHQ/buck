@@ -16,12 +16,14 @@
 
 package com.facebook.buck.features.python;
 
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
@@ -33,11 +35,9 @@ import com.facebook.buck.features.python.toolchain.impl.DefaultPexToolProvider;
 import com.facebook.buck.features.python.toolchain.impl.PythonInterpreterFromConfig;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -125,18 +125,18 @@ public class PythonTestBuilder
     return create(target, PythonTestUtils.PYTHON_PLATFORMS);
   }
 
-  public PythonTestBuilder setSrcs(SourceList srcs) {
+  public PythonTestBuilder setSrcs(SourceSortedSet srcs) {
     getArgForPopulating().setSrcs(srcs);
     return this;
   }
 
-  public PythonTestBuilder setPlatformSrcs(PatternMatchedCollection<SourceList> platformSrcs) {
+  public PythonTestBuilder setPlatformSrcs(PatternMatchedCollection<SourceSortedSet> platformSrcs) {
     getArgForPopulating().setPlatformSrcs(platformSrcs);
     return this;
   }
 
   public PythonTestBuilder setPlatformResources(
-      PatternMatchedCollection<SourceList> platformResources) {
+      PatternMatchedCollection<SourceSortedSet> platformResources) {
     getArgForPopulating().setPlatformResources(platformResources);
     return this;
   }
@@ -177,13 +177,14 @@ public class PythonTestBuilder
     return this;
   }
 
-  public PythonTestBuilder setVersionedSrcs(VersionMatchedCollection<SourceList> versionedSrcs) {
+  public PythonTestBuilder setVersionedSrcs(
+      VersionMatchedCollection<SourceSortedSet> versionedSrcs) {
     getArgForPopulating().setVersionedSrcs(Optional.of(versionedSrcs));
     return this;
   }
 
   public PythonTestBuilder setVersionedResources(
-      VersionMatchedCollection<SourceList> versionedResources) {
+      VersionMatchedCollection<SourceSortedSet> versionedResources) {
     getArgForPopulating().setVersionedResources(Optional.of(versionedResources));
     return this;
   }

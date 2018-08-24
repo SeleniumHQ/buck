@@ -16,8 +16,7 @@
 
 package com.facebook.buck.swift;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasSrcs;
@@ -29,15 +28,18 @@ import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.CxxLibrary;
@@ -58,12 +60,10 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
 import com.facebook.buck.swift.toolchain.SwiftPlatformsProvider;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
@@ -292,7 +292,7 @@ public class SwiftLibraryDescription
           swiftPlatform.get().getSwiftc(),
           args.getFrameworks(),
           args.getModuleName().orElse(buildTarget.getShortName()),
-          BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s"),
+          BuildTargetPaths.getGenPath(projectFilesystem, buildTarget, "%s"),
           args.getSrcs(),
           args.getVersion(),
           RichStream.from(args.getCompilerFlags())
@@ -450,7 +450,7 @@ public class SwiftLibraryDescription
         swiftPlatform.getSwiftc(),
         args.getFrameworks(),
         args.getModuleName().orElse(buildTarget.getShortName()),
-        BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s"),
+        BuildTargetPaths.getGenPath(projectFilesystem, buildTarget, "%s"),
         args.getSrcs(),
         args.getVersion(),
         RichStream.from(args.getCompilerFlags())

@@ -25,7 +25,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.doctor.config.BuildLogEntry;
 import com.facebook.buck.doctor.config.DoctorConfig;
 import com.facebook.buck.doctor.config.DoctorEndpointRequest;
@@ -175,7 +175,8 @@ public class DoctorCommandIntegrationTest {
 
     assertEquals(response, doctorResponse);
     assertEquals(
-        "\n:: Suggestions\n- [Error] Suggestion no1\n- [Warning][Area] Suggestion no2\n\n",
+        String.format(
+            "%n:: Suggestions%n- [Error] Suggestion no1%n- [Warning][Area] Suggestion no2%n%n"),
         ((TestConsole) helper.getConsole()).getTextWrittenToStdOut());
   }
 
@@ -337,7 +338,9 @@ public class DoctorCommandIntegrationTest {
             Optional.empty());
     report.collectAndSubmitResult();
 
-    assertThat(reporter.getDefectReport().getExtraInfo(), Matchers.equalTo(Optional.of("Extra\n")));
+    assertThat(
+        reporter.getDefectReport().getExtraInfo(),
+        Matchers.equalTo(Optional.of("Extra" + System.lineSeparator())));
     assertThat(
         reporter
             .getDefectReport()

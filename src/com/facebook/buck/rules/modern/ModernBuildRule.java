@@ -19,6 +19,7 @@ package com.facebook.buck.rules.modern;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
@@ -44,6 +45,7 @@ import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.types.Either;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
@@ -242,7 +244,40 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
       Iterable<Path> outputs) {
     ImmutableList.Builder<Step> stepBuilder = ImmutableList.builder();
     OutputPathResolver outputPathResolver = new DefaultOutputPathResolver(filesystem, buildTarget);
+    getSetupStepsForBuildable(context, filesystem, outputs, stepBuilder, outputPathResolver);
 
+    stepBuilder.addAll(
+        buildable.getBuildSteps(
+            context,
+            filesystem,
+            outputPathResolver,
+            getBuildCellPathFactory(context, filesystem, outputPathResolver)));
+
+    // TODO(cjhopman): This should probably be handled by the build engine.
+    if (context.getShouldDeleteTemporaries()) {
+      stepBuilder.add(
+          RmStep.of(
+                  BuildCellRelativePath.fromCellRelativePath(
+                      context.getBuildCellRootPath(), filesystem, outputPathResolver.getTempPath()))
+              .withRecursive(true));
+    }
+
+    return stepBuilder.build();
+  }
+
+  protected static DefaultBuildCellRelativePathFactory getBuildCellPathFactory(
+      BuildContext context, ProjectFilesystem filesystem, OutputPathResolver outputPathResolver) {
+    return new DefaultBuildCellRelativePathFactory(
+        context.getBuildCellRootPath(), filesystem, Optional.of(outputPathResolver));
+  }
+
+  /** Gets the steps for preparing the output directories of the build rule. */
+  public static void getSetupStepsForBuildable(
+      BuildContext context,
+      ProjectFilesystem filesystem,
+      Iterable<Path> outputs,
+      Builder<Step> stepBuilder,
+      OutputPathResolver outputPathResolver) {
     // TODO(cjhopman): This should probably actually be handled by the build engine.
     for (Path output : outputs) {
       stepBuilder.add(
@@ -260,23 +295,6 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
         MakeCleanDirectoryStep.of(
             BuildCellRelativePath.fromCellRelativePath(
                 context.getBuildCellRootPath(), filesystem, outputPathResolver.getTempPath())));
-
-    stepBuilder.addAll(
-        buildable.getBuildSteps(
-            context,
-            filesystem,
-            outputPathResolver,
-            new DefaultBuildCellRelativePathFactory(
-                context.getBuildCellRootPath(), filesystem, Optional.of(outputPathResolver))));
-
-    // TODO(cjhopman): Should this delete the scratch directory? Maybe delete by default but
-    // preserve it based on verbosity. Currently, since CachingBuildEngine doesn't know what files
-    // may have been created by a BuildRule, it can't reliably clear out old state when building a
-    // rule. With ModernBuildRule, all outputs are limited to the gen/scratch roots which are unique
-    // to the rule and so the engine could reliably clean old state and then leaving the scratch
-    // directory would be fine.
-
-    return stepBuilder.build();
   }
 
   /** Return the steps for a buildable. */
@@ -303,7 +321,7 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
    * Records the outputs of this buildrule. An output will only be recorded once (i.e. no duplicates
    * and if a directory is recorded, none of its contents will be).
    */
-  public static <T extends Buildable> void recordOutputs(
+  public static <T extends AddsToRuleKey> void recordOutputs(
       BuildableContext buildableContext,
       OutputPathResolver outputPathResolver,
       ClassInfo<T> classInfo,
@@ -312,7 +330,19 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
     collector.add(outputPathResolver.getRootPath());
     classInfo.visit(
         buildable,
-        new OutputPathVisitor(path1 -> collector.add(outputPathResolver.resolvePath(path1))));
+        new OutputPathVisitor(
+            path1 -> {
+              // Check that any PublicOutputPath is not specified inside the rule's temporary
+              // directory,
+              // as the temp directory may be deleted after the rule is run.
+              if (path1 instanceof PublicOutputPath
+                  && path1.getPath().startsWith(outputPathResolver.getTempPath())) {
+                throw new IllegalStateException(
+                    "PublicOutputPath should not be inside rule temporary directory. Path: "
+                        + path1);
+              }
+              collector.add(outputPathResolver.resolvePath(path1));
+            }));
     // ImmutableSet guarantees that iteration order is unchanged.
     Set<Path> outputs = collector.build().collect(ImmutableSet.toImmutableSet());
     for (Path path : outputs) {
@@ -321,6 +351,19 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
         buildableContext.recordArtifact(path);
       }
     }
+  }
+
+  /**
+   * Records the outputs of this buildrule. An output will only be recorded once (i.e. no duplicates
+   * and if a directory is recorded, none of its contents will be).
+   */
+  public static <T extends AddsToRuleKey> void recordOutputs(
+      BuildableContext buildableContext, OutputPathResolver outputPathResolver, T buildable) {
+    recordOutputs(
+        buildableContext,
+        outputPathResolver,
+        DefaultClassInfoFactory.forInstance(buildable),
+        buildable);
   }
 
   private static boolean shouldRecord(Set<Path> outputs, Path path) {
@@ -332,11 +375,6 @@ public class ModernBuildRule<T extends Buildable> extends AbstractBuildRule
       parent = parent.getParent();
     }
     return true;
-  }
-
-  @Override
-  public final boolean outputFileCanBeCopied() {
-    return false;
   }
 
   @Override

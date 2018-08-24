@@ -23,14 +23,13 @@ import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
-import com.facebook.buck.config.ActionGraphParallelizationMode;
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.config.IncrementalActionGraphMode;
 import com.facebook.buck.core.build.engine.RuleDepsCache;
 import com.facebook.buck.core.build.engine.impl.DefaultRuleDepsCache;
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
@@ -45,6 +44,7 @@ import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -80,10 +80,8 @@ import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonVersion;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.PrebuiltJarBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
-import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.keys.ContentAgnosticRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
@@ -129,7 +127,7 @@ public class IncrementalActionGraphScenarioTest {
   private BuckEventBus eventBus;
   private CloseableMemoizedSupplier<ForkJoinPool> fakePoolSupplier;
   private RuleKeyFieldLoader fieldLoader;
-  private ActionGraphCache cache;
+  private ActionGraphProvider cache;
 
   @Before
   public void setUp() {
@@ -147,7 +145,7 @@ public class IncrementalActionGraphScenarioTest {
             },
             ignored -> {});
     fieldLoader = new RuleKeyFieldLoader(TestRuleKeyConfigurationFactory.create());
-    cache = new ActionGraphCache(0);
+    cache = TestActionGraphProviderFactory.create(0);
   }
 
   @Test
@@ -590,7 +588,7 @@ public class IncrementalActionGraphScenarioTest {
     PythonLibraryBuilder libraryBuilder =
         new PythonLibraryBuilder(libraryTarget, pythonPlatforms, CxxPlatformUtils.DEFAULT_PLATFORMS)
             .setSrcs(
-                SourceList.ofUnnamedSources(
+                SourceSortedSet.ofUnnamedSources(
                     ImmutableSortedSet.of(FakeSourcePath.of("something.py"))));
 
     BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:python_binary");
@@ -617,7 +615,7 @@ public class IncrementalActionGraphScenarioTest {
     PythonLibraryBuilder libraryBuilder =
         new PythonLibraryBuilder(libraryTarget, pythonPlatforms, CxxPlatformUtils.DEFAULT_PLATFORMS)
             .setSrcs(
-                SourceList.ofUnnamedSources(
+                SourceSortedSet.ofUnnamedSources(
                     ImmutableSortedSet.of(FakeSourcePath.of("something.py"))));
 
     BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:python_binary");
@@ -647,7 +645,7 @@ public class IncrementalActionGraphScenarioTest {
     PythonLibraryBuilder libraryBuilder =
         new PythonLibraryBuilder(libraryTarget, pythonPlatforms, CxxPlatformUtils.DEFAULT_PLATFORMS)
             .setSrcs(
-                SourceList.ofUnnamedSources(
+                SourceSortedSet.ofUnnamedSources(
                     ImmutableSortedSet.of(FakeSourcePath.of("something.py"))));
 
     BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:python_binary");
@@ -662,7 +660,7 @@ public class IncrementalActionGraphScenarioTest {
     PythonLibraryBuilder newLibraryBuilder =
         new PythonLibraryBuilder(libraryTarget, pythonPlatforms, CxxPlatformUtils.DEFAULT_PLATFORMS)
             .setSrcs(
-                SourceList.ofUnnamedSources(
+                SourceSortedSet.ofUnnamedSources(
                     ImmutableSortedSet.of(
                         FakeSourcePath.of("something.py"), FakeSourcePath.of("new.py"))));
     ActionGraphAndBuilder newResult = createActionGraph(binaryBuilder, newLibraryBuilder);
@@ -1012,14 +1010,16 @@ public class IncrementalActionGraphScenarioTest {
     PythonLibraryBuilder libraryBuilder =
         PythonLibraryBuilder.createBuilder(libraryTarget)
             .setSrcs(
-                SourceList.ofUnnamedSources(ImmutableSortedSet.of(FakeSourcePath.of("lib.py"))));
+                SourceSortedSet.ofUnnamedSources(
+                    ImmutableSortedSet.of(FakeSourcePath.of("lib.py"))));
 
     BuildTarget testTarget = BuildTargetFactory.newInstance("//:test");
     PythonTestBuilder testBuilder =
         PythonTestBuilder.create(testTarget)
             .setDeps(ImmutableSortedSet.of(libraryTarget))
             .setSrcs(
-                SourceList.ofUnnamedSources(ImmutableSortedSet.of(FakeSourcePath.of("test.py"))));
+                SourceSortedSet.ofUnnamedSources(
+                    ImmutableSortedSet.of(FakeSourcePath.of("test.py"))));
 
     ActionGraphAndBuilder result = createActionGraph(testBuilder, libraryBuilder);
     ImmutableMap<BuildRule, RuleKey> ruleKeys = getRuleKeys(result);
@@ -1057,7 +1057,7 @@ public class IncrementalActionGraphScenarioTest {
 
   @Test
   public void testBuildRuleResolverInActionGraphCacheNotInvalidated() {
-    cache = new ActionGraphCache(2);
+    cache = TestActionGraphProviderFactory.create(2);
 
     BuildTarget target = BuildTargetFactory.newInstance("//:bin");
     CxxBinaryBuilder builder =
@@ -1084,7 +1084,7 @@ public class IncrementalActionGraphScenarioTest {
   public void testBuildRuleResolverNotInActionGraphCacheInvalidated() {
     expectedException.expect(IllegalStateException.class);
 
-    cache = new ActionGraphCache(2);
+    cache = TestActionGraphProviderFactory.create(2);
 
     BuildTarget target = BuildTargetFactory.newInstance("//:bin");
     CxxBinaryBuilder builder =
@@ -1265,7 +1265,7 @@ public class IncrementalActionGraphScenarioTest {
         result.getActionGraphBuilder());
   }
 
-  private ActionGraphAndBuilder createActionGraph(TargetNode<?, ?>... nodes) {
+  private ActionGraphAndBuilder createActionGraph(TargetNode<?>... nodes) {
     // Use newInstanceExact for cases where we don't want unflavored versions of nodes to get added
     // implicitly.
     return createActionGraph(TargetGraphFactory.newInstanceExact(nodes));
@@ -1281,10 +1281,10 @@ public class IncrementalActionGraphScenarioTest {
         result.getActionGraphBuilder());
   }
 
-  private TargetNode<?, ?>[] buildNodes(AbstractNodeBuilder<?, ?, ?, ?>... builders) {
+  private TargetNode<?>[] buildNodes(AbstractNodeBuilder<?, ?, ?, ?>... builders) {
     return RichStream.from(builders)
         .map(builder -> builder.build(filesystem))
-        .toArray(TargetNode<?, ?>[]::new);
+        .toArray(TargetNode<?>[]::new);
   }
 
   private static PythonPlatform createPy2Platform(Optional<BuildTarget> cxxLibrary) {

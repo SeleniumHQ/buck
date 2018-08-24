@@ -22,16 +22,16 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.RuleType;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.RuleKey;
-import com.facebook.buck.core.rules.type.BuildRuleType;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher.Container;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher.Wrapper;
@@ -143,13 +143,14 @@ public final class CommonRuleKeyHasherTest {
                     h -> h.putSourceRoot(new SourceRoot("4")).putSourceRoot(new SourceRoot("2"))),
                 pair.apply(String.format("RuleKey<%s>", RULE_KEY_1), h -> h.putRuleKey(RULE_KEY_1)),
                 pair.apply(String.format("RuleKey<%s>", RULE_KEY_2), h -> h.putRuleKey(RULE_KEY_2)),
-                pair.apply("BuildRuleType<>", h -> h.putBuildRuleType(BuildRuleType.of(""))),
-                pair.apply("BuildRuleType<42>", h -> h.putBuildRuleType(BuildRuleType.of("42"))),
+                pair.apply("RuleType<>", h -> h.putRuleType(RuleType.of("", RuleType.Kind.BUILD))),
                 pair.apply(
-                    "BuildRuleType<4>, BuildRuleType<2>",
+                    "RuleType<42>", h -> h.putRuleType(RuleType.of("42", RuleType.Kind.BUILD))),
+                pair.apply(
+                    "RuleType<4>, RuleType<2>",
                     h ->
-                        h.putBuildRuleType(BuildRuleType.of("4"))
-                            .putBuildRuleType(BuildRuleType.of("2"))),
+                        h.putRuleType(RuleType.of("4", RuleType.Kind.BUILD))
+                            .putRuleType(RuleType.of("2", RuleType.Kind.BUILD))),
                 pair.apply(TARGET_1.toString(), h -> h.putBuildTarget(TARGET_1)),
                 pair.apply(TARGET_2.toString(), h -> h.putBuildTarget(TARGET_2)),
                 pair.apply(
@@ -344,8 +345,8 @@ public final class CommonRuleKeyHasherTest {
     @Test
     public void testConsistencyForBuildRuleType() {
       assertEquals(
-          newHasher().putBuildRuleType(BuildRuleType.of("42")).hash(),
-          newHasher().putBuildRuleType(BuildRuleType.of("42")).hash());
+          newHasher().putRuleType(RuleType.of("42", RuleType.Kind.BUILD)).hash(),
+          newHasher().putRuleType(RuleType.of("42", RuleType.Kind.BUILD)).hash());
     }
 
     @Test
@@ -368,12 +369,12 @@ public final class CommonRuleKeyHasherTest {
           ForwardingBuildTargetSourcePath.of(
               TARGET_1,
               ExplicitBuildTargetSourcePath.of(
-                  TARGET_2, BuildTargets.getGenPath(filesystem1, TARGET_2, "%s.out")));
+                  TARGET_2, BuildTargetPaths.getGenPath(filesystem1, TARGET_2, "%s.out")));
       ForwardingBuildTargetSourcePath forwardingSourcePath2 =
           ForwardingBuildTargetSourcePath.of(
               TARGET_1,
               ExplicitBuildTargetSourcePath.of(
-                  TARGET_2, BuildTargets.getGenPath(filesystem2, TARGET_2, "%s.out")));
+                  TARGET_2, BuildTargetPaths.getGenPath(filesystem2, TARGET_2, "%s.out")));
       assertEquals(
           newHasher().putBuildTargetSourcePath(forwardingSourcePath1).hash(),
           newHasher().putBuildTargetSourcePath(forwardingSourcePath2).hash());

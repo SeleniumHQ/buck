@@ -24,26 +24,26 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.NoopBuildRule;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.UncachedRuleKeyBuilder;
 import com.facebook.buck.rules.macros.LocationMacro;
@@ -194,7 +194,7 @@ public class CommandAliasDescriptionTest {
   @Test
   public void addsMacrosToParseDeps() {
     BuildTarget envTarget = BuildTargetFactory.newInstance("//:for-env");
-    TargetNode<CommandAliasDescriptionArg, CommandAliasDescription> targetNode =
+    TargetNode<CommandAliasDescriptionArg> targetNode =
         builder()
             .setExe(delegate)
             .setArgs(
@@ -216,7 +216,7 @@ public class CommandAliasDescriptionTest {
       StringWithMacrosUtils.format("pears=%s", LocationMacro.of(macroTarget))
     };
     BuildTarget innerCommand = BuildTargetFactory.newInstance("//inner:command");
-    TargetNode<?, ?> innerCommandAlias =
+    TargetNode<?> innerCommandAlias =
         builder.subBuilder(delegate).setExe(innerCommand).setArgs(delegateArgs).build();
 
     CommandAliasBuilder.BuildResult result =
@@ -237,7 +237,7 @@ public class CommandAliasDescriptionTest {
             "apples", StringWithMacrosUtils.format("some"),
             "pears", StringWithMacrosUtils.format("%s", LocationMacro.of(macroTarget)));
     BuildTarget innerCommand = BuildTargetFactory.newInstance("//inner:command");
-    TargetNode<?, ?> innerCommandAlias =
+    TargetNode<?> innerCommandAlias =
         builder.subBuilder(delegate).setExe(innerCommand).setEnv(delegateEnv).build();
 
     CommandAliasBuilder.BuildResult result =
@@ -327,7 +327,7 @@ public class CommandAliasDescriptionTest {
 
     BuildTarget innerExe = BuildTargetFactory.newInstance("//sub:command");
     String[] args = {"ab", "cd"};
-    TargetNode<?, ?> subCommand =
+    TargetNode<?> subCommand =
         builder
             .subBuilder(delegate)
             .setExe(innerExe)

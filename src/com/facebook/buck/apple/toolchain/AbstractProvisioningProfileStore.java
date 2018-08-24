@@ -17,12 +17,13 @@
 package com.facebook.buck.apple.toolchain;
 
 import com.dd.plist.NSArray;
+import com.dd.plist.NSDictionary;
 import com.dd.plist.NSObject;
-import com.facebook.buck.core.rulekey.RuleKeyAppendable;
-import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
+import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.toolchain.Toolchain;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.toolchain.Toolchain;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Joiner;
 import com.google.common.base.Suppliers;
@@ -42,7 +43,7 @@ import org.immutables.value.Value;
 /** A collection of provisioning profiles. */
 @Value.Immutable(builder = false, copy = false)
 @BuckStyleImmutable
-public abstract class AbstractProvisioningProfileStore implements RuleKeyAppendable, Toolchain {
+public abstract class AbstractProvisioningProfileStore implements AddsToRuleKey, Toolchain {
   public static final Optional<ImmutableMap<String, NSObject>> MATCH_ANY_ENTITLEMENT =
       Optional.empty();
   public static final Optional<ImmutableList<CodeSignIdentity>> MATCH_ANY_IDENTITY =
@@ -68,6 +69,7 @@ public abstract class AbstractProvisioningProfileStore implements RuleKeyAppenda
   public abstract Supplier<ImmutableList<ProvisioningProfileMetadata>>
       getProvisioningProfilesSupplier();
 
+  @AddToRuleKey
   public ImmutableList<ProvisioningProfileMetadata> getProvisioningProfiles() {
     return getProvisioningProfilesSupplier().get();
   }
@@ -94,6 +96,18 @@ public abstract class AbstractProvisioningProfileStore implements RuleKeyAppenda
     }
 
     return lhs.equals(rhs);
+  }
+
+  private String getStringFromNSObject(@Nullable NSObject obj) {
+    if (obj == null) {
+      return "(not set)" + System.lineSeparator();
+    } else if (obj instanceof NSArray) {
+      return ((NSArray) obj).toASCIIPropertyList();
+    } else if (obj instanceof NSDictionary) {
+      return ((NSDictionary) obj).toASCIIPropertyList();
+    } else {
+      return obj.toString() + System.lineSeparator();
+    }
   }
 
   // If multiple valid ones, find the one which matches the most specifically.  I.e.,
@@ -179,18 +193,25 @@ public abstract class AbstractProvisioningProfileStore implements RuleKeyAppenda
             if (!(FORCE_INCLUDE_ENTITLEMENTS.contains(entry.getKey())
                 || matchesOrArrayIsSubsetOf(entry.getValue(), profileEntitlement))) {
               match = false;
+              String profileEntitlementString = getStringFromNSObject(profileEntitlement);
+              String entryValueString = getStringFromNSObject(entry.getValue());
               String message =
-                  "Ignoring profile "
+                  "Profile "
+                      + profile.getProfilePath().getFileName()
+                      + " ("
                       + profile.getUUID()
-                      + " with mismatched entitlement "
+                      + ") with bundleID "
+                      + profile.getAppID().getSecond()
+                      + " correctly matches. However there is a mismatched entitlement "
                       + entry.getKey()
-                      + "; value is "
-                      + profileEntitlement
-                      + " but expected "
-                      + entry.getValue();
+                      + ";"
+                      + System.lineSeparator()
+                      + "value is: "
+                      + profileEntitlementString
+                      + "but expected: "
+                      + entryValueString;
               LOG.debug(message);
               lines.add(message);
-              break;
             }
           }
         }
@@ -234,12 +255,6 @@ public abstract class AbstractProvisioningProfileStore implements RuleKeyAppenda
     ImmutableList<String> diagnostics = lines.build();
     diagnosticsBuffer.append(Joiner.on("\n").join(diagnostics));
     return bestMatch;
-  }
-
-  // TODO(yiding): remove this once the precise provisioning profile can be determined.
-  @Override
-  public void appendToRuleKey(RuleKeyObjectSink sink) {
-    sink.setReflectively("provisioning-profile-store", getProvisioningProfiles());
   }
 
   public static ProvisioningProfileStore empty() {

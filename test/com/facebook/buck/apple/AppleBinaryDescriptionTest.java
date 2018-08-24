@@ -20,8 +20,7 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assume.assumeThat;
 
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -30,7 +29,6 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxBinary;
 import com.facebook.buck.cxx.CxxLink;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
@@ -46,13 +44,7 @@ public class AppleBinaryDescriptionTest {
   @Test
   public void linkerFlagsLocationMacro() {
     assumeThat(Platform.detect(), is(Platform.MACOS));
-    BuildTarget sandboxTarget =
-        BuildTargetFactory.newInstance(
-            "//:rule#sandbox,"
-                + FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_I386_PLATFORM.getFlavor());
-    ActionGraphBuilder graphBuilder =
-        new TestActionGraphBuilder(
-            TargetGraphFactory.newInstance(new AppleBinaryBuilder(sandboxTarget).build()));
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     Genrule dep =

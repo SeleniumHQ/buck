@@ -1,0 +1,82 @@
+genrule(
+    name = "cat",
+    srcs = select({
+        ":a": ["a.txt"],
+        ":b": ["b.txt"],
+    }),
+    out = "cat_out.txt",
+    cmd = "cat $SRCS > $OUT",
+)
+
+genrule(
+    name = "cat_with_default",
+    srcs = select({
+        "//:a": ["a.txt"],
+        "//:b": ["b.txt"],
+        "DEFAULT": ["c.txt"],
+    }),
+    out = "cat_out.txt",
+    cmd = "cat $SRCS > $OUT",
+)
+
+genrule(
+    name = "cat_with_refined_config",
+    srcs = select({
+        "//:bc": ["c.txt"],
+        "//:b": ["b.txt"],
+    }),
+    out = "cat_out.txt",
+    cmd = "cat $SRCS > $OUT",
+)
+
+config_setting(
+    name = "a",
+    values = {
+        "cat.file": "a",
+    },
+)
+
+config_setting(
+    name = "b",
+    values = {
+        "cat.file": "b",
+    },
+)
+
+config_setting(
+    name = "bc",
+    values = {
+        "cat.file": "b",
+        "cat.file2": "c",
+    },
+)
+
+genrule(
+    name = "echo",
+    out = "echo_out.txt",
+    bash = select({
+        "//:a": "echo select > $OUT",
+        "DEFAULT": None,
+    }),
+    cmd = "echo cmd > $OUT",
+    cmd_exe = select({
+        "//:a": "echo select > $OUT",
+        "DEFAULT": None,
+    }),
+)
+
+config_setting(
+    name = "c",
+    values = {
+        "another.option": "c",
+    },
+)
+
+genrule(
+    name = "echo_with_one_none",
+    out = "echo_out.txt",
+    cmd = select({
+        "//:a": None,
+        "//:c": "echo c > $OUT",
+    }),
+)

@@ -19,12 +19,13 @@ package com.facebook.buck.core.cell.impl;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.core.cell.name.RelativeCellName;
+import com.facebook.buck.core.cell.CellName;
+import com.facebook.buck.util.CreateSymlinksForTests;
 import com.facebook.buck.util.config.ConfigBuilder;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.jimfs.Configuration;
 import com.google.common.jimfs.Jimfs;
 import java.nio.charset.StandardCharsets;
@@ -34,14 +35,18 @@ import java.nio.file.Path;
 import java.util.Optional;
 import org.hamcrest.Matchers;
 import org.junit.Assume;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 public class DefaultCellPathResolverTest {
   private static final String REPOSITORIES_SECTION =
       "[" + DefaultCellPathResolver.REPOSITORIES_SECTION + "]";
 
+  @Rule public ExpectedException thrown = ExpectedException.none();
+
   @Test
-  public void transtiveMappingForSimpleSetup() throws Exception {
+  public void transitiveMappingForSimpleSetup() throws Exception {
     FileSystem vfs = Jimfs.newFileSystem(Configuration.unix());
 
     Path root = vfs.getPath("/opt/local/");
@@ -58,11 +63,7 @@ public class DefaultCellPathResolverTest {
     assertThat(
         cellPathResolver.getPathMapping(),
         Matchers.equalTo(
-            ImmutableMap.of(
-                RelativeCellName.ROOT_CELL_NAME,
-                cell1Root,
-                RelativeCellName.of(ImmutableList.of("simple")),
-                cell2Root)));
+            ImmutableMap.of(CellName.ROOT_CELL_NAME, cell1Root, CellName.of("simple"), cell2Root)));
   }
 
   @Test
@@ -84,15 +85,11 @@ public class DefaultCellPathResolverTest {
     assertThat(
         cellPathResolver.getPathMapping(),
         Matchers.equalTo(
-            ImmutableMap.of(
-                RelativeCellName.ROOT_CELL_NAME,
-                cell1Root,
-                RelativeCellName.of(ImmutableList.of("simple")),
-                cell2Root)));
+            ImmutableMap.of(CellName.ROOT_CELL_NAME, cell1Root, CellName.of("simple"), cell2Root)));
   }
 
   @Test
-  public void transtiveMappingForSymlinkCycle() throws Exception {
+  public void transitiveMappingForSymlinkCycle() throws Exception {
     Assume.assumeTrue(Platform.detect() != Platform.WINDOWS);
 
     FileSystem vfs = Jimfs.newFileSystem(Configuration.unix());
@@ -105,7 +102,7 @@ public class DefaultCellPathResolverTest {
     Files.createDirectories(cell2Root);
 
     Path symlinkPath = cell2Root.resolve("symlink");
-    Files.createSymbolicLink(symlinkPath, cell2Root);
+    CreateSymlinksForTests.createSymLink(symlinkPath, cell2Root);
 
     DefaultCellPathResolver cellPathResolver =
         DefaultCellPathResolver.of(
@@ -119,11 +116,7 @@ public class DefaultCellPathResolverTest {
     assertThat(
         cellPathResolver.getPathMapping(),
         Matchers.equalTo(
-            ImmutableMap.of(
-                RelativeCellName.ROOT_CELL_NAME,
-                cell1Root,
-                RelativeCellName.of(ImmutableList.of("two")),
-                cell2Root)));
+            ImmutableMap.of(CellName.ROOT_CELL_NAME, cell1Root, CellName.of("two"), cell2Root)));
   }
 
   @Test
@@ -162,11 +155,11 @@ public class DefaultCellPathResolverTest {
     assertThat(
         cellPathResolver.getPathMapping(),
         Matchers.equalTo(
-            ImmutableMap.<RelativeCellName, Path>builder()
-                .put(RelativeCellName.ROOT_CELL_NAME, cell1Root)
-                .put(RelativeCellName.of(ImmutableList.of("center")), cellCenterRoot)
-                .put(RelativeCellName.of(ImmutableList.of("left")), cellLeftRoot)
-                .put(RelativeCellName.of(ImmutableList.of("right")), cellRightRoot)
+            ImmutableMap.<CellName, Path>builder()
+                .put(CellName.ROOT_CELL_NAME, cell1Root)
+                .put(CellName.of("center"), cellCenterRoot)
+                .put(CellName.of("left"), cellLeftRoot)
+                .put(CellName.of("right"), cellRightRoot)
                 .build()));
   }
 
@@ -207,6 +200,39 @@ public class DefaultCellPathResolverTest {
   }
 
   @Test
+  public void cellPathsAreCorrectlySorted() {
+    FileSystem vfs = Jimfs.newFileSystem(Configuration.unix());
+
+    Path root = vfs.getPath("/root");
+    Path a = vfs.getPath("/root/a");
+    Path abcde = vfs.getPath("/root/a/b/c/d/e");
+    Path afg = vfs.getPath("/root/a/f/g");
+    Path i = vfs.getPath("/root/i");
+
+    DefaultCellPathResolver cellPathResolver =
+        DefaultCellPathResolver.of(
+            root,
+            // out of order
+            ImmutableMap.of(
+                "root", root,
+                "abcde", abcde,
+                "i", i,
+                "afg", afg,
+                "a", a));
+
+    assertEquals(
+        cellPathResolver.getCellPaths(),
+        ImmutableMap.of(
+            "i", i,
+            "afg", afg,
+            "abcde", abcde,
+            "a", a,
+            "root", root));
+
+    assertEquals(cellPathResolver.getKnownRoots(), ImmutableSortedSet.of(i, afg, abcde, a, root));
+  }
+
+  @Test
   public void testGetKnownRootsReturnsAllRoots() {
     FileSystem vfs = Jimfs.newFileSystem(Configuration.unix());
     DefaultCellPathResolver cellPathResolver =
@@ -219,6 +245,37 @@ public class DefaultCellPathResolverTest {
 
     assertEquals(
         cellPathResolver.getKnownRoots(),
-        ImmutableSet.of(vfs.getPath("/foo/root"), vfs.getPath("/foo/cell")));
+        ImmutableSortedSet.of(vfs.getPath("/foo/root"), vfs.getPath("/foo/cell")));
+  }
+
+  @Test
+  public void errorMessageIncludesASpellingSuggestionForUnknownCells() {
+    FileSystem vfs = Jimfs.newFileSystem(Configuration.unix());
+    DefaultCellPathResolver cellPathResolver =
+        DefaultCellPathResolver.of(
+            vfs.getPath("/foo/root"),
+            ImmutableMap.of(
+                "root", vfs.getPath("/foo/root"),
+                "apple", vfs.getPath("/foo/cell"),
+                "maple", vfs.getPath("/foo/cell")));
+
+    thrown.expectMessage("Unknown cell: mappl. Did you mean one of [apple, maple] instead?");
+    cellPathResolver.getCellPathOrThrow(Optional.of("mappl"));
+  }
+
+  @Test
+  public void errorMessageIncludesAllCellsWhenNoSpellingSuggestionsAreAvailable() {
+    FileSystem vfs = Jimfs.newFileSystem(Configuration.unix());
+    DefaultCellPathResolver cellPathResolver =
+        DefaultCellPathResolver.of(
+            vfs.getPath("/foo/root"),
+            ImmutableMap.of(
+                "root", vfs.getPath("/foo/root"),
+                "apple", vfs.getPath("/foo/cell"),
+                "maple", vfs.getPath("/foo/cell")));
+
+    thrown.expectMessage(
+        "Unknown cell: does_not_exist. Did you mean one of [apple, maple, root] instead?");
+    cellPathResolver.getCellPathOrThrow(Optional.of("does_not_exist"));
   }
 }

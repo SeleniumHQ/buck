@@ -20,9 +20,10 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -31,7 +32,6 @@ import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.jvm.java.FakeJavaLibrary;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryTarget;
@@ -128,13 +128,13 @@ public class GraphEnhancementQueryEnvironmentTest {
 
   private GraphEnhancementQueryEnvironment buildQueryEnvironmentWithGraph() {
     // Set up target graph: lib -> sublib -> bottom
-    TargetNode<JavaLibraryDescriptionArg, ?> bottomNode =
+    TargetNode<JavaLibraryDescriptionArg> bottomNode =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:bottom")).build();
-    TargetNode<JavaLibraryDescriptionArg, ?> sublibNode =
+    TargetNode<JavaLibraryDescriptionArg> sublibNode =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:sublib"))
             .addDep(bottomNode.getBuildTarget())
             .build();
-    TargetNode<JavaLibraryDescriptionArg, ?> libNode =
+    TargetNode<JavaLibraryDescriptionArg> libNode =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:lib"))
             .addDep(sublibNode.getBuildTarget())
             .build();

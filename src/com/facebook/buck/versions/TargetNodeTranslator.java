@@ -15,13 +15,13 @@
  */
 package com.facebook.buck.versions;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
-import com.facebook.buck.model.BuildTargetPattern;
+import com.facebook.buck.parser.BuildTargetPattern;
 import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.coercer.CoercedTypeCache;
 import com.facebook.buck.rules.coercer.ParamInfo;
@@ -272,11 +272,10 @@ public abstract class TargetNodeTranslator {
     return modified;
   }
 
-  @SuppressWarnings("unchecked")
   private <A> Optional<A> translateConstructorArg(
       CellPathResolver cellPathResolver,
       BuildTargetPatternParser<BuildTargetPattern> pattern,
-      TargetNode<A, ?> node) {
+      TargetNode<A> node) {
     A constructorArg = node.getConstructorArg();
     if (node.getDescription() instanceof TargetTranslatorOverridingDescription) {
       return ((TargetTranslatorOverridingDescription<A>) node.getDescription())
@@ -300,7 +299,7 @@ public abstract class TargetNodeTranslator {
    * @return a copy of the given {@link TargetNode} with all found {@link BuildTarget}s translated,
    *     or {@link Optional#empty()} if the node requires no translation.
    */
-  public <A> Optional<TargetNode<A, ?>> translateNode(TargetNode<A, ?> node) {
+  public <A> Optional<TargetNode<A>> translateNode(TargetNode<A> node) {
     CellPathResolver cellPathResolver = node.getCellNames();
     BuildTargetPatternParser<BuildTargetPattern> pattern =
         BuildTargetPatternParser.forBaseName(node.getBuildTarget().getBaseName());

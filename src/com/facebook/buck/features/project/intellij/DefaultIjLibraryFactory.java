@@ -19,16 +19,17 @@ package com.facebook.buck.features.project.intellij;
 import com.facebook.buck.android.AndroidPrebuiltAarDescription;
 import com.facebook.buck.android.AndroidPrebuiltAarDescriptionArg;
 import com.facebook.buck.android.UnzipAar;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.features.project.intellij.lang.java.ParsingJavaPackageFinder;
 import com.facebook.buck.features.project.intellij.model.IjLibrary;
 import com.facebook.buck.features.project.intellij.model.IjLibraryFactory;
 import com.facebook.buck.features.project.intellij.model.IjLibraryFactoryResolver;
 import com.facebook.buck.jvm.java.PrebuiltJarDescription;
 import com.facebook.buck.jvm.java.PrebuiltJarDescriptionArg;
-import com.facebook.buck.model.BuildTargets;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
@@ -38,7 +39,6 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Stream;
 
 /**
  * Filters out all of the targets which can be represented as IntelliJ prebuilts from the set of
@@ -48,7 +48,7 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
 
   /** Rule describing how to create a {@link IjLibrary} from a {@link TargetNode}. */
   private interface IjLibraryRule {
-    void applyRule(TargetNode<?, ?> targetNode, IjLibrary.Builder library);
+    void applyRule(TargetNode<?> targetNode, IjLibrary.Builder library);
   }
 
   /**
@@ -59,11 +59,11 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
   abstract class TypedIjLibraryRule<T> implements IjLibraryRule {
     abstract Class<? extends DescriptionWithTargetGraph<?>> getDescriptionClass();
 
-    abstract void apply(TargetNode<T, ?> targetNode, IjLibrary.Builder library);
+    abstract void apply(TargetNode<T> targetNode, IjLibrary.Builder library);
 
     @Override
     @SuppressWarnings({"unchecked", "rawtypes"})
-    public void applyRule(TargetNode<?, ?> targetNode, IjLibrary.Builder library) {
+    public void applyRule(TargetNode<?> targetNode, IjLibrary.Builder library) {
       apply((TargetNode) targetNode, library);
     }
   }
@@ -72,23 +72,15 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
       new HashMap<>();
   private Set<String> uniqueLibraryNamesSet = new HashSet<>();
   private IjLibraryFactoryResolver libraryFactoryResolver;
-  private Map<TargetNode<?, ?>, Optional<IjLibrary>> libraryCache;
-  private final Optional<ParsingJavaPackageFinder.PackagePathResolver> packagePathResolver;
+  private Map<TargetNode<?>, Optional<IjLibrary>> libraryCache;
 
-  public DefaultIjLibraryFactory(
-      IjLibraryFactoryResolver libraryFactoryResolver,
-      Optional<ParsingJavaPackageFinder.PackagePathResolver> packagePathResolver) {
+  public DefaultIjLibraryFactory(IjLibraryFactoryResolver libraryFactoryResolver) {
     this.libraryFactoryResolver = libraryFactoryResolver;
-    this.packagePathResolver = packagePathResolver;
 
     addToIndex(new AndroidPrebuiltAarLibraryRule());
     addToIndex(new PrebuiltJarLibraryRule());
 
     libraryCache = new HashMap<>();
-  }
-
-  public DefaultIjLibraryFactory(IjLibraryFactoryResolver libraryFactoryResolver) {
-    this(libraryFactoryResolver, Optional.empty());
   }
 
   private void addToIndex(TypedIjLibraryRule<?> rule) {
@@ -97,7 +89,7 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
   }
 
   @Override
-  public Optional<IjLibrary> getLibrary(TargetNode<?, ?> target) {
+  public Optional<IjLibrary> getLibrary(TargetNode<?> target) {
     Optional<IjLibrary> library = libraryCache.get(target);
     if (library == null) {
       library = createLibrary(target);
@@ -106,39 +98,20 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
     return library;
   }
 
-  private Optional<IjLibraryRule> getRule(TargetNode<?, ?> targetNode) {
+  private Optional<IjLibraryRule> getRule(TargetNode<?> targetNode) {
     IjLibraryRule rule = libraryRuleIndex.get(targetNode.getDescription().getClass());
     if (rule == null) {
-      ImmutableSet<Path> sourceDirs =
-          packagePathResolver
-              .map(
-                  packageResolver ->
-                      targetNode
-                          .getInputs()
-                          .stream()
-                          .flatMap(
-                              path -> {
-                                Optional<Path> sourceRoot =
-                                    packageResolver.getSourceRootFromSource(path);
-                                if (sourceRoot.isPresent()) {
-                                  return Stream.of(sourceRoot.get());
-                                }
-                                return Stream.empty();
-                              })
-                          .collect(ImmutableSet.toImmutableSet()))
-              .orElse(ImmutableSet.of());
-
       rule =
           libraryFactoryResolver
               .getPathIfJavaLibrary(targetNode)
               .map(libraryFactoryResolver::getPath)
-              .map(path -> new JavaLibraryRule(path, sourceDirs))
+              .map(JavaLibraryRule::new)
               .orElse(null);
     }
     return Optional.ofNullable(rule);
   }
 
-  private Optional<IjLibrary> createLibrary(TargetNode<?, ?> targetNode) {
+  private Optional<IjLibrary> createLibrary(TargetNode<?> targetNode) {
     return getRule(targetNode)
         .map(
             rule -> {
@@ -157,19 +130,14 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
 
   private static class JavaLibraryRule implements IjLibraryRule {
     private final Path binaryJarPath;
-    private final ImmutableSet<Path> sourceDirs;
 
-    public JavaLibraryRule(Path binaryJarPath, ImmutableSet<Path> sourceDirs) {
+    public JavaLibraryRule(Path binaryJarPath) {
       this.binaryJarPath = binaryJarPath;
-      this.sourceDirs = sourceDirs;
     }
 
     @Override
-    public void applyRule(TargetNode<?, ?> targetNode, IjLibrary.Builder library) {
+    public void applyRule(TargetNode<?> targetNode, IjLibrary.Builder library) {
       library.addBinaryJars(binaryJarPath);
-      for (Path sourceDir : sourceDirs) {
-        library.addSourceDirs(sourceDir);
-      }
     }
   }
 
@@ -183,7 +151,7 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
 
     @Override
     public void apply(
-        TargetNode<AndroidPrebuiltAarDescriptionArg, ?> targetNode, IjLibrary.Builder library) {
+        TargetNode<AndroidPrebuiltAarDescriptionArg> targetNode, IjLibrary.Builder library) {
       Optional<SourcePath> libraryPath = libraryFactoryResolver.getPathIfJavaLibrary(targetNode);
       libraryPath.ifPresent(path -> library.addBinaryJars(libraryFactoryResolver.getPath(path)));
 
@@ -194,7 +162,7 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
       arg.getJavadocUrl().ifPresent(library::addJavadocUrls);
 
       Path aarUnpackPath =
-          BuildTargets.getScratchPath(
+          BuildTargetPaths.getScratchPath(
               targetNode.getFilesystem(),
               targetNode
                   .getBuildTarget()
@@ -215,10 +183,17 @@ class DefaultIjLibraryFactory extends IjLibraryFactory {
     }
 
     @Override
-    public void apply(
-        TargetNode<PrebuiltJarDescriptionArg, ?> targetNode, IjLibrary.Builder library) {
+    public void apply(TargetNode<PrebuiltJarDescriptionArg> targetNode, IjLibrary.Builder library) {
       PrebuiltJarDescriptionArg arg = targetNode.getConstructorArg();
       library.addBinaryJars(libraryFactoryResolver.getPath(arg.getBinaryJar()));
+      if (!(arg.getBinaryJar() instanceof PathSourcePath)) {
+        // If the input jar isn't a direct path, then it must be generated by another rule,
+        // In this case we need the output path of this library so that a cache hit on the
+        // PrebuiltJar directly will also resolve.
+        library.addBinaryJars(
+            libraryFactoryResolver.getPath(
+                DefaultBuildTargetSourcePath.of(targetNode.getBuildTarget())));
+      }
       arg.getSourceJar()
           .ifPresent(sourceJar -> library.addSourceJars(libraryFactoryResolver.getPath(sourceJar)));
       arg.getJavadocUrl().ifPresent(library::addJavadocUrls);

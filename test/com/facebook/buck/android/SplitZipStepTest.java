@@ -22,8 +22,8 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.dalvik.ZipSplitter;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -115,7 +115,7 @@ public class SplitZipStepTest {
 
     StringWriter stringWriter = new StringWriter();
     BufferedWriter writer = new BufferedWriter(stringWriter);
-    ImmutableSet<APKModule> requires = ImmutableSet.of(APKModule.of("dependency"));
+    ImmutableSet<APKModule> requires = ImmutableSet.of(APKModule.of("dependency", false));
     try {
       SplitZipStep.writeMetaList(
           writer, "module", requires, ImmutableList.of(outJar), DexStore.JAR);
@@ -173,7 +173,8 @@ public class SplitZipStepTest {
                 /* primaryDexScenarioFile */ Optional.empty(),
                 /* isPrimaryDexScenarioOverflowAllowed */ false,
                 /* secondaryDexHeadClassesFile */ Optional.empty(),
-                /* secondaryDexTailClassesFile */ Optional.empty()),
+                /* secondaryDexTailClassesFile */ Optional.empty(),
+                /* allowRDotJavaInSecondaryDex */ false),
             Optional.empty(),
             Optional.of(Paths.get("the/manifest.txt")),
             Optional.empty(),
@@ -263,7 +264,8 @@ public class SplitZipStepTest {
                 /* primaryDexScenarioFile */ Optional.empty(),
                 /* isPrimaryDexScenarioOverflowAllowed */ false,
                 /* secondaryDexHeadClassesFile */ Optional.empty(),
-                /* secondaryDexTailClassesFile */ Optional.empty()),
+                /* secondaryDexTailClassesFile */ Optional.empty(),
+                /* allowRDotJavaInSecondaryDex */ false),
             Optional.empty(),
             Optional.of(Paths.get("the/manifest.txt")),
             Optional.empty(),
@@ -338,7 +340,8 @@ public class SplitZipStepTest {
                 /* primaryDexScenarioFile */ Optional.empty(),
                 /* isPrimaryDexScenarioOverflowAllowed */ false,
                 /* secondaryDexHeadClassesFile */ Optional.empty(),
-                /* secondaryDexTailClassesFile */ Optional.empty()),
+                /* secondaryDexTailClassesFile */ Optional.empty(),
+                /* allowRDotJavaInSecondaryDex */ false),
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
@@ -412,7 +415,8 @@ public class SplitZipStepTest {
                 Optional.of(FakeSourcePath.of("the/primary_dex_scenario.txt")),
                 /* isPrimaryDexScenarioOverflowAllowed */ false,
                 /* secondaryDexHeadClassesFile */ Optional.empty(),
-                /* secondaryDexTailClassesFile */ Optional.empty()),
+                /* secondaryDexTailClassesFile */ Optional.empty(),
+                /* allowRDotJavaInSecondaryDex */ false),
             Optional.of(Paths.get("the/primary_dex_scenario.txt")),
             Optional.empty(),
             Optional.empty(),
@@ -495,7 +499,8 @@ public class SplitZipStepTest {
                 Optional.of(FakeSourcePath.of("the/primary_dex_scenario.txt")),
                 /* isPrimaryDexScenarioOverflowAllowed */ false,
                 /* secondaryDexHeadClassesFile */ Optional.empty(),
-                /* secondaryDexTailClassesFile */ Optional.empty()),
+                /* secondaryDexTailClassesFile */ Optional.empty(),
+                /* allowRDotJavaInSecondaryDex */ false),
             Optional.of(Paths.get("the/primary_dex_scenario.txt")),
             Optional.empty(),
             Optional.empty(),

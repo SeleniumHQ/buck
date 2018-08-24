@@ -19,18 +19,18 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.shell.AbstractGenruleDescription;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
@@ -112,9 +112,10 @@ public class ApkGenruleDescription extends AbstractGenruleDescription<ApkGenrule
       return Optional.of("apk");
     }
 
+    // TODO(T32241734): Cleanup uses of `is_cacheable` and remove, favoring `cacheable` instead.
     @Value.Default
     default boolean getIsCacheable() {
-      return true;
+      return getCacheable().orElse(true);
     }
   }
 

@@ -36,13 +36,13 @@
 
 {call go_common.deps_arg /}
 
-{call go_common.cgo_arg /}
-
 {call go_common.compiler_flags_arg /}
 
 {call go_common.assembler_flags_arg /}
 
 {call go_common.linker_flags_arg /}
+
+{call go_common.external_linker_flags_arg /}
 
 {call buck.arg}
   {param name: 'resources' /}

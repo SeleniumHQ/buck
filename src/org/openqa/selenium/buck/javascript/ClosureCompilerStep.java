@@ -38,7 +38,7 @@ public class ClosureCompilerStep extends ShellStep {
   private final ImmutableList<String> cmd;
 
   private ClosureCompilerStep(Path workingDirectory, Path output, ImmutableList<String> cmd) {
-    super(Optional.empty(), workingDirectory);
+    super(workingDirectory);
     this.output = Preconditions.checkNotNull(output);
     this.cmd = cmd;
   }

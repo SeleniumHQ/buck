@@ -18,11 +18,11 @@ package com.facebook.buck.features.project.intellij;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.features.project.intellij.model.IjModule;
 import com.facebook.buck.features.project.intellij.model.IjModuleType;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -32,7 +32,7 @@ public class IjModuleTest {
 
   @Test
   public void testPathToModuleFile() {
-    TargetNode<?, ?> javaLibrary =
+    TargetNode<?> javaLibrary =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//java/src/com/facebook/foo:foo"))
             .build();
@@ -47,7 +47,7 @@ public class IjModuleTest {
         javaLibraryModule.getModuleImlFilePath());
   }
 
-  private static <T> IjModule createModule(TargetNode<?, ?> targetNode) {
+  private static <T> IjModule createModule(TargetNode<?> targetNode) {
     Path moduleBasePath = targetNode.getBuildTarget().getBasePath();
     return IjModule.builder()
         .setTargets(ImmutableSet.of(targetNode.getBuildTarget()))

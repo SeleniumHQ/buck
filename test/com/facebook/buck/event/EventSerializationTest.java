@@ -21,16 +21,17 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.core.build.engine.BuildRuleStatus;
 import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.build.engine.type.UploadToCacheResultType;
 import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
 import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.test.event.IndividualTestEvent;
 import com.facebook.buck.core.test.event.TestRunEvent;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.test.FakeTestResults;
@@ -185,7 +186,7 @@ public class EventSerializationTest {
             CacheResult.miss(),
             Optional.empty(),
             Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-            false,
+            UploadToCacheResultType.UNCACHEABLE,
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),

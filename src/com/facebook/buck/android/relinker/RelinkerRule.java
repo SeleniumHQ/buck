@@ -18,11 +18,12 @@ package com.facebook.buck.android.relinker;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
@@ -40,7 +41,6 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.step.AbstractExecutionStep;
@@ -146,15 +146,15 @@ class RelinkerRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
                       return false;
                     }))
             .build();
-    String res = "{\n";
+    StringBuilder res = new StringBuilder("{\n");
     if (!keep.isEmpty()) {
-      res += "global:\n";
+      res.append("global:\n");
     }
     for (String s : keep) {
-      res += "  " + s + ";\n";
+      res.append("  ").append(s).append(";\n");
     }
-    res += "local: *;\n};\n";
-    return res;
+    res.append("local: *;\n};\n");
+    return res.toString();
   }
 
   public SourcePath getLibFileSourcePath() {
@@ -245,7 +245,7 @@ class RelinkerRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   private Path getScratchPath() {
     // ld doesn't seem to like commas in the version script path so we construct one without commas.
-    Path path = BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s");
+    Path path = BuildTargetPaths.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s");
     String dirname = path.getFileName().toString().replace(',', '.');
     return path.getParent().resolve(dirname);
   }

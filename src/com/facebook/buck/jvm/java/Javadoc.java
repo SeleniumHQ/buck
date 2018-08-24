@@ -18,12 +18,13 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -32,7 +33,6 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.HasMavenCoordinates;
 import com.facebook.buck.maven.aether.AetherUtil;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -77,12 +77,12 @@ public class Javadoc extends AbstractBuildRuleWithDeclaredAndExtraDeps implement
     this.sources = sources;
 
     this.output =
-        BuildTargets.getGenPath(
+        BuildTargetPaths.getGenPath(
             getProjectFilesystem(),
             getBuildTarget(),
             String.format("%%s/%s-javadoc.jar", getBuildTarget().getShortName()));
     this.scratchDir =
-        BuildTargets.getScratchPath(
+        BuildTargetPaths.getScratchPath(
             getProjectFilesystem(),
             getBuildTarget(),
             String.format("%%s/%s-javadoc.tmp", getBuildTarget().getShortName()));
@@ -161,7 +161,7 @@ public class Javadoc extends AbstractBuildRuleWithDeclaredAndExtraDeps implement
             BuildCellRelativePath.fromCellRelativePath(
                 context.getBuildCellRootPath(), getProjectFilesystem(), uncompressedOutputDir)));
     steps.add(
-        new ShellStep(Optional.of(getBuildTarget()), getProjectFilesystem().resolve(scratchDir)) {
+        new ShellStep(getProjectFilesystem().resolve(scratchDir)) {
           @Override
           protected ImmutableList<String> getShellCommandInternal(ExecutionContext context) {
             return ImmutableList.of(

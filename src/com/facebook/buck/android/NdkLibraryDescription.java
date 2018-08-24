@@ -20,21 +20,23 @@ import com.facebook.buck.android.toolchain.ndk.AndroidNdkConstants;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasSrcs;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxHeaders;
 import com.facebook.buck.cxx.CxxPreprocessables;
@@ -47,14 +49,12 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.EnvironmentVariableMacroExpander;
 import com.facebook.buck.rules.macros.MacroHandler;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.Escaper;
-import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.string.MoreStrings;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -152,7 +152,7 @@ public class NdkLibraryDescription implements DescriptionWithTargetGraph<NdkLibr
 
   @VisibleForTesting
   protected static Path getGeneratedMakefilePath(BuildTarget target, ProjectFilesystem filesystem) {
-    return BuildTargets.getGenPath(filesystem, target, "Android.%s.mk");
+    return BuildTargetPaths.getGenPath(filesystem, target, "Android.%s.mk");
   }
 
   /**

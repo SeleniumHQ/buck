@@ -211,6 +211,21 @@ public class TestSelectionListTest {
   }
 
   @Test
+  public void possiblyIncludesClassNameWhenNestedClass() {
+    TestSelectorList emptyList =
+        new TestSelectorList.Builder()
+            .addRawSelectors("Foo", "Bar\\$Inner")
+            .addSimpleTestSelector("com.example.Faz$Inner,test")
+            .build();
+    assertTrue(emptyList.possiblyIncludesClassName("Bar"));
+    assertFalse(emptyList.possiblyIncludesClassName("Bar2"));
+
+    assertTrue(emptyList.possiblyIncludesClassName("Foo"));
+
+    assertTrue(emptyList.possiblyIncludesClassName("com.example.Faz"));
+  }
+
+  @Test
   public void possiblyIncludesClassNameWhenNothingMatchesAndDefaultIsInclusion() {
     TestSelectorList emptyList =
         new TestSelectorList.Builder().addRawSelectors("!Foo", "!Bar", "#").build();

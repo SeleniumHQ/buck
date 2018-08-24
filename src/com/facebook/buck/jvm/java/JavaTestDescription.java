@@ -16,8 +16,7 @@
 
 package com.facebook.buck.jvm.java;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.HasContacts;
 import com.facebook.buck.core.description.arg.HasTestTimeout;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
@@ -27,10 +26,12 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.SymlinkTree;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
@@ -47,7 +48,6 @@ import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -160,7 +160,7 @@ public class JavaTestDescription
     return new JavaTest(
         buildTarget,
         projectFilesystem,
-        params.withDeclaredDeps(ImmutableSortedSet.of(testsLibrary)).withoutExtraDeps(),
+        params.copyAppendingExtraDeps(ImmutableSortedSet.of(testsLibrary)),
         testsLibrary,
         args.getTestClasses(),
         /* additionalClasspathEntries */ ImmutableSet.of(),
@@ -320,7 +320,10 @@ public class JavaTestDescription
           ruleFinder,
           cxxPlatform,
           buildRuleParams.getBuildDeps(),
-          r -> r instanceof JavaLibrary ? Optional.of(r.getBuildDeps()) : Optional.empty());
+          r ->
+              r instanceof JavaLibrary
+                  ? Optional.of(((JavaLibrary) r).getDepsForTransitiveClasspathEntries())
+                  : Optional.empty());
     }
   }
 }

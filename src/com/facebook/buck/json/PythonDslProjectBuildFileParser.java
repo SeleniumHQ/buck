@@ -16,16 +16,16 @@
 
 package com.facebook.buck.json;
 
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.description.BaseDescription;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
-import com.facebook.buck.io.ProjectWatch;
-import com.facebook.buck.io.WatchmanDiagnostic;
-import com.facebook.buck.io.WatchmanDiagnosticEvent;
 import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.io.watchman.ProjectWatch;
+import com.facebook.buck.io.watchman.WatchmanDiagnostic;
+import com.facebook.buck.io.watchman.WatchmanDiagnosticEvent;
 import com.facebook.buck.parser.api.BuildFileManifest;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.events.ParseBuckFileEvent;
@@ -406,11 +406,12 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
       if (values.isEmpty()) {
         // in case Python process cannot send values due to serialization issues, it will send an
         // empty list
-        return BuildFileManifest.builder()
-            .setTargets(ImmutableList.of())
-            .setIncludes(ImmutableSortedSet.of())
-            .setConfigs(ImmutableMap.of())
-            .build();
+        return BuildFileManifest.of(
+            ImmutableList.of(),
+            ImmutableSortedSet.of(),
+            ImmutableMap.of(),
+            Optional.empty(),
+            ImmutableMap.of());
       }
       return toBuildFileManifest(values);
     } finally {
@@ -423,22 +424,20 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
 
   @SuppressWarnings("unchecked")
   private BuildFileManifest toBuildFileManifest(ImmutableList<Map<String, Object>> values) {
-    return BuildFileManifest.builder()
-        .setTargets(values.subList(0, values.size() - 3))
-        .setIncludes(
-            ImmutableSortedSet.copyOf(
-                Preconditions.checkNotNull(
-                    (List<String>) values.get(values.size() - 3).get("__includes"))))
-        .setConfigs(
+    return BuildFileManifest.of(
+        values.subList(0, values.size() - 3).asList(),
+        ImmutableSortedSet.copyOf(
             Preconditions.checkNotNull(
-                (Map<String, Object>) values.get(values.size() - 2).get("__configs")))
-        .setEnv(
+                (List<String>) values.get(values.size() - 3).get("__includes"))),
+        Preconditions.checkNotNull(
+            (Map<String, Object>) values.get(values.size() - 2).get("__configs")),
+        Optional.of(
             ImmutableMap.copyOf(
                 Maps.transformValues(
                     Preconditions.checkNotNull(
                         (Map<String, String>) values.get(values.size() - 1).get("__env")),
-                    Optional::ofNullable)))
-        .build();
+                    Optional::ofNullable))),
+        ImmutableMap.of());
   }
 
   private BuildFilePythonResult performJsonRequest(ImmutableMap<String, String> request)
@@ -773,8 +772,8 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
     }
   }
 
-  private synchronized Path getPathToBuckPy(
-      ImmutableSet<DescriptionWithTargetGraph<?>> descriptions) throws IOException {
+  private synchronized Path getPathToBuckPy(ImmutableSet<BaseDescription<?>> descriptions)
+      throws IOException {
     if (buckPythonProgram == null) {
       buckPythonProgram =
           BuckPythonProgram.newInstance(

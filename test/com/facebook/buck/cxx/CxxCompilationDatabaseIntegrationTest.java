@@ -26,13 +26,13 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.apple.clang.HeaderMap;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -46,7 +46,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -55,19 +54,8 @@ import java.util.stream.Collectors;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 
-@RunWith(Parameterized.class)
 public class CxxCompilationDatabaseIntegrationTest {
-
-  @Parameterized.Parameters(name = "sandbox_sources={0}")
-  public static Collection<Object[]> data() {
-    return ImmutableList.of(new Object[] {false}, new Object[] {true});
-  }
-
-  @Parameterized.Parameter(0)
-  public boolean sandboxSources;
 
   private static final String COMPILER_PATH;
   private static final ImmutableList<String> COMPILER_SPECIFIC_FLAGS =
@@ -99,8 +87,7 @@ public class CxxCompilationDatabaseIntegrationTest {
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "compilation_database", tmp);
     workspace.setUp();
     // cxx_test requires gtest_dep to be set
-    workspace.writeContentsToPath(
-        "[cxx]\ngtest_dep = //:fake-gtest\nsandbox_sources=" + sandboxSources, ".buckconfig");
+    workspace.writeContentsToPath("[cxx]\ngtest_dep = //:fake-gtest", ".buckconfig");
   }
 
   @Test
@@ -111,11 +98,11 @@ public class CxxCompilationDatabaseIntegrationTest {
 
     Path rootPath = tmp.getRoot();
     assertEquals(
-        BuildTargets.getGenPath(filesystem, target, "__%s/compile_commands.json"),
+        BuildTargetPaths.getGenPath(filesystem, target, "__%s/compile_commands.json"),
         rootPath.relativize(compilationDatabase));
 
     Path binaryHeaderSymlinkTreeFolder =
-        BuildTargets.getGenPath(
+        BuildTargetPaths.getGenPath(
             filesystem,
             target.withFlavors(
                 InternalFlavor.of("default"), CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR),
@@ -137,8 +124,7 @@ public class CxxCompilationDatabaseIntegrationTest {
     Map<String, CxxCompilationDatabaseEntry> fileToEntry =
         CxxCompilationDatabaseUtils.parseCompilationDatabaseJsonFile(compilationDatabase);
     assertEquals(1, fileToEntry.size());
-    String path =
-        sandboxSources ? "buck-out/gen/binary_with_dep#default,sandbox/foo.cpp" : "foo.cpp";
+    String path = "foo.cpp";
     BuildTarget compilationTarget =
         target.withFlavors(
             InternalFlavor.of("default"), InternalFlavor.of("compile-" + sanitize("foo.cpp.o")));
@@ -146,9 +132,6 @@ public class CxxCompilationDatabaseIntegrationTest {
     prefixMap.put(rootPath.toString(), ".");
     if (Platform.detect() == Platform.MACOS) {
       prefixMap.put(libraryExportedHeaderSymlinkTreeFolder + "/", "");
-      if (sandboxSources) {
-        prefixMap.put("buck-out/gen/binary_with_dep#default,sandbox/", "");
-      }
     }
     assertHasEntry(
         fileToEntry,
@@ -171,12 +154,14 @@ public class CxxCompilationDatabaseIntegrationTest {
                     .collect(Collectors.toList()))
             .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
             .add("-o")
-            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/foo.cpp.o").toString())
+            .add(
+                BuildTargetPaths.getGenPath(filesystem, compilationTarget, "%s/foo.cpp.o")
+                    .toString())
             .add("-c")
             .add("-MD")
             .add("-MF")
             .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/foo.cpp.o.dep")
+                BuildTargetPaths.getGenPath(filesystem, compilationTarget, "%s/foo.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
             .build());
@@ -190,11 +175,11 @@ public class CxxCompilationDatabaseIntegrationTest {
     Path compilationDatabase = workspace.buildAndReturnOutput(target.getFullyQualifiedName());
     Path rootPath = tmp.getRoot();
     assertEquals(
-        BuildTargets.getGenPath(filesystem, target, "__%s/compile_commands.json"),
+        BuildTargetPaths.getGenPath(filesystem, target, "__%s/compile_commands.json"),
         rootPath.relativize(compilationDatabase));
 
     Path headerSymlinkTreeFolder =
-        BuildTargets.getGenPath(
+        BuildTargetPaths.getGenPath(
             filesystem,
             target.withFlavors(
                 InternalFlavor.of("default"), CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR),
@@ -214,8 +199,7 @@ public class CxxCompilationDatabaseIntegrationTest {
     Map<String, CxxCompilationDatabaseEntry> fileToEntry =
         CxxCompilationDatabaseUtils.parseCompilationDatabaseJsonFile(compilationDatabase);
     assertEquals(1, fileToEntry.size());
-    String path =
-        sandboxSources ? "buck-out/gen/library_with_header#default,sandbox/bar.cpp" : "bar.cpp";
+    String path = "bar.cpp";
     BuildTarget compilationTarget =
         target.withFlavors(
             InternalFlavor.of("default"),
@@ -225,9 +209,6 @@ public class CxxCompilationDatabaseIntegrationTest {
     if (Platform.detect() == Platform.MACOS) {
       prefixMap.put(headerSymlinkTreeFolder + "/", "");
       prefixMap.put(exportedHeaderSymlinkTreeFolder + "/", "");
-      if (sandboxSources) {
-        prefixMap.put("buck-out/gen/library_with_header#default,sandbox/", "");
-      }
     }
     assertHasEntry(
         fileToEntry,
@@ -252,12 +233,14 @@ public class CxxCompilationDatabaseIntegrationTest {
                     .collect(Collectors.toList()))
             .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
             .add("-o")
-            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/bar.cpp.o").toString())
+            .add(
+                BuildTargetPaths.getGenPath(filesystem, compilationTarget, "%s/bar.cpp.o")
+                    .toString())
             .add("-c")
             .add("-MD")
             .add("-MF")
             .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/bar.cpp.o.dep")
+                BuildTargetPaths.getGenPath(filesystem, compilationTarget, "%s/bar.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
             .build());
@@ -270,11 +253,11 @@ public class CxxCompilationDatabaseIntegrationTest {
     Path compilationDatabase = workspace.buildAndReturnOutput(target.getFullyQualifiedName());
     Path rootPath = tmp.getRoot();
     assertEquals(
-        BuildTargets.getGenPath(filesystem, target, "__%s/compile_commands.json"),
+        BuildTargetPaths.getGenPath(filesystem, target, "__%s/compile_commands.json"),
         rootPath.relativize(compilationDatabase));
 
     Path binaryHeaderSymlinkTreeFolder =
-        BuildTargets.getGenPath(
+        BuildTargetPaths.getGenPath(
             filesystem,
             target.withFlavors(
                 InternalFlavor.of("default"), CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR),
@@ -283,7 +266,7 @@ public class CxxCompilationDatabaseIntegrationTest {
     Map<String, CxxCompilationDatabaseEntry> fileToEntry =
         CxxCompilationDatabaseUtils.parseCompilationDatabaseJsonFile(compilationDatabase);
     assertEquals(1, fileToEntry.size());
-    String path = sandboxSources ? "buck-out/gen/test#default,sandbox/test.cpp" : "test.cpp";
+    String path = "test.cpp";
     BuildTarget compilationTarget =
         target.withFlavors(
             InternalFlavor.of("default"), InternalFlavor.of("compile-" + sanitize("test.cpp.o")));
@@ -298,19 +281,17 @@ public class CxxCompilationDatabaseIntegrationTest {
             .add(headerSymlinkTreePath(binaryHeaderSymlinkTreeFolder).toString())
             .addAll(getExtraFlagsForHeaderMaps(filesystem))
             .addAll(COMPILER_SPECIFIC_FLAGS)
-            .addAll(
-                sandboxSources && Platform.detect() == Platform.MACOS
-                    ? ImmutableList.of("-fdebug-prefix-map=buck-out/gen/test#default,sandbox/=")
-                    : ImmutableList.of())
             .add("-fdebug-prefix-map=" + rootPath + "=.")
             .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
             .add("-o")
-            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o").toString())
+            .add(
+                BuildTargetPaths.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o")
+                    .toString())
             .add("-c")
             .add("-MD")
             .add("-MF")
             .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o.dep")
+                BuildTargetPaths.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
             .build());
@@ -324,12 +305,12 @@ public class CxxCompilationDatabaseIntegrationTest {
     Path compilationDatabase = workspace.buildAndReturnOutput(target.getFullyQualifiedName());
     Path rootPath = tmp.getRoot();
     assertEquals(
-        BuildTargets.getGenPath(
+        BuildTargetPaths.getGenPath(
             filesystem, target, "uber-compilation-database-%s/compile_commands.json"),
         rootPath.relativize(compilationDatabase));
 
     Path binaryHeaderSymlinkTreeFolder =
-        BuildTargets.getGenPath(
+        BuildTargetPaths.getGenPath(
             filesystem,
             target.withFlavors(
                 InternalFlavor.of("default"), CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR),
@@ -338,7 +319,7 @@ public class CxxCompilationDatabaseIntegrationTest {
     Map<String, CxxCompilationDatabaseEntry> fileToEntry =
         CxxCompilationDatabaseUtils.parseCompilationDatabaseJsonFile(compilationDatabase);
     assertEquals(1, fileToEntry.size());
-    String path = sandboxSources ? "buck-out/gen/test#default,sandbox/test.cpp" : "test.cpp";
+    String path = "test.cpp";
     BuildTarget compilationTarget =
         target.withFlavors(
             InternalFlavor.of("default"), InternalFlavor.of("compile-" + sanitize("test.cpp.o")));
@@ -353,19 +334,17 @@ public class CxxCompilationDatabaseIntegrationTest {
             .add(headerSymlinkTreePath(binaryHeaderSymlinkTreeFolder).toString())
             .addAll(getExtraFlagsForHeaderMaps(filesystem))
             .addAll(COMPILER_SPECIFIC_FLAGS)
-            .addAll(
-                sandboxSources && Platform.detect() == Platform.MACOS
-                    ? ImmutableList.of("-fdebug-prefix-map=buck-out/gen/test#default,sandbox/=")
-                    : ImmutableList.of())
             .add("-fdebug-prefix-map=" + rootPath + "=.")
             .addAll(MORE_COMPILER_SPECIFIC_FLAGS)
             .add("-o")
-            .add(BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o").toString())
+            .add(
+                BuildTargetPaths.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o")
+                    .toString())
             .add("-c")
             .add("-MD")
             .add("-MF")
             .add(
-                BuildTargets.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o.dep")
+                BuildTargetPaths.getGenPath(filesystem, compilationTarget, "%s/test.cpp.o.dep")
                     .toString())
             .add(Paths.get(path).toString())
             .build());
@@ -389,7 +368,7 @@ public class CxxCompilationDatabaseIntegrationTest {
     workspace.buildAndReturnOutput(target.getFullyQualifiedName());
 
     Path headerSymlinkTreeFolder =
-        BuildTargets.getGenPath(
+        BuildTargetPaths.getGenPath(
             filesystem,
             target.withFlavors(
                 InternalFlavor.of("default"), CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR),
@@ -432,8 +411,7 @@ public class CxxCompilationDatabaseIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(
             this, "compilation_database_with_deps", tmp);
     workspace.setUp();
-    workspace.writeContentsToPath(
-        "[cxx]\ngtest_dep = //:fake-gtest\nsandbox_sources=" + sandboxSources, ".buckconfig");
+    workspace.writeContentsToPath("[cxx]\ngtest_dep = //:fake-gtest", ".buckconfig");
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
     // This test only fails if the directory cache is enabled and we don't update
@@ -503,7 +481,7 @@ public class CxxCompilationDatabaseIntegrationTest {
 
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildTarget headerTarget = BuildTargetFactory.newInstance("//dep1:header");
-    Path header = workspace.getPath(BuildTargets.getGenPath(filesystem, headerTarget, "%s"));
+    Path header = workspace.getPath(BuildTargetPaths.getGenPath(filesystem, headerTarget, "%s"));
     assertThat(Files.exists(header), is(true));
   }
 
@@ -530,7 +508,7 @@ public class CxxCompilationDatabaseIntegrationTest {
 
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     BuildTarget sourceTarget = BuildTargetFactory.newInstance("//dep1:source");
-    Path source = workspace.getPath(BuildTargets.getGenPath(filesystem, sourceTarget, "%s"));
+    Path source = workspace.getPath(BuildTargetPaths.getGenPath(filesystem, sourceTarget, "%s"));
     assertThat(Files.exists(source), is(true));
   }
 

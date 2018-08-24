@@ -20,12 +20,12 @@ import static com.facebook.buck.apple.AppleAssetCatalog.validateAssetCatalogs;
 import static com.facebook.buck.swift.SwiftDescriptions.SWIFT_EXTENSION;
 
 import com.facebook.buck.apple.AppleAssetCatalog.ValidationType;
+import com.facebook.buck.apple.AppleBuildRules.RecursiveDependenciesMode;
 import com.facebook.buck.apple.platform_type.ApplePlatformType;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
 import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -34,8 +34,10 @@ import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildRules;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
@@ -60,7 +62,7 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.shell.AbstractGenruleDescription;
 import com.facebook.buck.util.Optionals;
@@ -173,7 +175,7 @@ public class AppleDescriptions {
       BuildTarget buildTarget,
       Function<SourcePath, Path> pathResolver,
       Path headerPathPrefix,
-      SourceList headers) {
+      SourceSortedSet headers) {
     if (headers.getUnnamedSources().isPresent()) {
       // The user specified a set of header files. For use from other targets, prepend their names
       // with the header path prefix.
@@ -187,7 +189,7 @@ public class AppleDescriptions {
 
   @VisibleForTesting
   static ImmutableSortedMap<String, SourcePath> parseAppleHeadersForUseFromTheSameTarget(
-      BuildTarget buildTarget, Function<SourcePath, Path> pathResolver, SourceList headers) {
+      BuildTarget buildTarget, Function<SourcePath, Path> pathResolver, SourceSortedSet headers) {
     if (headers.getUnnamedSources().isPresent()) {
       // The user specified a set of header files. Headers can be included from the same target
       // using only their file name without a prefix.
@@ -239,7 +241,7 @@ public class AppleDescriptions {
       AppleNativeTargetDescriptionArg arg,
       BuildTarget buildTarget,
       Consumer<ImmutableSortedSet<SourceWithFlags>> setSrcs,
-      Consumer<SourceList> setHeaders,
+      Consumer<SourceSortedSet> setHeaders,
       Consumer<String> setHeaderNamespace) {
     Path headerPathPrefix = AppleDescriptions.getHeaderPathPrefix(arg, buildTarget);
     // The resulting cxx constructor arg will have no exported headers and both headers and exported
@@ -272,7 +274,7 @@ public class AppleDescriptions {
     }
     setSrcs.accept(nonSwiftSrcs.build());
 
-    setHeaders.accept(SourceList.ofNamedSources(headerMap));
+    setHeaders.accept(SourceSortedSet.ofNamedSources(headerMap));
     // This is intentionally an empty string; we put all prefixes into
     // the header map itself.
     setHeaderNamespace.accept("");
@@ -307,11 +309,11 @@ public class AppleDescriptions {
         output::setHeaderNamespace);
     Path headerPathPrefix = AppleDescriptions.getHeaderPathPrefix(arg, buildTarget);
     output.setHeaders(
-        SourceList.ofNamedSources(
+        SourceSortedSet.ofNamedSources(
             convertAppleHeadersToPrivateCxxHeaders(
                 buildTarget, resolver::getRelativePath, headerPathPrefix, arg)));
     output.setExportedHeaders(
-        SourceList.ofNamedSources(
+        SourceSortedSet.ofNamedSources(
             convertAppleHeadersToPublicCxxHeaders(
                 buildTarget, resolver::getRelativePath, headerPathPrefix, arg)));
     if (arg.isModular()) {
@@ -325,6 +327,7 @@ public class AppleDescriptions {
   }
 
   public static Optional<AppleAssetCatalog> createBuildRuleForTransitiveAssetCatalogDependencies(
+      XCodeDescriptions xcodeDescriptions,
       TargetGraph targetGraph,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
@@ -335,11 +338,15 @@ public class AppleDescriptions {
       Tool actool,
       AppleAssetCatalog.ValidationType assetCatalogValidation,
       AppleAssetCatalogsCompilationOptions appleAssetCatalogsCompilationOptions) {
-    TargetNode<?, ?> targetNode = targetGraph.get(buildTarget);
+    TargetNode<?> targetNode = targetGraph.get(buildTarget);
 
     ImmutableSet<AppleAssetCatalogDescriptionArg> assetCatalogArgs =
         AppleBuildRules.collectRecursiveAssetCatalogs(
-            targetGraph, Optional.empty(), ImmutableList.of(targetNode));
+            xcodeDescriptions,
+            targetGraph,
+            Optional.empty(),
+            ImmutableList.of(targetNode),
+            RecursiveDependenciesMode.COPYING);
 
     ImmutableSortedSet.Builder<SourcePath> assetCatalogDirsBuilder =
         ImmutableSortedSet.naturalOrder();
@@ -406,20 +413,23 @@ public class AppleDescriptions {
   }
 
   public static Optional<CoreDataModel> createBuildRulesForCoreDataDependencies(
+      XCodeDescriptions xcodeDescriptions,
       TargetGraph targetGraph,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       String moduleName,
       AppleCxxPlatform appleCxxPlatform) {
-    TargetNode<?, ?> targetNode = targetGraph.get(buildTarget);
+    TargetNode<?> targetNode = targetGraph.get(buildTarget);
 
     ImmutableSet<AppleWrapperResourceArg> coreDataModelArgs =
         AppleBuildRules.collectTransitiveBuildRules(
+            xcodeDescriptions,
             targetGraph,
             Optional.empty(),
             AppleBuildRules.CORE_DATA_MODEL_DESCRIPTION_CLASSES,
-            ImmutableList.of(targetNode));
+            ImmutableList.of(targetNode),
+            RecursiveDependenciesMode.COPYING);
 
     BuildTarget coreDataModelBuildTarget = buildTarget.withAppendedFlavors(CoreDataModel.FLAVOR);
 
@@ -441,19 +451,22 @@ public class AppleDescriptions {
   }
 
   public static Optional<SceneKitAssets> createBuildRulesForSceneKitAssetsDependencies(
+      XCodeDescriptions xcodeDescriptions,
       TargetGraph targetGraph,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       AppleCxxPlatform appleCxxPlatform) {
-    TargetNode<?, ?> targetNode = targetGraph.get(buildTarget);
+    TargetNode<?> targetNode = targetGraph.get(buildTarget);
 
     ImmutableSet<AppleWrapperResourceArg> sceneKitAssetsArgs =
         AppleBuildRules.collectTransitiveBuildRules(
+            xcodeDescriptions,
             targetGraph,
             Optional.empty(),
             AppleBuildRules.SCENEKIT_ASSETS_DESCRIPTION_CLASSES,
-            ImmutableList.of(targetNode));
+            ImmutableList.of(targetNode),
+            RecursiveDependenciesMode.COPYING);
 
     BuildTarget sceneKitAssetsBuildTarget = buildTarget.withAppendedFlavors(SceneKitAssets.FLAVOR);
 
@@ -546,6 +559,7 @@ public class AppleDescriptions {
   }
 
   static AppleBundle createAppleBundle(
+      XCodeDescriptions xcodeDescriptions,
       CxxPlatformsProvider cxxPlatformsProvider,
       FlavorDomain<AppleCxxPlatform> appleCxxPlatforms,
       TargetGraph targetGraph,
@@ -572,7 +586,8 @@ public class AppleDescriptions {
       ImmutableList<String> codesignFlags,
       Optional<String> codesignAdhocIdentity,
       Optional<Boolean> ibtoolModuleFlag,
-      Duration codesignTimeout) {
+      Duration codesignTimeout,
+      boolean copySwiftStdlibToFrameworks) {
     AppleCxxPlatform appleCxxPlatform =
         ApplePlatforms.getAppleCxxPlatformForBuildTarget(
             cxxPlatformsProvider,
@@ -596,11 +611,13 @@ public class AppleDescriptions {
 
     AppleBundleResources collectedResources =
         AppleResources.collectResourceDirsAndFiles(
+            xcodeDescriptions,
             targetGraph,
             graphBuilder,
             Optional.empty(),
             targetGraph.get(buildTarget),
-            appleCxxPlatform);
+            appleCxxPlatform,
+            RecursiveDependenciesMode.COPYING);
 
     ImmutableSet.Builder<SourcePath> frameworksBuilder = ImmutableSet.builder();
     if (INCLUDE_FRAMEWORKS.getRequiredValue(buildTarget)) {
@@ -621,10 +638,11 @@ public class AppleDescriptions {
     // This change simply treats all the immediate prebuilt framework dependencies as wishing to be
     // embedded, but in the future this should be dealt with with some greater sophistication.
     for (BuildTarget dep : deps) {
-      Optional<TargetNode<PrebuiltAppleFrameworkDescriptionArg, ?>> prebuiltNode =
+      Optional<TargetNode<PrebuiltAppleFrameworkDescriptionArg>> prebuiltNode =
           targetGraph
               .getOptional(dep)
-              .flatMap(node -> node.castArg(PrebuiltAppleFrameworkDescriptionArg.class));
+              .flatMap(
+                  node -> TargetNodes.castArg(node, PrebuiltAppleFrameworkDescriptionArg.class));
       if (prebuiltNode.isPresent()
           && !prebuiltNode
               .get()
@@ -642,6 +660,7 @@ public class AppleDescriptions {
 
     Optional<AppleAssetCatalog> assetCatalog =
         createBuildRuleForTransitiveAssetCatalogDependencies(
+            xcodeDescriptions,
             targetGraph,
             buildTargetWithoutBundleSpecificFlavors,
             projectFilesystem,
@@ -656,6 +675,7 @@ public class AppleDescriptions {
 
     Optional<CoreDataModel> coreDataModel =
         createBuildRulesForCoreDataDependencies(
+            xcodeDescriptions,
             targetGraph,
             buildTargetWithoutBundleSpecificFlavors,
             projectFilesystem,
@@ -666,6 +686,7 @@ public class AppleDescriptions {
 
     Optional<SceneKitAssets> sceneKitAssets =
         createBuildRulesForSceneKitAssetsDependencies(
+            xcodeDescriptions,
             targetGraph,
             buildTargetWithoutBundleSpecificFlavors,
             projectFilesystem,
@@ -793,7 +814,8 @@ public class AppleDescriptions {
         codesignFlags,
         codesignAdhocIdentity,
         ibtoolModuleFlag,
-        codesignTimeout);
+        codesignTimeout,
+        copySwiftStdlibToFrameworks);
   }
 
   /**
@@ -895,7 +917,7 @@ public class AppleDescriptions {
     }
     BuildTarget buildTarget = binary.withFlavors(binaryFlavorsBuilder.build());
 
-    TargetNode<?, ?> binaryTargetNode = targetGraph.get(buildTarget);
+    TargetNode<?> binaryTargetNode = targetGraph.get(buildTarget);
 
     if (binaryTargetNode.getDescription() instanceof AppleTestDescription) {
       return graphBuilder.getRule(binary);
@@ -1017,9 +1039,9 @@ public class AppleDescriptions {
         continue;
       }
 
-      Optional<TargetNode<?, ?>> depTargetNode = targetGraph.getOptional(dep);
-      Optional<TargetNode<AppleBinaryDescriptionArg, ?>> binaryDepNode =
-          depTargetNode.flatMap(n -> n.castArg(AppleBinaryDescriptionArg.class));
+      Optional<TargetNode<?>> depTargetNode = targetGraph.getOptional(dep);
+      Optional<TargetNode<AppleBinaryDescriptionArg>> binaryDepNode =
+          depTargetNode.flatMap(n -> TargetNodes.castArg(n, AppleBinaryDescriptionArg.class));
       if (!binaryDepNode.isPresent()) {
         // Skip any deps which are not apple_binary
         continue;
@@ -1058,7 +1080,7 @@ public class AppleDescriptions {
   }
 
   public static boolean targetNodeContainsSwiftSourceCode(
-      TargetNode<? extends CxxLibraryDescription.CommonArg, ?> node) {
+      TargetNode<? extends CxxLibraryDescription.CommonArg> node) {
     for (Path inputPath : node.getInputs()) {
       if (inputPath.toString().endsWith(".swift")) {
         return true;

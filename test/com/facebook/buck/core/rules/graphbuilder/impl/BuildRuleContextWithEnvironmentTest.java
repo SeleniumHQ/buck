@@ -18,11 +18,12 @@ package com.facebook.buck.core.rules.graphbuilder.impl;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellBuilder;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.graph.transformation.TestTransformationEnvironment;
 import com.facebook.buck.core.graph.transformation.TransformationEnvironment;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.FakeTargetNodeBuilder;
 import com.facebook.buck.core.model.targetgraph.ImmutableBuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
@@ -36,13 +37,12 @@ import com.facebook.buck.core.rules.provider.DefaultBuildRuleInfoProvider;
 import com.facebook.buck.core.rules.provider.FakeBuildRuleInfoProvider;
 import com.facebook.buck.core.rules.provider.FakeBuildRuleWithProviders;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
-import com.facebook.buck.graph.MutableDirectedGraph;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
+import com.facebook.buck.core.util.graph.MutableDirectedGraph;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -60,7 +60,7 @@ import org.junit.Test;
  */
 public class BuildRuleContextWithEnvironmentTest {
 
-  private MutableDirectedGraph<TargetNode<?, ?>> mutableTargetGraph;
+  private MutableDirectedGraph<TargetNode<?>> mutableTargetGraph;
   private ActionGraphBuilder graphBuilder;
   private ProjectFilesystem projectFilesystem;
   private CellPathResolver cellPathResolver;

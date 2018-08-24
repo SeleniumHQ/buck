@@ -22,21 +22,25 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
-import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
+import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
+import com.facebook.buck.core.module.BuckModuleManager;
+import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
@@ -49,11 +53,9 @@ import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.module.BuckModuleManager;
-import com.facebook.buck.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.Parser;
@@ -63,14 +65,12 @@ import com.facebook.buck.parser.ParserTargetNodeFactory;
 import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.PathTypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.rules.visibility.VisibilityPatternFactory;
-import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
@@ -83,8 +83,6 @@ import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.ConfigBuilder;
-import com.facebook.buck.util.environment.Architecture;
-import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -110,7 +108,6 @@ public class DistBuildStateTest {
 
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
 
-  private KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
   private ProcessExecutor processExecutor;
   private ExecutableFinder executableFinder;
   private BuckModuleManager moduleManager;
@@ -121,29 +118,21 @@ public class DistBuildStateTest {
     executableFinder = new ExecutableFinder();
     pluginManager = BuckPluginManagerFactory.createPluginManager();
     moduleManager = TestBuckModuleManagerFactory.create(pluginManager);
-
-    knownBuildRuleTypesProvider =
-        KnownBuildRuleTypesProvider.of(
-            DefaultKnownBuildRuleTypesFactory.of(
-                processExecutor, pluginManager, new TestSandboxExecutionStrategyFactory()));
   }
 
   @Test
   public void canReconstructConfig() throws IOException, InterruptedException {
     ProjectFilesystem filesystem = createJavaOnlyFilesystem("/saving");
 
-    Config config = new Config(ConfigBuilder.rawFromLines());
     BuckConfig buckConfig =
-        new BuckConfig(
-            config,
-            filesystem,
-            Architecture.detect(),
-            Platform.detect(),
-            ImmutableMap.<String, String>builder()
-                .putAll(System.getenv())
-                .put("envKey", "envValue")
-                .build(),
-            DefaultCellPathResolver.of(filesystem.getRootPath(), config));
+        FakeBuckConfig.builder()
+            .setEnvironment(
+                ImmutableMap.<String, String>builder()
+                    .putAll(System.getenv())
+                    .put("envKey", "envValue")
+                    .build())
+            .setFilesystem(filesystem)
+            .build();
     Cell rootCellWhenSaving =
         new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(buckConfig).build();
     setUp();
@@ -189,16 +178,15 @@ public class DistBuildStateTest {
             String.format("[%s]", STAMPEDE_SECTION),
             String.format("%s=%s", SERVER_BUCKCONFIG_OVERRIDE, "server-cfg"));
     BuckConfig buckConfig =
-        new BuckConfig(
-            config,
-            filesystem,
-            Architecture.detect(),
-            Platform.detect(),
-            ImmutableMap.<String, String>builder()
-                .putAll(System.getenv())
-                .put("envKey", "envValue")
-                .build(),
-            DefaultCellPathResolver.of(filesystem.getRootPath(), config));
+        FakeBuckConfig.builder()
+            .setEnvironment(
+                ImmutableMap.<String, String>builder()
+                    .putAll(System.getenv())
+                    .put("envKey", "envValue")
+                    .build())
+            .setFilesystem(filesystem)
+            .setSections(config.getRawConfig())
+            .build();
     Cell rootCellWhenSaving =
         new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(buckConfig).build();
     setUp();
@@ -207,16 +195,15 @@ public class DistBuildStateTest {
         ConfigBuilder.createFromText(
             filesystem.readFileIfItExists(filesystem.getPath("server-cfg")).get());
     BuckConfig serverBuckConfig =
-        new BuckConfig(
-            serverConfig,
-            filesystem,
-            Architecture.detect(),
-            Platform.detect(),
-            ImmutableMap.<String, String>builder()
-                .putAll(System.getenv())
-                .put("envKey", "envValue")
-                .build(),
-            DefaultCellPathResolver.of(filesystem.getRootPath(), config));
+        FakeBuckConfig.builder()
+            .setEnvironment(
+                ImmutableMap.<String, String>builder()
+                    .putAll(System.getenv())
+                    .put("envKey", "envValue")
+                    .build())
+            .setFilesystem(filesystem)
+            .setSections(serverConfig.getRawConfig())
+            .build();
 
     BuildJobState dump =
         DistBuildState.dump(
@@ -260,16 +247,20 @@ public class DistBuildStateTest {
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     ConstructorArgMarshaller constructorArgMarshaller =
         new ConstructorArgMarshaller(typeCoercerFactory);
+    KnownRuleTypesProvider knownRuleTypesProvider =
+        TestKnownRuleTypesProvider.create(pluginManager);
     Parser parser =
         new DefaultParser(
             new PerBuildStateFactory(
                 typeCoercerFactory,
                 constructorArgMarshaller,
-                knownBuildRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, executableFinder)),
+                knownRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, executableFinder),
+                WatchmanFactory.NULL_WATCHMAN),
             parserConfig,
             typeCoercerFactory,
-            new TargetSpecResolver());
+            new TargetSpecResolver(),
+            WatchmanFactory.NULL_WATCHMAN);
     TargetGraph targetGraph =
         parser.buildTargetGraph(
             BuckEventBusForTests.newInstance(),
@@ -309,14 +300,14 @@ public class DistBuildStateTest {
     ProjectFilesystem reconstructedCellFilesystem =
         distributedBuildState.getCells().get(0).getFilesystem();
     TargetGraph reconstructedGraph =
-        distributedBuildState
-            .createTargetGraph(targetGraphCodec, knownBuildRuleTypesProvider)
-            .getTargetGraph();
+        distributedBuildState.createTargetGraph(targetGraphCodec).getTargetGraph();
     assertEquals(
         reconstructedGraph
             .getNodes()
             .stream()
-            .map(targetNode -> targetNode.castArg(JavaLibraryDescriptionArg.class).get())
+            .map(
+                targetNode ->
+                    TargetNodes.castArg(targetNode, JavaLibraryDescriptionArg.class).get())
             .sorted()
             .map(targetNode -> targetNode.getConstructorArg().getSrcs())
             .collect(Collectors.toList()),
@@ -343,16 +334,16 @@ public class DistBuildStateTest {
             ConfigBuilder.rawFromLines(
                 "[cache]", "repository=somerepo", "[repositories]", "cell2 = " + cell2Root));
     BuckConfig buckConfig =
-        new BuckConfig(
-            config,
-            cell1Filesystem,
-            Architecture.detect(),
-            Platform.detect(),
-            ImmutableMap.<String, String>builder()
-                .putAll(System.getenv())
-                .put("envKey", "envValue")
-                .build(),
-            DefaultCellPathResolver.of(cell1Root, config));
+        FakeBuckConfig.builder()
+            .setEnvironment(
+                ImmutableMap.<String, String>builder()
+                    .putAll(System.getenv())
+                    .put("envKey", "envValue")
+                    .build())
+            .setFilesystem(cell1Filesystem)
+            .setSections(config.getRawConfig())
+            .setSections(config.getRawConfig())
+            .build();
     Cell rootCellWhenSaving =
         new TestCellBuilder().setFilesystem(cell1Filesystem).setBuckConfig(buckConfig).build();
     setUp();
@@ -372,16 +363,15 @@ public class DistBuildStateTest {
     Config localConfig =
         new Config(ConfigBuilder.rawFromLines("[cache]", "slb_server_pool=http://someserver:8080"));
     BuckConfig localBuckConfig =
-        new BuckConfig(
-            localConfig,
-            cell1Filesystem,
-            Architecture.detect(),
-            Platform.detect(),
-            ImmutableMap.<String, String>builder()
-                .putAll(System.getenv())
-                .put("envKey", "envValue")
-                .build(),
-            DefaultCellPathResolver.of(cell1Root, localConfig));
+        FakeBuckConfig.builder()
+            .setEnvironment(
+                ImmutableMap.<String, String>builder()
+                    .putAll(System.getenv())
+                    .put("envKey", "envValue")
+                    .build())
+            .setFilesystem(cell1Filesystem)
+            .setSections(localConfig.getRawConfig())
+            .build();
     DistBuildState distributedBuildState =
         DistBuildState.load(
             localBuckConfig,
@@ -434,7 +424,7 @@ public class DistBuildStateTest {
   public static DistBuildTargetGraphCodec createDefaultCodec(Cell cell, Optional<Parser> parser) {
     BuckEventBus eventBus = BuckEventBusForTests.newInstance();
 
-    Function<? super TargetNode<?, ?>, ? extends Map<String, Object>> nodeToRawNode;
+    Function<? super TargetNode<?>, ? extends Map<String, Object>> nodeToRawNode;
     if (parser.isPresent()) {
       nodeToRawNode =
           input -> {
@@ -457,8 +447,11 @@ public class DistBuildStateTest {
 
     TypeCoercerFactory typeCoercerFactory =
         new DefaultTypeCoercerFactory(PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY);
+    KnownRuleTypesProvider knownRuleTypesProvider =
+        TestKnownRuleTypesProvider.create(BuckPluginManagerFactory.createPluginManager());
     ParserTargetNodeFactory<Map<String, Object>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
+            knownRuleTypesProvider,
             new ConstructorArgMarshaller(typeCoercerFactory),
             new TargetNodeFactory(typeCoercerFactory),
             new VisibilityPatternFactory(),

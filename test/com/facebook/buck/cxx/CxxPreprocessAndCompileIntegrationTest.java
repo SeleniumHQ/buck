@@ -27,48 +27,37 @@ import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.BuckBuildLog;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.CreateSymlinksForTests;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Files;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.Optional;
 import org.hamcrest.Matchers;
-import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-import org.junit.runners.Parameterized;
 
 public class CxxPreprocessAndCompileIntegrationTest {
-
-  @Parameterized.Parameters(name = "sandbox_sources={0}")
-  public static Collection<Object[]> data() {
-    return ImmutableList.of(new Object[] {true}, new Object[] {false});
-  }
-
-  @Parameterized.Parameter(0)
-  public boolean sandboxSource;
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths("cxx_pp_and_compile");
   @Rule public TemporaryPaths tmp_long_pwd = new TemporaryPaths("cxx_pp_and_compiler_long_pwd");
@@ -81,9 +70,6 @@ public class CxxPreprocessAndCompileIntegrationTest {
     workspace.setUp();
     workspace.writeContentsToPath(
         "[cxx]\n"
-            + "  sandbox_sources = "
-            + sandboxSource
-            + "\n"
             + "  asflags = -g\n"
             + "  cppflags = -g\n"
             + "  cflags = -g\n"
@@ -105,7 +91,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
     BuildTarget target = BuildTargetFactory.newInstance("//:simple#default,static");
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     workspace.runBuckBuild(target.getFullyQualifiedName()).assertSuccess();
-    Path lib = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s/libsimple.a"));
+    Path lib = workspace.getPath(BuildTargetPaths.getGenPath(filesystem, target, "%s/libsimple.a"));
     String contents = Files.asByteSource(lib.toFile()).asCharSource(Charsets.ISO_8859_1).read();
     assertFalse(lib.toString(), contents.contains(tmp.getRoot().toString()));
 
@@ -115,7 +101,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
     longPwdWorkspace.runBuckBuild(target.getFullyQualifiedName()).assertSuccess();
     Path longPwdLib =
         longPwdWorkspace.getPath(
-            BuildTargets.getGenPath(longPwdFilesystem, target, "%s/libsimple.a"));
+            BuildTargetPaths.getGenPath(longPwdFilesystem, target, "%s/libsimple.a"));
     String longPwdContents =
         Files.asByteSource(longPwdLib.toFile()).asCharSource(Charsets.ISO_8859_1).read();
     assertEquals(contents, longPwdContents);
@@ -128,7 +114,8 @@ public class CxxPreprocessAndCompileIntegrationTest {
     ProcessResult processResult = workspace.runBuckBuild(target.getFullyQualifiedName());
     processResult.assertSuccess();
     Path lib =
-        workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s/libsimple_assembly.a"));
+        workspace.getPath(
+            BuildTargetPaths.getGenPath(filesystem, target, "%s/libsimple_assembly.a"));
     String contents = Files.asByteSource(lib.toFile()).asCharSource(Charsets.ISO_8859_1).read();
     assertFalse(lib.toString(), contents.contains(tmp.getRoot().toString()));
   }
@@ -142,7 +129,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
 
     // Setup up a symlink to our working directory.
     Path symlinkedRoot = folder.getRoot().toPath().resolve("symlinked-root");
-    java.nio.file.Files.createSymbolicLink(symlinkedRoot, tmp.getRoot());
+    CreateSymlinksForTests.createSymLink(symlinkedRoot, tmp.getRoot());
 
     // Run the build, setting PWD to the above symlink.  Typically, this causes compilers to use
     // the symlinked directory, even though it's not the right project root.
@@ -157,7 +144,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
         .assertSuccess();
 
     // Verify that we still sanitized this path correctly.
-    Path lib = workspace.getPath(BuildTargets.getGenPath(filesystem, target, "%s/libsimple.a"));
+    Path lib = workspace.getPath(BuildTargetPaths.getGenPath(filesystem, target, "%s/libsimple.a"));
     String contents = Files.asByteSource(lib.toFile()).asCharSource(Charsets.ISO_8859_1).read();
     assertFalse(lib.toString(), contents.contains(tmp.getRoot().toString()));
     assertFalse(lib.toString(), contents.contains(symlinkedRoot.toString()));
@@ -535,14 +522,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
 
   @Test
   public void parentDirectoryReferenceInSource() throws IOException {
-    Assume.assumeFalse("parent directories do not work in sandbox mode", sandboxSource);
-    workspace.writeContentsToPath(
-        "[cxx]\n"
-            + "  sandbox_sources = "
-            + sandboxSource
-            + "\n"
-            + "[project]\n  check_package_boundary = false\n",
-        ".buckconfig");
+    workspace.writeContentsToPath("[project]\n  check_package_boundary = false\n", ".buckconfig");
     workspace.runBuckBuild("//parent_dir_ref:simple#default,static").assertSuccess();
   }
 
@@ -579,11 +559,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
   public void ignoreVerifyHeaders() throws IOException {
     ProcessResult result =
         workspace.runBuckBuild("-c", "cxx.untracked_headers=ignore", "//:untracked_header");
-    if (sandboxSource) {
-      result.assertFailure();
-    } else {
-      result.assertSuccess();
-    }
+    result.assertSuccess();
   }
 
   @Test
@@ -597,20 +573,10 @@ public class CxxPreprocessAndCompileIntegrationTest {
             "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
             "//:untracked_header");
     result.assertFailure();
-    if (sandboxSource) {
-      assertThat(
-          result.getStderr(),
-          Matchers.anyOf(
-              // clang
-              containsString("'untracked_header.h' file not found"),
-              // gcc
-              containsString("untracked_header.h: No such file or directory")));
-    } else {
-      assertThat(
-          result.getStderr(),
-          containsString(
-              "untracked_header.cpp: included an untracked header \"untracked_header.h\""));
-    }
+    assertThat(
+        result.getStderr(),
+        containsString(
+            "untracked_header.cpp: included an untracked header \"untracked_header.h\""));
   }
 
   @Test
@@ -623,11 +589,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
             "cxx.untracked_headers_whitelist="
                 + "/usr/include/stdc-predef\\.h, /usr/local/.*, untracked_.*.h",
             "//:untracked_header");
-    if (sandboxSource) {
-      result.assertFailure();
-    } else {
-      result.assertSuccess();
-    }
+    result.assertSuccess();
   }
 
   private BuildTarget getPreprocessTarget(
@@ -662,11 +624,7 @@ public class CxxPreprocessAndCompileIntegrationTest {
             "-c",
             "cxx.default_platform=iphonesimulator-x86_64",
             "//:with_xctest");
-    if (sandboxSource) {
-      result.assertFailure();
-    } else {
-      result.assertSuccess();
-    }
+    result.assertSuccess();
   }
 
   @Test

@@ -18,7 +18,9 @@ package com.facebook.buck.jvm.core;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.google.common.collect.ImmutableSortedSet;
+import java.io.IOException;
 
 /** Provides information about a java abi. */
 public interface JavaAbiInfo {
@@ -27,4 +29,8 @@ public interface JavaAbiInfo {
   ImmutableSortedSet<SourcePath> getJarContents();
 
   boolean jarContains(String path);
+
+  void load(SourcePathResolver pathResolver) throws IOException;
+
+  void invalidate();
 }

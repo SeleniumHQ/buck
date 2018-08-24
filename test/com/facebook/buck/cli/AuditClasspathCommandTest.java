@@ -21,18 +21,18 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.android.AndroidBinaryBuilder;
 import com.facebook.buck.android.AndroidLibraryBuilder;
-import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.jvm.java.JavaBinaryRuleBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaTestBuilder;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.json.ObjectMappers;
@@ -92,28 +92,28 @@ public class AuditClasspathCommandTest {
     BuildTarget keystoreTarget = BuildTargetFactory.newInstance("//:keystore");
     BuildTarget testAndroidTarget = BuildTargetFactory.newInstance("//:test-android-binary");
 
-    TargetNode<?, ?> javaLibraryNode =
+    TargetNode<?> javaLibraryNode =
         JavaLibraryBuilder.createBuilder(javaLibraryTarget)
             .addSrc(Paths.get("src/com/facebook/TestJavaLibrary.java"))
             .addTest(testJavaTarget)
             .build();
-    TargetNode<?, ?> androidLibraryNode =
+    TargetNode<?> androidLibraryNode =
         AndroidLibraryBuilder.createBuilder(androidLibraryTarget)
             .addSrc(Paths.get("src/com/facebook/TestAndroidLibrary.java"))
             .addDep(javaLibraryTarget)
             .build();
-    TargetNode<?, ?> keystoreNode =
+    TargetNode<?> keystoreNode =
         KeystoreBuilder.createBuilder(keystoreTarget)
             .setStore(FakeSourcePath.of("debug.keystore"))
             .setProperties(FakeSourcePath.of("keystore.properties"))
             .build();
-    TargetNode<?, ?> testAndroidNode =
+    TargetNode<?> testAndroidNode =
         AndroidBinaryBuilder.createBuilder(testAndroidTarget)
             .setManifest(FakeSourcePath.of("AndroidManifest.xml"))
             .setKeystore(keystoreTarget)
             .setOriginalDeps(ImmutableSortedSet.of(androidLibraryTarget, javaLibraryTarget))
             .build();
-    TargetNode<?, ?> testJavaNode =
+    TargetNode<?> testJavaNode =
         JavaTestBuilder.createBuilder(testJavaTarget)
             .addDep(javaLibraryTarget)
             .addSrc(Paths.get("src/com/facebook/test/ProjectTests.java"))
@@ -140,20 +140,21 @@ public class AuditClasspathCommandTest {
         Sets.newTreeSet(
             Arrays.asList(
                 root.resolve(
-                        BuildTargets.getGenPath(
+                        BuildTargetPaths.getGenPath(
                                 params.getCell().getFilesystem(),
                                 androidLibraryTarget,
                                 "lib__%s__output")
                             .resolve(androidLibraryTarget.getShortName() + ".jar"))
                     .toString(),
                 root.resolve(
-                        BuildTargets.getGenPath(
+                        BuildTargetPaths.getGenPath(
                                 params.getCell().getFilesystem(),
                                 javaLibraryTarget,
                                 "lib__%s__output")
                             .resolve(javaLibraryTarget.getShortName() + ".jar"))
                     .toString()));
-    String expectedClasspath = Joiner.on("\n").join(expectedPaths) + "\n";
+    String expectedClasspath =
+        String.join(System.lineSeparator(), expectedPaths) + System.lineSeparator();
 
     assertEquals(expectedClasspath, console.getTextWrittenToStdOut());
     assertEquals("", console.getTextWrittenToStdErr());
@@ -175,11 +176,11 @@ public class AuditClasspathCommandTest {
 
     expectedPaths.add(
         root.resolve(
-                BuildTargets.getGenPath(
+                BuildTargetPaths.getGenPath(
                         params.getCell().getFilesystem(), testJavaCompiledJar, "lib__%s__output")
                     .resolve(testJavaCompiledJar.getShortNameAndFlavorPostfix() + ".jar"))
             .toString());
-    expectedClasspath = Joiner.on("\n").join(expectedPaths) + "\n";
+    expectedClasspath = String.join(System.lineSeparator(), expectedPaths) + System.lineSeparator();
     assertEquals(expectedClasspath, console.getTextWrittenToStdOut());
     assertEquals("", console.getTextWrittenToStdErr());
   }
@@ -204,13 +205,13 @@ public class AuditClasspathCommandTest {
     // Build a DependencyGraph of build rules manually.
 
     BuildTarget javaTarget = BuildTargetFactory.newInstance("//:test-java-library");
-    TargetNode<?, ?> javaNode =
+    TargetNode<?> javaNode =
         JavaLibraryBuilder.createBuilder(javaTarget)
             .addSrc(Paths.get("src/com/facebook/TestJavaLibrary.java"))
             .build();
 
     BuildTarget androidTarget = BuildTargetFactory.newInstance("//:test-android-library");
-    TargetNode<?, ?> androidNode =
+    TargetNode<?> androidNode =
         AndroidLibraryBuilder.createBuilder(androidTarget)
             .addSrc(Paths.get("src/com/facebook/TestAndroidLibrary.java"))
             .addDep(javaTarget)
@@ -228,17 +229,17 @@ public class AuditClasspathCommandTest {
             EXPECTED_JSON,
             objectMapper.valueToTree(
                 root.resolve(
-                    BuildTargets.getGenPath(
+                    BuildTargetPaths.getGenPath(
                             params.getCell().getFilesystem(), javaTarget, "lib__%s__output")
                         .resolve(javaTarget.getShortName() + ".jar"))),
             objectMapper.valueToTree(
                 root.resolve(
-                    BuildTargets.getGenPath(
+                    BuildTargetPaths.getGenPath(
                             params.getCell().getFilesystem(), androidTarget, "lib__%s__output")
                         .resolve(androidTarget.getShortName() + ".jar"))),
             objectMapper.valueToTree(
                 root.resolve(
-                    BuildTargets.getGenPath(
+                    BuildTargetPaths.getGenPath(
                             params.getCell().getFilesystem(), javaTarget, "lib__%s__output")
                         .resolve(javaTarget.getShortName() + ".jar"))));
     assertEquals(expected, console.getTextWrittenToStdOut());
@@ -250,20 +251,20 @@ public class AuditClasspathCommandTest {
   public void testClassPathWithVersions() throws Exception {
 
     // Build the test target graph.
-    TargetNode<?, ?> javaLibrary =
+    TargetNode<?> javaLibrary =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:test-java-library"))
             .addSrc(Paths.get("src/com/facebook/TestJavaLibrary.java"))
             .build();
-    TargetNode<?, ?> androidLibrary =
+    TargetNode<?> androidLibrary =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:test-android-library"))
             .addSrc(Paths.get("src/com/facebook/TestAndroidLibrary.java"))
             .addDep(javaLibrary.getBuildTarget())
             .build();
-    TargetNode<?, ?> version =
+    TargetNode<?> version =
         new VersionedAliasBuilder(BuildTargetFactory.newInstance("//:version"))
             .setVersions("1.0", "//:test-android-library")
             .build();
-    TargetNode<?, ?> binary =
+    TargetNode<?> binary =
         new JavaBinaryRuleBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setDeps(ImmutableSortedSet.of(version.getBuildTarget()))
             .build();
@@ -284,20 +285,21 @@ public class AuditClasspathCommandTest {
     ImmutableSortedSet<String> expectedPaths =
         ImmutableSortedSet.of(
             root.resolve(
-                    BuildTargets.getGenPath(
+                    BuildTargetPaths.getGenPath(
                             params.getCell().getFilesystem(),
                             androidLibrary.getBuildTarget(),
                             "lib__%s__output")
                         .resolve(androidLibrary.getBuildTarget().getShortName() + ".jar"))
                 .toString(),
             root.resolve(
-                    BuildTargets.getGenPath(
+                    BuildTargetPaths.getGenPath(
                             params.getCell().getFilesystem(),
                             javaLibrary.getBuildTarget(),
                             "lib__%s__output")
                         .resolve(javaLibrary.getBuildTarget().getShortName() + ".jar"))
                 .toString());
-    String expectedClasspath = Joiner.on("\n").join(expectedPaths) + "\n";
+    String expectedClasspath =
+        String.join(System.lineSeparator(), expectedPaths) + System.lineSeparator();
     assertEquals(expectedClasspath, console.getTextWrittenToStdOut());
     assertEquals("", console.getTextWrittenToStdErr());
   }
@@ -306,20 +308,20 @@ public class AuditClasspathCommandTest {
   public void testJsonClassPathWithVersions() throws Exception {
 
     // Build the test target graph.
-    TargetNode<?, ?> javaLibrary =
+    TargetNode<?> javaLibrary =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:test-java-library"))
             .addSrc(Paths.get("src/com/facebook/TestJavaLibrary.java"))
             .build();
-    TargetNode<?, ?> androidLibrary =
+    TargetNode<?> androidLibrary =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//:test-android-library"))
             .addSrc(Paths.get("src/com/facebook/TestAndroidLibrary.java"))
             .addDep(javaLibrary.getBuildTarget())
             .build();
-    TargetNode<?, ?> version =
+    TargetNode<?> version =
         new VersionedAliasBuilder(BuildTargetFactory.newInstance("//:version"))
             .setVersions("1.0", "//:test-android-library")
             .build();
-    TargetNode<?, ?> binary =
+    TargetNode<?> binary =
         new JavaBinaryRuleBuilder(BuildTargetFactory.newInstance("//:rule"))
             .setDeps(ImmutableSortedSet.of(version.getBuildTarget()))
             .build();
@@ -343,21 +345,21 @@ public class AuditClasspathCommandTest {
             EXPECTED_JSON,
             objectMapper.valueToTree(
                 root.resolve(
-                    BuildTargets.getGenPath(
+                    BuildTargetPaths.getGenPath(
                             params.getCell().getFilesystem(),
                             javaLibrary.getBuildTarget(),
                             "lib__%s__output")
                         .resolve(javaLibrary.getBuildTarget().getShortName() + ".jar"))),
             objectMapper.valueToTree(
                 root.resolve(
-                    BuildTargets.getGenPath(
+                    BuildTargetPaths.getGenPath(
                             params.getCell().getFilesystem(),
                             androidLibrary.getBuildTarget(),
                             "lib__%s__output")
                         .resolve(androidLibrary.getBuildTarget().getShortName() + ".jar"))),
             objectMapper.valueToTree(
                 root.resolve(
-                    BuildTargets.getGenPath(
+                    BuildTargetPaths.getGenPath(
                             params.getCell().getFilesystem(),
                             javaLibrary.getBuildTarget(),
                             "lib__%s__output")

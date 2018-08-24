@@ -23,23 +23,25 @@ import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
+import com.facebook.buck.core.model.BuildFileTree;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.FilesystemBackedBuildFileTree;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.BuildRule;
-import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildFileTree;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.FilesystemBackedBuildFileTree;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
@@ -47,16 +49,11 @@ import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
@@ -70,6 +67,7 @@ import java.util.function.Function;
 import org.immutables.value.Value;
 import org.junit.Before;
 import org.junit.Test;
+import org.pf4j.PluginManager;
 
 /** Reports targets that own a specified list of files. */
 public class OwnersReportTest {
@@ -98,7 +96,7 @@ public class OwnersReportTest {
     }
   }
 
-  private TargetNode<?, ?> createTargetNode(BuildTarget buildTarget, ImmutableSet<Path> inputs) {
+  private TargetNode<?> createTargetNode(BuildTarget buildTarget, ImmutableSet<Path> inputs) {
     FakeRuleDescription description = new FakeRuleDescription();
     FakeRuleDescriptionArg arg =
         FakeRuleDescriptionArg.builder()
@@ -138,7 +136,7 @@ public class OwnersReportTest {
     String input = "java/somefolder/badfolder";
 
     BuildTarget target = BuildTargetFactory.newInstance("//base:name");
-    TargetNode<?, ?> targetNode = createTargetNode(target, ImmutableSet.of());
+    TargetNode<?> targetNode = createTargetNode(target, ImmutableSet.of());
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     OwnersReport report = OwnersReport.generateOwnersReport(cell, targetNode, input);
@@ -154,7 +152,7 @@ public class OwnersReportTest {
     String input = "java/somefolder/badfolder/somefile.java";
 
     BuildTarget target = BuildTargetFactory.newInstance("//base:name");
-    TargetNode<?, ?> targetNode = createTargetNode(target, ImmutableSet.of());
+    TargetNode<?> targetNode = createTargetNode(target, ImmutableSet.of());
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     OwnersReport report = OwnersReport.generateOwnersReport(cell, targetNode, input);
@@ -175,7 +173,7 @@ public class OwnersReportTest {
     filesystem.writeContentsToPath("", inputPath);
 
     BuildTarget target = BuildTargetFactory.newInstance("//base:name");
-    TargetNode<?, ?> targetNode = createTargetNode(target, ImmutableSet.of());
+    TargetNode<?> targetNode = createTargetNode(target, ImmutableSet.of());
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     OwnersReport report = OwnersReport.generateOwnersReport(cell, targetNode, input);
@@ -196,7 +194,7 @@ public class OwnersReportTest {
     filesystem.writeContentsToPath("", inputPath);
 
     BuildTarget target = BuildTargetFactory.newInstance("//base:name");
-    TargetNode<?, ?> targetNode =
+    TargetNode<?> targetNode =
         createTargetNode(target, ImmutableSet.of(filesystem.getPath("java/somefolder")));
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
@@ -223,7 +221,7 @@ public class OwnersReportTest {
     }
 
     BuildTarget target = BuildTargetFactory.newInstance("//base:name");
-    TargetNode<?, ?> targetNode = createTargetNode(target, inputPaths);
+    TargetNode<?> targetNode = createTargetNode(target, inputPaths);
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     OwnersReport report1 = OwnersReport.generateOwnersReport(cell, targetNode, inputs.get(0));
@@ -250,8 +248,8 @@ public class OwnersReportTest {
 
     BuildTarget target1 = BuildTargetFactory.newInstance("//base/name1:name");
     BuildTarget target2 = BuildTargetFactory.newInstance("//base/name2:name");
-    TargetNode<?, ?> targetNode1 = createTargetNode(target1, ImmutableSet.of(inputPath));
-    TargetNode<?, ?> targetNode2 = createTargetNode(target2, ImmutableSet.of(inputPath));
+    TargetNode<?> targetNode1 = createTargetNode(target1, ImmutableSet.of(inputPath));
+    TargetNode<?> targetNode2 = createTargetNode(target2, ImmutableSet.of(inputPath));
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     OwnersReport report = OwnersReport.generateOwnersReport(cell, targetNode1, input);
@@ -285,24 +283,22 @@ public class OwnersReportTest {
   }
 
   private Parser createParser(Cell cell) {
-    ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
-    KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
-        KnownBuildRuleTypesProvider.of(
-            DefaultKnownBuildRuleTypesFactory.of(
-                processExecutor,
-                BuckPluginManagerFactory.createPluginManager(),
-                new TestSandboxExecutionStrategyFactory()));
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
+    KnownRuleTypesProvider knownRuleTypesProvider =
+        TestKnownRuleTypesProvider.create(pluginManager);
     TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory();
     ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
     return new DefaultParser(
         new PerBuildStateFactory(
             coercerFactory,
             new ConstructorArgMarshaller(coercerFactory),
-            knownBuildRuleTypesProvider,
-            new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder())),
+            knownRuleTypesProvider,
+            new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder()),
+            WatchmanFactory.NULL_WATCHMAN),
         parserConfig,
         coercerFactory,
-        new TargetSpecResolver());
+        new TargetSpecResolver(),
+        WatchmanFactory.NULL_WATCHMAN);
   }
 
   private ImmutableMap<Cell, BuildFileTree> getBuildFileTrees(Cell rootCell) {

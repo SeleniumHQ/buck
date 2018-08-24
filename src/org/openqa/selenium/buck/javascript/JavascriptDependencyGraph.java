@@ -17,13 +17,12 @@
 package org.openqa.selenium.buck.javascript;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.graph.MutableDirectedGraph;
-import com.facebook.buck.graph.TopologicalSort;
+import com.facebook.buck.core.util.graph.MutableDirectedGraph;
+import com.facebook.buck.core.util.graph.TopologicalSort;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;

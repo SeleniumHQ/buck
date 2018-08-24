@@ -18,8 +18,8 @@ package com.facebook.buck.doctor;
 
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.doctor.config.DoctorConfig;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
@@ -65,7 +65,7 @@ public class DoctorConfigTest {
                         "report_upload_path",
                         testPath,
                         "slb_server_pool",
-                        "http://buck-frontend-dual.05.atn1.facebook.com")))
+                        "https://stampede-frontend-prod.internal.tfbnw.net")))
             .build();
     DoctorConfig config = DoctorConfig.of(buckConfig);
     assertThat(config.getReportUploadPath(), Matchers.equalTo(testPath));

@@ -23,7 +23,7 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.MoreSuppliers;
@@ -151,6 +151,8 @@ public abstract class CxxToolProvider<T> {
 
   public enum Type {
     CLANG,
+    CLANG_CL,
+    CLANG_WINDOWS,
     GCC,
     WINDOWS,
     WINDOWS_ML64

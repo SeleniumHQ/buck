@@ -19,13 +19,18 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.DependencyAggregation;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -36,11 +41,6 @@ import com.facebook.buck.cxx.toolchain.GccPreprocessor;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.rules.FakeBuildContext;
-import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.step.Step;
@@ -136,7 +136,6 @@ public class CxxCompilationDatabaseTest {
                             PathSourcePath.of(filesystem, Paths.get("preprocessor")))),
                     preprocessorFlags,
                     new FrameworkPathAppendableFunction(),
-                    Optional.empty(),
                     /* leadingIncludePaths */ Optional.empty(),
                     Optional.of(
                         new DependencyAggregation(
@@ -166,7 +165,7 @@ public class CxxCompilationDatabaseTest {
 
     assertEquals(
         "getPathToOutput() should be a function of the build target.",
-        BuildTargets.getGenPath(filesystem, testBuildTarget, "__%s/compile_commands.json"),
+        BuildTargetPaths.getGenPath(filesystem, testBuildTarget, "__%s/compile_commands.json"),
         testSourcePathResolver.getRelativePath(compilationDatabase.getSourcePathToOutput()));
 
     List<Step> buildSteps =

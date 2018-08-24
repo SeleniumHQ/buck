@@ -25,11 +25,12 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 
 /** This step generates a Native.pb with java class files compiled from files.proto */
 public class GenerateNativeStep implements Step {
@@ -37,18 +38,6 @@ public class GenerateNativeStep implements Step {
   private final ProjectFilesystem filesystem;
   private final Path output;
   private final ImmutableSet<Path> module;
-  private static final String LIB_DIRECTORY = "lib/";
-  private static final ImmutableMap<String, Integer> ABI_BY_NAME =
-      new ImmutableMap.Builder<String, Integer>()
-          .put("UNSPECIFIED_CPU_ARCHITECTURE", 0)
-          .put("ARMEABI", 1)
-          .put("ARMEABI_V7A", 2)
-          .put("ARM64_V8A", 3)
-          .put("X86", 4)
-          .put("X86_64", 5)
-          .put("MIPS", 6)
-          .put("MIPS64", 7)
-          .build();
 
   public GenerateNativeStep(ProjectFilesystem filesystem, Path output, ImmutableSet<Path> module) {
     this.filesystem = filesystem;
@@ -69,28 +58,35 @@ public class GenerateNativeStep implements Step {
   private NativeLibraries createNativeLibraries() {
     NativeLibraries.Builder builder = NativeLibraries.newBuilder();
     for (Path nativeLib : module) {
-      builder.addDirectory(
-          TargetedNativeDirectory.newBuilder()
-              .setPath(nativeLib.toString())
-              .setTargeting(
-                  NativeDirectoryTargeting.newBuilder()
-                      .setAbi(
-                          Targeting.Abi.newBuilder().setAliasValue(getAbi(nativeLib.toString())))));
+      File[] filesInLib = filesystem.getPathForRelativePath(nativeLib).toFile().listFiles();
+      if (filesInLib == null) {
+        continue;
+      }
+      for (File fileInLib : filesInLib) {
+        File[] files = fileInLib.listFiles();
+        if (files == null || files.length < 1) {
+          continue;
+        }
+        Path filePath = filesystem.getPathForRelativePath(nativeLib).relativize(fileInLib.toPath());
+        builder.addDirectory(
+            TargetedNativeDirectory.newBuilder()
+                .setPath(Paths.get("lib").resolve(filePath).toString())
+                .setTargeting(
+                    NativeDirectoryTargeting.newBuilder()
+                        .setAbi(
+                            Targeting.Abi.newBuilder().setAliasValue(getAbi(fileInLib.toPath())))));
+      }
     }
     return builder.build();
   }
 
-  private int getAbi(String path) {
-    if (path.length() <= LIB_DIRECTORY.length()) {
+  private static int getAbi(Path path) {
+    if (path.getNameCount() < 2) {
       return -1;
     }
-    String abiName = path.substring(LIB_DIRECTORY.length());
+    String abiName = path.getName(path.getNameCount() - 1).toString();
 
-    if (ABI_BY_NAME.containsKey(abiName.toUpperCase())) {
-      return ABI_BY_NAME.get(abiName.toUpperCase());
-    } else {
-      return -1;
-    }
+    return GetAbiByName.getAbi(abiName);
   }
 
   @Override

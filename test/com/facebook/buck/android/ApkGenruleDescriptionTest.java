@@ -19,6 +19,7 @@ package com.facebook.buck.android;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.FakeTargetNodeBuilder;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
@@ -27,11 +28,10 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.macros.ClasspathMacro;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import java.nio.file.Paths;
@@ -43,18 +43,18 @@ public class ApkGenruleDescriptionTest {
   @Test
   public void testClasspathTransitiveDepsBecomeFirstOrderDeps() {
     BuildTarget installableApkTarget = BuildTargetFactory.newInstance("//:installable");
-    TargetNode<?, ?> installableApkNode =
+    TargetNode<?> installableApkNode =
         FakeTargetNodeBuilder.build(new FakeInstallable(installableApkTarget));
-    TargetNode<?, ?> transitiveDepNode =
+    TargetNode<?> transitiveDepNode =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//exciting:dep"))
             .addSrc(Paths.get("Dep.java"))
             .build();
-    TargetNode<?, ?> depNode =
+    TargetNode<?> depNode =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//exciting:target"))
             .addSrc(Paths.get("Other.java"))
             .addDep(transitiveDepNode.getBuildTarget())
             .build();
-    TargetNode<?, ?> genruleNode =
+    TargetNode<?> genruleNode =
         ApkGenruleBuilder.create(BuildTargetFactory.newInstance("//:rule"))
             .setOut("out")
             .setCmd(StringWithMacrosUtils.format("%s", ClasspathMacro.of(depNode.getBuildTarget())))

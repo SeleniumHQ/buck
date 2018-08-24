@@ -16,8 +16,7 @@
 
 package com.facebook.buck.features.go;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasContacts;
@@ -35,18 +34,19 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
-import com.facebook.buck.features.go.GoListStep.FileType;
+import com.facebook.buck.features.go.GoListStep.ListType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.base.Preconditions;
@@ -147,17 +147,10 @@ public class GoTestDescription
       ImmutableSet<SourcePath> srcs,
       ImmutableMap<Path, ImmutableMap<String, Path>> coverVariables,
       GoTestCoverStep.Mode coverageMode,
-      Path packageName,
-      Optional<BuildTarget> cgoBuildTarget) {
+      Path packageName) {
     Tool testMainGenerator =
         GoDescriptors.getTestMainGenerator(
-            goBuckConfig,
-            platform,
-            buildTarget,
-            projectFilesystem,
-            params,
-            graphBuilder,
-            cgoBuildTarget);
+            goBuckConfig, platform, buildTarget, projectFilesystem, params, graphBuilder);
 
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
@@ -304,8 +297,7 @@ public class GoTestDescription
             srcs,
             ImmutableMap.of(packageName, coverVariables),
             coverageMode,
-            packageName,
-            args.getCgo());
+            packageName);
 
     GoBinary testMain =
         GoDescriptors.createGoBinaryRule(
@@ -321,8 +313,8 @@ public class GoTestDescription
             args.getCompilerFlags(),
             args.getAssemblerFlags(),
             args.getLinkerFlags(),
-            platform,
-            args.getCgo());
+            args.getExternalLinkerFlags(),
+            platform);
     graphBuilder.addToIndex(testMain);
     return testMain;
   }
@@ -423,8 +415,8 @@ public class GoTestDescription
                   .stream()
                   .map(BuildRule::getBuildTarget)
                   .collect(ImmutableList.toImmutableList()),
-              libraryArg.getCgo(),
-              Arrays.asList(FileType.GoFiles, FileType.TestGoFiles));
+              ImmutableList.of(),
+              Arrays.asList(ListType.GoFiles, ListType.TestGoFiles));
     } else {
       testLibrary =
           GoDescriptors.createGoCompileRule(
@@ -444,8 +436,8 @@ public class GoTestDescription
                   .stream()
                   .map(BuildRule::getBuildTarget)
                   .collect(ImmutableList.toImmutableList()),
-              args.getCgo(),
-              Arrays.asList(FileType.GoFiles, FileType.TestGoFiles, FileType.XTestGoFiles));
+              ImmutableList.of(),
+              Arrays.asList(ListType.GoFiles, ListType.TestGoFiles, ListType.XTestGoFiles));
     }
 
     return testLibrary;
@@ -482,7 +474,7 @@ public class GoTestDescription
   @BuckStyleImmutable
   @Value.Immutable
   interface AbstractGoTestDescriptionArg
-      extends CommonDescriptionArg, HasContacts, HasDeclaredDeps, HasSrcs, HasTestTimeout, HasCgo {
+      extends CommonDescriptionArg, HasContacts, HasDeclaredDeps, HasSrcs, HasTestTimeout {
     Optional<Flavor> getPlatform();
 
     Optional<BuildTarget> getLibrary();
@@ -496,6 +488,8 @@ public class GoTestDescription
     ImmutableList<String> getAssemblerFlags();
 
     ImmutableList<String> getLinkerFlags();
+
+    ImmutableList<String> getExternalLinkerFlags();
 
     @Value.Default
     default boolean getRunTestSeparately() {

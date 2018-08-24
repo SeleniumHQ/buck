@@ -19,14 +19,14 @@ package com.facebook.buck.apple;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assume.assumeTrue;
 
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -57,7 +57,7 @@ public class AppleDescriptionsTest {
             BuildTargetFactory.newInstance("//:foobar"),
             resolver::getRelativePath,
             Paths.get("prefix"),
-            SourceList.ofUnnamedSources(
+            SourceSortedSet.ofUnnamedSources(
                 ImmutableSortedSet.of(
                     FakeSourcePath.of("path/to/some_file.h"),
                     FakeSourcePath.of("path/to/another_file.h"),
@@ -78,7 +78,7 @@ public class AppleDescriptionsTest {
         AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
             BuildTargetFactory.newInstance("//:foobar"),
             resolver::getRelativePath,
-            SourceList.ofUnnamedSources(
+            SourceSortedSet.ofUnnamedSources(
                 ImmutableSortedSet.of(
                     FakeSourcePath.of("path/to/some_file.h"),
                     FakeSourcePath.of("path/to/another_file.h"),
@@ -102,7 +102,7 @@ public class AppleDescriptionsTest {
             BuildTargetFactory.newInstance("//:foobar"),
             resolver::getRelativePath,
             Paths.get("prefix"),
-            SourceList.ofNamedSources(headerMap)));
+            SourceSortedSet.ofNamedSources(headerMap)));
   }
 
   @Test
@@ -120,7 +120,7 @@ public class AppleDescriptionsTest {
         AppleDescriptions.parseAppleHeadersForUseFromTheSameTarget(
             BuildTargetFactory.newInstance("//:foobar"),
             resolver::getRelativePath,
-            SourceList.ofNamedSources(headerMap)));
+            SourceSortedSet.ofNamedSources(headerMap)));
   }
 
   @Test

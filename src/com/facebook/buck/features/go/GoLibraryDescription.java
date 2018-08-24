@@ -16,8 +16,7 @@
 
 package com.facebook.buck.features.go;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
@@ -31,13 +30,14 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
-import com.facebook.buck.features.go.GoListStep.FileType;
+import com.facebook.buck.features.go.GoListStep.ListType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionPropagator;
 import com.google.common.base.Preconditions;
@@ -147,8 +147,8 @@ public class GoLibraryDescription
                   params.getDeclaredDeps().get().stream().map(BuildRule::getBuildTarget).iterator())
               .addAll(args.getExportedDeps())
               .build(),
-          args.getCgo(),
-          Arrays.asList(FileType.GoFiles));
+          ImmutableList.of(),
+          Arrays.asList(ListType.GoFiles));
     }
 
     return new NoopBuildRuleWithDeclaredAndExtraDeps(buildTarget, projectFilesystem, params);
@@ -178,7 +178,7 @@ public class GoLibraryDescription
   @BuckStyleImmutable
   @Value.Immutable
   interface AbstractGoLibraryDescriptionArg
-      extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs, HasTests, HasCgo {
+      extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs, HasTests {
     ImmutableList<String> getCompilerFlags();
 
     ImmutableList<String> getAssemblerFlags();

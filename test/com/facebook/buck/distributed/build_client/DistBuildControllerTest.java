@@ -28,18 +28,20 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.command.BuildExecutorArgs;
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.build.distributed.synchronization.impl.RemoteBuildRuleSynchronizer;
 import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
 import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.build.event.BuildEvent.DistBuildFinished;
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.graph.ActionAndTargetGraphs;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.distributed.BuildSlaveEventWrapper;
 import com.facebook.buck.distributed.ClientStatsTracker;
@@ -49,7 +51,7 @@ import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistBuildService.DistBuildRejectedException;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.distributed.DistLocalBuildMode;
-import com.facebook.buck.distributed.ExitCode;
+import com.facebook.buck.distributed.DistributedExitCode;
 import com.facebook.buck.distributed.thrift.BuckVersion;
 import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildJobState;
@@ -70,8 +72,6 @@ import com.facebook.buck.distributed.thrift.MinionRequirements;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.module.TestBuckModuleManagerFactory;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -81,6 +81,7 @@ import com.facebook.buck.util.FakeInvocationInfoFactory;
 import com.facebook.buck.util.concurrent.FakeWeightedListeningExecutorService;
 import com.facebook.buck.util.concurrent.WeightedListeningExecutorService;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -122,12 +123,14 @@ public class DistBuildControllerTest {
   private StampedeId stampedeId;
   private ClientStatsTracker distBuildClientStatsTracker;
   private InvocationInfo invocationInfo;
+  private Clock clock;
+  private RemoteBuildRuleSynchronizer remoteBuildRuleSynchronizer;
 
   @Before
   public void setUp() throws IOException, InterruptedException {
     mockDistBuildService = EasyMock.createMock(DistBuildService.class);
     mockLogStateTracker = EasyMock.createMock(LogStateTracker.class);
-    scheduler = Executors.newSingleThreadScheduledExecutor();
+    scheduler = Executors.newScheduledThreadPool(2);
     buckVersion = new BuckVersion();
     buckVersion.setGitHash("thishashisamazing");
     distBuildClientStatsTracker = new ClientStatsTracker(BUILD_LABEL, MINION_TYPE);
@@ -140,6 +143,8 @@ public class DistBuildControllerTest {
     stampedeId = new StampedeId();
     stampedeId.setId("uber-cool-stampede-id");
     invocationInfo = FakeInvocationInfoFactory.create();
+    clock = new DefaultClock();
+    remoteBuildRuleSynchronizer = new RemoteBuildRuleSynchronizer(clock, scheduler, 1000, 10000);
   }
 
   private DistBuildController createController(ListenableFuture<BuildJobState> asyncBuildJobState) {
@@ -150,7 +155,7 @@ public class DistBuildControllerTest {
             .setArtifactCacheFactory(new NoopArtifactCache.NoopArtifactCacheFactory())
             .setBuckEventBus(mockEventBus)
             .setBuildInfoStoreManager(new BuildInfoStoreManager())
-            .setClock(new DefaultClock())
+            .setClock(clock)
             .setConsole(new TestConsole())
             .setPlatform(Platform.detect())
             .setProjectFilesystemFactory(new FakeProjectFilesystemFactory())
@@ -195,14 +200,14 @@ public class DistBuildControllerTest {
             .setMaxTimeoutWaitingForLogsMillis(0)
             .setStatusPollIntervalMillis(1)
             .setLogMaterializationEnabled(true)
-            .setRemoteBuildRuleCompletionNotifier(new RemoteBuildRuleSynchronizer())
+            .setRemoteBuildRuleCompletionNotifier(remoteBuildRuleSynchronizer)
             .setStampedeIdReference(stampedeIdRef)
             .setBuildLabel(BUILD_LABEL)
             .build());
   }
 
-  private DistBuildController.ExecutionResult runBuildWithController(
-      DistBuildController distBuildController) throws InterruptedException {
+  private StampedeExecutionResult runBuildWithController(DistBuildController distBuildController)
+      throws InterruptedException {
     // Normally LOCAL_PREPARATION get started in BuildCommand, so simulate that here,
     // otherwise when we stop the timer it will fail with an exception about not being started.
     distBuildClientStatsTracker.startTimer(LOCAL_PREPARATION);
@@ -222,6 +227,7 @@ public class DistBuildControllerTest {
 
   @After
   public void tearDown() {
+    remoteBuildRuleSynchronizer.close();
     directExecutor.shutdownNow();
     scheduler.shutdownNow();
   }
@@ -267,8 +273,8 @@ public class DistBuildControllerTest {
     BuildJob job = new BuildJob();
     job.setStampedeId(stampedeId);
 
-    DistBuildController.ExecutionResult executionResult = runBuildWithController(controller);
-    assertEquals(ExitCode.PREPARATION_STEP_FAILED.getCode(), executionResult.exitCode);
+    StampedeExecutionResult executionResult = runBuildWithController(controller);
+    assertEquals(DistributedExitCode.PREPARATION_STEP_FAILED, executionResult.getExitCode());
   }
 
   @Test
@@ -305,9 +311,8 @@ public class DistBuildControllerTest {
     DistBuildController controller =
         createController(Futures.immediateFailedFuture(new Exception("Async preparation failed")));
 
-    DistBuildController.ExecutionResult executionResult = runBuildWithController(controller);
-    assertEquals(ExitCode.PREPARATION_ASYNC_STEP_FAILED.getCode(), executionResult.exitCode);
-    assertEquals(stampedeId, executionResult.stampedeId);
+    StampedeExecutionResult executionResult = runBuildWithController(controller);
+    assertEquals(DistributedExitCode.PREPARATION_ASYNC_STEP_FAILED, executionResult.getExitCode());
   }
 
   @Test
@@ -328,12 +333,11 @@ public class DistBuildControllerTest {
 
     replay(mockDistBuildService);
 
-    DistBuildController.ExecutionResult executionResult =
+    StampedeExecutionResult executionResult =
         runBuildWithController(createController(Futures.immediateFuture(buildJobState)));
 
     assertEquals(
-        ExitCode.DISTRIBUTED_BUILD_STEP_LOCAL_EXCEPTION.getCode(), executionResult.exitCode);
-    assertEquals(stampedeId, executionResult.stampedeId);
+        DistributedExitCode.DISTRIBUTED_BUILD_STEP_LOCAL_EXCEPTION, executionResult.getExitCode());
   }
 
   /**
@@ -474,7 +478,7 @@ public class DistBuildControllerTest {
     replay(mockEventBus);
     replay(mockLogStateTracker);
 
-    DistBuildController.ExecutionResult executionResult =
+    StampedeExecutionResult executionResult =
         runBuildWithController(createController(Futures.immediateFuture(buildJobState)));
 
     verify(mockDistBuildService);
@@ -482,9 +486,9 @@ public class DistBuildControllerTest {
     verify(mockEventBus);
 
     assertEquals(
-        ExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE.getCode(), executionResult.exitCode);
+        DistributedExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE, executionResult.getExitCode());
     assertEquals(
-        ExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE.getCode(),
+        DistributedExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE.getCode(),
         finishedEvent.getValue().getExitCode());
   }
 

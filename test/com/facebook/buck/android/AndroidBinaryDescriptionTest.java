@@ -21,18 +21,18 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.android.aapt.RDotTxtEntry;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.Keystore;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableSet;
@@ -47,22 +47,22 @@ public class AndroidBinaryDescriptionTest {
 
   @Test
   public void testNoDxRulesBecomeFirstOrderDeps() {
-    TargetNode<?, ?> transitiveDepNode =
+    TargetNode<?> transitiveDepNode =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//exciting:dep"))
             .addSrc(Paths.get("Dep.java"))
             .build();
-    TargetNode<?, ?> depNode =
+    TargetNode<?> depNode =
         JavaLibraryBuilder.createBuilder(BuildTargetFactory.newInstance("//exciting:target"))
             .addSrc(Paths.get("Other.java"))
             .addDep(transitiveDepNode.getBuildTarget())
             .build();
-    TargetNode<?, ?> keystoreNode =
+    TargetNode<?> keystoreNode =
         KeystoreBuilder.createBuilder(BuildTargetFactory.newInstance("//:keystore"))
             .setStore(FakeSourcePath.of("store"))
             .setProperties(FakeSourcePath.of("properties"))
             .build();
     BuildTarget target = BuildTargetFactory.newInstance("//:rule");
-    TargetNode<?, ?> androidBinaryNode =
+    TargetNode<?> androidBinaryNode =
         AndroidBinaryBuilder.createBuilder(target)
             .setManifest(FakeSourcePath.of("manifest.xml"))
             .setKeystore(BuildTargetFactory.newInstance("//:keystore"))

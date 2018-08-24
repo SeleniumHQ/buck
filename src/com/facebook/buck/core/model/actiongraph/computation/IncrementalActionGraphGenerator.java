@@ -16,6 +16,8 @@
 
 package com.facebook.buck.core.model.actiongraph.computation;
 
+import com.facebook.buck.core.description.BaseDescription;
+import com.facebook.buck.core.description.Description;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
@@ -25,10 +27,11 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.log.Logger;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -57,17 +60,28 @@ public class IncrementalActionGraphGenerator {
       BuckEventBus eventBus, TargetGraph targetGraph, ActionGraphBuilder graphBuilder) {
     int reusedRuleCount = 0;
     if (lastActionGraphBuilder != null) {
+      Preconditions.checkNotNull(lastTargetGraph);
+
+      // We first walk the new target graph to find new nodes. A new node will invalidate all nodes
+      // with the same unflavored target.
+      Set<UnflavoredBuildTarget> unflavoredTargetsForNewNodes =
+          findUnflavoredTargetsForNewNodes(targetGraph);
+
       // We figure out which build rules we can reuse from the last action graph by performing an
       // invalidation walk over the new target graph.
-      Map<BuildTarget, Boolean> explored = new HashMap<>();
-      Set<UnflavoredBuildTarget> validTargets = new HashSet<>();
-      for (TargetNode<?, ?> root : targetGraph.getNodesWithNoIncomingEdges()) {
-        invalidateChangedTargets(root, targetGraph, explored, validTargets);
-      }
+      Set<UnflavoredBuildTarget> invalidUnflavoredTargets = new HashSet<>();
+      Set<UnflavoredBuildTarget> allUnflavoredTargetsInNewGraph = new HashSet<>();
+      invalidateChangedTargets(
+          targetGraph,
+          allUnflavoredTargetsInNewGraph,
+          invalidUnflavoredTargets,
+          unflavoredTargetsForNewNodes);
 
       // Now we can load in all build rules whose unflavored targets weren't invalidated for
       // incremental action graph generation.
-      reusedRuleCount = addValidRulesToActionGraphBuilder(graphBuilder, validTargets);
+      reusedRuleCount =
+          addValidRulesToActionGraphBuilder(
+              graphBuilder, allUnflavoredTargetsInNewGraph, invalidUnflavoredTargets);
 
       // Invalidate the previous {@see ActionGraphBuilder}, which we no longer need, to make sure
       // nobody unexpectedly accesses it after this point.
@@ -79,14 +93,48 @@ public class IncrementalActionGraphGenerator {
     eventBus.post(new ActionGraphEvent.IncrementalLoad(reusedRuleCount));
   }
 
+  private Set<UnflavoredBuildTarget> findUnflavoredTargetsForNewNodes(TargetGraph targetGraph) {
+    ImmutableSet.Builder<UnflavoredBuildTarget> unflavoredTargetsForNewNodes =
+        new ImmutableSet.Builder<>();
+    Set<BuildTarget> explored = new HashSet<>();
+    for (TargetNode<?> root : targetGraph.getNodesWithNoIncomingEdges()) {
+      findUnflavoredTargetsForNewNodes(root, targetGraph, explored, unflavoredTargetsForNewNodes);
+    }
+    return unflavoredTargetsForNewNodes.build();
+  }
+
+  private void findUnflavoredTargetsForNewNodes(
+      TargetNode<?> node,
+      TargetGraph targetGraph,
+      Set<BuildTarget> explored,
+      ImmutableSet.Builder<UnflavoredBuildTarget> unflavoredTargetsForNewNodes) {
+    if (explored.contains(node.getBuildTarget())) {
+      return;
+    }
+    explored.add(node.getBuildTarget());
+
+    if (!lastTargetGraph.getExactOptional(node.getBuildTarget()).isPresent()) {
+      unflavoredTargetsForNewNodes.add(node.getBuildTarget().getUnflavoredBuildTarget());
+    }
+
+    for (TargetNode<?> child : targetGraph.getOutgoingNodesFor(node)) {
+      findUnflavoredTargetsForNewNodes(child, targetGraph, explored, unflavoredTargetsForNewNodes);
+    }
+  }
+
   private int addValidRulesToActionGraphBuilder(
-      ActionGraphBuilder graphBuilder, Set<UnflavoredBuildTarget> validTargets) {
+      ActionGraphBuilder graphBuilder,
+      Set<UnflavoredBuildTarget> allUnflavoredTargetsInNewGraph,
+      Set<UnflavoredBuildTarget> invalidUnflavoredTargets) {
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     int totalRuleCount = 0;
     int reusedRuleCount = 0;
     for (BuildRule buildRule : lastActionGraphBuilder.getBuildRules()) {
-      if (validTargets.contains(buildRule.getBuildTarget().getUnflavoredBuildTarget())) {
+      UnflavoredBuildTarget unflavoredTarget =
+          buildRule.getBuildTarget().getUnflavoredBuildTarget();
+      if (!invalidUnflavoredTargets.contains(unflavoredTarget)
+          && allUnflavoredTargetsInNewGraph.contains(unflavoredTarget)) {
         graphBuilder.addToIndex(buildRule);
 
         // Update build rule resolvers for all reused rules. Build rules may use build rule
@@ -103,41 +151,86 @@ public class IncrementalActionGraphGenerator {
     return reusedRuleCount;
   }
 
+  private void invalidateChangedTargets(
+      TargetGraph targetGraph,
+      Set<UnflavoredBuildTarget> allUnflavoredTargetsInNewGraph,
+      Set<UnflavoredBuildTarget> invalidUnflavoredTargets,
+      Set<UnflavoredBuildTarget> unflavoredTargetsForNewNodes) {
+    Map<BuildTarget, Boolean> explored = new HashMap<>();
+    for (TargetNode<?> root : targetGraph.getNodesWithNoIncomingEdges()) {
+      invalidateChangedTargets(
+          root,
+          targetGraph,
+          explored,
+          allUnflavoredTargetsInNewGraph,
+          invalidUnflavoredTargets,
+          unflavoredTargetsForNewNodes);
+    }
+  }
+
   private boolean invalidateChangedTargets(
-      TargetNode<?, ?> node,
+      TargetNode<?> node,
       TargetGraph targetGraph,
       Map<BuildTarget, Boolean> explored,
-      Set<UnflavoredBuildTarget> validTargets) {
+      Set<UnflavoredBuildTarget> allUnflavoredTargetsInNewGraph,
+      Set<UnflavoredBuildTarget> invalidUnflavoredTargets,
+      Set<UnflavoredBuildTarget> unflavoredTargetsForNewNodes) {
     if (explored.containsKey(node.getBuildTarget())) {
       return explored.get(node.getBuildTarget());
     }
 
+    allUnflavoredTargetsInNewGraph.add(node.getBuildTarget().getUnflavoredBuildTarget());
+
     // Recursively check if any node in a child subgraph causes invalidation of its parent chain.
     boolean ancestorInvalidated = false;
-    for (TargetNode<?, ?> child : targetGraph.getOutgoingNodesFor(node)) {
+    for (TargetNode<?> child : targetGraph.getOutgoingNodesFor(node)) {
       // Note: We can't short circuit here since we need to also make sure things inside child
       // subgraphs get properly invalidated in turn.
-      ancestorInvalidated |= invalidateChangedTargets(child, targetGraph, explored, validTargets);
+      ancestorInvalidated |=
+          invalidateChangedTargets(
+              child,
+              targetGraph,
+              explored,
+              allUnflavoredTargetsInNewGraph,
+              invalidUnflavoredTargets,
+              unflavoredTargetsForNewNodes);
     }
 
     boolean invalidateParent = false;
-    if (ancestorInvalidated || shouldInvalidateParentChain(node)) {
+    if (ancestorInvalidated || shouldInvalidateParentChain(node, unflavoredTargetsForNewNodes)) {
       if (LOG.isVerboseEnabled()) {
         LOG.verbose("invalidating target %s", node.getBuildTarget().toString());
       }
       invalidateParent = true;
-    } else {
-      // This node is valid. We can load all the flavors of its targets from cache.
-      validTargets.add(node.getBuildTarget().getUnflavoredBuildTarget());
+
+      // This node is invalid. We can't load any of its flavors from cache.
+      invalidUnflavoredTargets.add(node.getBuildTarget().getUnflavoredBuildTarget());
     }
 
     explored.put(node.getBuildTarget(), invalidateParent);
     return invalidateParent;
   }
 
-  private boolean shouldInvalidateParentChain(TargetNode<?, ?> targetNode) {
+  private boolean shouldInvalidateParentChain(
+      TargetNode<?> targetNode, Set<UnflavoredBuildTarget> unflavoredTargetsForNewNodes) {
+    if (unflavoredTargetsForNewNodes.contains(
+        targetNode.getBuildTarget().getUnflavoredBuildTarget())) {
+      // If this node wasn't present in the previous graph, we need to invalidate, as flavored
+      // versions of rules might be reconstructed differently. Furthermore, there are cases where a
+      // flavored version of a node without the unflavored version shows up in the new target graph,
+      // when the previous target graph had only the unflavored version, e.g. when a
+      // {@code cxx_binary} changes to a {@code cxx_library}, and we'd otherwise happily incorrectly
+      // pull in the previous unflavored version of the node from cache.
+      if (LOG.isVerboseEnabled()) {
+        LOG.verbose(
+            "target %s caused invalidation due to a new node with the same unflavored target",
+            targetNode.getBuildTarget().toString());
+      }
+      return true;
+    }
+
     if (lastTargetGraph != null) {
-      Optional<TargetNode<?, ?>> previousTargetNode =
+      Optional<TargetNode<?>> previousTargetNode =
           lastTargetGraph.getExactOptional(targetNode.getBuildTarget());
       if (previousTargetNode.isPresent()) {
         Preconditions.checkState(
@@ -152,13 +245,20 @@ public class IncrementalActionGraphGenerator {
           }
           return true;
         }
+      } else {
+        Preconditions.checkState(
+            unflavoredTargetsForNewNodes.contains(
+                targetNode.getBuildTarget().getUnflavoredBuildTarget()));
       }
     }
+
     // Incremental caching is only supported for {@link Description}s known to
     // be safe. This is
     // because we cannot generally guarantee that descriptions won't do crazy things that violate
     // our assumptions during their construction.
-    if (!targetNode.getDescription().producesCacheableSubgraph()) {
+    BaseDescription<?> description = targetNode.getDescription();
+    if ((description instanceof Description<?>)
+        && !((Description<?>) description).producesCacheableSubgraph()) {
       if (LOG.isVerboseEnabled()) {
         LOG.verbose(
             "target %s caused invalidation due to not being cacheable",

@@ -18,10 +18,11 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
@@ -30,7 +31,6 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -45,7 +45,6 @@ import java.nio.file.FileVisitResult;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.Optional;
 
 /** This provides a way for android_binary rules to generate proguard config based on the */
 public class NativeLibraryProguardGenerator extends AbstractBuildRuleWithDeclaredAndExtraDeps {
@@ -72,7 +71,8 @@ public class NativeLibraryProguardGenerator extends AbstractBuildRuleWithDeclare
                 .toImmutableList()));
     this.nativeLibsDirs = nativeLibsDirs;
     this.codeGenerator = codeGenerator;
-    this.outputPath = BuildTargets.getGenPath(projectFilesystem, getBuildTarget(), OUTPUT_FORMAT);
+    this.outputPath =
+        BuildTargetPaths.getGenPath(projectFilesystem, getBuildTarget(), OUTPUT_FORMAT);
   }
 
   @Override
@@ -90,15 +90,15 @@ public class NativeLibraryProguardGenerator extends AbstractBuildRuleWithDeclare
             MakeCleanDirectoryStep.of(
                 BuildCellRelativePath.fromCellRelativePath(
                     context.getBuildCellRootPath(), getProjectFilesystem(), outputDir)))
-        .add(new RunConfigGenStep(getBuildTarget(), context.getSourcePathResolver()))
+        .add(new RunConfigGenStep(context.getSourcePathResolver()))
         .build();
   }
 
   private class RunConfigGenStep extends ShellStep {
     private final SourcePathResolver pathResolver;
 
-    RunConfigGenStep(BuildTarget buildTarget, SourcePathResolver sourcePathResolver) {
-      super(Optional.of(buildTarget), getProjectFilesystem().getRootPath());
+    RunConfigGenStep(SourcePathResolver sourcePathResolver) {
+      super(getProjectFilesystem().getRootPath());
       this.pathResolver = sourcePathResolver;
     }
 

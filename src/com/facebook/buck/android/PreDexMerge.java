@@ -21,17 +21,17 @@ import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -148,7 +148,10 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   public DexFilesInfo getDexFilesInfo() {
     return new DexFilesInfo(
-        getSourcePathToPrimaryDex(), getSecondaryDexSourcePaths(), Optional.empty());
+        getSourcePathToPrimaryDex(),
+        getSecondaryDexSourcePaths(),
+        Optional.empty(),
+        getMapOfModuleToSecondaryDexSourcePaths());
   }
 
   /** Wrapper class for all the paths we need when merging for a split-dex APK. */
@@ -181,7 +184,8 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   }
 
   private Path getPrimaryDexRoot() {
-    return BuildTargets.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s_output/primary");
+    return BuildTargetPaths.getGenPath(
+        getProjectFilesystem(), getBuildTarget(), "%s_output/primary");
   }
 
   private Path getPrimaryDexPath() {
@@ -193,7 +197,7 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
   }
 
   private Path getSecondaryDexRoot() {
-    return BuildTargets.getScratchPath(
+    return BuildTargetPaths.getScratchPath(
         getProjectFilesystem(), getBuildTarget(), "%s_output/secondary");
   }
 
@@ -220,6 +224,24 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     secondaryDexDirectories.add(
         ExplicitBuildTargetSourcePath.of(getBuildTarget(), paths.additionalJarfilesDir));
     return secondaryDexDirectories.build();
+  }
+
+  ImmutableMap<String, SourcePath> getMapOfModuleToSecondaryDexSourcePaths() {
+    ImmutableMap.Builder<String, SourcePath> mapOfModuleToSecondaryDexSourcePaths =
+        ImmutableMap.builder();
+    SplitDexPaths paths = new SplitDexPaths();
+
+    for (APKModule apkModule : apkModuleGraph.getAPKModules()) {
+      if (apkModule.isRootModule()) {
+        continue;
+      }
+      mapOfModuleToSecondaryDexSourcePaths.put(
+          apkModule.getName(),
+          ExplicitBuildTargetSourcePath.of(
+              getBuildTarget(), paths.additionalJarfilesSubdir.resolve(apkModule.getName())));
+    }
+
+    return mapOfModuleToSecondaryDexSourcePaths.build();
   }
 
   private void addStepsForSplitDex(
@@ -272,10 +294,25 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     buildableContext.recordArtifact(paths.successDir);
     buildableContext.recordArtifact(paths.additionalJarfilesSubdir);
 
+    final ImmutableSet<String> primaryDexPatterns;
+    if (dexSplitMode.isAllowRDotJavaInSecondaryDex()) {
+      primaryDexPatterns = dexSplitMode.getPrimaryDexPatterns();
+    } else {
+      primaryDexPatterns =
+          ImmutableSet.<String>builder()
+              .addAll(dexSplitMode.getPrimaryDexPatterns())
+              .add(
+                  "/R^",
+                  "/R$",
+                  // Pin this to the primary for test apps with no primary dex classes.
+                  // The exact match makes it fairly efficient.
+                  "^com/facebook/buck_generated/AppWithoutResourcesStub^")
+              .build();
+    }
     PreDexedFilesSorter preDexedFilesSorter =
         new PreDexedFilesSorter(
             dexFilesToMergeBuilder.build(),
-            dexSplitMode.getPrimaryDexPatterns(),
+            primaryDexPatterns,
             apkModuleGraph,
             paths.scratchDir,
             // We kind of overload the "getLinearAllocHardLimit" parameter
@@ -312,7 +349,6 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     Path primaryDexPath = getPrimaryDexPath();
     steps.add(
         new SmartDexingStep(
-            getBuildTarget(),
             androidPlatformTarget,
             context,
             getProjectFilesystem(),
@@ -430,7 +466,6 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     // This will combine the pre-dexed files and the R.class files into a single classes.dex file.
     steps.add(
         new DxStep(
-            getBuildTarget(),
             getProjectFilesystem(),
             androidPlatformTarget,
             primaryDexPath,

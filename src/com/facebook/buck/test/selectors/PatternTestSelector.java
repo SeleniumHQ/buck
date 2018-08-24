@@ -75,25 +75,23 @@ public class PatternTestSelector implements TestSelector {
 
     Pattern classPattern;
     Pattern methodPattern = null;
-    String[] parts = remainder.split("#", -1);
+    // we only apply splitting once. parameterized tests can have parameterization names that
+    // contains the symbol "#" in its method. e.g ClassTest#methodTest[Param#name]. So we should
+    // only split on the first "#" as class names cannot contain that symbol.
+    String[] parts = remainder.split("#", 2);
 
     try {
-      switch (parts.length) {
-          // "com.example.Test", "com.example.Test#"
-        case 1:
-          classPattern = getPatternOrNull(parts[0]);
-          break;
-
-          // "com.example.Test#testX", "#testX", "#"
-        case 2:
-          classPattern = getPatternOrNull(parts[0]);
-          methodPattern = getPatternOrNull(parts[1]);
-          break;
-
-          // Invalid string, like "##"
-        default:
+      if (parts.length == 1) {
+        // "com.example.Test", "com.example.Test#"
+        classPattern = getPatternOrNull(parts[0]);
+      } else {
+        if (parts[1].startsWith("#")) {
           throw new TestSelectorParseException(
-              String.format("Test selector '%s' contains more than one '#'!", rawSelectorString));
+              String.format("Invalid method pattern ## in %s", rawSelectorString));
+        }
+        // "com.example.Test#testX", "#testX", "#"
+        classPattern = getPatternOrNull(parts[0]);
+        methodPattern = getPatternOrNull(parts[1]);
       }
     } catch (PatternSyntaxException e) {
       throw new TestSelectorParseException(
@@ -170,6 +168,22 @@ public class PatternTestSelector implements TestSelector {
       return true;
     }
     return classPattern.matcher(className).find();
+  }
+
+  @Override
+  public boolean containsClassPath(String classPath) {
+    if (classPattern == null) {
+      return true;
+    }
+    // Find occurrence of "\$" in the pattern, which indicates a nested class
+    String[] outerInnerPatterns = classPattern.toString().split("\\\\\\$");
+    if (outerInnerPatterns.length == 2) {
+      // If we have an outer class, we should ensure that we are treating the outer class pattern as
+      // matching the end of the classpath, so add a "$"
+      // e.g: pattern of "Foo\$Bar" means it should only match outer classpaths of "Foo", not "FooF"
+      outerInnerPatterns[0] += "$";
+    }
+    return Pattern.compile(outerInnerPatterns[0]).matcher(classPath).find();
   }
 
   private boolean matchesMethodName(String methodName) {

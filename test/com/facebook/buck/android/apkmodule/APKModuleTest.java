@@ -25,14 +25,14 @@ import static org.junit.Assert.assertThat;
 import com.facebook.buck.android.AndroidBinaryBuilder;
 import com.facebook.buck.android.AndroidLibraryBuilder;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.KeystoreBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -86,7 +86,7 @@ public class APKModuleTest {
   */
   @Test
   public void testAPKModuleGraphSimple() {
-    ImmutableSet.Builder<TargetNode<?, ?>> nodeBuilder = ImmutableSet.builder();
+    ImmutableSet.Builder<TargetNode<?>> nodeBuilder = ImmutableSet.builder();
     BuildTarget commonLibraryTarget =
         BuildTargetFactory.newInstance(
             "//src/com/facebook/test-common-library:test-common-library");
@@ -201,7 +201,7 @@ public class APKModuleTest {
   @Test
   public void testAPKModuleGraphSharedDependency() {
 
-    ImmutableSet.Builder<TargetNode<?, ?>> nodeBuilder = ImmutableSet.builder();
+    ImmutableSet.Builder<TargetNode<?>> nodeBuilder = ImmutableSet.builder();
     BuildTarget commonLibraryTarget = BuildTargetFactory.newInstance("//:test-common-library");
     nodeBuilder.add(
         AndroidLibraryBuilder.createBuilder(commonLibraryTarget)
@@ -301,7 +301,7 @@ public class APKModuleTest {
   @Test
   public void testAPKModuleGraphWithDeclaredDependency() {
 
-    ImmutableSet.Builder<TargetNode<?, ?>> nodeBuilder = ImmutableSet.builder();
+    ImmutableSet.Builder<TargetNode<?>> nodeBuilder = ImmutableSet.builder();
     BuildTarget commonLibraryTarget = BuildTargetFactory.newInstance("//:test-common-library");
     nodeBuilder.add(
         AndroidLibraryBuilder.createBuilder(commonLibraryTarget)
@@ -368,6 +368,8 @@ public class APKModuleTest {
         new APKModuleGraph(
             Optional.of(seedConfigMap),
             Optional.of(appModuleDependencies),
+            Optional.empty(),
+            ImmutableSet.of(),
             graph,
             androidBinaryTarget);
 
@@ -430,7 +432,7 @@ public class APKModuleTest {
   @Test
   public void testAPKModuleGraphSharedWithDeclaredDependency() {
 
-    ImmutableSet.Builder<TargetNode<?, ?>> nodeBuilder = ImmutableSet.builder();
+    ImmutableSet.Builder<TargetNode<?>> nodeBuilder = ImmutableSet.builder();
     BuildTarget commonLibraryTarget = BuildTargetFactory.newInstance("//:test-common-library");
     nodeBuilder.add(
         AndroidLibraryBuilder.createBuilder(commonLibraryTarget)
@@ -513,6 +515,8 @@ public class APKModuleTest {
         new APKModuleGraph(
             Optional.of(seedConfigMap),
             Optional.of(appModuleDependencies),
+            Optional.empty(),
+            ImmutableSet.of(),
             graph,
             androidBinaryTarget);
 
@@ -583,7 +587,7 @@ public class APKModuleTest {
   @Test
   public void testAPKModuleGraphWithMultiLevelDependencies() {
 
-    ImmutableSet.Builder<TargetNode<?, ?>> nodeBuilder = ImmutableSet.builder();
+    ImmutableSet.Builder<TargetNode<?>> nodeBuilder = ImmutableSet.builder();
     BuildTarget commonLibraryTarget = BuildTargetFactory.newInstance("//:test-common-library");
     nodeBuilder.add(
         AndroidLibraryBuilder.createBuilder(commonLibraryTarget)
@@ -674,6 +678,8 @@ public class APKModuleTest {
         new APKModuleGraph(
             Optional.of(seedConfigMap),
             Optional.of(appModuleDependencies),
+            Optional.empty(),
+            ImmutableSet.of(),
             graph,
             androidBinaryTarget);
 
@@ -750,7 +756,7 @@ public class APKModuleTest {
   @Test
   public void testAPKModuleGraphThatLowestDeclaredDepTakesCareOfMultipleLevelsOfIndirection() {
 
-    ImmutableSet.Builder<TargetNode<?, ?>> nodeBuilder = ImmutableSet.builder();
+    ImmutableSet.Builder<TargetNode<?>> nodeBuilder = ImmutableSet.builder();
     BuildTarget commonLibraryTarget = BuildTargetFactory.newInstance("//:test-common-library");
     nodeBuilder.add(
         AndroidLibraryBuilder.createBuilder(commonLibraryTarget)
@@ -840,6 +846,8 @@ public class APKModuleTest {
         new APKModuleGraph(
             Optional.of(seedConfigMap),
             Optional.of(appModuleDependencies),
+            Optional.empty(),
+            ImmutableSet.of(),
             graph,
             androidBinaryTarget);
 
@@ -899,7 +907,7 @@ public class APKModuleTest {
 
   @Test
   public void testAPKModuleGraphComplexDependencyTree() {
-    ImmutableSet.Builder<TargetNode<?, ?>> nodeBuilder = ImmutableSet.builder();
+    ImmutableSet.Builder<TargetNode<?>> nodeBuilder = ImmutableSet.builder();
     BuildTarget commonLibraryTarget = BuildTargetFactory.newInstance("//:test-common-library");
     nodeBuilder.add(
         AndroidLibraryBuilder.createBuilder(commonLibraryTarget)

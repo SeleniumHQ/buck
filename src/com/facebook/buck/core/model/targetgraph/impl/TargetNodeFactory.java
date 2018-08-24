@@ -16,7 +16,8 @@
 
 package com.facebook.buck.core.model.targetgraph.impl;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.description.BaseDescription;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.description.attr.ImplicitInputsInferringDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
@@ -58,7 +59,7 @@ public class TargetNodeFactory implements NodeCopier {
    * Capture and Helper Methods</a>.
    */
   @SuppressWarnings("unchecked")
-  public <T, U extends DescriptionWithTargetGraph<T>> TargetNode<T, U> createFromObject(
+  public <T, U extends BaseDescription<T>> TargetNode<T> createFromObject(
       HashCode rawInputsHashCode,
       U description,
       Object constructorArg,
@@ -82,7 +83,7 @@ public class TargetNodeFactory implements NodeCopier {
   }
 
   @SuppressWarnings("unchecked")
-  private <T, U extends DescriptionWithTargetGraph<T>> TargetNode<T, U> create(
+  private <T, U extends BaseDescription<T>> TargetNode<T> create(
       HashCode rawInputsHashCode,
       U description,
       T constructorArg,
@@ -99,7 +100,7 @@ public class TargetNodeFactory implements NodeCopier {
         ImmutableSortedSet.naturalOrder();
     ImmutableSet.Builder<Path> pathsBuilder = ImmutableSet.builder();
 
-    // Scan the input to find possible BuildTargets, necessary for loading dependent rules.
+    // Scan the input to find possible BuildTargetPaths, necessary for loading dependent rules.
     for (ParamInfo info :
         CoercedTypeCache.INSTANCE
             .getAllParamInfo(typeCoercerFactory, description.getConstructorArgType())
@@ -136,7 +137,7 @@ public class TargetNodeFactory implements NodeCopier {
     // ImplicitDepsInferringDescriptions may give different results for deps based on flavors.
     //
     // Note that this method strips away selected versions, and may be buggy because of it.
-    return TargetNode.of(
+    return ImmutableTargetNode.of(
         buildTarget,
         this,
         rawInputsHashCode,
@@ -189,8 +190,8 @@ public class TargetNodeFactory implements NodeCopier {
 
   @SuppressWarnings("unchecked")
   @Override
-  public <T, U extends DescriptionWithTargetGraph<T>> TargetNode<T, U> copyNodeWithDescription(
-      TargetNode<?, ?> originalNode, U description) {
+  public <T> TargetNode<T> copyNodeWithDescription(
+      TargetNode<?> originalNode, DescriptionWithTargetGraph<T> description) {
     try {
       return create(
           originalNode.getRawInputsHashCode(),
@@ -212,8 +213,8 @@ public class TargetNodeFactory implements NodeCopier {
   }
 
   @Override
-  public <T, U extends DescriptionWithTargetGraph<T>> TargetNode<T, U> copyNodeWithFlavors(
-      TargetNode<T, U> originalNode, ImmutableSet<Flavor> flavors) {
+  public <T> TargetNode<T> copyNodeWithFlavors(
+      TargetNode<T> originalNode, ImmutableSet<Flavor> flavors) {
     try {
       return create(
           originalNode.getRawInputsHashCode(),

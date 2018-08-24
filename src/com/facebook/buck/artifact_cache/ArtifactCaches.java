@@ -26,14 +26,14 @@ import com.facebook.buck.artifact_cache.config.DirCacheEntry;
 import com.facebook.buck.artifact_cache.config.HttpCacheEntry;
 import com.facebook.buck.artifact_cache.config.MultiFetchType;
 import com.facebook.buck.artifact_cache.config.SQLiteCacheEntry;
-import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.ExperimentEvent;
 import com.facebook.buck.event.NetworkEvent.BytesReceivedEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.slb.HttpLoadBalancer;
 import com.facebook.buck.slb.HttpService;
 import com.facebook.buck.slb.LoadBalancedService;
@@ -597,8 +597,9 @@ public class ArtifactCaches implements ArtifactCacheFactory, AutoCloseable {
     if (CharMatcher.ascii().matchesAllOf(str)) {
       return str;
     }
-    StringBuilder builder = new StringBuilder();
-    for (char c : str.toCharArray()) {
+    StringBuilder builder = new StringBuilder(str.length());
+    for (int i = 0; i < str.length(); ++i) {
+      char c = str.charAt(i);
       builder.append(CharMatcher.ascii().matches(c) ? c : '?');
     }
     return builder.toString();

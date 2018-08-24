@@ -20,6 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -27,13 +28,12 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
@@ -48,12 +48,12 @@ import org.junit.Test;
 
 public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
 
-  private TargetNode<?, ?> aNode;
-  private TargetNode<?, ?> bNode;
-  private TargetNode<?, ?> cNode;
-  private TargetNode<?, ?> dNode;
-  private TargetNode<?, ?> eNode;
-  private TargetNode<?, ?> zNode;
+  private TargetNode<?> aNode;
+  private TargetNode<?> bNode;
+  private TargetNode<?> cNode;
+  private TargetNode<?> dNode;
+  private TargetNode<?> eNode;
+  private TargetNode<?> zNode;
 
   private BuildRule a;
   private BuildRule b;
@@ -187,7 +187,7 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
 
   @Test
   public void getTransitiveClasspathDeps() throws Exception {
-    TargetNode<?, ?> noOutputNode =
+    TargetNode<?> noOutputNode =
         makeRule("//no:output", ImmutableSet.of(), ImmutableSet.of(zNode), filesystem);
 
     TargetGraph targetGraph =
@@ -232,20 +232,20 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
     return resolver.getAbsolutePath(lib.getSourcePathToOutput());
   }
 
-  private TargetNode<?, ?> makeRule(
+  private TargetNode<?> makeRule(
       String target,
       Iterable<String> srcs,
-      Iterable<TargetNode<?, ?>> deps,
+      Iterable<TargetNode<?>> deps,
       ProjectFilesystem filesystem)
       throws Exception {
     return makeRule(target, srcs, deps, null, filesystem);
   }
 
-  private TargetNode<?, ?> makeRule(
+  private TargetNode<?> makeRule(
       String target,
       Iterable<String> srcs,
-      Iterable<TargetNode<?, ?>> deps,
-      @Nullable Iterable<TargetNode<?, ?>> exportedDeps,
+      Iterable<TargetNode<?>> deps,
+      @Nullable Iterable<TargetNode<?>> exportedDeps,
       ProjectFilesystem filesystem) {
     JavaLibraryBuilder builder;
     BuildTarget parsedTarget = BuildTargetFactory.newInstance(target);
@@ -255,12 +255,12 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
     for (String src : srcs) {
       builder.addSrc(filesystem.getBuckPaths().getGenDir().resolve(src));
     }
-    for (TargetNode<?, ?> dep : deps) {
+    for (TargetNode<?> dep : deps) {
       builder.addDep(dep.getBuildTarget());
     }
 
     if (exportedDeps != null) {
-      for (TargetNode<?, ?> dep : exportedDeps) {
+      for (TargetNode<?> dep : exportedDeps) {
         builder.addExportedDep(dep.getBuildTarget());
       }
     }

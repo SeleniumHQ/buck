@@ -16,10 +16,10 @@
 
 package com.facebook.buck.shell;
 
+import static com.facebook.buck.util.string.MoreStrings.linesToText;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.TestConsole;
@@ -53,8 +53,9 @@ public class ShellStepTest {
           "V2", "$foo'bar'");
 
   private static final Path PATH = Paths.get("/tmp/a b");
-  private static final String ERROR_MSG = "some syntax error\ncompilation failed\n";
-  private static final String OUTPUT_MSG = "processing data...\n";
+  private static final String ERROR_MSG =
+      linesToText("some syntax error", "compilation failed", "");
+  private static final String OUTPUT_MSG = "processing data..." + System.lineSeparator();
   private static final int EXIT_FAILURE = 1;
   private static final int EXIT_SUCCESS = 0;
 
@@ -111,8 +112,7 @@ public class ShellStepTest {
     workingDirectory =
         workingDirectory == null ? Paths.get(".").toAbsolutePath().normalize() : workingDirectory;
 
-    return new ShellStep(
-        Optional.of(BuildTargetFactory.newInstance("//dummy:target")), workingDirectory) {
+    return new ShellStep(workingDirectory) {
       @Override
       public ImmutableMap<String, String> getEnvironmentVariables(ExecutionContext context) {
         return env;
@@ -270,8 +270,7 @@ public class ShellStepTest {
     Map<String, String> subProcessEnvironment = new HashMap<>();
     subProcessEnvironment.put("PROCESS_ENVIRONMENT_VARIABLE", "PROCESS_VALUE");
     command.setProcessEnvironment(context, subProcessEnvironment, pwd.toString());
-    Map<String, String> actualProcessEnvironment = new HashMap<>();
-    actualProcessEnvironment.putAll(context.getEnvironment());
+    Map<String, String> actualProcessEnvironment = new HashMap<>(context.getEnvironment());
     actualProcessEnvironment.remove("PWD");
     assertEquals(
         "Sub-process environment should be union of client and step environments.",

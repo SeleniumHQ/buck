@@ -30,6 +30,7 @@ import com.facebook.buck.android.exopackage.RealAndroidDevice;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
@@ -37,16 +38,16 @@ import com.facebook.buck.event.PerfEventId;
 import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.event.StartActivityEvent;
 import com.facebook.buck.event.UninstallEvent;
-import com.facebook.buck.log.CommandThreadFactory;
+import com.facebook.buck.log.GlobalStateManager;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.TargetDeviceOptions;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.Threads;
+import com.facebook.buck.util.concurrent.CommandThreadFactory;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.annotations.VisibleForTesting;
@@ -230,7 +231,10 @@ public class AdbHelper implements AndroidDevicesHelper {
     executorService =
         listeningDecorator(
             newMultiThreadExecutor(
-                new CommandThreadFactory(getClass().getSimpleName()), adbThreadCount));
+                new CommandThreadFactory(
+                    getClass().getSimpleName(),
+                    GlobalStateManager.singleton().getThreadToCommandRegister()),
+                adbThreadCount));
     return executorService;
   }
 

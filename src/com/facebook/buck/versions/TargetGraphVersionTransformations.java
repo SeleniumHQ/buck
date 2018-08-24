@@ -19,6 +19,7 @@ package com.facebook.buck.versions;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
 import com.facebook.buck.rules.coercer.CoercedTypeCache;
 import com.facebook.buck.rules.coercer.ParamInfo;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -30,24 +31,24 @@ class TargetGraphVersionTransformations {
 
   private TargetGraphVersionTransformations() {}
 
-  public static boolean isVersionPropagator(TargetNode<?, ?> node) {
+  public static boolean isVersionPropagator(TargetNode<?> node) {
     return node.getDescription() instanceof VersionPropagator;
   }
 
-  public static boolean isVersionRoot(TargetNode<?, ?> node) {
+  public static boolean isVersionRoot(TargetNode<?> node) {
     return (node.getDescription() instanceof VersionRoot
         && ((VersionRoot<?>) node.getDescription())
             .isVersionRoot(node.getBuildTarget().getFlavors()));
   }
 
-  public static Optional<TargetNode<VersionedAliasDescriptionArg, ?>> getVersionedNode(
-      TargetNode<?, ?> node) {
-    return node.castArg(VersionedAliasDescriptionArg.class);
+  public static Optional<TargetNode<VersionedAliasDescriptionArg>> getVersionedNode(
+      TargetNode<?> node) {
+    return TargetNodes.castArg(node, VersionedAliasDescriptionArg.class);
   }
 
   @SuppressWarnings("unchecked")
   public static ImmutableMap<BuildTarget, Optional<Constraint>> getVersionedDeps(
-      TypeCoercerFactory typeCoercerFactory, TargetNode<?, ?> node) {
+      TypeCoercerFactory typeCoercerFactory, TargetNode<?> node) {
     ParamInfo versionedDepsParam =
         CoercedTypeCache.INSTANCE
             .getAllParamInfo(typeCoercerFactory, node.getConstructorArg().getClass())
@@ -60,7 +61,7 @@ class TargetGraphVersionTransformations {
   }
 
   public static <A, B extends DescriptionWithTargetGraph<A>> Iterable<BuildTarget> getDeps(
-      TypeCoercerFactory typeCoercerFactory, TargetNode<A, B> node) {
+      TypeCoercerFactory typeCoercerFactory, TargetNode<A> node) {
     return Iterables.concat(
         node.getDeclaredDeps(),
         node.getExtraDeps(),

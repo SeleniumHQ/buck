@@ -21,17 +21,17 @@ import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
@@ -105,12 +105,12 @@ public class CxxTestBuilder
   }
 
   public CxxTestBuilder setHeaders(ImmutableSortedSet<SourcePath> headers) {
-    getArgForPopulating().setHeaders(SourceList.ofUnnamedSources(headers));
+    getArgForPopulating().setHeaders(SourceSortedSet.ofUnnamedSources(headers));
     return this;
   }
 
   public CxxTestBuilder setHeaders(ImmutableSortedMap<String, SourcePath> headers) {
-    getArgForPopulating().setHeaders(SourceList.ofNamedSources(headers));
+    getArgForPopulating().setHeaders(SourceSortedSet.ofNamedSources(headers));
     return this;
   }
 

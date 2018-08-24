@@ -17,7 +17,7 @@ import traceback
 import uuid
 from subprocess import CalledProcessError, check_output
 
-from pynailgun import NailgunConnection, NailgunException
+from ng import NailgunConnection, NailgunException
 from subprocutils import which
 from timing import monotonic_time_nanos
 from tracing import Tracing
@@ -385,6 +385,28 @@ class BuckTool(object):
         args, etc. from the daemon, and raise an exception that tells __main__ to run that binary
         """
         with Tracing("buck", args={"command": sys.argv[1:]}):
+            if os.name == "nt":
+                # Windows now support the VT100 sequences that are used by the Superconsole, but our
+                # process must opt into this behavior to enable it.
+
+                import ctypes
+
+                kernel32 = ctypes.windll.kernel32
+
+                STD_OUTPUT_HANDLE = -11
+                ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
+
+                # These calls can fail because we're not output to a terminal or we're not on a new
+                # enough version of Windows. That's fine because we fail silently, and the
+                # Superconsole wasn't going to work anyways.
+                handle = kernel32.GetStdHandle(STD_OUTPUT_HANDLE)
+                console_mode = ctypes.c_uint(0)
+
+                if kernel32.GetConsoleMode(handle, ctypes.byref(console_mode)):
+                    kernel32.SetConsoleMode(
+                        handle, console_mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING
+                    )
+
             argv = sys.argv[1:]
             if len(argv) == 0 or argv[0] != "run":
                 return run_fn(argv, env)
@@ -620,17 +642,16 @@ class BuckTool(object):
             buckd_transport_file_path = (
                 self._buck_project.get_buckd_transport_file_path()
             )
+            wait_for_termination = False
             if transport_exists(buckd_transport_file_path):
-                buckd_pid = self._buck_project.get_running_buckd_pid()
                 logging.debug("Shutting down buck daemon.")
-                wait_socket_close = False
                 try:
                     with NailgunConnection(
                         self._buck_project.get_buckd_transport_address(),
                         cwd=self._buck_project.root,
                     ) as c:
                         c.send_command("ng-stop")
-                    wait_socket_close = True
+                    wait_for_termination = True
                 except NailgunException as e:
                     if e.code not in (
                         NailgunException.CONNECT_FAILED,
@@ -641,22 +662,18 @@ class BuckTool(object):
                             "Unexpected error shutting down nailgun server: " + str(e)
                         )
 
-                # If ng-stop command succeeds, wait for buckd process to terminate and for the
-                # socket to close. On Unix ng-stop always drops the connection and throws.
-                if wait_socket_close:
-                    for i in range(0, 300):
-                        if not transport_exists(buckd_transport_file_path):
-                            break
-                        time.sleep(0.01)
-                elif buckd_pid is not None and os.name == "posix":
-                    # otherwise just wait for up to 5 secs for the process to die
-                    # TODO(buck_team) implement wait for process and hard kill for Windows too
-                    if not wait_for_process_posix(buckd_pid, 5000):
+            if os.name == "posix":
+                buckd_pid = self._buck_project.get_running_buckd_pid()
+                if pid_exists_posix(buckd_pid):
+                    # If termination command was sent successfully then allow some time for the
+                    # daemon to finish gracefully. Otherwise kill it hard.
+                    if not wait_for_termination or not wait_for_process_posix(
+                        buckd_pid, 5000
+                    ):
                         # There is a possibility that daemon is dead for some time but pid file
                         # still exists and another process is assigned to the same pid. Ideally we
                         # should check first which process we are killing but so far let's pretend
                         # this will never happen and kill it with fire anyways.
-
                         try:
                             force_kill_process_posix(buckd_pid)
                         except Exception as e:
@@ -667,8 +684,18 @@ class BuckTool(object):
                                 "Error killing running Buck daemon " + str(e)
                             )
 
+                # it is ok to have a socket file still around, as linux domain sockets should be
+                # unlinked explicitly
                 if transport_exists(buckd_transport_file_path):
-                    force_close_transport(buckd_transport_file_path)
+                    force_close_transport_posix(buckd_transport_file_path)
+
+            elif os.name == "nt":
+                # for Windows, we rely on transport to be closed to determine the process is done
+                # TODO(buck_team) implement wait for process and hard kill for Windows
+                for i in range(0, 300):
+                    if not transport_exists(buckd_transport_file_path):
+                        break
+                    time.sleep(0.01)
 
             self._buck_project.clean_up_buckd()
 
@@ -841,11 +868,7 @@ def setup_watchman_watch():
         logging.debug("Using watchman.")
 
 
-def force_close_transport(path):
-    if os.name == "nt":
-        # TODO(buck_team): do something for Windows too
-        return
-
+def force_close_transport_posix(path):
     try:
         os.unlink(path)
     except OSError as e:
@@ -880,7 +903,7 @@ def pid_exists_posix(pid):
     """
     Check whether process with given pid exists, does not work on Windows
     """
-    if pid <= 0:
+    if pid is None or pid <= 0:
         return False
 
     try:

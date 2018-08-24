@@ -16,10 +16,10 @@
 
 package com.facebook.buck.rules.coercer;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.macros.MacroFinderAutomaton;
+import com.facebook.buck.core.macros.MacroMatchResult;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.macros.MacroFinderAutomaton;
-import com.facebook.buck.model.macros.MacroMatchResult;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.MacroContainer;
 import com.facebook.buck.rules.macros.StringWithMacros;
@@ -155,7 +155,7 @@ public class StringWithMacrosTypeCoercer implements TypeCoercer<StringWithMacros
 
     // Append the remaining part of the original string after the last match.
     if (lastEnd < blob.length()) {
-      parts.add(Either.ofLeft(blob.substring(lastEnd, blob.length())));
+      parts.add(Either.ofLeft(blob.substring(lastEnd)));
     }
 
     return StringWithMacros.of(parts.build());

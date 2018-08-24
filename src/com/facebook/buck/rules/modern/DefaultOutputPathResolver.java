@@ -17,18 +17,19 @@
 package com.facebook.buck.rules.modern;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import java.nio.file.Path;
 
-class DefaultOutputPathResolver implements OutputPathResolver {
+/** Default OutputPathResolver implementation. */
+public class DefaultOutputPathResolver implements OutputPathResolver {
   private final Path scratchRoot;
   private final Path genRoot;
 
-  DefaultOutputPathResolver(ProjectFilesystem projectFilesystem, BuildTarget buildTarget) {
+  public DefaultOutputPathResolver(ProjectFilesystem projectFilesystem, BuildTarget buildTarget) {
     String format = buildTarget.isFlavored() ? "%s" : "%s__";
-    this.scratchRoot = BuildTargets.getScratchPath(projectFilesystem, buildTarget, format);
-    this.genRoot = BuildTargets.getGenPath(projectFilesystem, buildTarget, format);
+    this.scratchRoot = BuildTargetPaths.getScratchPath(projectFilesystem, buildTarget, format);
+    this.genRoot = BuildTargetPaths.getGenPath(projectFilesystem, buildTarget, format);
   }
 
   @Override

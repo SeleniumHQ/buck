@@ -17,17 +17,18 @@
 package com.facebook.buck.core.rules.config;
 
 import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.model.targetgraph.RawTargetNode;
+import com.facebook.buck.core.description.BaseDescription;
+import com.facebook.buck.core.model.BuildTarget;
 
 /**
  * This class describe a configuration rule - a rule that can be used during configuration of a
  * target graph.
  */
-public interface ConfigurationRuleDescription<T> {
-  /** The class of the argument of this Description uses in createBuildRule(). */
-  Class<T> getConstructorArgType();
-
+public interface ConfigurationRuleDescription<T> extends BaseDescription<T> {
   /** Creates a {@link ConfigurationRule} */
   ConfigurationRule createConfigurationRule(
-      ConfigurationRuleResolver configurationRuleResolver, Cell cell, RawTargetNode rawTargetNode);
+      ConfigurationRuleResolver configurationRuleResolver,
+      Cell cell,
+      BuildTarget buildTarget,
+      T arg);
 }

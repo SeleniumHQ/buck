@@ -28,20 +28,23 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.command.BuildExecutorArgs;
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionNotifier;
 import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
 import com.facebook.buck.core.build.engine.delegate.CachingBuildEngineDelegate;
 import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDelegate;
 import com.facebook.buck.core.build.engine.impl.DefaultRuleDepsCache;
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.graph.ActionAndTargetGraphs;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -74,9 +77,6 @@ import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.distributed.thrift.StreamLogs;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.module.TestBuckModuleManagerFactory;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
@@ -117,6 +117,7 @@ public class BuildPhaseTest {
   private static final String MINION_TYPE = "standard_type";
   private static final int POLL_MILLIS = 1;
   private static final String MINION_QUEUE_NAME = "awesome_test_queue";
+  private static final String MINION_REGION_NAME = "best_region";
   private static final int NUM_MINIONS = 2;
 
   private DistBuildService mockDistBuildService;
@@ -148,7 +149,10 @@ public class BuildPhaseTest {
     BuckConfig buckConfig =
         FakeBuckConfig.builder()
             .setSections(
-                ImmutableMap.of("stampede", ImmutableMap.of("minion_queue", MINION_QUEUE_NAME)))
+                ImmutableMap.of(
+                    "stampede",
+                    ImmutableMap.of(
+                        "minion_queue", MINION_QUEUE_NAME, "minion_region", MINION_REGION_NAME)))
             .build();
     executorArgs =
         BuildExecutorArgs.builder()
@@ -209,7 +213,7 @@ public class BuildPhaseTest {
 
   @Test
   public void testCoordinatorIsRunInLocalCoordinatorMode()
-      throws IOException, InterruptedException {
+      throws IOException, InterruptedException, ExecutionException {
     // Create the full BuildPhase for local coordinator mode.
     ActionGraphBuilder graphBuilder = CustomActiongGraphBuilderFactory.createSimpleBuilder();
     ImmutableSet<BuildTarget> targets =
@@ -266,7 +270,8 @@ public class BuildPhaseTest {
         anyString(),
         eq(NUM_MINIONS),
         eq(MINION_QUEUE_NAME),
-        eq(MinionType.STANDARD_SPEC));
+        eq(MinionType.STANDARD_SPEC),
+        eq(MINION_REGION_NAME));
     expectLastCall()
         .andAnswer(
             () -> {

@@ -18,6 +18,7 @@ package com.facebook.buck.jvm.java;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.api.BuckTracing;
 import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
@@ -34,7 +35,6 @@ import com.facebook.buck.jvm.java.plugin.api.PluginClassLoaderFactory;
 import com.facebook.buck.jvm.java.tracing.JavacPhaseEventLogger;
 import com.facebook.buck.jvm.java.tracing.TracingTaskListener;
 import com.facebook.buck.jvm.java.tracing.TranslatingJavacPhaseTracer;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.concurrent.MostExecutors.NamedThreadFactory;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.zip.JarBuilder;
@@ -272,7 +272,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
                   new DefaultClassUsageFileWriter()
                       .writeFile(
                           classUsageTracker,
-                          CompilerParameters.getDepFilePath(
+                          CompilerOutputPaths.getDepFilePath(
                               abiTarget, context.getProjectFilesystem()),
                           context.getProjectFilesystem(),
                           context.getCellPathResolver());
@@ -372,11 +372,9 @@ class Jsr199JavacInvocation implements Javac.Invocation {
 
     private boolean buildSuccessful() {
       return diagnostics
-              .getDiagnostics()
-              .stream()
-              .filter(diag -> diag.getKind() == Diagnostic.Kind.ERROR)
-              .count()
-          == 0;
+          .getDiagnostics()
+          .stream()
+          .noneMatch(diag -> diag.getKind() == Diagnostic.Kind.ERROR);
     }
 
     private void addCloseable(Object maybeCloseable) {
@@ -442,7 +440,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
                         new DefaultClassUsageFileWriter()
                             .writeFile(
                                 classUsageTracker,
-                                CompilerParameters.getDepFilePath(
+                                CompilerOutputPaths.getDepFilePath(
                                     libraryTarget, context.getProjectFilesystem()),
                                 context.getProjectFilesystem(),
                                 context.getCellPathResolver());
@@ -581,11 +579,9 @@ class Jsr199JavacInvocation implements Javac.Invocation {
                     ruleInfoFactory.create(fileManager),
                     () ->
                         diagnostics
-                                .getDiagnostics()
-                                .stream()
-                                .filter(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR)
-                                .count()
-                            > 0,
+                            .getDiagnostics()
+                            .stream()
+                            .anyMatch(diagnostic -> diagnostic.getKind() == Diagnostic.Kind.ERROR),
                     abiGenerationMode.getDiagnosticKindForSourceOnlyAbiCompatibility());
           }
 

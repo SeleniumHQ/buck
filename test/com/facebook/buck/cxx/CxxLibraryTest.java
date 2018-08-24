@@ -19,11 +19,13 @@ package com.facebook.buck.cxx;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
-import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
@@ -33,9 +35,7 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -263,7 +263,7 @@ public class CxxLibraryTest {
             Optional.empty());
 
     ImmutableList.Builder<Arg> linkerArgsBuilder = ImmutableList.builder();
-    linkerArgsBuilder.add((Arg) StringArg.of("-ldl"));
+    linkerArgsBuilder.add(StringArg.of("-ldl"));
 
     ImmutableList<? extends Arg> postFlags = ImmutableList.copyOf(StringArg.from("-lfoobarbaz"));
     linkerArgsBuilder.addAll(postFlags);

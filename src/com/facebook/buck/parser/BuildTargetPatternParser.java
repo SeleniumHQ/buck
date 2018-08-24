@@ -16,12 +16,9 @@
 
 package com.facebook.buck.parser;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.exceptions.BuildTargetParseException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetPattern;
-import com.facebook.buck.model.ImmediateDirectoryBuildTargetPattern;
-import com.facebook.buck.model.SingletonBuildTargetPattern;
-import com.facebook.buck.model.SubdirectoryBuildTargetPattern;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import java.nio.file.Path;
@@ -60,7 +57,8 @@ public abstract class BuildTargetPatternParser<T> {
   public final T parse(CellPathResolver cellNames, String buildTargetPattern) {
     Preconditions.checkArgument(
         buildTargetPattern.contains(BUILD_RULE_PREFIX),
-        String.format("'%s' must start with '//' or a cell followed by '//'", buildTargetPattern));
+        "'%s' must start with '//' or a cell followed by '//'",
+        buildTargetPattern);
 
     if (buildTargetPattern.endsWith("/" + WILDCARD_BUILD_RULE_SUFFIX)) {
       return createWildCardPattern(cellNames, buildTargetPattern);

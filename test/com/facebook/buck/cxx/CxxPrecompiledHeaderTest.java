@@ -19,23 +19,23 @@ package com.facebook.buck.cxx;
 import static org.hamcrest.Matchers.hasItem;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.context.FakeBuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.Compiler;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.GccPreprocessor;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.FakeBuildableContext;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
@@ -75,7 +75,6 @@ public class CxxPrecompiledHeaderTest {
                 PreprocessorFlags.builder().build(),
                 CxxDescriptionEnhancer.frameworkPathToSearchPath(
                     CxxPlatformUtils.DEFAULT_PLATFORM, sourcePathResolver),
-                Optional.empty(),
                 /* leadingIncludePaths */ Optional.empty(),
                 Optional.of(new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps")))),
                 ImmutableSortedSet.of()),

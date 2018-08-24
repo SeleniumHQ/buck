@@ -16,7 +16,7 @@
 
 package com.facebook.buck.core.rules.transformer.impl;
 
-import com.facebook.buck.core.description.DescriptionCache;
+import com.facebook.buck.core.description.impl.DescriptionCache;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
@@ -24,7 +24,7 @@ import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
-import com.facebook.buck.toolchain.ToolchainProvider;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableSet;
 
 public class FetchTargetNodeToBuildRuleTransformer implements TargetNodeToBuildRuleTransformer {
@@ -47,8 +47,8 @@ public class FetchTargetNodeToBuildRuleTransformer implements TargetNodeToBuildR
       ToolchainProvider toolchainProvider,
       TargetGraph targetGraph,
       ActionGraphBuilder graphBuilder,
-      TargetNode<T, U> targetNode) {
-    TargetNode<?, ?> node = substituteTargetNodeIfNecessary(targetNode);
+      TargetNode<T> targetNode) {
+    TargetNode<?> node = substituteTargetNodeIfNecessary(targetNode);
     return delegate.transform(toolchainProvider, targetGraph, graphBuilder, node);
   }
 
@@ -56,11 +56,11 @@ public class FetchTargetNodeToBuildRuleTransformer implements TargetNodeToBuildR
     return downloadableTargets.build();
   }
 
-  private TargetNode<?, ?> substituteTargetNodeIfNecessary(TargetNode<?, ?> node) {
+  private TargetNode<?> substituteTargetNodeIfNecessary(TargetNode<?> node) {
     for (DescriptionWithTargetGraph<?> description : descriptions) {
-      if (node.getBuildRuleType().equals(DescriptionCache.getBuildRuleType(description))) {
+      if (node.getRuleType().equals(DescriptionCache.getRuleType(description))) {
         downloadableTargets.add(node.getBuildTarget());
-        return node.copyWithDescription(description);
+        return node.getNodeCopier().copyNodeWithDescription(node.copy(), description);
       }
     }
     return node;

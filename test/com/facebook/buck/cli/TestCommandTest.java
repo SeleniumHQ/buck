@@ -22,11 +22,11 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.core.cell.name.RelativeCellName;
+import com.facebook.buck.core.cell.CellName;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.test.rule.TestRule;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.FakeTestRule;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -287,7 +287,9 @@ public class TestCommandTest {
         command.getNumTestThreads(
             FakeBuckConfig.builder()
                 .setSections(
-                    command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME))
+                    command
+                        .getConfigOverrides(ImmutableMap.of())
+                        .getForCell(CellName.ROOT_CELL_NAME))
                 .build()),
         Matchers.equalTo(15));
 
@@ -297,7 +299,9 @@ public class TestCommandTest {
         command.getNumTestThreads(
             FakeBuckConfig.builder()
                 .setSections(
-                    command.getConfigOverrides().getForCell(RelativeCellName.ROOT_CELL_NAME))
+                    command
+                        .getConfigOverrides(ImmutableMap.of())
+                        .getForCell(CellName.ROOT_CELL_NAME))
                 .build()),
         Matchers.equalTo(1));
   }

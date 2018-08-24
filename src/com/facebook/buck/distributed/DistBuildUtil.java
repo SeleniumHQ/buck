@@ -18,7 +18,8 @@ package com.facebook.buck.distributed;
 
 import static com.facebook.buck.util.BuckConstant.DIST_BUILD_SLAVE_BUCK_OUT_LOG_DIR_NAME;
 
-import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.BuildMode;
 import com.facebook.buck.distributed.thrift.BuildSlaveConsoleEvent;
 import com.facebook.buck.distributed.thrift.BuildSlaveEvent;
@@ -30,7 +31,6 @@ import com.facebook.buck.distributed.thrift.MinionRequirements;
 import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.SchedulingEnvironmentType;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.BuckConstant;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -49,7 +49,8 @@ import java.util.regex.Pattern;
 public class DistBuildUtil {
 
   private static final Logger LOG = Logger.get(ConsoleEvent.class);
-  private static final DateFormat DATE_FORMAT = new SimpleDateFormat("[yyyy-MM-dd HH:mm:ss.SSS]");
+  private static final ThreadLocal<DateFormat> DATE_FORMAT =
+      ThreadLocal.withInitial(() -> new SimpleDateFormat("[yyyy-MM-dd HH:mm:ss.SSS]"));
 
   // Converts '//project/subdir:target' or '//project:target' into '//project'
   private static final String TARGET_TO_PROJECT_REGREX = "(//.*?)[/|:].*";
@@ -67,7 +68,7 @@ public class DistBuildUtil {
     if (buildMode != BuildMode.DISTRIBUTED_BUILD_WITH_LOCAL_COORDINATOR
         && buildMode != BuildMode.DISTRIBUTED_BUILD_WITH_REMOTE_COORDINATOR
         && buildMode != BuildMode.LOCAL_BUILD_WITH_REMOTE_EXECUTION) {
-      return minionRequirements; // BuildType does not support minion requirements
+      return minionRequirements; // BuckBuildType does not support minion requirements
     }
 
     Preconditions.checkArgument(
@@ -151,7 +152,7 @@ public class DistBuildUtil {
     Preconditions.checkState(consoleEvent.isSetMessage());
     Preconditions.checkState(consoleEvent.isSetSeverity());
 
-    String timestampPrefix = DATE_FORMAT.format(new Date(event.getTimestampMillis())) + " ";
+    String timestampPrefix = DATE_FORMAT.get().format(new Date(event.getTimestampMillis())) + " ";
     switch (consoleEvent.getSeverity()) {
       case INFO:
         return ConsoleEvent.create(Level.INFO, timestampPrefix + consoleEvent.getMessage());

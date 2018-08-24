@@ -19,11 +19,13 @@ package com.facebook.buck.parser;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.io.WatchmanFactory;
 import com.facebook.buck.io.filesystem.skylark.SkylarkFilesystem;
+import com.facebook.buck.io.watchman.Capability;
+import com.facebook.buck.io.watchman.Watchman;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.json.HybridProjectBuildFileParser;
 import com.facebook.buck.json.PythonDslProjectBuildFileParser;
 import com.facebook.buck.json.TargetCountVerificationParserDelegate;
@@ -47,6 +49,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.devtools.build.lib.events.EventKind;
 import com.google.devtools.build.lib.syntax.EvalException;
+import com.google.devtools.build.lib.syntax.Runtime;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Optional;
@@ -55,32 +58,32 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
   private final TypeCoercerFactory typeCoercerFactory;
   private final Console console;
   private final ParserPythonInterpreterProvider pythonInterpreterProvider;
-  private final KnownBuildRuleTypesProvider knownBuildRuleTypesProvider;
+  private final KnownRuleTypesProvider knownRuleTypesProvider;
   private final boolean enableProfiling;
 
   public DefaultProjectBuildFileParserFactory(
       TypeCoercerFactory typeCoercerFactory,
       Console console,
       ParserPythonInterpreterProvider pythonInterpreterProvider,
-      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
+      KnownRuleTypesProvider knownRuleTypesProvider,
       boolean enableProfiling) {
     this.typeCoercerFactory = typeCoercerFactory;
     this.console = console;
     this.pythonInterpreterProvider = pythonInterpreterProvider;
-    this.knownBuildRuleTypesProvider = knownBuildRuleTypesProvider;
+    this.knownRuleTypesProvider = knownRuleTypesProvider;
     this.enableProfiling = enableProfiling;
   }
 
   public DefaultProjectBuildFileParserFactory(
       TypeCoercerFactory typeCoercerFactory,
       ParserPythonInterpreterProvider pythonInterpreterProvider,
-      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider,
-      boolean enableProfiling) {
+      boolean enableProfiling,
+      KnownRuleTypesProvider knownRuleTypesProvider) {
     this(
         typeCoercerFactory,
         Console.createNullConsole(),
         pythonInterpreterProvider,
-        knownBuildRuleTypesProvider,
+        knownRuleTypesProvider,
         enableProfiling);
   }
 
@@ -88,9 +91,8 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
       TypeCoercerFactory typeCoercerFactory,
       Console console,
       ParserPythonInterpreterProvider pythonInterpreterProvider,
-      KnownBuildRuleTypesProvider knownBuildRuleTypesProvider) {
-    this(
-        typeCoercerFactory, console, pythonInterpreterProvider, knownBuildRuleTypesProvider, false);
+      KnownRuleTypesProvider knownRuleTypesProvider) {
+    this(typeCoercerFactory, console, pythonInterpreterProvider, knownRuleTypesProvider, false);
   }
 
   /**
@@ -98,17 +100,18 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
    * ProjectBuildFileParser}.
    */
   @Override
-  public ProjectBuildFileParser createBuildFileParser(BuckEventBus eventBus, Cell cell) {
+  public ProjectBuildFileParser createBuildFileParser(
+      BuckEventBus eventBus, Cell cell, Watchman watchman) {
 
     ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
 
     boolean useWatchmanGlob =
         parserConfig.getGlobHandler() == ParserConfig.GlobHandler.WATCHMAN
-            && cell.getWatchman().hasWildmatchGlob();
+            && watchman.hasWildmatchGlob();
     boolean watchmanGlobStatResults =
         parserConfig.getWatchmanGlobSanityCheck() == ParserConfig.WatchmanGlobSanityCheck.STAT;
     boolean watchmanUseGlobGenerator =
-        cell.getWatchman().getCapabilities().contains(WatchmanFactory.Capability.GLOB_GENERATOR);
+        watchman.getCapabilities().contains(Capability.GLOB_GENERATOR);
     Optional<String> pythonModuleSearchPath = parserConfig.getPythonModuleSearchPath();
 
     ProjectBuildFileParserOptions buildFileParserOptions =
@@ -123,11 +126,11 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
             .setIgnorePaths(cell.getFilesystem().getIgnorePaths())
             .setBuildFileName(cell.getBuildFileName())
             .setDefaultIncludes(parserConfig.getDefaultIncludes())
-            .setDescriptions(knownBuildRuleTypesProvider.get(cell).getDescriptions())
+            .setDescriptions(knownRuleTypesProvider.get(cell).getDescriptions())
             .setUseWatchmanGlob(useWatchmanGlob)
             .setWatchmanGlobStatResults(watchmanGlobStatResults)
             .setWatchmanUseGlobGenerator(watchmanUseGlobGenerator)
-            .setWatchman(cell.getWatchman())
+            .setWatchman(watchman)
             .setWatchmanQueryTimeoutMs(parserConfig.getWatchmanQueryTimeoutMs())
             .setRawConfig(cell.getBuckConfig().getRawConfigForParser())
             .setBuildFileImportWhitelist(parserConfig.getBuildFileImportWhitelist())
@@ -222,7 +225,7 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
       SkylarkGlobHandler skylarkGlobHandler) {
     GlobberFactory globberFactory;
     try {
-      globberFactory = getSkylarkGlobberFactory(cell, buildFileParserOptions, skylarkGlobHandler);
+      globberFactory = getSkylarkGlobberFactory(buildFileParserOptions, skylarkGlobHandler);
     } catch (IOException e) {
       throw new RuntimeException(
           "Watchman glob handler was requested, but Watchman client cannot be created", e);
@@ -244,30 +247,38 @@ public class DefaultProjectBuildFileParserFactory implements ProjectBuildFilePar
     }
 
     try {
-      return SkylarkProjectBuildFileParser.using(
-          buildFileParserOptions,
-          eventBus,
-          SkylarkFilesystem.using(cell.getFilesystem()),
-          buckGlobals,
-          new ConsoleEventHandler(
+      SkylarkProjectBuildFileParser skylarkParser =
+          SkylarkProjectBuildFileParser.using(
+              buildFileParserOptions,
               eventBus,
-              EventKind.ALL_EVENTS,
-              ImmutableSet.copyOf(buckGlobals.getNativeModule().getFieldNames()),
-              augmentor),
-          globberFactory);
+              SkylarkFilesystem.using(cell.getFilesystem()),
+              buckGlobals,
+              new ConsoleEventHandler(
+                  eventBus,
+                  EventKind.ALL_EVENTS,
+                  ImmutableSet.copyOf(buckGlobals.getNativeModule().getFieldNames()),
+                  augmentor),
+              globberFactory);
+
+      // All built-ins should have already been discovered. Freezing improves performance by
+      // avoiding synchronization during query operations. This operation is idempotent, so it's
+      // fine to call this multiple times.
+      // Note, that this method should be called after parser is created, to give a chance for all
+      // static initializers that register SkylarkSignature to run.
+      Runtime.getBuiltinRegistry().freeze();
+
+      return skylarkParser;
     } catch (EvalException e) {
       throw new RuntimeException(e);
     }
   }
 
   private static GlobberFactory getSkylarkGlobberFactory(
-      Cell cell,
-      ProjectBuildFileParserOptions buildFileParserOptions,
-      SkylarkGlobHandler skylarkGlobHandler)
+      ProjectBuildFileParserOptions buildFileParserOptions, SkylarkGlobHandler skylarkGlobHandler)
       throws IOException {
     SyncCookieState syncCookieState = new SyncCookieState();
     return skylarkGlobHandler == SkylarkGlobHandler.JAVA
-            || cell.getWatchman() == WatchmanFactory.NULL_WATCHMAN
+            || buildFileParserOptions.getWatchman() == WatchmanFactory.NULL_WATCHMAN
         ? NativeGlobber::create
         : HybridGlobberFactory.using(
             buildFileParserOptions.getWatchman().createClient(),

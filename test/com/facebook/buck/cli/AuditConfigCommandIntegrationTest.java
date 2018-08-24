@@ -15,15 +15,19 @@
  */
 package com.facebook.buck.cli;
 
+import static com.facebook.buck.util.MoreStringsForTests.equalToIgnoringPlatformNewlines;
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.json.ObjectMappers;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.io.StringReader;
@@ -51,7 +55,9 @@ public class AuditConfigCommandIntegrationTest {
             "ignored_section.short_value",
             "ignored_section.long_value");
     result.assertSuccess();
-    assertEquals(workspace.getFileContents("stdout-config"), result.getStdout());
+    assertThat(
+        workspace.getFileContents("stdout-config"),
+        equalToIgnoringPlatformNewlines(result.getStdout()));
     assertThat(result.getStderr(), containsString("missing_section is not a valid section string"));
   }
 
@@ -71,7 +77,9 @@ public class AuditConfigCommandIntegrationTest {
             "ignored_section.short_value",
             "ignored_section.long_value");
     result.assertSuccess();
-    assertEquals(workspace.getFileContents("stdout-config.json").trim(), result.getStdout());
+    assertThat(
+        workspace.getFileContents("stdout-config.json").trim(),
+        equalToIgnoringPlatformNewlines(result.getStdout()));
     assertThat(result.getStderr(), containsString("missing_section is not a valid section string"));
   }
 
@@ -85,7 +93,9 @@ public class AuditConfigCommandIntegrationTest {
         workspace.runBuckCommand(
             "audit", "config", "--json", "missing_section.badvalue", "ignored_section");
     result.assertSuccess();
-    assertEquals(workspace.getFileContents("stdout-config.json").trim(), result.getStdout());
+    assertThat(
+        workspace.getFileContents("stdout-config.json").trim(),
+        equalToIgnoringPlatformNewlines(result.getStdout()));
     assertThat(result.getStderr(), containsString("missing_section is not a valid section string"));
   }
 
@@ -106,7 +116,9 @@ public class AuditConfigCommandIntegrationTest {
             "ignored_section.short_value",
             "ignored_section.long_value");
     result.assertSuccess();
-    assertEquals(workspace.getFileContents("stdout-buckconfig"), result.getStdout());
+    assertThat(
+        workspace.getFileContents("stdout-buckconfig"),
+        equalToIgnoringPlatformNewlines(result.getStdout()));
     assertThat(result.getStderr(), containsString("missing_section is not a valid section string"));
   }
 
@@ -119,7 +131,35 @@ public class AuditConfigCommandIntegrationTest {
     ProcessResult result =
         workspace.runBuckCommand("audit", "config", "secondary//second_section.some_property");
     result.assertSuccess();
-    assertEquals(workspace.getFileContents("stdout-cell-buckconfig"), result.getStdout());
+    assertThat(
+        workspace.getFileContents("stdout-cell-buckconfig"),
+        equalToIgnoringPlatformNewlines(result.getStdout()));
+  }
+
+  @Test
+  public void testIncludesWithCell() throws IOException {
+    // This test also verifies that the include paths are constructed relative
+    // to the buck config file that contains the include.
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "audit_config", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand("audit", "config", "secondary//included_section");
+    result.assertSuccess();
+    assertThat(result.getStdout(), containsString("included_section"));
+  }
+
+  @Test
+  public void testIncludesWithKeyValueOverride() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "audit_config", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand("audit", "config", "included_inline_section.included_key");
+    result.assertSuccess();
+    assertThat(result.getStdout(), containsString("real value"));
   }
 
   @Test
@@ -166,5 +206,25 @@ public class AuditConfigCommandIntegrationTest {
         });
 
     assertEquals(workspace.getConfig().getSectionToEntries(), audit_config.build());
+  }
+
+  @Test
+  public void testAuditEntireConfigInJson() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "audit_config", tmp);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("audit", "config", "--json");
+    result.assertSuccess();
+    JsonNode jsonNode = ObjectMappers.READER.readTree(result.getStdout());
+    // Our integration tests add a few values (one of which changes every time) so we can't do a
+    // direct comparison.
+    // Instead, just verify a few known values
+    assertTrue(jsonNode.has("ignored_section.dotted.value"));
+    assertTrue(jsonNode.has("ignored_section.short_value"));
+    assertTrue(jsonNode.has("second_section.some_property"));
+    // Make sure that we can handle two sections with identical keys
+    assertEquals(jsonNode.get("python#py2.interpreter").asText(), "python2");
+    assertEquals(jsonNode.get("python#py3.interpreter").asText(), "python3");
   }
 }

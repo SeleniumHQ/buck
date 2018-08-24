@@ -18,10 +18,11 @@ package org.openqa.selenium.buck.javascript;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.attr.BuildOutputInitializer;
 import com.facebook.buck.core.rules.attr.InitializableFromDisk;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
@@ -30,7 +31,6 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
@@ -66,7 +66,7 @@ public class JsLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps impleme
     this.deps = ImmutableSortedSet.copyOf(getDeclaredDeps());
     this.srcs = Preconditions.checkNotNull(srcs);
 
-    this.output = BuildTargets.getGenPath(
+    this.output = BuildTargetPaths.getGenPath(
         getProjectFilesystem(),
         getBuildTarget(),
         "%s-library.deps");

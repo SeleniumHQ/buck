@@ -16,23 +16,25 @@
 
 package com.facebook.buck.core.cell.impl;
 
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellConfig;
+import com.facebook.buck.core.cell.CellName;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.CellPathResolverView;
 import com.facebook.buck.core.cell.CellProvider;
-import com.facebook.buck.core.cell.name.RelativeCellName;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.InvalidCellOverrideException;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.io.Watchman;
+import com.facebook.buck.core.module.BuckModuleManager;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
+import com.facebook.buck.core.toolchain.ToolchainProviderFactory;
 import com.facebook.buck.io.filesystem.EmbeddedCellBuckOutInfo;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
-import com.facebook.buck.module.BuckModuleManager;
+import com.facebook.buck.parser.BuildTargetParser;
+import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactory;
-import com.facebook.buck.toolchain.ToolchainProvider;
-import com.facebook.buck.toolchain.ToolchainProviderFactory;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.Configs;
 import com.facebook.buck.util.config.RawConfig;
@@ -50,10 +52,9 @@ public class LocalCellProviderFactory {
   /** Create a cell provider at a given root. */
   public static CellProvider create(
       ProjectFilesystem rootFilesystem,
-      Watchman watchman,
       BuckConfig rootConfig,
       CellConfig rootCellConfigOverrides,
-      ImmutableMap<RelativeCellName, Path> cellPathMapping,
+      ImmutableMap<CellName, Path> cellPathMapping,
       CellPathResolver rootCellCellPathResolver,
       BuckModuleManager moduleManager,
       ToolchainProviderFactory toolchainProviderFactory,
@@ -62,7 +63,7 @@ public class LocalCellProviderFactory {
     ImmutableMap<Path, RawConfig> pathToConfigOverrides;
     try {
       pathToConfigOverrides = rootCellConfigOverrides.getOverridesByPath(cellPathMapping);
-    } catch (CellConfig.MalformedOverridesException e) {
+    } catch (InvalidCellOverrideException e) {
       throw new HumanReadableException(e.getMessage());
     }
 
@@ -137,7 +138,11 @@ public class LocalCellProviderFactory {
                         rootConfig.getArchitecture(),
                         rootConfig.getPlatform(),
                         rootConfig.getEnvironment(),
-                        cellPathResolver);
+                        target ->
+                            BuildTargetParser.INSTANCE.parse(
+                                target,
+                                BuildTargetPatternParser.fullyQualified(),
+                                cellPathResolver));
 
                 RuleKeyConfiguration ruleKeyConfiguration =
                     ConfigRuleKeyConfigurationFactory.create(buckConfig, moduleManager);
@@ -151,10 +156,10 @@ public class LocalCellProviderFactory {
                 return ImmutableCell.of(
                     cellPathResolver.getKnownRoots(),
                     canonicalCellName,
-                    watchman,
                     cellProvider,
                     toolchainProvider,
                     ruleKeyConfiguration,
+                    cellPathResolver,
                     cellFilesystem,
                     buckConfig);
               }
@@ -166,7 +171,6 @@ public class LocalCellProviderFactory {
                 toolchainProviderFactory,
                 rootFilesystem,
                 moduleManager,
-                rootConfig,
-                watchman));
+                rootConfig));
   }
 }

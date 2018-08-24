@@ -16,20 +16,22 @@
 
 package com.facebook.buck.features.haskell;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.UserFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
+import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.cxx.Archive;
 import com.facebook.buck.cxx.CxxDeps;
 import com.facebook.buck.cxx.CxxPreprocessables;
@@ -52,14 +54,12 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables.SharedLibrariesBuilder;
 import com.facebook.buck.file.WriteFile;
-import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Preconditions;
@@ -304,7 +304,6 @@ public class HaskellDescriptionUtils {
               platform.getCxxPlatform(),
               NativeLinkables.getLinkStyle(link, depType),
               linkWholeDeps.contains(nativeLinkable.getBuildTarget()),
-              ImmutableSet.of(),
               graphBuilder);
       linkerArgsBuilder.addAll(input.getArgs());
     }
@@ -319,7 +318,7 @@ public class HaskellDescriptionUtils {
                 emptyModuleTarget,
                 projectFilesystem,
                 "module Unused where",
-                BuildTargets.getGenPath(projectFilesystem, emptyModuleTarget, "%s/Unused.hs"),
+                BuildTargetPaths.getGenPath(projectFilesystem, emptyModuleTarget, "%s/Unused.hs"),
                 /* executable */ false));
     HaskellCompileRule emptyCompiledModule =
         graphBuilder.addToIndex(
@@ -354,7 +353,7 @@ public class HaskellDescriptionUtils {
                 ruleFinder,
                 platform.getCxxPlatform(),
                 ArchiveContents.NORMAL,
-                BuildTargets.getGenPath(projectFilesystem, emptyArchiveTarget, "%s/libempty.a"),
+                BuildTargetPaths.getGenPath(projectFilesystem, emptyArchiveTarget, "%s/libempty.a"),
                 emptyCompiledModule.getObjects(),
                 /* cacheable */ true));
     argsBuilder.add(SourcePathArg.of(emptyArchive.getSourcePathToOutput()));
@@ -414,7 +413,7 @@ public class HaskellDescriptionUtils {
       CxxBuckConfig cxxBuckConfig,
       ImmutableSortedSet<BuildTarget> argDeps,
       PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> argPlatformDeps,
-      SourceList argSrcs,
+      SourceSortedSet argSrcs,
       ImmutableSortedSet<BuildTarget> argPreloadDeps,
       PatternMatchedCollection<ImmutableSortedSet<BuildTarget>> argPlatformPreloadDeps,
       ImmutableList<String> argCompilerFlags,
@@ -585,6 +584,7 @@ public class HaskellDescriptionUtils {
         platform.getGhciLib().get(),
         platform.getGhciCxx().get(),
         platform.getGhciCc().get(),
-        platform.getGhciCpp().get());
+        platform.getGhciCpp().get(),
+        platform.getGhciPackager().get());
   }
 }

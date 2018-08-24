@@ -30,29 +30,29 @@ import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntimeType;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.core.cell.TestCellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourceWithFlags;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLibraryBuilder;
 import com.facebook.buck.cxx.CxxLibraryDescriptionArg;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -150,7 +150,7 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
         new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:cxxlib"))
             .setSoname("somelib.so")
             .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("test/bar.cpp"))));
-    TargetNode<CxxLibraryDescriptionArg, ?> cxxLibraryDescription = cxxLibraryBuilder.build();
+    TargetNode<CxxLibraryDescriptionArg> cxxLibraryDescription = cxxLibraryBuilder.build();
     TargetGraph targetGraph = TargetGraphFactory.newInstance(cxxLibraryDescription);
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
@@ -346,12 +346,12 @@ public class AndroidNativeLibsPackageableGraphEnhancerTest {
         new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:cxxlib1"))
             .setSoname("somelib.so")
             .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("test/bar.cpp"))));
-    TargetNode<CxxLibraryDescriptionArg, ?> cxxLibraryDescription1 = cxxLibraryBuilder1.build();
+    TargetNode<CxxLibraryDescriptionArg> cxxLibraryDescription1 = cxxLibraryBuilder1.build();
     CxxLibraryBuilder cxxLibraryBuilder2 =
         new CxxLibraryBuilder(BuildTargetFactory.newInstance("//:cxxlib2"))
             .setSoname("somelib.so")
             .setSrcs(ImmutableSortedSet.of(SourceWithFlags.of(FakeSourcePath.of("test/bar2.cpp"))));
-    TargetNode<CxxLibraryDescriptionArg, ?> cxxLibraryDescription2 = cxxLibraryBuilder2.build();
+    TargetNode<CxxLibraryDescriptionArg> cxxLibraryDescription2 = cxxLibraryBuilder2.build();
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(
             ImmutableList.of(cxxLibraryDescription1, cxxLibraryDescription2));

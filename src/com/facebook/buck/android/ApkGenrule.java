@@ -19,10 +19,10 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
@@ -31,11 +31,11 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.coercer.SourceSet;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
 import com.facebook.buck.shell.Genrule;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
-import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -68,7 +68,7 @@ public class ApkGenrule extends Genrule implements HasInstallableApk, HasRuntime
       BuildRuleResolver resolver,
       BuildRuleParams params,
       SourcePathRuleFinder ruleFinder,
-      List<SourcePath> srcs,
+      SourceSet srcs,
       Optional<Arg> cmd,
       Optional<Arg> bash,
       Optional<Arg> cmdExe,

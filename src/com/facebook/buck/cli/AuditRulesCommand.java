@@ -25,15 +25,15 @@ import com.facebook.buck.parser.function.BuckPyFunction;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.util.Escaper;
 import com.facebook.buck.util.ExitCode;
-import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.json.ObjectMappers;
+import com.facebook.buck.util.string.MoreStrings;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonGenerator.Feature;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.devtools.build.lib.syntax.SkylarkNestedSet;
 import java.io.BufferedOutputStream;
@@ -52,6 +52,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.SortedSet;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
@@ -107,8 +108,9 @@ public class AuditRulesCommand extends AbstractCommand {
                 params.getConsole(),
                 new ParserPythonInterpreterProvider(
                     params.getCell().getBuckConfig(), params.getExecutableFinder()),
-                params.getKnownBuildRuleTypesProvider())
-            .createBuildFileParser(params.getBuckEventBus(), params.getCell())) {
+                params.getKnownRuleTypesProvider())
+            .createBuildFileParser(
+                params.getBuckEventBus(), params.getCell(), params.getWatchman())) {
       /*
        * The super console does a bunch of rewriting over the top of the console such that
        * simultaneously writing to stdout and stderr in an interactive session is problematic.
@@ -181,7 +183,12 @@ public class AuditRulesCommand extends AbstractCommand {
       for (Map<String, Object> rawRule : filteredRules) {
         String name = (String) rawRule.get("name");
         Preconditions.checkNotNull(name);
-        rulesKeyedByName.put(name, Maps.filterValues(rawRule, v -> shouldInclude(v)));
+        Map<String, Object> formattedRule = new TreeMap<>();
+        for (Map.Entry<String, Object> entry : rawRule.entrySet()) {
+          if (!shouldInclude(entry.getValue())) continue;
+          formattedRule.put(formatAttribute(entry.getKey()), entry.getValue());
+        }
+        rulesKeyedByName.put(name, formattedRule);
       }
 
       // We create a new JsonGenerator that does not close the stream.
@@ -230,11 +237,15 @@ public class AuditRulesCommand extends AbstractCommand {
         continue;
       }
       String displayValue = createDisplayString(INDENT, rawValue);
-      out.printf("%s%s = %s,\n", INDENT, property, displayValue);
+      out.printf("%s%s = %s,\n", INDENT, formatAttribute(property), displayValue);
     }
 
     // Close the rule definition.
     out.print(")\n\n");
+  }
+
+  private String formatAttribute(String property) {
+    return CaseFormat.LOWER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, property);
   }
 
   private boolean shouldInclude(@Nullable Object rawValue) {

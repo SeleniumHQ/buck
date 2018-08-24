@@ -17,9 +17,9 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.shell.DefaultShellStep;
 import com.facebook.buck.step.DefaultStepRunner;
 import com.facebook.buck.step.ExecutionContext;
@@ -50,7 +50,6 @@ import java.util.function.Supplier;
  */
 public class IntraDexReorderStep implements Step {
 
-  private final BuildTarget target;
   private final BuildContext context;
   private final ProjectFilesystem filesystem;
   private final Path reorderTool;
@@ -63,7 +62,6 @@ public class IntraDexReorderStep implements Step {
   private final String outputSubDir;
 
   IntraDexReorderStep(
-      BuildTarget target,
       BuildContext context,
       ProjectFilesystem filesystem,
       Path reorderTool,
@@ -74,7 +72,6 @@ public class IntraDexReorderStep implements Step {
       Optional<Supplier<Multimap<Path, Path>>> secondaryDexMap,
       String inputSubDir,
       String outputSubDir) {
-    this.target = target;
     this.context = context;
     this.filesystem = filesystem;
     this.reorderTool = reorderTool;
@@ -120,7 +117,7 @@ public class IntraDexReorderStep implements Step {
 
     if (!isPrimaryDex) {
       String tmpname = "dex-tmp-" + inputPath.getFileName() + "-%s";
-      Path temp = BuildTargets.getScratchPath(filesystem, buildTarget, tmpname);
+      Path temp = BuildTargetPaths.getScratchPath(filesystem, buildTarget, tmpname);
       // Create tmp directory if necessary
       steps.addAll(
           MakeCleanDirectoryStep.of(
@@ -131,7 +128,6 @@ public class IntraDexReorderStep implements Step {
       // run reorder tool
       steps.add(
           new DefaultShellStep(
-              target,
               filesystem.getRootPath(),
               ImmutableList.of(
                   reorderTool.toString(),
@@ -153,7 +149,6 @@ public class IntraDexReorderStep implements Step {
       steps.add(CopyStep.forFile(filesystem, inputPrimaryDexPath, outputPrimaryDexPath));
       steps.add(
           new DefaultShellStep(
-              target,
               filesystem.getRootPath(),
               ImmutableList.of(
                   reorderTool.toString(),

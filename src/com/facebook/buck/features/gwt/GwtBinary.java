@@ -18,10 +18,11 @@ package com.facebook.buck.features.gwt;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -30,7 +31,6 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -46,7 +46,6 @@ import com.google.common.collect.Iterables;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Buildable that produces a GWT application as a WAR file, which is a zip of the outputs produced
@@ -98,7 +97,7 @@ public class GwtBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       ImmutableSortedSet<SourcePath> gwtModuleJars) {
     super(buildTarget, projectFilesystem, buildRuleParams);
     this.outputFile =
-        BuildTargets.getGenPath(
+        BuildTargetPaths.getGenPath(
             projectFilesystem,
             buildTarget,
             "__gwt_binary_%s__/" + buildTarget.getShortNameAndFlavorPostfix() + ".zip");
@@ -145,7 +144,7 @@ public class GwtBinary extends AbstractBuildRuleWithDeclaredAndExtraDeps {
                 context.getBuildCellRootPath(), getProjectFilesystem(), deployDirectory)));
 
     Step javaStep =
-        new ShellStep(Optional.of(getBuildTarget()), projectFilesystem.getRootPath()) {
+        new ShellStep(projectFilesystem.getRootPath()) {
           @Override
           public String getShortName() {
             return "gwt-compile";

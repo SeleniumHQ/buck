@@ -21,8 +21,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.macros.MacroException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -31,12 +33,10 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.macros.MacroException;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.ExportFileBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -78,10 +78,10 @@ public class ClasspathAbiMacroExpanderTest {
 
   @Test
   public void testShouldIncludeTransitiveDependencies() throws Exception {
-    TargetNode<?, ?> depNode =
+    TargetNode<?> depNode =
         getLibraryBuilder("//exciting:dep").addSrc(Paths.get("Dep.java")).build();
 
-    TargetNode<?, ?> ruleNode =
+    TargetNode<?> ruleNode =
         getLibraryBuilder("//exciting:target")
             .addSrc(Paths.get("Other.java"))
             .addDep(depNode.getBuildTarget())
@@ -123,9 +123,9 @@ public class ClasspathAbiMacroExpanderTest {
 
   @Test
   public void testExtractRuleKeyAppendables() throws Exception {
-    TargetNode<?, ?> depNode =
+    TargetNode<?> depNode =
         getLibraryBuilder("//exciting:dep").addSrc(Paths.get("Dep.java")).build();
-    TargetNode<?, ?> ruleNode =
+    TargetNode<?> ruleNode =
         getLibraryBuilder("//exciting:target")
             .addSrc(Paths.get("Other.java"))
             .addDep(depNode.getBuildTarget())

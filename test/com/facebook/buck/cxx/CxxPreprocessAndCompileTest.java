@@ -23,14 +23,17 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.context.FakeBuildContext;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellPathResolver;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -45,10 +48,7 @@ import com.facebook.buck.cxx.toolchain.GccCompiler;
 import com.facebook.buck.cxx.toolchain.GccPreprocessor;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeBuildContext;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
@@ -240,7 +240,6 @@ public class CxxPreprocessAndCompileTest {
                         DEFAULT_PREPROCESSOR,
                         PreprocessorFlags.builder().build(),
                         DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION,
-                        Optional.empty(),
                         /* leadingIncludePaths */ Optional.empty(),
                         Optional.of(
                             new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps")))),
@@ -373,7 +372,6 @@ public class CxxPreprocessAndCompileTest {
                         DEFAULT_PREPROCESSOR,
                         flags,
                         DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION,
-                        Optional.empty(),
                         /* leadingIncludePaths */ Optional.empty(),
                         Optional.of(
                             new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps")))),
@@ -478,7 +476,6 @@ public class CxxPreprocessAndCompileTest {
                 new GccPreprocessor(preprocessorTool),
                 PreprocessorFlags.builder().build(),
                 DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION,
-                Optional.empty(),
                 /* leadingIncludePaths */ Optional.empty(),
                 Optional.of(new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps")))),
                 ImmutableSortedSet.of()),
@@ -567,7 +564,6 @@ public class CxxPreprocessAndCompileTest {
                 PREPROCESSOR_WITH_COLOR_SUPPORT,
                 PreprocessorFlags.builder().build(),
                 DEFAULT_FRAMEWORK_PATH_SEARCH_PATH_FUNCTION,
-                Optional.empty(),
                 /* leadingIncludePaths */ Optional.empty(),
                 Optional.of(new FakeBuildRule(target.withFlavors(InternalFlavor.of("deps")))),
                 ImmutableSortedSet.of()),

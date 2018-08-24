@@ -49,6 +49,7 @@ import com.facebook.buck.core.build.engine.manifest.ManifestStoreResult;
 import com.facebook.buck.core.build.engine.type.BuildType;
 import com.facebook.buck.core.build.engine.type.DepFiles;
 import com.facebook.buck.core.build.engine.type.MetadataStorage;
+import com.facebook.buck.core.build.engine.type.UploadToCacheResultType;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
 import com.facebook.buck.core.exceptions.HumanReadableException;
@@ -68,11 +69,11 @@ import com.facebook.buck.core.rules.schedule.OverrideScheduleRule;
 import com.facebook.buck.core.rules.schedule.RuleScheduleInfo;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.event.ThrowableConsoleEvent;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.rules.keys.DependencyFileEntry;
 import com.facebook.buck.rules.keys.RuleKeyAndInputs;
 import com.facebook.buck.rules.keys.RuleKeyDiagnostics;
@@ -741,7 +742,7 @@ class CachingBuildRuleBuilder {
     Optional<Long> outputSize = Optional.empty();
     Optional<HashCode> outputHash = Optional.empty();
     Optional<BuildRuleSuccessType> successType = Optional.empty();
-    boolean shouldUploadToCache = false;
+    UploadToCacheResultType shouldUploadToCache = UploadToCacheResultType.UNCACHEABLE;
 
     try (Scope ignored = buildRuleScope()) {
       if (input.getStatus() == BuildRuleStatus.SUCCESS) {
@@ -763,12 +764,13 @@ class CachingBuildRuleBuilder {
         }
 
         // Determine if this is rule is cacheable.
-        shouldUploadToCache =
-            outputSize.isPresent()
-                && buildCacheArtifactUploader.shouldUploadToCache(success, outputSize.get());
+        if (outputSize.isPresent()) {
+          shouldUploadToCache =
+              buildCacheArtifactUploader.shouldUploadToCache(success, outputSize.get());
+        }
 
         // Upload it to the cache.
-        if (shouldUploadToCache) {
+        if (shouldUploadToCache.equals(UploadToCacheResultType.CACHEABLE)) {
           uploadToCache(success);
         }
       }
@@ -1021,15 +1023,13 @@ class CachingBuildRuleBuilder {
           }
 
           // Once remote build has finished, download artifact from cache using default key
-          return Futures.transformAsync(
-              remoteBuildRuleCompletionWaiter.waitForBuildRuleToFinishRemotely(rule),
-              (Void v) ->
-                  Futures.transform(
-                      performRuleKeyCacheCheck(/* cacheHitExpected */ true),
-                      cacheResult -> {
-                        rulekeyCacheResult.set(cacheResult);
-                        return getBuildResultForRuleKeyCacheResult(cacheResult);
-                      }));
+          return Futures.transform(
+              remoteBuildRuleCompletionWaiter.waitForBuildRuleToAppearInCache(
+                  rule, () -> performRuleKeyCacheCheck(/* cacheHitExpected */ true)),
+              cacheResult -> {
+                rulekeyCacheResult.set(cacheResult);
+                return getBuildResultForRuleKeyCacheResult(cacheResult);
+              });
         });
   }
 

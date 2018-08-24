@@ -27,9 +27,8 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
 import static org.junit.Assume.assumeTrue;
 
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
@@ -41,12 +40,16 @@ import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
+import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.CreateSymlinksForTests;
+import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.ProcessExecutor.Result;
+import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.Configs;
-import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.unarchive.Unzip;
 import com.google.common.base.Splitter;
@@ -61,6 +64,7 @@ import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.Optional;
 import org.hamcrest.Matchers;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -70,7 +74,7 @@ import org.junit.runners.Parameterized;
 @RunWith(Parameterized.class)
 public class PythonBinaryIntegrationTest {
 
-  @Parameterized.Parameters(name = "{0}(dir={1}),{2},sandbox_sources={3}")
+  @Parameterized.Parameters(name = "{0}(dir={1}),{2}")
   public static Collection<Object[]> data() {
     ImmutableList.Builder<Object[]> validPermutations = ImmutableList.builder();
     for (PythonBuckConfig.PackageStyle packageStyle : PythonBuckConfig.PackageStyle.values()) {
@@ -80,10 +84,7 @@ public class PythonBinaryIntegrationTest {
         }
 
         for (NativeLinkStrategy linkStrategy : NativeLinkStrategy.values()) {
-          for (boolean sandboxSource : new boolean[] {true, false}) {
-            validPermutations.add(
-                new Object[] {packageStyle, pexDirectory, linkStrategy, sandboxSource});
-          }
+          validPermutations.add(new Object[] {packageStyle, pexDirectory, linkStrategy});
         }
       }
     }
@@ -97,9 +98,6 @@ public class PythonBinaryIntegrationTest {
 
   @Parameterized.Parameter(value = 2)
   public NativeLinkStrategy nativeLinkStrategy;
-
-  @Parameterized.Parameter(value = 3)
-  public boolean sandboxSources;
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
@@ -121,11 +119,7 @@ public class PythonBinaryIntegrationTest {
             + nativeLinkStrategy.toString().toLowerCase()
             + "\n"
             + "  pex_flags = "
-            + pexFlags
-            + "\n"
-            + "[cxx]\n"
-            + "  sandbox_sources="
-            + sandboxSources,
+            + pexFlags,
         ".buckconfig");
     PythonBuckConfig config = getPythonBuckConfig();
     assertThat(config.getPackageStyle(), equalTo(packageStyle));
@@ -149,8 +143,9 @@ public class PythonBinaryIntegrationTest {
             .getStdout()
             .trim();
     Path link = workspace.getPath("link");
-    Files.createSymbolicLink(
+    CreateSymlinksForTests.createSymLink(
         link, workspace.getPath(Splitter.on(" ").splitToList(output).get(1)).toAbsolutePath());
+
     ProcessExecutor.Result result =
         workspace.runCommand(
             new PythonInterpreterFromConfig(getPythonBuckConfig(), new ExecutableFinder())
@@ -434,13 +429,26 @@ public class PythonBinaryIntegrationTest {
   private PythonBuckConfig getPythonBuckConfig() throws IOException {
     Config rawConfig = Configs.createDefaultConfig(tmp.getRoot());
     BuckConfig buckConfig =
-        new BuckConfig(
-            rawConfig,
-            TestProjectFilesystems.createProjectFilesystem(tmp.getRoot()),
-            Architecture.detect(),
-            Platform.detect(),
-            ImmutableMap.copyOf(System.getenv()),
-            DefaultCellPathResolver.of(tmp.getRoot(), rawConfig));
+        FakeBuckConfig.builder()
+            .setFilesystem(TestProjectFilesystems.createProjectFilesystem(tmp.getRoot()))
+            .setSections(rawConfig.getRawConfig())
+            .build();
     return new PythonBuckConfig(buckConfig);
+  }
+
+  @Test
+  public void stripsPathEarlyInInplaceBinaries() throws IOException, InterruptedException {
+    assumeThat(packageStyle, Matchers.is(PackageStyle.INPLACE));
+    Path pexPath = workspace.buildAndReturnOutput("//pathtest:pathtest");
+
+    DefaultProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
+
+    Result ret =
+        executor.launchAndExecute(
+            ProcessExecutorParams.builder()
+                .setDirectory(workspace.resolve("pathtest"))
+                .setCommand(ImmutableList.of(pexPath.toString()))
+                .build());
+    Assert.assertEquals(0, ret.getExitCode());
   }
 }

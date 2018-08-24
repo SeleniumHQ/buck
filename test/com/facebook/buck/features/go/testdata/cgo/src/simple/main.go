@@ -1,5 +1,7 @@
 package main
 
+import "src/simple"
+
 func main() {
-	test()
+	simple.Test()
 }

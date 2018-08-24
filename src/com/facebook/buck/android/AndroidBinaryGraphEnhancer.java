@@ -26,17 +26,18 @@ import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
@@ -51,7 +52,6 @@ import com.facebook.buck.jvm.java.PrebuiltJar;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.rules.coercer.ManifestEntries;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.MoreMaps;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Either;
@@ -565,7 +565,8 @@ public class AndroidBinaryGraphEnhancer {
       // the best.  For secondary dexes, scale the estimate by a factor of 8 because R.java
       // classes are relatively small but consume a lot of field-id space.  The constant value
       // 8 was determined empirically and unscientifically.
-      int weightFactor = rtype.equals("_primarydex") ? 1 : 8;
+      int weightFactor =
+          !dexSplitMode.isAllowRDotJavaInSecondaryDex() || rtype.equals("_primarydex") ? 1 : 8;
       DexProducedFromJavaLibrary dexJar =
           new DexProducedFromJavaLibrary(
               splitJarTarget.withAppendedFlavors(dexFlavor, rtypeFlavor, getDexFlavor(dexTool)),

@@ -23,11 +23,11 @@ import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.file.BorrowablePath;
 import com.facebook.buck.io.file.LazyPath;
 import com.facebook.buck.io.file.MostFiles;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.CloseableHolder;
 import com.facebook.buck.util.NamedTemporaryFile;
 import com.google.common.base.Preconditions;
@@ -290,7 +290,7 @@ public class DistBuildArtifactCacheImpl implements ArtifactCacheByBuildRule {
               "Hit [%d out of %d] targets checked in the remote cache. "
                   + "[%d] targets were uploaded from the local cache.",
               remoteContainsResults.stream().filter(r -> r).count(),
-              remoteContainsResults.stream().count(),
+              remoteContainsResults.size(),
               localUploadFutures.size());
           return null;
         },

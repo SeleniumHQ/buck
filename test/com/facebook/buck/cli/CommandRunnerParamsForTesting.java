@@ -19,38 +19,38 @@ package com.facebook.buck.cli;
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.artifact_cache.SingletonArtifactCacheFactory;
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.actiongraph.computation.TestActionGraphProviderFactory;
+import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.BuildStamp.STAMP_KIND;
-import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.httpserver.WebServer;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
-import com.facebook.buck.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.TargetSpecResolver;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
-import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.testutil.FakeExecutor;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
@@ -104,16 +104,15 @@ public class CommandRunnerParamsForTesting {
     ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
     TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
     PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
-    KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
-        KnownBuildRuleTypesProvider.of(
-            DefaultKnownBuildRuleTypesFactory.of(
-                processExecutor, pluginManager, new TestSandboxExecutionStrategyFactory()));
+    KnownRuleTypesProvider knownRuleTypesProvider =
+        TestKnownRuleTypesProvider.create(pluginManager);
     ParserConfig parserConfig = cell.getBuckConfig().getView(ParserConfig.class);
 
     return CommandRunnerParams.of(
         console,
         new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)),
         cell,
+        WatchmanFactory.NULL_WATCHMAN,
         new InstrumentedVersionedTargetGraphCache(
             new VersionedTargetGraphCache(), new NoOpCacheStatsTracker()),
         new SingletonArtifactCacheFactory(artifactCache),
@@ -122,11 +121,13 @@ public class CommandRunnerParamsForTesting {
             new PerBuildStateFactory(
                 typeCoercerFactory,
                 new ConstructorArgMarshaller(typeCoercerFactory),
-                knownBuildRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder())),
+                knownRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder()),
+                WatchmanFactory.NULL_WATCHMAN),
             parserConfig,
             typeCoercerFactory,
-            new TargetSpecResolver()),
+            new TargetSpecResolver(),
+            WatchmanFactory.NULL_WATCHMAN),
         eventBus,
         platform,
         environment,
@@ -141,8 +142,8 @@ public class CommandRunnerParamsForTesting {
         ImmutableMap.of(ExecutorPool.PROJECT, MoreExecutors.newDirectExecutorService()),
         new FakeExecutor(),
         BUILD_ENVIRONMENT_DESCRIPTION,
-        new ActionGraphCache(config.getMaxActionGraphCacheEntries()),
-        knownBuildRuleTypesProvider,
+        TestActionGraphProviderFactory.create(config.getMaxActionGraphCacheEntries()),
+        knownRuleTypesProvider,
         new BuildInfoStoreManager(),
         Optional.empty(),
         Optional.empty(),

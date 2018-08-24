@@ -16,7 +16,7 @@
 
 package com.facebook.buck.rules.coercer;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.select.Selector;
 import com.facebook.buck.core.select.SelectorKey;
@@ -76,6 +76,9 @@ public class SelectorListCoercer<T> implements TypeCoercer<SelectorList<T>> {
           buildTargetTypeCoercer.traverse(cellRoots, entry.getKey().getBuildTarget(), traversal);
         }
         elementTypeCoercer.traverse(cellRoots, entry.getValue(), traversal);
+      }
+      for (SelectorKey selectorKey : element.getNullConditions()) {
+        buildTargetTypeCoercer.traverse(cellRoots, selectorKey.getBuildTarget(), traversal);
       }
     }
   }

@@ -16,6 +16,7 @@
 package com.facebook.buck.command;
 
 import com.facebook.buck.core.build.distributed.synchronization.RemoteBuildRuleCompletionWaiter;
+import com.facebook.buck.util.ExitCode;
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
@@ -24,7 +25,11 @@ import java.util.concurrent.atomic.AtomicReference;
  * * Triggers a local build, using the given parameters (with the rest coming from BuildCommand).
  */
 public interface LocalBuildExecutorInvoker {
-  int executeLocalBuild(
+  void initLocalBuild(
+      boolean isDownloadHeavyBuild,
+      RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter);
+
+  ExitCode executeLocalBuild(
       boolean isDownloadHeavyBuild,
       RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter,
       CountDownLatch initializeBuildLatch,

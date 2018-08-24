@@ -22,7 +22,6 @@ import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -31,9 +30,11 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildRules;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -41,7 +42,6 @@ import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -120,9 +120,7 @@ public class AndroidAarDescription implements DescriptionWithTargetGraph<Android
             args.getManifestSkeleton());
     aarExtraDepsBuilder.add(graphBuilder.addToIndex(manifest));
 
-    APKModuleGraph apkModuleGraph =
-        new APKModuleGraph(
-            Optional.empty(), Optional.empty(), context.getTargetGraph(), buildTarget);
+    APKModuleGraph apkModuleGraph = new APKModuleGraph(context.getTargetGraph(), buildTarget);
 
     /* assemble dirs */
     AndroidPackageableCollector collector =
@@ -137,7 +135,7 @@ public class AndroidAarDescription implements DescriptionWithTargetGraph<Android
     AndroidPackageableCollection packageableCollection = collector.build();
 
     ImmutableCollection<SourcePath> assetsDirectories =
-        packageableCollection.getAssetsDirectories();
+        packageableCollection.getAssetsDirectories().values();
     AssembleDirectories assembleAssetsDirectories =
         new AssembleDirectories(
             buildTarget.withAppendedFlavors(AAR_ASSEMBLE_ASSETS_FLAVOR),
@@ -147,7 +145,12 @@ public class AndroidAarDescription implements DescriptionWithTargetGraph<Android
     aarExtraDepsBuilder.add(graphBuilder.addToIndex(assembleAssetsDirectories));
 
     ImmutableCollection<SourcePath> resDirectories =
-        packageableCollection.getResourceDetails().getResourceDirectories();
+        packageableCollection
+            .getResourceDetails()
+            .values()
+            .stream()
+            .flatMap(resourceDetails -> resourceDetails.getResourceDirectories().stream())
+            .collect(ImmutableList.toImmutableList());
     MergeAndroidResourceSources assembleResourceDirectories =
         new MergeAndroidResourceSources(
             buildTarget.withAppendedFlavors(AAR_ASSEMBLE_RESOURCE_FLAVOR),

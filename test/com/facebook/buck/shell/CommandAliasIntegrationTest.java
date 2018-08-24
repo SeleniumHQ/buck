@@ -19,10 +19,10 @@ package com.facebook.buck.shell;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.UncachedRuleKeyBuilder;
 import com.facebook.buck.testutil.FakeFileHashCache;
@@ -52,7 +52,16 @@ public class CommandAliasIntegrationTest {
         workspace.runBuckCommand("run", "//:outer", "extra arg").assertSuccess().getStdout();
 
     assertEquals(
-        String.join("\n", "BUCK", "echo.bat", "echo.sh", "1", "second arg", "extra arg", "1 2", ""),
+        String.join(
+            System.lineSeparator(),
+            "BUCK",
+            "echo.bat",
+            "echo.sh",
+            "1",
+            "second arg",
+            "extra arg",
+            "1 2",
+            ""),
         stdout);
   }
 

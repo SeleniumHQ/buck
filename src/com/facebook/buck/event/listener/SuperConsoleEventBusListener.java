@@ -21,6 +21,7 @@ import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.test.event.TestRunEvent;
 import com.facebook.buck.core.test.event.TestStatusMessageEvent;
 import com.facebook.buck.core.test.event.TestSummaryEvent;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.DistBuildCreatedEvent;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
 import com.facebook.buck.distributed.StampedeLocalBuildStatusEvent;
@@ -40,7 +41,6 @@ import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.event.ParsingEvent;
 import com.facebook.buck.event.RuleKeyCalculationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResultSummaryVerbosity;
@@ -54,7 +54,6 @@ import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -143,7 +142,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   private int lastNumLinesPrinted;
 
   private Optional<String> parsingStatus = Optional.empty();
-  // Save if Watchman reported zero file changes in case we receive an ActionGraphCache hit. This
+  // Save if Watchman reported zero file changes in case we receive an ActionGraphProvider hit. This
   // way the user can know that their changes, if they made any, were not picked up from Watchman.
   private boolean isZeroFileChanges = false;
 
@@ -351,12 +350,12 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
             MoreIterables.zipAndConcat(
                 Iterables.cycle(ansi.clearLine()),
                 logLines,
-                Iterables.cycle(ansi.clearToTheEndOfLine() + "\n")),
+                Iterables.cycle(ansi.clearToTheEndOfLine() + System.lineSeparator())),
             ansi.asNoWrap(
                 MoreIterables.zipAndConcat(
                     Iterables.cycle(ansi.clearLine()),
                     lines,
-                    Iterables.cycle(ansi.clearToTheEndOfLine() + "\n"))));
+                    Iterables.cycle(ansi.clearToTheEndOfLine() + System.lineSeparator()))));
 
     // Number of lines remaining to clear because of old output once we displayed
     // the new output.
@@ -374,7 +373,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     }
     // We clear the remaining lines of the old output.
     for (int i = 0; i < remainingLinesToClear; i++) {
-      fullFrame.append(ansi.clearLine() + "\n");
+      fullFrame.append(ansi.clearLine());
+      fullFrame.append(System.lineSeparator());
     }
     // We move the cursor at the end of the new output.
     for (int i = 0; i < remainingLinesToClear; i++) {
@@ -658,7 +658,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     }
 
     String localStatus = String.format("local status: %s", stampedeLocalBuildStatus.getStatus());
-    String remoteStatusAndSummary = Joiner.on(", ").join(columns);
+    String remoteStatusAndSummary = String.join(", ", columns);
     if (remoteStatusAndSummary.length() == 0) {
       return Optional.of(localStatus);
     }
@@ -880,7 +880,7 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
     String testOutput;
     synchronized (testReportBuilder) {
       testReportBuilder.addAll(builder.build());
-      testOutput = Joiner.on('\n').join(testReportBuilder.build());
+      testOutput = String.join(System.lineSeparator(), testReportBuilder.build());
     }
     // We're about to write to stdout, so make sure we render the final frame before we do.
     render();
@@ -998,7 +998,8 @@ public class SuperConsoleEventBusListener extends AbstractConsoleEventBusListene
   @Subscribe
   public void watchmanOverflow(WatchmanStatusEvent.Overflow event) {
     printInfoDirectlyOnce(
-        "Action graph will be rebuilt because there was an issue with watchman:\n"
+        "Action graph will be rebuilt because there was an issue with watchman:"
+            + System.lineSeparator()
             + event.getReason());
     parsingStatus = Optional.of("watchmanOverflow: " + event.getReason());
   }

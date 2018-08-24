@@ -20,22 +20,22 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestInputBasedRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
@@ -65,7 +65,7 @@ public class AndroidResourceTest {
           projectFilesystem.createNewFile(
               Paths.get("java/src/com/facebook/base/assets/drawable/B.xml"));
 
-          TargetNode<?, ?> resourceNode =
+          TargetNode<?> resourceNode =
               AndroidResourceBuilder.createBuilder(buildTarget, projectFilesystem)
                   .setRes(FakeSourcePath.of(projectFilesystem, "java/src/com/facebook/base/res"))
                   .setRDotJavaPackage("com.facebook")
@@ -137,7 +137,7 @@ public class AndroidResourceTest {
             /* manifestFile */ null,
             /* hasWhitelistedStrings */ false);
     projectFilesystem.writeContentsToPath(
-        "com.example.android\n",
+        "com.example.android" + System.lineSeparator(),
         resolver.getRelativePath(androidResource.getPathToRDotJavaPackageFile()));
     androidResource.initializeFromDisk(resolver);
     assertEquals("com.example.android", androidResource.getRDotJavaPackage());
@@ -168,7 +168,8 @@ public class AndroidResourceTest {
             /* manifestFile */ FakeSourcePath.of(projectFilesystem, "foo/AndroidManifest.xml"),
             /* hasWhitelistedStrings */ false);
     projectFilesystem.writeContentsToPath(
-        "com.ex.pkg\n", resolver.getRelativePath(androidResource.getPathToRDotJavaPackageFile()));
+        "com.ex.pkg" + System.lineSeparator(),
+        resolver.getRelativePath(androidResource.getPathToRDotJavaPackageFile()));
     androidResource.initializeFromDisk(resolver);
     assertEquals("com.ex.pkg", androidResource.getRDotJavaPackage());
   }
@@ -177,12 +178,12 @@ public class AndroidResourceTest {
   public void testInputRuleKeyChangesIfDependencySymbolsChanges() throws Exception {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
 
-    TargetNode<?, ?> depNode =
+    TargetNode<?> depNode =
         AndroidResourceBuilder.createBuilder(BuildTargetFactory.newInstance("//:dep"), filesystem)
             .setManifest(FakeSourcePath.of("manifest"))
             .setRes(Paths.get("res"))
             .build();
-    TargetNode<?, ?> resourceNode =
+    TargetNode<?> resourceNode =
         AndroidResourceBuilder.createBuilder(BuildTargetFactory.newInstance("//:rule"), filesystem)
             .setDeps(ImmutableSortedSet.of(depNode.getBuildTarget()))
             .build();

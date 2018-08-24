@@ -16,15 +16,16 @@
 
 package com.facebook.buck.features.python;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.cxx.CxxGenruleDescription;
 import com.facebook.buck.cxx.Omnibus;
 import com.facebook.buck.cxx.OmnibusLibraries;
@@ -39,12 +40,11 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
-import com.facebook.buck.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
 import com.facebook.buck.rules.macros.AbstractMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
@@ -105,9 +105,9 @@ public class PythonUtil {
       CxxPlatform cxxPlatform,
       String parameter,
       Path baseModule,
-      SourceList items,
-      PatternMatchedCollection<SourceList> platformItems,
-      Optional<VersionMatchedCollection<SourceList>> versionItems,
+      SourceSortedSet items,
+      PatternMatchedCollection<SourceSortedSet> platformItems,
+      Optional<VersionMatchedCollection<SourceSortedSet>> versionItems,
       Optional<ImmutableMap<BuildTarget, Version>> versions) {
     return CxxGenruleDescription.fixupSourcePaths(
         graphBuilder,
@@ -143,11 +143,11 @@ public class PythonUtil {
       SourcePathResolver resolver,
       String parameter,
       Path baseModule,
-      Iterable<SourceList> inputs) {
+      Iterable<SourceSortedSet> inputs) {
 
     ImmutableMap.Builder<Path, SourcePath> moduleNamesAndSourcePaths = ImmutableMap.builder();
 
-    for (SourceList input : inputs) {
+    for (SourceSortedSet input : inputs) {
       ImmutableMap<String, SourcePath> namesAndSourcePaths;
       if (input.getUnnamedSources().isPresent()) {
         namesAndSourcePaths =

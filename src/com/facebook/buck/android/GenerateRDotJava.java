@@ -20,6 +20,7 @@ import com.facebook.buck.android.aapt.RDotTxtEntry;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -29,10 +30,10 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
@@ -43,7 +44,7 @@ import javax.annotation.Nullable;
 
 public class GenerateRDotJava extends AbstractBuildRule {
   @AddToRuleKey private final EnumSet<RDotTxtEntry.RType> bannedDuplicateResourceTypes;
-  @AddToRuleKey private final SourcePath pathToRDotTxtFile;
+  @AddToRuleKey private final ImmutableCollection<SourcePath> pathToRDotTxtFiles;
   @AddToRuleKey private final Optional<SourcePath> pathToOverrideSymbolsFile;
   @AddToRuleKey private final Optional<SourcePath> duplicateResourceWhitelistPath;
   @AddToRuleKey private final Optional<String> resourceUnionPackage;
@@ -60,7 +61,7 @@ public class GenerateRDotJava extends AbstractBuildRule {
       SourcePathRuleFinder ruleFinder,
       EnumSet<RDotTxtEntry.RType> bannedDuplicateResourceTypes,
       Optional<SourcePath> duplicateResourceWhitelistPath,
-      SourcePath pathToRDotTxtFile,
+      ImmutableCollection<SourcePath> pathToRDotTxtFiles,
       Optional<String> resourceUnionPackage,
       ImmutableSortedSet<BuildRule> resourceDeps,
       FilteredResourcesProvider resourcesProvider) {
@@ -68,7 +69,7 @@ public class GenerateRDotJava extends AbstractBuildRule {
     this.ruleFinder = ruleFinder;
     this.bannedDuplicateResourceTypes = bannedDuplicateResourceTypes;
     this.duplicateResourceWhitelistPath = duplicateResourceWhitelistPath;
-    this.pathToRDotTxtFile = pathToRDotTxtFile;
+    this.pathToRDotTxtFiles = pathToRDotTxtFiles;
     this.resourceUnionPackage = resourceUnionPackage;
     this.allResourceDeps = resourceDeps;
     this.resourceDeps =
@@ -86,8 +87,11 @@ public class GenerateRDotJava extends AbstractBuildRule {
     builder
         .addAll(
             ruleFinder.filterBuildRuleInputs(
-                pathToRDotTxtFile, resourcesProvider.getOverrideSymbolsPath().orElse(null)))
+                resourcesProvider.getOverrideSymbolsPath().orElse(null)))
         .addAll(allResourceDeps);
+    pathToRDotTxtFiles
+        .stream()
+        .forEach(pathToRDotTxt -> builder.addAll(ruleFinder.filterBuildRuleInputs(pathToRDotTxt)));
     resourcesProvider.getResourceFilterRule().ifPresent(builder::add);
     duplicateResourceWhitelistPath.ifPresent(
         p -> builder.addAll(ruleFinder.filterBuildRuleInputs(p)));
@@ -109,13 +113,15 @@ public class GenerateRDotJava extends AbstractBuildRule {
             BuildCellRelativePath.fromCellRelativePath(
                 buildContext.getBuildCellRootPath(), getProjectFilesystem(), rDotJavaSrc)));
 
-    Path rDotTxtPath = pathResolver.getAbsolutePath(pathToRDotTxtFile);
     MergeAndroidResourcesStep mergeStep =
         MergeAndroidResourcesStep.createStepForUberRDotJava(
             getProjectFilesystem(),
             buildContext.getSourcePathResolver(),
             resourceDeps,
-            rDotTxtPath,
+            pathToRDotTxtFiles
+                .stream()
+                .map(p -> pathResolver.getAbsolutePath(p))
+                .collect(ImmutableList.toImmutableList()),
             rDotJavaSrc,
             bannedDuplicateResourceTypes,
             duplicateResourceWhitelistPath.map(pathResolver::getAbsolutePath),
@@ -136,7 +142,7 @@ public class GenerateRDotJava extends AbstractBuildRule {
   @VisibleForTesting
   static Path getPathToGeneratedRDotJavaSrcFiles(
       BuildTarget buildTarget, ProjectFilesystem filesystem) {
-    return BuildTargets.getScratchPath(filesystem, buildTarget, "__%s_rdotjava_src__");
+    return BuildTargetPaths.getScratchPath(filesystem, buildTarget, "__%s_rdotjava_src__");
   }
 
   public SourcePath getSourcePathToGeneratedRDotJavaSrcFiles() {

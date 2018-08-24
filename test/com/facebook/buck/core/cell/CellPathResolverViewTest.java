@@ -17,11 +17,11 @@
 package com.facebook.buck.core.cell;
 
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Optional;
 import org.junit.Assert;
@@ -87,10 +87,11 @@ public class CellPathResolverViewTest {
         new CellPathResolverView(
             getTestDelegate(), ImmutableSet.of("b"), filesystem.getPath("foo/c"));
 
-    ImmutableSet<Path> knownRoots = view.getKnownRoots();
+    ImmutableSortedSet<Path> knownRoots = view.getKnownRoots();
 
     Assert.assertEquals(
-        knownRoots, ImmutableSet.of(filesystem.getPath("foo/b"), filesystem.getPath("foo/c")));
+        knownRoots,
+        ImmutableSortedSet.of(filesystem.getPath("foo/b"), filesystem.getPath("foo/c")));
   }
 
   private CellPathResolver getTestDelegate() {

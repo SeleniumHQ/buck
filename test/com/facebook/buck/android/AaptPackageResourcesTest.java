@@ -19,6 +19,7 @@ package com.facebook.buck.android;
 import static org.junit.Assert.assertNotEquals;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
@@ -27,12 +28,11 @@ import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.testutil.FakeFileHashCache;
@@ -77,7 +77,7 @@ public class AaptPackageResourcesTest {
   public void setUp() throws NoSuchBuildTargetException {
     filesystem = new FakeProjectFilesystem();
 
-    TargetNode<?, ?> resourceNode =
+    TargetNode<?> resourceNode =
         AndroidResourceBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:resource1"), filesystem)
             .setRDotJavaPackage("package1")
@@ -85,7 +85,7 @@ public class AaptPackageResourcesTest {
             .setAssets(FakeSourcePath.of(filesystem, "asset1"))
             .build();
 
-    TargetNode<?, ?> resourceNode2 =
+    TargetNode<?> resourceNode2 =
         AndroidResourceBuilder.createBuilder(
                 BuildTargetFactory.newInstance("//:resource2"), filesystem)
             .setRDotJavaPackage("package2")

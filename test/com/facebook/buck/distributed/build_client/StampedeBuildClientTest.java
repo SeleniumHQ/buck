@@ -37,6 +37,7 @@ import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.command.Build;
 import com.facebook.buck.command.LocalBuildExecutorInvoker;
@@ -46,10 +47,13 @@ import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.distributed.ClientStatsTracker;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistLocalBuildMode;
-import com.facebook.buck.distributed.ExitCode;
+import com.facebook.buck.distributed.DistributedExitCode;
 import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.event.BuckEventBusForTests;
+import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.timing.DefaultClock;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -62,6 +66,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.easymock.EasyMock;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -71,14 +76,6 @@ public class StampedeBuildClientTest {
 
   private static final StampedeId INITIALIZED_STAMPEDE_ID = createStampedeId("id_one");
 
-  private static final int REMOTE_FAILURE_CODE =
-      ExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE.getCode();
-  private static final int LOCAL_BUILD_FINISHED_FIRST_EXIT_CODE =
-      ExitCode.LOCAL_BUILD_FINISHED_FIRST.getCode();
-  private static final int DISTRIBUTED_PENDING_EXIT_CODE =
-      ExitCode.DISTRIBUTED_PENDING_EXIT_CODE.getCode();
-  private static final int NON_SUCCESS_EXIT_CODE = 50;
-  private static final int NON_SUCCESS_EXIT_CODE_TWO = 51;
   private static final int SUCCESS_CODE = 0;
   private static final boolean NO_FALLBACK = false;
   private static final boolean FALLBACK_ENABLED = true;
@@ -110,8 +107,10 @@ public class StampedeBuildClientTest {
 
   @Before
   public void setUp() {
-    mockEventBus = EasyMock.createMock(BuckEventBus.class);
-    remoteBuildRuleSynchronizer = new RemoteBuildRuleSynchronizer();
+    mockEventBus = BuckEventBusForTests.newInstance();
+    remoteBuildRuleSynchronizer =
+        new RemoteBuildRuleSynchronizer(
+            new DefaultClock(), Executors.newSingleThreadScheduledExecutor(), 1000, 10000);
     executorForLocalBuild = Executors.newSingleThreadExecutor();
     executorForDistBuildController = Executors.newSingleThreadExecutor();
     mockDistBuildService = EasyMock.createMock(DistBuildService.class);
@@ -125,7 +124,12 @@ public class StampedeBuildClientTest {
     guardedLocalBuildExecutorInvoker =
         new LocalBuildExecutorInvoker() {
           @Override
-          public int executeLocalBuild(
+          public void initLocalBuild(
+              boolean isDownloadHeavyBuild,
+              RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter) {}
+
+          @Override
+          public ExitCode executeLocalBuild(
               boolean isDownloadHeavyBuild,
               RemoteBuildRuleCompletionWaiter remoteBuildRuleCompletionWaiter,
               CountDownLatch initializeBuildLatch,
@@ -144,11 +148,11 @@ public class StampedeBuildClientTest {
 
             // Now wait for test to signal that the mock should be invoked and return an exit code.
             if (wasFirstBuild) {
-              Assert.assertTrue(
+              assertTrue(
                   localBuildExecutorInvokerPhaseOneLatch.await(
                       TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
             } else {
-              Assert.assertTrue(
+              assertTrue(
                   localBuildExecutorInvokerPhaseTwoLatch.await(
                       TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
             }
@@ -164,16 +168,21 @@ public class StampedeBuildClientTest {
     distBuildControllerInvokerLatch = new CountDownLatch(1);
     guardedDistBuildControllerInvoker =
         () -> {
-          Assert.assertTrue(
+          assertTrue(
               distBuildControllerInvokerLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
           return mockDistBuildControllerInvoker.runDistBuildAndReturnExitCode();
         };
     waitForRacingBuildCalledLatch = new CountDownLatch(1);
     waitForSynchronizedBuildCalledLatch = new CountDownLatch(1);
     waitGracefullyForDistributedBuildThreadToFinish = false;
-    distributedBuildThreadKillTimeoutSeconds = 0;
+    distributedBuildThreadKillTimeoutSeconds = 1;
     createStampedBuildClient();
     buildClientExecutor = Executors.newSingleThreadExecutor();
+  }
+
+  @After
+  public void tearDown() {
+    remoteBuildRuleSynchronizer.close();
   }
 
   private void createStampedBuildClient(StampedeId stampedeId) {
@@ -208,27 +217,31 @@ public class StampedeBuildClientTest {
     // Distributed build fails, and then falls back to synchronized local build which completes
 
     // Ensure local racing build is invoked and finishes with failure code (as it was terminated)
-    expectMockLocalBuildExecutorReturnsWithCode(SUCCESS_CODE);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.SUCCESS);
 
     // Simulate failure at a remote minion
     expect(mockDistBuildControllerInvoker.runDistBuildAndReturnExitCode())
-        .andReturn(REMOTE_FAILURE_CODE);
+        .andReturn(
+            StampedeExecutionResult.of(DistributedExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE));
 
     replayAllMocks();
 
     // Run the build client in another thread
-    Future<Integer> buildClientFuture =
+    Future<Optional<ExitCode>> buildClientFuture =
         buildClientExecutor.submit(
             () -> buildClient.build(DistLocalBuildMode.WAIT_FOR_REMOTE, FALLBACK_ENABLED));
 
     // Simulate most build rules finished event being received.
     distBuildControllerInvokerLatch.countDown(); // distributed build fails
     // ensure waitUntilFinished(..) called on build
-    Assert.assertTrue(
+    assertTrue(
         waitForSynchronizedBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
     localBuildExecutorInvokerPhaseOneLatch.countDown(); // allow synchronized build to complete
 
-    assertLocalAndDistributedExitCodes(buildClientFuture, SUCCESS_CODE, REMOTE_FAILURE_CODE);
+    assertLocalAndDistributedExitCodes(
+        buildClientFuture,
+        ExitCode.SUCCESS,
+        DistributedExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE);
     verifyAllMocks();
   }
 
@@ -240,25 +253,27 @@ public class StampedeBuildClientTest {
     // Distributed build completes, and then synchronized local build completes
 
     // Ensure local racing build is invoked and finishes with failure code (as it was terminated)
-    expectMockLocalBuildExecutorReturnsWithCode(SUCCESS_CODE);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.SUCCESS);
 
-    expect(mockDistBuildControllerInvoker.runDistBuildAndReturnExitCode()).andReturn(SUCCESS_CODE);
+    expect(mockDistBuildControllerInvoker.runDistBuildAndReturnExitCode())
+        .andReturn(StampedeExecutionResult.of(DistributedExitCode.SUCCESSFUL));
 
     replayAllMocks();
 
     // Run the build client in another thread
-    Future<Integer> buildClientFuture =
+    Future<Optional<ExitCode>> buildClientFuture =
         buildClientExecutor.submit(
             () -> buildClient.build(DistLocalBuildMode.WAIT_FOR_REMOTE, FALLBACK_ENABLED));
 
     // Simulate most build rules finished event being received.
     distBuildControllerInvokerLatch.countDown(); // distributed build succeeds
     // ensure waitUntilFinished(..) called on build
-    Assert.assertTrue(
+    assertTrue(
         waitForSynchronizedBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
     localBuildExecutorInvokerPhaseOneLatch.countDown(); // allow synchronized build to complete
 
-    assertLocalAndDistributedExitCodes(buildClientFuture, SUCCESS_CODE, SUCCESS_CODE);
+    assertLocalAndDistributedExitCodes(
+        buildClientFuture, ExitCode.SUCCESS, DistributedExitCode.SUCCESSFUL);
     verifyAllMocks();
   }
 
@@ -276,35 +291,38 @@ public class StampedeBuildClientTest {
     ensureTerminationOfBuild(buildOneMock, localBuildExecutorInvokerPhaseOneLatch);
 
     // Ensure local racing build is invoked and finishes with failure code (as it was terminated)
-    expectMockLocalBuildExecutorReturnsWithCode(NON_SUCCESS_EXIT_CODE);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.FATAL_GENERIC);
 
     // Simulate failure at a remote minion
     expect(mockDistBuildControllerInvoker.runDistBuildAndReturnExitCode())
-        .andReturn(REMOTE_FAILURE_CODE);
+        .andReturn(
+            StampedeExecutionResult.of(DistributedExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE));
 
     // Ensure local synchronized build is invoked and finishes with failure code (as it was
     // terminated)
-    expectMockLocalBuildExecutorReturnsWithCode(SUCCESS_CODE);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.SUCCESS);
 
     replayAllMocks();
 
     // Run the build client in another thread
-    Future<Integer> buildClientFuture =
+    Future<Optional<ExitCode>> buildClientFuture =
         buildClientExecutor.submit(
             () -> buildClient.build(DistLocalBuildMode.NO_WAIT_FOR_REMOTE, FALLBACK_ENABLED));
 
     // Simulate most build rules finished event being received.
     remoteBuildRuleSynchronizer.signalMostBuildRulesFinished(true);
     // waitUntilFinished(..) called on racing build
-    Assert.assertTrue(
-        waitForRacingBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
+    assertTrue(waitForRacingBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
     distBuildControllerInvokerLatch.countDown(); // distributed build fails
     // waitUntilFinished(..) called on sync build
-    Assert.assertTrue(
+    assertTrue(
         waitForSynchronizedBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
     localBuildExecutorInvokerPhaseTwoLatch.countDown(); // allow synchronized build to complete
 
-    assertLocalAndDistributedExitCodes(buildClientFuture, SUCCESS_CODE, REMOTE_FAILURE_CODE);
+    assertLocalAndDistributedExitCodes(
+        buildClientFuture,
+        ExitCode.SUCCESS,
+        DistributedExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE);
     verifyAllMocks();
   }
 
@@ -322,38 +340,40 @@ public class StampedeBuildClientTest {
     ensureTerminationOfBuild(buildOneMock, localBuildExecutorInvokerPhaseOneLatch);
 
     // Ensure local racing build is invoked and finishes with failure code (as it was terminated)
-    expectMockLocalBuildExecutorReturnsWithCode(NON_SUCCESS_EXIT_CODE);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.FATAL_GENERIC);
 
     // Simulate failure at a remote minion
     expect(mockDistBuildControllerInvoker.runDistBuildAndReturnExitCode())
-        .andReturn(REMOTE_FAILURE_CODE);
+        .andReturn(
+            StampedeExecutionResult.of(DistributedExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE));
 
     // Synchronized build should be cancelled when distributed build fails
     ensureTerminationOfBuild(buildTwoMock, localBuildExecutorInvokerPhaseTwoLatch);
 
     // Ensure local synchronized build is invoked and finishes with failure code (as it was
     // terminated)
-    expectMockLocalBuildExecutorReturnsWithCode(NON_SUCCESS_EXIT_CODE_TWO);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.FATAL_GENERIC);
 
     replayAllMocks();
 
     // Run the build client in another thread
-    Future<Integer> buildClientFuture =
+    Future<Optional<ExitCode>> buildClientFuture =
         buildClientExecutor.submit(
             () -> buildClient.build(DistLocalBuildMode.NO_WAIT_FOR_REMOTE, NO_FALLBACK));
 
     // Simulate most build rules finished event being received.
     remoteBuildRuleSynchronizer.signalMostBuildRulesFinished(true);
     // waitUntilFinished(..) called on racing build
-    Assert.assertTrue(
-        waitForRacingBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
+    assertTrue(waitForRacingBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
     distBuildControllerInvokerLatch.countDown(); // distributed build fails
     // waitUntilFinished(..) called on sync build
-    Assert.assertTrue(
+    assertTrue(
         waitForSynchronizedBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
 
     assertLocalAndDistributedExitCodes(
-        buildClientFuture, NON_SUCCESS_EXIT_CODE_TWO, REMOTE_FAILURE_CODE);
+        buildClientFuture,
+        ExitCode.FATAL_GENERIC,
+        DistributedExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE);
     verifyAllMocks();
   }
 
@@ -373,7 +393,7 @@ public class StampedeBuildClientTest {
 
     // Ensure local racing build is invoked and finishes with failure code (as it was terminated)
     // Note: we always wait for racing build thread to shut down cleanly.
-    expectMockLocalBuildExecutorReturnsWithCode(NON_SUCCESS_EXIT_CODE);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.FATAL_GENERIC);
 
     // Distributed build job should be set to finished when synchronized build completes
     mockDistBuildService.setFinalBuildStatus(
@@ -381,24 +401,23 @@ public class StampedeBuildClientTest {
     EasyMock.expectLastCall();
 
     // Synchronized build returns with success code
-    expectMockLocalBuildExecutorReturnsWithCode(SUCCESS_CODE);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.SUCCESS);
 
     replayAllMocks();
 
     // Run the build client in another thread
-    Future<Integer> buildClientFuture =
+    Future<Optional<ExitCode>> buildClientFuture =
         buildClientExecutor.submit(
             () -> buildClient.build(DistLocalBuildMode.NO_WAIT_FOR_REMOTE, NO_FALLBACK));
 
     // Simulate most build rules finished event being received.
     remoteBuildRuleSynchronizer.signalMostBuildRulesFinished(true);
     // waitUntilFinished(..) called on racing build
-    Assert.assertTrue(
-        waitForRacingBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
+    assertTrue(waitForRacingBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
     localBuildExecutorInvokerPhaseTwoLatch.countDown(); // Local synchronized build completes
 
     assertLocalAndDistributedExitCodes(
-        buildClientFuture, SUCCESS_CODE, LOCAL_BUILD_FINISHED_FIRST_EXIT_CODE);
+        buildClientFuture, ExitCode.SUCCESS, DistributedExitCode.LOCAL_BUILD_FINISHED_FIRST);
     verifyAllMocks();
   }
 
@@ -415,18 +434,19 @@ public class StampedeBuildClientTest {
     ensureTerminationOfBuild(buildOneMock, localBuildExecutorInvokerPhaseOneLatch);
 
     // Ensure local racing build is invoked and finishes with failure code (as it was terminated)
-    expectMockLocalBuildExecutorReturnsWithCode(NON_SUCCESS_EXIT_CODE);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.FATAL_GENERIC);
 
     // Distributed build finishes successfully
-    expect(mockDistBuildControllerInvoker.runDistBuildAndReturnExitCode()).andReturn(SUCCESS_CODE);
+    expect(mockDistBuildControllerInvoker.runDistBuildAndReturnExitCode())
+        .andReturn(StampedeExecutionResult.of(DistributedExitCode.SUCCESSFUL));
 
     // Synchronized build returns with success code
-    expectMockLocalBuildExecutorReturnsWithCode(SUCCESS_CODE);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.SUCCESS);
 
     replayAllMocks();
 
     // Run the build client in another thread
-    Future<Integer> buildClientFuture =
+    Future<Optional<ExitCode>> buildClientFuture =
         buildClientExecutor.submit(
             () -> buildClient.build(DistLocalBuildMode.NO_WAIT_FOR_REMOTE, NO_FALLBACK));
 
@@ -434,15 +454,15 @@ public class StampedeBuildClientTest {
     remoteBuildRuleSynchronizer.signalMostBuildRulesFinished(true);
 
     // waitUntilFinished(..) called on racing build
-    Assert.assertTrue(
-        waitForRacingBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
+    assertTrue(waitForRacingBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
     distBuildControllerInvokerLatch.countDown(); // Distributed build completes
     // waitUntilFinished(..) called on sync build
-    Assert.assertTrue(
+    assertTrue(
         waitForSynchronizedBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
     localBuildExecutorInvokerPhaseTwoLatch.countDown(); // Local synchronized build completes
 
-    assertLocalAndDistributedExitCodes(buildClientFuture, SUCCESS_CODE, SUCCESS_CODE);
+    assertLocalAndDistributedExitCodes(
+        buildClientFuture, ExitCode.SUCCESS, DistributedExitCode.SUCCESSFUL);
     verifyAllMocks();
   }
 
@@ -456,7 +476,7 @@ public class StampedeBuildClientTest {
 
     // Ensure local racing build is invoked and finishes with success code
     localBuildExecutorInvokerPhaseOneLatch.countDown();
-    expectMockLocalBuildExecutorReturnsWithCode(SUCCESS_CODE);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.SUCCESS);
 
     mockDistBuildService.setFinalBuildStatus(
         INITIALIZED_STAMPEDE_ID, BuildStatus.FINISHED_SUCCESSFULLY, SUCCESS_STATUS_MSG);
@@ -465,12 +485,12 @@ public class StampedeBuildClientTest {
     replayAllMocks();
 
     // Run the build client in another thread
-    Future<Integer> buildClientFuture =
+    Future<Optional<ExitCode>> buildClientFuture =
         buildClientExecutor.submit(
             () -> buildClient.build(DistLocalBuildMode.WAIT_FOR_REMOTE, NO_FALLBACK));
 
     assertLocalAndDistributedExitCodes(
-        buildClientFuture, SUCCESS_CODE, LOCAL_BUILD_FINISHED_FIRST_EXIT_CODE);
+        buildClientFuture, ExitCode.SUCCESS, DistributedExitCode.LOCAL_BUILD_FINISHED_FIRST);
     verifyAllMocks();
   }
 
@@ -482,17 +502,19 @@ public class StampedeBuildClientTest {
     createStampedBuildClient(INITIALIZED_STAMPEDE_ID);
 
     distBuildControllerInvokerLatch.countDown();
-    expect(mockDistBuildControllerInvoker.runDistBuildAndReturnExitCode()).andReturn(SUCCESS_CODE);
+    expect(mockDistBuildControllerInvoker.runDistBuildAndReturnExitCode())
+        .andReturn(StampedeExecutionResult.of(DistributedExitCode.SUCCESSFUL));
 
     EasyMock.expectLastCall();
     replayAllMocks();
 
     // Run the build client in another thread
-    Future<Integer> buildClientFuture =
+    Future<Optional<ExitCode>> buildClientFuture =
         buildClientExecutor.submit(
             () -> buildClient.build(DistLocalBuildMode.FIRE_AND_FORGET, FALLBACK_ENABLED));
 
-    assertLocalAndDistributedExitCodes(buildClientFuture, SUCCESS_CODE, SUCCESS_CODE);
+    assertLocalAndDistributedExitCodes(
+        buildClientFuture, ExitCode.SUCCESS, DistributedExitCode.SUCCESSFUL);
     verifyAllMocks();
   }
 
@@ -506,23 +528,26 @@ public class StampedeBuildClientTest {
     // Simulate failure at a remote minion
     distBuildControllerInvokerLatch.countDown();
     expect(mockDistBuildControllerInvoker.runDistBuildAndReturnExitCode())
-        .andReturn(REMOTE_FAILURE_CODE);
+        .andReturn(
+            StampedeExecutionResult.of(DistributedExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE));
 
     // Ensure Build object for racing build is terminated and then unlock local build executor
     ensureTerminationOfBuild(buildOneMock, localBuildExecutorInvokerPhaseOneLatch);
 
     // Ensure local racing build is invoked and finishes with failure code (as it was terminated)
-    expectMockLocalBuildExecutorReturnsWithCode(NON_SUCCESS_EXIT_CODE);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.FATAL_GENERIC);
 
     replayAllMocks();
 
     // Run the build client in another thread
-    Future<Integer> buildClientFuture =
+    Future<Optional<ExitCode>> buildClientFuture =
         buildClientExecutor.submit(
             () -> buildClient.build(DistLocalBuildMode.WAIT_FOR_REMOTE, NO_FALLBACK));
 
     assertLocalAndDistributedExitCodes(
-        buildClientFuture, NON_SUCCESS_EXIT_CODE, REMOTE_FAILURE_CODE);
+        buildClientFuture,
+        ExitCode.FATAL_GENERIC,
+        DistributedExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE);
     verifyAllMocks();
   }
 
@@ -536,25 +561,28 @@ public class StampedeBuildClientTest {
     // Simulate failure at a remote minion
     distBuildControllerInvokerLatch.countDown();
     expect(mockDistBuildControllerInvoker.runDistBuildAndReturnExitCode())
-        .andReturn(REMOTE_FAILURE_CODE);
+        .andReturn(
+            StampedeExecutionResult.of(DistributedExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE));
 
     // Ensure local racing build is invoked and finishes with failure code (as it was terminated)
-    expectMockLocalBuildExecutorReturnsWithCode(SUCCESS_CODE);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.SUCCESS);
 
     replayAllMocks();
 
     // Run the build client in another thread
-    Future<Integer> buildClientFuture =
+    Future<Optional<ExitCode>> buildClientFuture =
         buildClientExecutor.submit(
             () -> buildClient.build(DistLocalBuildMode.NO_WAIT_FOR_REMOTE, FALLBACK_ENABLED));
 
     // Only let local build runner finish once we are sure distributed build thread is dead,
     // and waitUntilFinished(..) called on local racing build runner
-    Assert.assertTrue(
-        waitForRacingBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
+    assertTrue(waitForRacingBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
     localBuildExecutorInvokerPhaseOneLatch.countDown();
 
-    assertLocalAndDistributedExitCodes(buildClientFuture, SUCCESS_CODE, REMOTE_FAILURE_CODE);
+    assertLocalAndDistributedExitCodes(
+        buildClientFuture,
+        ExitCode.SUCCESS,
+        DistributedExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE);
     verifyAllMocks();
   }
 
@@ -571,23 +599,24 @@ public class StampedeBuildClientTest {
     ensureTerminationOfBuild(buildOneMock, localBuildExecutorInvokerPhaseOneLatch);
 
     // Ensure local racing build is invoked and finishes with failure code (as it was terminated)
-    expectMockLocalBuildExecutorReturnsWithCode(NON_SUCCESS_EXIT_CODE);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.FATAL_GENERIC);
 
     replayAllMocks();
 
     // Run the build client in another thread
-    Future<Integer> buildClientFuture =
+    Future<Optional<ExitCode>> buildClientFuture =
         buildClientExecutor.submit(
             () -> buildClient.build(DistLocalBuildMode.NO_WAIT_FOR_REMOTE, NO_FALLBACK));
 
     // Simulate most build rules finished being failed.
     remoteBuildRuleSynchronizer.signalCompletionOfRemoteBuild(false);
     // waitUntilFinished(..) called on racing build
-    Assert.assertTrue(
-        waitForRacingBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
+    assertTrue(waitForRacingBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
 
     assertLocalAndDistributedExitCodes(
-        buildClientFuture, NON_SUCCESS_EXIT_CODE, DISTRIBUTED_PENDING_EXIT_CODE);
+        buildClientFuture,
+        ExitCode.FATAL_GENERIC,
+        DistributedExitCode.DISTRIBUTED_PENDING_EXIT_CODE);
     verifyAllMocks();
   }
 
@@ -601,24 +630,23 @@ public class StampedeBuildClientTest {
     // Local fallback *is* enabled, so racing build keeps going until completion.
 
     // Ensure local racing build is invoked and finishes with failure code (as it was terminated)
-    expectMockLocalBuildExecutorReturnsWithCode(SUCCESS_CODE);
+    expectMockLocalBuildExecutorReturnsWithCode(ExitCode.SUCCESS);
 
     replayAllMocks();
 
     // Run the build client in another thread
-    Future<Integer> buildClientFuture =
+    Future<Optional<ExitCode>> buildClientFuture =
         buildClientExecutor.submit(
             () -> buildClient.build(DistLocalBuildMode.NO_WAIT_FOR_REMOTE, FALLBACK_ENABLED));
 
     // Simulate most build rules finished being failed.
     remoteBuildRuleSynchronizer.signalCompletionOfRemoteBuild(false);
     // waitUntilFinished(..) called on racing build
-    Assert.assertTrue(
-        waitForRacingBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
+    assertTrue(waitForRacingBuildCalledLatch.await(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS));
     localBuildExecutorInvokerPhaseOneLatch.countDown();
 
     assertLocalAndDistributedExitCodes(
-        buildClientFuture, SUCCESS_CODE, DISTRIBUTED_PENDING_EXIT_CODE);
+        buildClientFuture, ExitCode.SUCCESS, DistributedExitCode.DISTRIBUTED_PENDING_EXIT_CODE);
     verifyAllMocks();
   }
 
@@ -628,7 +656,7 @@ public class StampedeBuildClientTest {
     return stampedeId;
   }
 
-  private void expectMockLocalBuildExecutorReturnsWithCode(int code)
+  private void expectMockLocalBuildExecutorReturnsWithCode(ExitCode code)
       throws IOException, InterruptedException {
     expect(
             mockLocalBuildExecutorInvoker.executeLocalBuild(
@@ -651,15 +679,19 @@ public class StampedeBuildClientTest {
   }
 
   private void assertLocalAndDistributedExitCodes(
-      Future<Integer> result, int expectedLocalExitCode, int expectedDistExitCode)
+      Future<Optional<ExitCode>> result,
+      ExitCode expectedLocalExitCode,
+      DistributedExitCode expectedDistExitCode)
       throws ExecutionException, InterruptedException {
-    int localBuildExitCode = 0;
+    Optional<ExitCode> localBuildExitCode = Optional.empty();
     try {
       localBuildExitCode = result.get(TEST_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
     } catch (TimeoutException e) {
       Assert.fail("Test timed out.");
     }
-    assertEquals(expectedLocalExitCode, localBuildExitCode);
+
+    assertTrue(localBuildExitCode.isPresent());
+    assertEquals(expectedLocalExitCode, localBuildExitCode.get());
     assertEquals(expectedDistExitCode, buildClient.getDistBuildExitCode());
   }
 

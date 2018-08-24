@@ -17,8 +17,13 @@
 package com.facebook.buck.log;
 
 import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.util.log.Logger;
+import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.io.windowsfs.WindowsFS;
 import com.facebook.buck.util.DirectoryCleaner;
 import com.facebook.buck.util.Verbosity;
+import com.facebook.buck.util.concurrent.CommonThreadFactoryState;
+import com.facebook.buck.util.concurrent.ThreadIdToCommandIdMapper;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -159,7 +164,8 @@ public class GlobalStateManager {
       Path symlinkPath = info.getBuckLogDir().resolve(symlinkName);
       Files.deleteIfExists(symlinkPath);
       if (Platform.detect() != Platform.WINDOWS) {
-        Files.createSymbolicLink(symlinkPath, info.getLogDirectoryPath().toAbsolutePath());
+        MorePaths.createSymLink(
+            new WindowsFS(), symlinkPath, info.getLogDirectoryPath().toAbsolutePath());
       }
     } catch (IOException e) {
       LOG.info(e, "Failed to create a user friendly symlink to logs dir for the last command.");

@@ -16,14 +16,14 @@
 
 package com.facebook.buck.parser;
 
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildFileTree;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.InMemoryBuildFileTree;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.model.BuildFileTree;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.InMemoryBuildFileTree;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;

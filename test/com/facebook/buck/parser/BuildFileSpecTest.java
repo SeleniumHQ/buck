@@ -17,17 +17,19 @@
 package com.facebook.buck.parser;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.io.FakeWatchmanClient;
-import com.facebook.buck.io.ProjectWatch;
-import com.facebook.buck.io.Watchman;
-import com.facebook.buck.io.WatchmanClient;
-import com.facebook.buck.io.WatchmanFactory;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.watchman.Capability;
+import com.facebook.buck.io.watchman.FakeWatchmanClient;
+import com.facebook.buck.io.watchman.ProjectWatch;
+import com.facebook.buck.io.watchman.Watchman;
+import com.facebook.buck.io.watchman.WatchmanClient;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.ConfigBuilder;
@@ -67,7 +69,10 @@ public class BuildFileSpecTest {
     ImmutableSet<Path> expectedBuildFiles = ImmutableSet.of(filesystem.resolve(buildFile));
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     ImmutableSet<Path> actualBuildFiles =
-        nonRecursiveSpec.findBuildFiles(cell, ParserConfig.BuildFileSearchMethod.FILESYSTEM_CRAWL);
+        nonRecursiveSpec.findBuildFiles(
+            cell,
+            WatchmanFactory.NULL_WATCHMAN,
+            ParserConfig.BuildFileSearchMethod.FILESYSTEM_CRAWL);
     assertEquals(expectedBuildFiles, actualBuildFiles);
 
     // Test a recursive spec.
@@ -76,7 +81,10 @@ public class BuildFileSpecTest {
     expectedBuildFiles =
         ImmutableSet.of(filesystem.resolve(buildFile), filesystem.resolve(nestedBuildFile));
     actualBuildFiles =
-        recursiveSpec.findBuildFiles(cell, ParserConfig.BuildFileSearchMethod.FILESYSTEM_CRAWL);
+        recursiveSpec.findBuildFiles(
+            cell,
+            WatchmanFactory.NULL_WATCHMAN,
+            ParserConfig.BuildFileSearchMethod.FILESYSTEM_CRAWL);
     assertEquals(expectedBuildFiles, actualBuildFiles);
   }
 
@@ -100,7 +108,10 @@ public class BuildFileSpecTest {
     ImmutableSet<Path> expectedBuildFiles = ImmutableSet.of(filesystem.resolve(buildFile));
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     ImmutableSet<Path> actualBuildFiles =
-        recursiveSpec.findBuildFiles(cell, ParserConfig.BuildFileSearchMethod.FILESYSTEM_CRAWL);
+        recursiveSpec.findBuildFiles(
+            cell,
+            WatchmanFactory.NULL_WATCHMAN,
+            ParserConfig.BuildFileSearchMethod.FILESYSTEM_CRAWL);
     assertEquals(expectedBuildFiles, actualBuildFiles);
   }
 
@@ -132,13 +143,12 @@ public class BuildFileSpecTest {
                                 ImmutableList.of("name", "BUCK"),
                                 ImmutableList.of("type", "f")))),
                 ImmutableMap.of("files", ImmutableList.of("a/BUCK"))));
-    Cell cell =
-        new TestCellBuilder()
-            .setFilesystem(filesystem)
-            .setWatchman(createWatchman(fakeWatchmanClient, filesystem, watchRoot))
-            .build();
+    Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     ImmutableSet<Path> actualBuildFiles =
-        recursiveSpec.findBuildFiles(cell, ParserConfig.BuildFileSearchMethod.WATCHMAN);
+        recursiveSpec.findBuildFiles(
+            cell,
+            createWatchman(fakeWatchmanClient, filesystem, watchRoot),
+            ParserConfig.BuildFileSearchMethod.WATCHMAN);
     assertEquals(expectedBuildFiles, actualBuildFiles);
   }
 
@@ -170,15 +180,14 @@ public class BuildFileSpecTest {
                                 ImmutableList.of("type", "f")))),
                 ImmutableMap.of("files", ImmutableList.of("a/BUCK"))),
             new IOException("Whoopsie!"));
-    Cell cell =
-        new TestCellBuilder()
-            .setFilesystem(filesystem)
-            .setWatchman(createWatchman(fakeWatchmanClient, filesystem, watchRoot))
-            .build();
+    Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
 
     thrown.expect(IOException.class);
     thrown.expectMessage("Whoopsie!");
-    recursiveSpec.findBuildFiles(cell, ParserConfig.BuildFileSearchMethod.WATCHMAN);
+    recursiveSpec.findBuildFiles(
+        cell,
+        createWatchman(fakeWatchmanClient, filesystem, watchRoot),
+        ParserConfig.BuildFileSearchMethod.WATCHMAN);
   }
 
   @Test
@@ -216,15 +225,14 @@ public class BuildFileSpecTest {
                                 ImmutableList.of("name", "BUCK"),
                                 ImmutableList.of("type", "f")))),
                 ImmutableMap.of("files", ImmutableList.of("a/BUCK", "a/b/BUCK"))));
-    Cell cell =
-        new TestCellBuilder()
-            .setFilesystem(filesystem)
-            .setWatchman(createWatchman(timingOutWatchmanClient, filesystem, watchRoot))
-            .build();
+    Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
     ImmutableSet<Path> expectedBuildFiles =
         ImmutableSet.of(filesystem.resolve(buildFile), filesystem.resolve(nestedBuildFile));
     ImmutableSet<Path> actualBuildFiles =
-        recursiveSpec.findBuildFiles(cell, ParserConfig.BuildFileSearchMethod.WATCHMAN);
+        recursiveSpec.findBuildFiles(
+            cell,
+            createWatchman(timingOutWatchmanClient, filesystem, watchRoot),
+            ParserConfig.BuildFileSearchMethod.WATCHMAN);
     assertEquals(expectedBuildFiles, actualBuildFiles);
   }
 
@@ -236,7 +244,15 @@ public class BuildFileSpecTest {
         BuildFileSpec.fromRecursivePath(filesystem.resolve("foo/bar"), filesystem.getRootPath());
     thrown.expect(HumanReadableException.class);
     thrown.expectMessage("could not be found");
-    recursiveSpec.findBuildFiles(cell, ParserConfig.BuildFileSearchMethod.FILESYSTEM_CRAWL);
+    recursiveSpec.findBuildFiles(
+        cell, WatchmanFactory.NULL_WATCHMAN, ParserConfig.BuildFileSearchMethod.FILESYSTEM_CRAWL);
+  }
+
+  @Test
+  public void testBuckOutIsIgnored() {
+    FakeProjectFilesystem filesystem = new FakeProjectFilesystem();
+    Path buildFile = Paths.get("buck-out", "gen", "a", "BUCK");
+    assertTrue(BuildFileSpec.isIgnored(filesystem, buildFile));
   }
 
   private static Watchman createWatchman(
@@ -246,9 +262,7 @@ public class BuildFileSpecTest {
             filesystem.getRootPath(),
             ProjectWatch.of(watchRoot.toString(), Optional.of("project-name"))),
         ImmutableSet.of(
-            WatchmanFactory.Capability.SUPPORTS_PROJECT_WATCH,
-            WatchmanFactory.Capability.DIRNAME,
-            WatchmanFactory.Capability.WILDMATCH_GLOB),
+            Capability.SUPPORTS_PROJECT_WATCH, Capability.DIRNAME, Capability.WILDMATCH_GLOB),
         ImmutableMap.of(),
         Optional.of(Paths.get(".watchman-sock"))) {
       @Override

@@ -16,8 +16,7 @@
 
 package com.facebook.buck.features.go;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.description.arg.HasSrcs;
@@ -29,10 +28,11 @@ import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -83,8 +83,8 @@ public class GoBinaryDescription
         args.getCompilerFlags(),
         args.getAssemblerFlags(),
         args.getLinkerFlags(),
-        platform,
-        args.getCgo());
+        args.getExternalLinkerFlags(),
+        platform);
   }
 
   @Override
@@ -117,8 +117,7 @@ public class GoBinaryDescription
 
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractGoBinaryDescriptionArg
-      extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs, HasCgo {
+  interface AbstractGoBinaryDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs {
     Optional<Flavor> getPlatform();
 
     ImmutableList<String> getCompilerFlags();
@@ -126,6 +125,8 @@ public class GoBinaryDescription
     ImmutableList<String> getAssemblerFlags();
 
     ImmutableList<String> getLinkerFlags();
+
+    ImmutableList<String> getExternalLinkerFlags();
 
     @Value.NaturalOrder
     ImmutableSortedSet<SourcePath> getResources();

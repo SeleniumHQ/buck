@@ -20,13 +20,13 @@ import static com.facebook.buck.jvm.java.JavaLibraryClasspathProvider.getClasspa
 
 import com.facebook.buck.android.ResourcesFilter.ResourceCompressionMode;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
+import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.DxToolchain;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.exceptions.HumanReadableException;
@@ -35,8 +35,10 @@ import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTarg
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.jvm.core.JavaLibrary;
@@ -44,7 +46,6 @@ import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -112,7 +113,10 @@ public class AndroidInstrumentationApkDescription
     // TODO(natthu): Instrumentation APKs should also exclude native libraries and assets from the
     // apk under test.
     AndroidPackageableCollection.ResourceDetails resourceDetails =
-        apkUnderTest.getAndroidPackageableCollection().getResourceDetails();
+        apkUnderTest
+            .getAndroidPackageableCollection()
+            .getResourceDetails()
+            .get(APKModule.of(APKModuleGraph.ROOT_APKMODULE_NAME, true));
     ImmutableSet<BuildTarget> resourcesToExclude =
         ImmutableSet.copyOf(
             Iterables.concat(
@@ -211,8 +215,7 @@ public class AndroidInstrumentationApkDescription
             dxExecutorService,
             apkUnderTest.getManifestEntries(),
             cxxBuckConfig,
-            new APKModuleGraph(
-                Optional.empty(), Optional.empty(), context.getTargetGraph(), buildTarget),
+            new APKModuleGraph(context.getTargetGraph(), buildTarget),
             dxConfig,
             args.getDexTool(),
             /* postFilterResourcesCommands */ Optional.empty(),

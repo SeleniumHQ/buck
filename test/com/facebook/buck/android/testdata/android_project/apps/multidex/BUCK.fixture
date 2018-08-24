@@ -14,6 +14,31 @@ android_binary(
 )
 
 android_binary(
+    name = "app_with_d8",
+    dex_tool = "d8",
+    keystore = "//keystores:debug",
+    manifest = "AndroidManifest.xml",
+    primary_dex_patterns = [
+        "/MyApplication^",
+    ],
+    use_split_dex = True,
+    deps = [
+        "//java/com/sample/app:app",
+        "//java/com/sample/lib:lib",
+    ],
+)
+
+genrule(
+    name = "disassemble_app_with_d8",
+    out = "disassembled_d8.smali",
+    bash = " && ".join([
+        "unzip -p $(location :app_with_d8) classes2.dex > $TMP/classes2.dex",
+        "$(exe //third-party/smali:baksmali) d -o $TMP $TMP/classes2.dex",
+        "cat $TMP/secondary/*/Canary.smali > $OUT",
+    ]),
+)
+
+android_binary(
     name = "app_modular_debug",
     application_module_configs = {
         "small_with_no_resource_deps": ["//java/com/sample/small:small_with_no_resource_deps"],
@@ -39,7 +64,7 @@ android_binary(
         "small_with_no_resource_deps": ["//java/com/sample/small:small_with_no_resource_deps"],
     },
     keystore = "//keystores:debug",
-    manifest = "AndroidManifest.xml",
+    manifest_skeleton = "AndroidManifest.xml",
     module_manifest_skeleton = "ModuleManifest.xml",
     package_type = "debug",
     primary_dex_patterns = [
@@ -51,6 +76,152 @@ android_binary(
         "//java/com/sample/lib:lib",
         "//java/com/sample/small:small_with_no_resource_deps",
         "//res/com/sample/base:base",
+    ],
+)
+
+android_binary(
+    name = "app_modular_manifest_debug_with_shared",
+    application_module_configs = {
+        "small_with_shared_with_no_resource_deps": ["//java/com/sample/small_with_shared:small_with_shared_with_no_resource_deps"],
+    },
+    keystore = "//keystores:debug",
+    manifest = "AndroidManifest.xml",
+    module_manifest_skeleton = "ModuleManifest.xml",
+    package_type = "debug",
+    primary_dex_patterns = [
+        "/MyApplication^",
+    ],
+    use_split_dex = True,
+    deps = [
+        "//java/com/sample/app:app",
+        "//java/com/sample/lib:lib",
+        "//java/com/sample/small_with_shared:small_with_shared_with_no_resource_deps",
+        "//res/com/sample/base:base",
+    ],
+)
+
+android_binary(
+    name = "app_modular_manifest_debug_blacklist_shared",
+    application_module_blacklist = [
+        "//java/com/sample/shared:shared_with_no_resource_deps",
+    ],
+    application_module_configs = {
+        "small_with_shared_with_no_resource_deps": ["//java/com/sample/small_with_shared:small_with_shared_with_no_resource_deps"],
+    },
+    keystore = "//keystores:debug",
+    manifest = "AndroidManifest.xml",
+    module_manifest_skeleton = "ModuleManifest.xml",
+    package_type = "debug",
+    primary_dex_patterns = [
+        "/MyApplication^",
+    ],
+    use_split_dex = True,
+    deps = [
+        "//java/com/sample/app:app",
+        "//java/com/sample/lib:lib",
+        "//java/com/sample/small_with_shared:small_with_shared_with_no_resource_deps",
+        "//res/com/sample/base:base",
+    ],
+)
+
+android_binary(
+    name = "app_modular_manifest_debug_blacklist_shared_multiple",
+    application_module_blacklist = [
+        "//java/com/sample/shared:shared_with_no_resource_deps",
+    ],
+    application_module_configs = {
+        "small_with_shared_with_no_resource_deps": ["//java/com/sample/small_with_shared:small_with_shared_with_no_resource_deps"],
+        "small_with_shared2_with_no_resource_deps": ["//java/com/sample/small_with_shared2:small_with_shared2_with_no_resource_deps"],
+    },
+    keystore = "//keystores:debug",
+    manifest = "AndroidManifest.xml",
+    module_manifest_skeleton = "ModuleManifest.xml",
+    package_type = "debug",
+    primary_dex_patterns = [
+        "/MyApplication^",
+    ],
+    use_split_dex = True,
+    deps = [
+        "//java/com/sample/app:app",
+        "//java/com/sample/lib:lib",
+        "//java/com/sample/small_with_shared:small_with_shared_with_no_resource_deps",
+        "//java/com/sample/small_with_shared2:small_with_shared2_with_no_resource_deps",
+        "//res/com/sample/base:base",
+    ],
+)
+
+android_binary(
+    name = "app_modular_manifest_debug_shared_multiple",
+    application_module_configs = {
+        "small_with_shared_with_no_resource_deps": ["//java/com/sample/small_with_shared:small_with_shared_with_no_resource_deps"],
+        "small_with_shared2_with_no_resource_deps": ["//java/com/sample/small_with_shared2:small_with_shared2_with_no_resource_deps"],
+    },
+    keystore = "//keystores:debug",
+    manifest = "AndroidManifest.xml",
+    module_manifest_skeleton = "ModuleManifest.xml",
+    package_type = "debug",
+    primary_dex_patterns = [
+        "/MyApplication^",
+    ],
+    use_split_dex = True,
+    deps = [
+        "//java/com/sample/app:app",
+        "//java/com/sample/lib:lib",
+        "//java/com/sample/small_with_shared:small_with_shared_with_no_resource_deps",
+        "//java/com/sample/small_with_shared2:small_with_shared2_with_no_resource_deps",
+        "//res/com/sample/base:base",
+    ],
+)
+
+android_binary(
+    name = "app_modular_manifest_debug_blacklisted_no_visibility",
+    application_module_blacklist = [
+        "//java/com/sample3/private_shared:lib",
+    ],
+    application_module_configs = {
+        "sample3": ["//java/com/sample3:lib"],
+    },
+    keystore = "//keystores:debug",
+    manifest = "AndroidManifest.xml",
+    module_manifest_skeleton = "ModuleManifest.xml",
+    package_type = "debug",
+    primary_dex_patterns = [
+        "/MyApplication^",
+    ],
+    use_split_dex = True,
+    deps = [
+        "//java/com/sample/app:app",
+        "//java/com/sample/lib:lib",
+        "//java/com/sample3:lib",
+        "//res/com/sample/base:base",
+    ],
+)
+
+android_binary(
+    name = "app_modular_resources_debug",
+    aapt_mode = "aapt2",
+    application_module_configs = {
+        "feature1": ["//java/com/sample/features/activity_with_resources:activity_with_resources"],
+        "feature2": ["//java/com/sample/features/feature2:feature2"],
+    },
+    application_modules_with_resources = [
+        "feature1",
+    ],
+    keystore = "//keystores:debug",
+    manifest_skeleton = "AndroidManifest.xml",
+    module_manifest_skeleton = "ModuleManifest.xml",
+    package_type = "debug",
+    primary_dex_patterns = [
+        "/ApplicationWithModuleLoader^",
+    ],
+    use_split_dex = True,
+    deps = [
+        "//java/com/sample/app_with_module_loader:app_with_module_loader",
+        "//java/com/sample/features/activity_with_resources:activity_with_resources",
+        "//java/com/sample/features/feature2:feature2",
+        "//java/com/sample/lib:lib",
+        "//res/com/sample/base:base",
+        "//res/com/sample/features/base:base",
     ],
 )
 
@@ -144,6 +315,7 @@ android_binary(
     manifest = "AndroidManifest.xml",
     primary_dex_patterns = [
         "/MyApplication^",
+        "/R$",
     ],
     use_split_dex = True,
     deps = [
@@ -425,6 +597,7 @@ android_binary(
     primary_dex_patterns = [
         "/primary/R$",
     ],
+    trim_resource_ids = False,
     use_split_dex = True,
     deps = [
         "//java/com/resourceref:resourceref",
@@ -438,9 +611,10 @@ genrule(
            "$(location :app_with_big_r_dot_java)/classes.dex > $OUT",
 )
 
-genrule(
-    name = "disassemble_big_r_dot_java_secondary",
-    out = "big_r_dot_java_secondary.txt",
-    bash = "$(exe //third-party/smali:baksmali) list classes " +
-           "$(location :app_with_big_r_dot_java)/classes2.dex > $OUT",
-)
+for i in (2,3):
+    genrule(
+        name = "disassemble_big_r_dot_java_classes%d" % i,
+        out = "big_r_dot_java_secondary.txt",
+        bash = "$(exe //third-party/smali:baksmali) list classes " +
+               "$(location :app_with_big_r_dot_java)/classes%d.dex > $OUT" % i,
+    )

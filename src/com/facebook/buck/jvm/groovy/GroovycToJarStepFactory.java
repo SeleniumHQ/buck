@@ -23,7 +23,6 @@ import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
@@ -38,19 +37,12 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 class GroovycToJarStepFactory extends CompileToJarStepFactory implements AddsToRuleKey {
-
   @AddToRuleKey private final Tool groovyc;
   @AddToRuleKey private final Optional<ImmutableList<String>> extraArguments;
   @AddToRuleKey private final JavacOptions javacOptions;
 
   public GroovycToJarStepFactory(
-      SourcePathResolver resolver,
-      SourcePathRuleFinder ruleFinder,
-      ProjectFilesystem projectFilesystem,
-      Tool groovyc,
-      Optional<ImmutableList<String>> extraArguments,
-      JavacOptions javacOptions) {
-    super(resolver, ruleFinder, projectFilesystem);
+      Tool groovyc, Optional<ImmutableList<String>> extraArguments, JavacOptions javacOptions) {
     this.groovyc = groovyc;
     this.extraArguments = extraArguments;
     this.javacOptions = javacOptions;
@@ -59,6 +51,7 @@ class GroovycToJarStepFactory extends CompileToJarStepFactory implements AddsToR
   @Override
   public void createCompileStep(
       BuildContext buildContext,
+      ProjectFilesystem projectFilesystem,
       BuildTarget invokingRule,
       CompilerParameters parameters,
       /* output params */
@@ -67,15 +60,15 @@ class GroovycToJarStepFactory extends CompileToJarStepFactory implements AddsToR
 
     ImmutableSortedSet<Path> declaredClasspathEntries = parameters.getClasspathEntries();
     ImmutableSortedSet<Path> sourceFilePaths = parameters.getSourceFilePaths();
-    Path outputDirectory = parameters.getOutputDirectory();
-    Path pathToSrcsList = parameters.getPathToSourcesList();
+    Path outputDirectory = parameters.getOutputPaths().getClassesDir();
+    Path pathToSrcsList = parameters.getOutputPaths().getPathToSourcesList();
 
     steps.add(
         new GroovycStep(
             groovyc,
             extraArguments,
             javacOptions,
-            resolver,
+            buildContext.getSourcePathResolver(),
             outputDirectory,
             sourceFilePaths,
             pathToSrcsList,

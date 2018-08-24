@@ -23,14 +23,14 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.cxx.FrameworkDependencies;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
@@ -237,10 +237,10 @@ public class AppleBundleDescriptionTest {
   @Test
   public void metadataTraversalForFrameworkDependenciesAreTerminated() {
     BuildTarget binaryTarget = BuildTargetFactory.newInstance("//:binary");
-    TargetNode<?, ?> binaryNode = new AppleBinaryBuilder(binaryTarget).build();
+    TargetNode<?> binaryNode = new AppleBinaryBuilder(binaryTarget).build();
 
     BuildTarget bundleTarget = BuildTargetFactory.newInstance("//:bundle");
-    TargetNode<?, ?> bundleNode =
+    TargetNode<?> bundleNode =
         new AppleBundleBuilder(bundleTarget)
             .setExtension(Either.ofLeft(AppleBundleExtension.BUNDLE))
             .setInfoPlist(FakeSourcePath.of("Info.plist"))

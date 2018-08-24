@@ -32,38 +32,38 @@ import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.cell.TestCellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaClassHashes;
 import com.facebook.buck.jvm.java.FakeJavac;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavacFactoryHelper;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.rules.FakeSourcePath;
-import com.facebook.buck.rules.TestBuildRuleParams;
 import com.facebook.buck.rules.coercer.BuildConfigFields;
 import com.facebook.buck.rules.coercer.ManifestEntries;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -86,19 +86,19 @@ public class AndroidBinaryGraphEnhancerTest {
   public void testCreateDepsForPreDexing() {
     // Create three Java rules, :dep1, :dep2, and :lib. :lib depends on :dep1 and :dep2.
     BuildTarget javaDep1BuildTarget = BuildTargetFactory.newInstance("//java/com/example:dep1");
-    TargetNode<?, ?> javaDep1Node =
+    TargetNode<?> javaDep1Node =
         JavaLibraryBuilder.createBuilder(javaDep1BuildTarget)
             .addSrc(Paths.get("java/com/example/Dep1.java"))
             .build();
 
     BuildTarget javaDep2BuildTarget = BuildTargetFactory.newInstance("//java/com/example:dep2");
-    TargetNode<?, ?> javaDep2Node =
+    TargetNode<?> javaDep2Node =
         JavaLibraryBuilder.createBuilder(javaDep2BuildTarget)
             .addSrc(Paths.get("java/com/example/Dep2.java"))
             .build();
 
     BuildTarget javaLibBuildTarget = BuildTargetFactory.newInstance("//java/com/example:lib");
-    TargetNode<?, ?> javaLibNode =
+    TargetNode<?> javaLibNode =
         JavaLibraryBuilder.createBuilder(javaLibBuildTarget)
             .addSrc(Paths.get("java/com/example/Lib.java"))
             .addDep(javaDep1Node.getBuildTarget())
@@ -346,7 +346,8 @@ public class AndroidBinaryGraphEnhancerTest {
         "The only classpath entry to dex should be the one from the AndroidBuildConfigJavaLibrary"
             + " created via graph enhancement.",
         ImmutableSet.of(
-            BuildTargets.getGenPath(projectFilesystem, enhancedBuildConfigTarget, "lib__%s__output")
+            BuildTargetPaths.getGenPath(
+                    projectFilesystem, enhancedBuildConfigTarget, "lib__%s__output")
                 .resolve(enhancedBuildConfigTarget.getShortNameAndFlavorPostfix() + ".jar")),
         result
             .getClasspathEntriesToDex()
@@ -389,7 +390,7 @@ public class AndroidBinaryGraphEnhancerTest {
 
   @Test
   public void testResourceRulesBecomeDepsOfAaptPackageResources() {
-    TargetNode<?, ?> resourceNode =
+    TargetNode<?> resourceNode =
         AndroidResourceBuilder.createBuilder(BuildTargetFactory.newInstance("//:resource"))
             .setRDotJavaPackage("package")
             .setRes(Paths.get("res"))

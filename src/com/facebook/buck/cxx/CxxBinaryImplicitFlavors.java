@@ -17,10 +17,10 @@
 package com.facebook.buck.cxx;
 
 import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.rules.type.BuildRuleType;
+import com.facebook.buck.core.model.RuleType;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
@@ -37,11 +37,11 @@ public class CxxBinaryImplicitFlavors {
   }
 
   public ImmutableSortedSet<Flavor> addImplicitFlavorsForRuleTypes(
-      ImmutableSortedSet<Flavor> argDefaultFlavors, BuildRuleType... types) {
+      ImmutableSortedSet<Flavor> argDefaultFlavors, RuleType... types) {
     Optional<Flavor> platformFlavor =
         getCxxPlatformsProvider().getCxxPlatforms().getFlavor(argDefaultFlavors);
 
-    for (BuildRuleType type : types) {
+    for (RuleType type : types) {
       ImmutableMap<String, Flavor> libraryDefaults =
           cxxBuckConfig.getDefaultFlavorsForRuleType(type);
 

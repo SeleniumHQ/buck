@@ -16,19 +16,20 @@
 
 package com.facebook.buck.cli;
 
+import static com.facebook.buck.util.string.MoreStrings.linesToText;
 import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.rules.impl.NoopBuildRule;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypes;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -72,9 +73,14 @@ public class BuildCommandErrorsIntegrationTest {
     workspace = TestDataHelper.createProjectWorkspaceForScenario(this, "errors", tmp);
     workspace.setUp();
     mockDescription = new MockDescription();
-    workspace.setKnownBuildRuleTypesFactoryFactory(
-        (processExecutor, pluginManager, sandboxExecutionStrategyFactory) ->
-            cell -> KnownBuildRuleTypes.builder().addDescriptions(mockDescription).build());
+    workspace.setKnownRuleTypesFactoryFactory(
+        (executor,
+            pluginManager,
+            sandboxExecutionStrategyFactory,
+            knownConfigurationDescriptions) ->
+            cell ->
+                KnownRuleTypes.of(
+                    ImmutableList.of(mockDescription), knownConfigurationDescriptions));
   }
 
   // TODO(cjhopman): Add cases for errors in other phases of the build (watchman, parsing,
@@ -99,13 +105,14 @@ public class BuildCommandErrorsIntegrationTest {
     ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertFailure();
     assertEquals(
-        "Buck encountered an internal error\n"
-            + "java.lang.RuntimeException:  <- failure message -> \n"
-            + "<stacktrace>\n"
-            + "Caused by: java.lang.RuntimeException: failure message\n"
-            + "<stacktrace>\n"
-            + "\n"
-            + "    When building rule //:target_name.",
+        linesToText(
+            "Buck encountered an internal error",
+            "java.lang.RuntimeException:  <- failure message -> ",
+            "<stacktrace>",
+            "Caused by: java.lang.RuntimeException: failure message",
+            "<stacktrace>",
+            "",
+            "    When building rule //:target_name."),
         getError(getStderr(result)));
   }
 
@@ -118,14 +125,15 @@ public class BuildCommandErrorsIntegrationTest {
     ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertFailure();
     assertEquals(
-        "Buck encountered an internal error\n"
-            + "java.lang.RuntimeException:  <- failure message -> \n"
-            + "<stacktrace>\n"
-            + "Caused by: java.lang.RuntimeException: failure message\n"
-            + "<stacktrace>\n"
-            + "\n"
-            + "    When running <failing_step>.\n"
-            + "    When building rule //:target_name.",
+        linesToText(
+            "Buck encountered an internal error",
+            "java.lang.RuntimeException:  <- failure message -> ",
+            "<stacktrace>",
+            "Caused by: java.lang.RuntimeException: failure message",
+            "<stacktrace>",
+            "",
+            "    When running <failing_step>.",
+            "    When building rule //:target_name."),
         getError(getStderr(result)));
   }
 
@@ -136,11 +144,12 @@ public class BuildCommandErrorsIntegrationTest {
     ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertFailure();
     assertEquals(
-        "Buck encountered an internal error\n"
-            + "java.lang.RuntimeException: failure message\n"
-            + "<stacktrace>\n"
-            + "\n"
-            + "    When building rule //:target_name.",
+        linesToText(
+            "Buck encountered an internal error",
+            "java.lang.RuntimeException: failure message",
+            "<stacktrace>",
+            "",
+            "    When building rule //:target_name."),
         getError(getStderr(result)));
   }
 
@@ -151,12 +160,13 @@ public class BuildCommandErrorsIntegrationTest {
     ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertFailure();
     assertEquals(
-        "Buck encountered an internal error\n"
-            + "java.lang.RuntimeException: failure message\n"
-            + "<stacktrace>\n"
-            + "\n"
-            + "    When running <failing_step>.\n"
-            + "    When building rule //:target_name.",
+        linesToText(
+            "Buck encountered an internal error",
+            "java.lang.RuntimeException: failure message",
+            "<stacktrace>",
+            "",
+            "    When running <failing_step>.",
+            "    When building rule //:target_name."),
         getError(getStderr(result)));
   }
 
@@ -167,12 +177,13 @@ public class BuildCommandErrorsIntegrationTest {
     ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertFailure();
     assertEquals(
-        "Buck encountered an internal error\n"
-            + "java.io.IOException: failure message\n"
-            + "<stacktrace>\n"
-            + "\n"
-            + "    When running <failing_step>.\n"
-            + "    When building rule //:target_name.",
+        linesToText(
+            "Buck encountered an internal error",
+            "java.io.IOException: failure message",
+            "<stacktrace>",
+            "",
+            "    When running <failing_step>.",
+            "    When building rule //:target_name."),
         getError(getStderr(result)));
   }
 
@@ -182,11 +193,12 @@ public class BuildCommandErrorsIntegrationTest {
     ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertFailure();
     assertEquals(
-        "Buck encountered an internal error\n"
-            + "java.io.IOException: failure message\n"
-            + "<stacktrace>\n"
-            + "\n"
-            + "    When building rule //:target_name.",
+        linesToText(
+            "Buck encountered an internal error",
+            "java.io.IOException: failure message",
+            "<stacktrace>",
+            "",
+            "    When building rule //:target_name."),
         getError(getStderr(result)));
   }
 
@@ -197,11 +209,12 @@ public class BuildCommandErrorsIntegrationTest {
     ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertFailure();
     assertEquals(
-        "Buck encountered an internal error\n"
-            + "java.io.IOException: failure message //:target_name\n"
-            + "<stacktrace>\n"
-            + "\n"
-            + "    When building rule //:target_name.",
+        linesToText(
+            "Buck encountered an internal error",
+            "java.io.IOException: failure message //:target_name",
+            "<stacktrace>",
+            "",
+            "    When building rule //:target_name."),
         getError(getStderr(result)));
   }
 
@@ -212,9 +225,10 @@ public class BuildCommandErrorsIntegrationTest {
     ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertFailure();
     assertEquals(
-        "Build failed: failure message\n"
-            + "    When running <failing_step>.\n"
-            + "    When building rule //:target_name.",
+        linesToText(
+            "Build failed: failure message",
+            "    When running <failing_step>.",
+            "    When building rule //:target_name."),
         getError(getStderr(result)));
   }
 
@@ -225,7 +239,7 @@ public class BuildCommandErrorsIntegrationTest {
     ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertFailure();
     assertEquals(
-        "Build failed: failure message\n" + "    When building rule //:target_name.",
+        linesToText("Build failed: failure message", "    When building rule //:target_name."),
         getError(getStderr(result)));
   }
 
@@ -235,10 +249,11 @@ public class BuildCommandErrorsIntegrationTest {
     ProcessResult result = workspace.runBuckBuild(":target_name");
     result.assertFailure();
     assertEquals(
-        "Build failed: Command failed with exit code 1.\n"
-            + "stderr: failure message\n"
-            + "    When running <step_with_exit_code_1>.\n"
-            + "    When building rule //:target_name.",
+        linesToText(
+            "Build failed: Command failed with exit code 1.",
+            "stderr: failure message",
+            "    When running <step_with_exit_code_1>.",
+            "    When building rule //:target_name."),
         getError(getStderr(result)));
   }
 
@@ -265,10 +280,11 @@ public class BuildCommandErrorsIntegrationTest {
     ProcessResult result = workspace.runBuckBuild("--keep-going", ":target_name");
     result.assertFailure();
     assertEquals(
-        " ** Summary of failures encountered during the build **\n"
-            + "Rule //:target_name FAILED because java.lang.RuntimeException: failure message\n"
-            + "    When building rule //:target_name.\n"
-            + "Not all rules succeeded.",
+        linesToText(
+            " ** Summary of failures encountered during the build **",
+            "Rule //:target_name FAILED because java.lang.RuntimeException: failure message",
+            "    When building rule //:target_name.",
+            "Not all rules succeeded."),
         getError(getStderr(result)));
   }
 
@@ -279,11 +295,12 @@ public class BuildCommandErrorsIntegrationTest {
     ProcessResult result = workspace.runBuckBuild("--keep-going", ":target_name");
     result.assertFailure();
     assertEquals(
-        " ** Summary of failures encountered during the build **\n"
-            + "Rule //:target_name FAILED because java.lang.RuntimeException: failure message\n"
-            + "    When running <failing_step>.\n"
-            + "    When building rule //:target_name.\n"
-            + "Not all rules succeeded.",
+        linesToText(
+            " ** Summary of failures encountered during the build **",
+            "Rule //:target_name FAILED because java.lang.RuntimeException: failure message",
+            "    When running <failing_step>.",
+            "    When building rule //:target_name.",
+            "Not all rules succeeded."),
         getError(getStderr(result)));
   }
 
@@ -294,11 +311,12 @@ public class BuildCommandErrorsIntegrationTest {
     ProcessResult result = workspace.runBuckBuild("--keep-going", ":target_name");
     result.assertFailure();
     assertEquals(
-        " ** Summary of failures encountered during the build **\n"
-            + "Rule //:target_name FAILED because java.io.IOException: failure message\n"
-            + "    When running <failing_step>.\n"
-            + "    When building rule //:target_name.\n"
-            + "Not all rules succeeded.",
+        linesToText(
+            " ** Summary of failures encountered during the build **",
+            "Rule //:target_name FAILED because java.io.IOException: failure message",
+            "    When running <failing_step>.",
+            "    When building rule //:target_name.",
+            "Not all rules succeeded."),
         getError(getStderr(result)));
   }
 
@@ -308,15 +326,16 @@ public class BuildCommandErrorsIntegrationTest {
     ProcessResult result = workspace.runBuckBuild("--keep-going", ":target_name");
     result.assertFailure();
     assertEquals(
-        " ** Summary of failures encountered during the build **\n"
-            + "Rule //:target_name FAILED because java.io.IOException: failure message\n"
-            + "    When building rule //:target_name.\n"
-            + "Not all rules succeeded.",
+        linesToText(
+            " ** Summary of failures encountered during the build **",
+            "Rule //:target_name FAILED because java.io.IOException: failure message",
+            "    When building rule //:target_name.",
+            "Not all rules succeeded."),
         getError(getStderr(result)));
   }
 
   private String getError(String stderr) {
-    String[] lines = stderr.split("\n");
+    String[] lines = stderr.split(System.lineSeparator());
     int start = 0;
     while (start < lines.length) {
       if (lines[start].startsWith("Build failed")
@@ -345,7 +364,7 @@ public class BuildCommandErrorsIntegrationTest {
       }
       start++;
     }
-    return Joiner.on("\n").join(filtered);
+    return Joiner.on(System.lineSeparator()).join(filtered);
   }
 
   @SafeVarargs
@@ -448,7 +467,7 @@ public class BuildCommandErrorsIntegrationTest {
             Constructor<?> constructor = clz.getConstructor(String.class, Throwable.class);
             obj = constructor.newInstance(message, cause);
           }
-          cause = Throwable.class.cast(obj);
+          cause = (Throwable) obj;
           // Modify the message a little so that we can differentiate the message at different
           // levels of nesting.
           message = " <- " + message + " -> ";

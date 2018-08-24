@@ -66,9 +66,10 @@ public class AuditOwnerCommand extends AbstractCommand {
             new PerBuildStateFactory(
                     params.getTypeCoercerFactory(),
                     new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
-                    params.getKnownBuildRuleTypesProvider(),
+                    params.getKnownRuleTypesProvider(),
                     new ParserPythonInterpreterProvider(
-                        params.getCell().getBuckConfig(), params.getExecutableFinder()))
+                        params.getCell().getBuckConfig(), params.getExecutableFinder()),
+                    params.getWatchman())
                 .create(
                     params.getParser().getPermState(),
                     params.getBuckEventBus(),

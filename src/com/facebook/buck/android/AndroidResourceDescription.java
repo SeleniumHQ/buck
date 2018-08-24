@@ -18,7 +18,6 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.android.aapt.MiniAapt;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasDeclaredDeps;
 import com.facebook.buck.core.exceptions.HumanReadableException;
@@ -26,11 +25,13 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.SymlinkTree;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
@@ -38,7 +39,6 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.util.types.Pair;
@@ -227,7 +227,7 @@ public class AndroidResourceDescription
       }
     }
     Path symlinkTreeRoot =
-        BuildTargets.getGenPath(projectFilesystem, buildTarget, "%s").resolve(outputDirName);
+        BuildTargetPaths.getGenPath(projectFilesystem, buildTarget, "%s").resolve(outputDirName);
     return new SymlinkTree(
         "android_res",
         buildTarget,
@@ -239,7 +239,7 @@ public class AndroidResourceDescription
   }
 
   public static Optional<SourcePath> getResDirectoryForProject(
-      ActionGraphBuilder graphBuilder, TargetNode<AndroidResourceDescriptionArg, ?> node) {
+      ActionGraphBuilder graphBuilder, TargetNode<AndroidResourceDescriptionArg> node) {
     AndroidResourceDescriptionArg arg = node.getConstructorArg();
     if (arg.getProjectRes().isPresent()) {
       return Optional.of(PathSourcePath.of(node.getFilesystem(), arg.getProjectRes().get()));
@@ -255,7 +255,7 @@ public class AndroidResourceDescription
   }
 
   public static Optional<SourcePath> getAssetsDirectoryForProject(
-      ActionGraphBuilder graphBuilder, TargetNode<AndroidResourceDescriptionArg, ?> node) {
+      ActionGraphBuilder graphBuilder, TargetNode<AndroidResourceDescriptionArg> node) {
     AndroidResourceDescriptionArg arg = node.getConstructorArg();
     if (arg.getProjectAssets().isPresent()) {
       return Optional.of(PathSourcePath.of(node.getFilesystem(), arg.getProjectAssets().get()));
@@ -271,7 +271,7 @@ public class AndroidResourceDescription
   }
 
   private static Optional<SourcePath> getResDirectory(
-      ActionGraphBuilder graphBuilder, TargetNode<AndroidResourceDescriptionArg, ?> node) {
+      ActionGraphBuilder graphBuilder, TargetNode<AndroidResourceDescriptionArg> node) {
     return collectInputSourcePaths(
             graphBuilder,
             node.getBuildTarget(),
@@ -281,7 +281,7 @@ public class AndroidResourceDescription
   }
 
   private static Optional<SourcePath> getAssetsDirectory(
-      ActionGraphBuilder graphBuilder, TargetNode<AndroidResourceDescriptionArg, ?> node) {
+      ActionGraphBuilder graphBuilder, TargetNode<AndroidResourceDescriptionArg> node) {
     return collectInputSourcePaths(
             graphBuilder,
             node.getBuildTarget(),

@@ -20,11 +20,12 @@ import static com.facebook.buck.distributed.build_slave.BuildSlaveTimingStatsTra
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.command.BuildExecutor;
-import com.facebook.buck.config.resources.ResourcesConfig;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.ArtifactCacheByBuildRule;
 import com.facebook.buck.distributed.BuildStatusUtil;
 import com.facebook.buck.distributed.DistBuildArtifactCacheImpl;
@@ -37,7 +38,6 @@ import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.chrome_trace.ChromeTraceBuckConfig;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.Futures;
@@ -120,7 +120,7 @@ public class MultiSlaveBuildModeRunnerFactory {
                     executorService),
             executorService);
     Optional<String> minionQueue = distBuildConfig.getMinionQueue();
-
+    Optional<String> minionRegion = distBuildConfig.getMinionRegion();
     Preconditions.checkArgument(
         minionQueue.isPresent(),
         "Minion queue name is missing to be able to run in Coordinator mode.");
@@ -134,7 +134,8 @@ public class MultiSlaveBuildModeRunnerFactory {
             stampedeId,
             distBuildConfig.getBuildLabel(),
             minionQueueProvider,
-            isLocalMinionAlsoRunning);
+            isLocalMinionAlsoRunning,
+            minionRegion.orElse(null));
     MinionHealthTracker minionHealthTracker =
         new MinionHealthTracker(
             new DefaultClock(),

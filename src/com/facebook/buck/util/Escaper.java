@@ -170,16 +170,19 @@ public final class Escaper {
    *     non-ASCII characters escaped as &#92;u
    */
   public static String escapeAsPythonString(String str) {
-    StringBuilder builder = new StringBuilder();
+    // assume that at most a quarter of the characters will be escaped. This number is completely
+    // random and not based on any real data, so improvements are very welcome.
+    StringBuilder builder = new StringBuilder(str.length() + (str.length() >> 2));
     builder.append('"');
-    for (Character ch : str.toCharArray()) {
+    for (int i = 0; i < str.length(); ++i) {
+      char ch = str.charAt(i);
       // Handle Unicode.
       if (ch > 0xfff) {
-        builder.append("\\u" + hex(ch));
+        builder.append("\\u").append(hex(ch));
       } else if (ch > 0xff) {
-        builder.append("\\u0" + hex(ch));
+        builder.append("\\u0").append(hex(ch));
       } else if (ch > 0x7f) {
-        builder.append("\\u00" + hex(ch));
+        builder.append("\\u00").append(hex(ch));
       } else if (ch < 32) {
         switch (ch) {
           case '\b':
@@ -204,9 +207,9 @@ public final class Escaper {
             break;
           default:
             if (ch > 0xf) {
-              builder.append("\\u00" + hex(ch));
+              builder.append("\\u00").append(hex(ch));
             } else {
-              builder.append("\\u000" + hex(ch));
+              builder.append("\\u000").append(hex(ch));
             }
             break;
         }

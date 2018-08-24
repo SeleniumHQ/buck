@@ -18,9 +18,9 @@ package com.facebook.buck.versions;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.hamcrest.Matchers;
@@ -33,8 +33,7 @@ public class VersionUniverseVersionSelectorTest {
 
   @Test
   public void validImplication() throws Exception {
-    TargetNode<?, ?> root =
-        new VersionRootBuilder("//:root").setVersionUniverse("universe").build();
+    TargetNode<?> root = new VersionRootBuilder("//:root").setVersionUniverse("universe").build();
     BuildTarget versioned1 = BuildTargetFactory.newInstance("//:versioned1");
     BuildTarget versioned2 = BuildTargetFactory.newInstance("//:versioned2");
     VersionUniverseVersionSelector selector =
@@ -57,8 +56,7 @@ public class VersionUniverseVersionSelectorTest {
 
   @Test
   public void unusedImplication() throws Exception {
-    TargetNode<?, ?> root =
-        new VersionRootBuilder("//:root").setVersionUniverse("universe").build();
+    TargetNode<?> root = new VersionRootBuilder("//:root").setVersionUniverse("universe").build();
     BuildTarget versioned1 = BuildTargetFactory.newInstance("//:versioned1");
     BuildTarget versioned2 = BuildTargetFactory.newInstance("//:versioned2");
     VersionUniverseVersionSelector selector =
@@ -81,7 +79,7 @@ public class VersionUniverseVersionSelectorTest {
 
   @Test
   public void firstConfiguredVersionUniverseUsedByDefault() {
-    TargetNode<?, ?> root = new VersionRootBuilder("//:root").build();
+    TargetNode<?> root = new VersionRootBuilder("//:root").build();
     VersionUniverseVersionSelector selector =
         new VersionUniverseVersionSelector(
             TargetGraphFactory.newInstance(root),

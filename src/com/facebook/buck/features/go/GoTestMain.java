@@ -18,17 +18,17 @@ package com.facebook.buck.features.go;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
-import com.facebook.buck.features.go.GoListStep.FileType;
+import com.facebook.buck.features.go.GoListStep.ListType;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.google.common.collect.ImmutableList;
@@ -67,7 +67,7 @@ public class GoTestMain extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     this.testPackage = testPackage;
     this.platform = platform;
     this.output =
-        BuildTargets.getScratchPath(
+        BuildTargetPaths.getScratchPath(
             getProjectFilesystem(),
             getBuildTarget(),
             "%s/" + getBuildTarget().getShortName() + "_test_main.go");
@@ -91,13 +91,11 @@ public class GoTestMain extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         new FilteredSourceFiles(
             GoCompile.getSourceFiles(testSources, context),
             ImmutableList.of(),
-            getBuildTarget(),
             platform,
-            ImmutableList.of(FileType.GoFiles, FileType.TestGoFiles, FileType.XTestGoFiles));
+            ImmutableList.of(ListType.GoFiles, ListType.TestGoFiles, ListType.XTestGoFiles));
     steps.addAll(filteredSrcs.getFilterSteps());
     steps.add(
         new GoTestMainStep(
-            getBuildTarget(),
             getProjectFilesystem().getRootPath(),
             testMainGen.getEnvironment(context.getSourcePathResolver()),
             testMainGen.getCommandPrefix(context.getSourcePathResolver()),

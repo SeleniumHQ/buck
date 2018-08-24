@@ -16,6 +16,7 @@
 
 package com.facebook.buck.parser;
 
+import static com.facebook.buck.util.string.MoreStrings.linesToText;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.in;
 import static org.hamcrest.Matchers.is;
@@ -26,8 +27,8 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -45,7 +46,7 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 public class ParserIntegrationTest {
-  @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths(true);
+  @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
   @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Test
@@ -63,7 +64,7 @@ public class ParserIntegrationTest {
 
     workspace.verify(
         Paths.get("base_genrule_output.expected"),
-        BuildTargets.getGenPath(filesystem, target, "%s"));
+        BuildTargetPaths.getGenPath(filesystem, target, "%s"));
   }
 
   /**
@@ -116,18 +117,24 @@ public class ParserIntegrationTest {
           is(
               in(
                   ImmutableSet.of(
-                      "Buck can't handle circular dependencies.\n"
-                          + "The following circular dependency has been found:\n"
-                          + "//:C -> //:E -> //:F -> //:C\n\n"
-                          + "Please break the circular dependency and try again.",
-                      "Buck can't handle circular dependencies.\n"
-                          + "The following circular dependency has been found:\n"
-                          + "//:E -> //:F -> //:C -> //:E\n\n"
-                          + "Please break the circular dependency and try again.",
-                      "Buck can't handle circular dependencies.\n"
-                          + "The following circular dependency has been found:\n"
-                          + "//:F -> //:C -> //:E -> //:F\n\n"
-                          + "Please break the circular dependency and try again."))));
+                      linesToText(
+                          "Buck can't handle circular dependencies.",
+                          "The following circular dependency has been found:",
+                          "//:C -> //:E -> //:F -> //:C",
+                          "",
+                          "Please break the circular dependency and try again."),
+                      linesToText(
+                          "Buck can't handle circular dependencies.",
+                          "The following circular dependency has been found:",
+                          "//:E -> //:F -> //:C -> //:E",
+                          "",
+                          "Please break the circular dependency and try again."),
+                      linesToText(
+                          "Buck can't handle circular dependencies.",
+                          "The following circular dependency has been found:",
+                          "//:F -> //:C -> //:E -> //:F",
+                          "",
+                          "Please break the circular dependency and try again.")))));
       return;
     }
     fail("An exception should have been thrown because of a circular dependency.");
@@ -190,7 +197,7 @@ public class ParserIntegrationTest {
 
     ProcessResult result = workspace.runBuckCommand("targets", "//:root");
     result.assertSuccess("buck should parse build files with a different name");
-    assertEquals("//:root\n", result.getStdout());
+    assertEquals("//:root" + System.lineSeparator(), result.getStdout());
   }
 
   @Test
@@ -568,5 +575,16 @@ public class ParserIntegrationTest {
                 "parser.warn_about_deprecated_syntax=false")
             .assertSuccess();
     assertThat(result.getStderr(), not(containsString("Warning raised by BUCK file parser")));
+  }
+
+  @Test
+  public void parseErrorIfTopLevelRecursiveGlob() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "top_level_recursive_glob", temporaryFolder);
+    workspace.setUp();
+    assertParseFailedWithSubstrings(
+        workspace.runBuckCommand("build", "//:glob"),
+        "Recursive globs are prohibited at top-level directory");
   }
 }

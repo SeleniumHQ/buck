@@ -14,20 +14,17 @@
  * under the License.
  */
 
-
 package com.facebook.buck.core.cell;
 
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.io.Watchman;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.parser.exceptions.MissingBuildFileException;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Optional;
 
@@ -64,13 +61,11 @@ public interface Cell {
     }
   }
 
-  ImmutableSet<Path> getKnownRoots();
+  ImmutableSortedSet<Path> getKnownRoots();
 
   Optional<String> getCanonicalName();
 
   ProjectFilesystem getFilesystem();
-
-  Watchman getWatchman();
 
   BuckConfig getBuckConfig();
 

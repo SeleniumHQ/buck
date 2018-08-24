@@ -17,7 +17,8 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
-import com.facebook.buck.config.resources.ResourcesConfig;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
+import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.distributed.DistBuildConfig;
 import com.facebook.buck.distributed.DistBuildMode;
@@ -184,7 +185,7 @@ public abstract class DistBuildFactory {
             .setState(state)
             .setParser(params.getParser())
             .setExecutorService(executorService)
-            .setActionGraphCache(params.getActionGraphCache())
+            .setActionGraphProvider(params.getActionGraphProvider())
             .setRuleKeyConfiguration(
                 ConfigRuleKeyConfigurationFactory.create(
                     state.getRemoteRootCellConfig(), params.getBuckModuleManager()))
@@ -203,14 +204,18 @@ public abstract class DistBuildFactory {
             .setDistBuildService(service)
             .setProjectFilesystemFactory(params.getProjectFilesystemFactory())
             .setTimingStatsTracker(timingStatsTracker)
-            .setKnownBuildRuleTypesProvider(params.getKnownBuildRuleTypesProvider())
+            .setKnownRuleTypesProvider(params.getKnownRuleTypesProvider())
             .setCoordinatorBuildRuleEventsPublisher(coordinatorBuildRuleEventsPublisher)
             .setMinionBuildProgressTracker(minionBuildProgressTracker)
             .setHealthCheckStatsTracker(healthCheckStatsTracker)
             .setRuleKeyCacheScope(ruleKeyCacheScope)
             .setMaxActionGraphParallelism(resource.getMaximumResourceAmounts().getCpu())
+            .setRemoteCommand(state.getRemoteState().getCommand())
             .setActionGraphParallelizationMode(
-                params.getBuckConfig().getActionGraphParallelizationMode())
+                params
+                    .getBuckConfig()
+                    .getView(ActionGraphConfig.class)
+                    .getActionGraphParallelizationMode())
             .build());
   }
 }

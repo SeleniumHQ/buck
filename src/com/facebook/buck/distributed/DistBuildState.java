@@ -18,26 +18,27 @@ package com.facebook.buck.distributed;
 
 import static com.facebook.buck.distributed.ClientStatsTracker.DistBuildClientStat.LOCAL_TARGET_GRAPH_SERIALIZATION;
 
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.CellProvider;
-import com.facebook.buck.core.cell.DistBuildCellParams;
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
-import com.facebook.buck.core.cell.impl.DistributedCellProviderFactory;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.module.BuckModuleManager;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildJobStateBuckConfig;
 import com.facebook.buck.distributed.thrift.BuildJobStateCell;
 import com.facebook.buck.distributed.thrift.BuildJobStateFileHashes;
 import com.facebook.buck.distributed.thrift.OrderedStringMapEntry;
+import com.facebook.buck.distributed.thrift.RemoteCommand;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
-import com.facebook.buck.log.Logger;
-import com.facebook.buck.module.BuckModuleManager;
+import com.facebook.buck.parser.BuildTargetParser;
+import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.config.Config;
@@ -96,6 +97,7 @@ public class DistBuildState {
         targetGraphCodec,
         targetGraph,
         topLevelTargets,
+        RemoteCommand.BUILD,
         Optional.empty());
   }
 
@@ -109,6 +111,7 @@ public class DistBuildState {
       DistBuildTargetGraphCodec targetGraphCodec,
       TargetGraph targetGraph,
       ImmutableSet<BuildTarget> topLevelTargets,
+      RemoteCommand command,
       Optional<ClientStatsTracker> clientStatsTracker)
       throws IOException, InterruptedException {
     Preconditions.checkArgument(topLevelTargets.size() > 0);
@@ -130,6 +133,8 @@ public class DistBuildState {
     for (BuildTarget target : topLevelTargets) {
       jobState.addToTopLevelTargets(target.getFullyQualifiedName());
     }
+
+    jobState.setCommand(command);
 
     return jobState;
   }
@@ -159,6 +164,7 @@ public class DistBuildState {
     Path uniqueBuildRoot = Files.createTempDirectory(sandboxPath, "build");
 
     DistBuildCellParams rootCellParams = null;
+    CellPathResolver rootCellPathResolver = null;
     for (Map.Entry<Integer, BuildJobStateCell> remoteCellEntry : jobState.getCells().entrySet()) {
       BuildJobStateCell remoteCell = remoteCellEntry.getValue();
 
@@ -168,9 +174,14 @@ public class DistBuildState {
       Config config = createConfigFromRemoteAndOverride(remoteCell.getConfig(), localBuckConfig);
       ProjectFilesystem projectFilesystem =
           projectFilesystemFactory.createProjectFilesystem(cellRoot, config);
+      CellPathResolver cellPathResolver =
+          DefaultCellPathResolver.of(projectFilesystem.getRootPath(), config);
       BuckConfig buckConfig =
           createBuckConfigFromRawConfigAndEnv(
-              config, projectFilesystem, ImmutableMap.copyOf(localBuckConfig.getEnvironment()));
+              config,
+              projectFilesystem,
+              ImmutableMap.copyOf(localBuckConfig.getEnvironment()),
+              cellPathResolver);
 
       Optional<String> cellName =
           remoteCell.getCanonicalName().isEmpty()
@@ -191,12 +202,13 @@ public class DistBuildState {
 
       if (remoteCellEntry.getKey() == DistBuildCellIndexer.ROOT_CELL_INDEX) {
         rootCellParams = currentCellParams;
+        rootCellPathResolver = cellPathResolver;
       }
     }
 
     CellProvider cellProvider =
         DistributedCellProviderFactory.create(
-            Preconditions.checkNotNull(rootCellParams), cellParams.build());
+            Preconditions.checkNotNull(rootCellParams), cellParams.build(), rootCellPathResolver);
 
     ImmutableBiMap<Integer, Cell> cells =
         ImmutableBiMap.copyOf(Maps.transformValues(cellIndex.build(), cellProvider::getCellByPath));
@@ -232,14 +244,17 @@ public class DistBuildState {
   private static BuckConfig createBuckConfigFromRawConfigAndEnv(
       Config rawConfig,
       ProjectFilesystem projectFilesystem,
-      ImmutableMap<String, String> environment) {
+      ImmutableMap<String, String> environment,
+      CellPathResolver cellPathResolver) {
     return new BuckConfig(
         rawConfig,
         projectFilesystem,
         Architecture.detect(),
         Platform.detect(),
         ImmutableMap.copyOf(environment),
-        DefaultCellPathResolver.of(projectFilesystem.getRootPath(), rawConfig));
+        target ->
+            BuildTargetParser.INSTANCE.parse(
+                target, BuildTargetPatternParser.fullyQualified(), cellPathResolver));
   }
 
   public ImmutableMap<Integer, Cell> getCells() {
@@ -250,13 +265,10 @@ public class DistBuildState {
     return Preconditions.checkNotNull(cells.get(DistBuildCellIndexer.ROOT_CELL_INDEX));
   }
 
-  public TargetGraphAndBuildTargets createTargetGraph(
-      DistBuildTargetGraphCodec codec, KnownBuildRuleTypesProvider knownBuildRuleTypesProvider)
+  public TargetGraphAndBuildTargets createTargetGraph(DistBuildTargetGraphCodec codec)
       throws InterruptedException {
     return codec.createTargetGraph(
-        remoteState.getTargetGraph(),
-        key -> Preconditions.checkNotNull(cells.get(key)),
-        knownBuildRuleTypesProvider);
+        remoteState.getTargetGraph(), key -> Preconditions.checkNotNull(cells.get(key)));
   }
 
   public ProjectFileHashCache createRemoteFileHashCache(ProjectFileHashCache decoratedCache) {

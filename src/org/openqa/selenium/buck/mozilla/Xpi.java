@@ -20,13 +20,13 @@ import static com.facebook.buck.util.zip.ZipCompressionLevel.DEFAULT;
 
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.features.filebundler.FileBundler;
 import com.facebook.buck.features.filebundler.SrcZipAwareFileBundler;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.rules.modern.BuildCellRelativePathFactory;
 import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.ModernBuildRule;
@@ -88,7 +88,10 @@ public class Xpi extends ModernBuildRule<Xpi> implements Buildable {
       ProjectFilesystem filesystem,
       OutputPathResolver outputPathResolver,
       BuildCellRelativePathFactory buildCellPathFactory) {
-    Path scratch = BuildTargets.getScratchPath(getProjectFilesystem(), getBuildTarget(), "%s-xpi");
+    Path scratch = BuildTargetPaths.getScratchPath(
+        getProjectFilesystem(),
+        getBuildTarget(),
+        "%s-xpi");
 
     ImmutableList.Builder<Step> steps = ImmutableList.builder();
 

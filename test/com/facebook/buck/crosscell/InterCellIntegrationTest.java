@@ -27,7 +27,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeThat;
 
 import com.facebook.buck.android.AssumeAndroidPlatform;
@@ -36,9 +35,11 @@ import com.facebook.buck.android.toolchain.ndk.impl.AndroidNdkHelper;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -48,7 +49,7 @@ import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
@@ -56,11 +57,9 @@ import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.TargetSpecResolver;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
-import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
@@ -68,7 +67,6 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.util.DefaultProcessExecutor;
-import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.types.Pair;
@@ -96,11 +94,14 @@ import org.hamcrest.Matchers;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
+import org.pf4j.PluginManager;
 
 /** Cross-cell related integration tests that don't fit anywhere else. */
 public class InterCellIntegrationTest {
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Test
   public void ensureThatNormalBuildsWorkAsExpected() throws IOException {
@@ -343,12 +344,8 @@ public class InterCellIntegrationTest {
   @Test
   public void xCellVisibilityShouldWorkAsExpected()
       throws IOException, InterruptedException, BuildFileParseException {
-    try {
-      parseTargetForXCellVisibility("//:not-visible-target");
-      fail("Did not expect parsing to succeed");
-    } catch (HumanReadableException expected) {
-      // Everything is as it should be.
-    }
+    thrown.expect(HumanReadableException.class);
+    parseTargetForXCellVisibility("//:not-visible-target");
   }
 
   @Test
@@ -387,25 +384,23 @@ public class InterCellIntegrationTest {
     registerCell(secondary, "primary", primary);
 
     // We could just do a build, but that's a little extreme since all we need is the target graph
-    ProcessExecutor processExecutor = new DefaultProcessExecutor(new TestConsole());
-    KnownBuildRuleTypesProvider knownBuildRuleTypesProvider =
-        KnownBuildRuleTypesProvider.of(
-            DefaultKnownBuildRuleTypesFactory.of(
-                processExecutor,
-                BuckPluginManagerFactory.createPluginManager(),
-                new TestSandboxExecutionStrategyFactory()));
+    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
     ParserConfig parserConfig = primary.asCell().getBuckConfig().getView(ParserConfig.class);
+    KnownRuleTypesProvider knownRuleTypesProvider =
+        TestKnownRuleTypesProvider.create(pluginManager);
     TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory();
     Parser parser =
         new DefaultParser(
             new PerBuildStateFactory(
                 coercerFactory,
                 new ConstructorArgMarshaller(coercerFactory),
-                knownBuildRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder())),
+                knownRuleTypesProvider,
+                new ParserPythonInterpreterProvider(parserConfig, new ExecutableFinder()),
+                WatchmanFactory.NULL_WATCHMAN),
             parserConfig,
             coercerFactory,
-            new TargetSpecResolver());
+            new TargetSpecResolver(),
+            WatchmanFactory.NULL_WATCHMAN);
     BuckEventBus eventBus = BuckEventBusForTests.newInstance();
 
     Cell primaryCell = primary.asCell();
@@ -440,9 +435,8 @@ public class InterCellIntegrationTest {
     result.assertSuccess();
   }
 
-  @SuppressWarnings("PMD.EmptyCatchBlock")
   @Test
-  public void shouldBeAbleToUseCommandLineConfigOverrides() throws IOException {
+  public void testCommandLineConfigOverridesShouldSucceed() throws IOException {
     assumeThat(Platform.detect(), is(not(WINDOWS)));
 
     Pair<ProjectWorkspace, ProjectWorkspace> cells =
@@ -452,17 +446,45 @@ public class InterCellIntegrationTest {
     TestDataHelper.overrideBuckconfig(
         secondary, ImmutableMap.of("cxx", ImmutableMap.of("cc", "/does/not/exist")));
 
-    try {
-      primary.runBuckBuild("//:cxxbinary");
-      fail("Did not expect to finish building");
-    } catch (HumanReadableException expected) {
-      assertEquals(
-          expected.getMessage(),
-          "Overridden cxx:cc path not found: /does/not/exist\n\n"
-              + "This error happened while trying to get dependency 'secondary//:cxxlib' of target '//:cxxbinary'");
-    }
-
     ProcessResult result = primary.runBuckBuild("--config", "secondary//cxx.cc=", "//:cxxbinary");
+
+    result.assertSuccess();
+  }
+
+  @Test
+  public void testCommandLineConfigOverridesShouldFail() throws IOException {
+    assumeThat(Platform.detect(), is(not(WINDOWS)));
+
+    Pair<ProjectWorkspace, ProjectWorkspace> cells =
+        prepare("inter-cell/export-file/primary", "inter-cell/export-file/secondary");
+    ProjectWorkspace primary = cells.getFirst();
+    ProjectWorkspace secondary = cells.getSecond();
+    TestDataHelper.overrideBuckconfig(
+        secondary, ImmutableMap.of("cxx", ImmutableMap.of("cc", "/does/not/exist")));
+
+    thrown.expect(HumanReadableException.class);
+    thrown.expectMessage(
+        "Overridden cxx:cc path not found: /does/not/exist\n\n"
+            + "This error happened while trying to get dependency 'secondary//:cxxlib' of target '//:cxxbinary'");
+    // This should throw
+    primary.runBuckBuild("//:cxxbinary");
+  }
+
+  @Test
+  public void testCommandLineConfigOverridesWithConfigFile() throws IOException {
+    assumeThat(Platform.detect(), is(not(WINDOWS)));
+
+    Pair<ProjectWorkspace, ProjectWorkspace> cells =
+        prepare("inter-cell/export-file/primary", "inter-cell/export-file/secondary");
+    ProjectWorkspace primary = cells.getFirst();
+    ProjectWorkspace secondary = cells.getSecond();
+    TestDataHelper.overrideBuckconfig(
+        secondary, ImmutableMap.of("cxx", ImmutableMap.of("cc", "/does/not/exist")));
+
+    Files.write(secondary.resolve("buckconfig"), ImmutableList.of("[cxx]", "  cc ="));
+
+    ProcessResult result =
+        primary.runBuckBuild("--config-file", "secondary//buckconfig", "//:cxxbinary");
 
     result.assertSuccess();
   }
@@ -479,13 +501,6 @@ public class InterCellIntegrationTest {
         primary, ImmutableMap.of("cxx", ImmutableMap.of("cc", "/does/not/exist")));
     TestDataHelper.overrideBuckconfig(
         secondary, ImmutableMap.of("cxx", ImmutableMap.of("cc", "/does/not/exist")));
-
-    try {
-      primary.runBuckBuild("//:cxxbinary");
-      fail("Did not expect to finish building");
-    } catch (HumanReadableException expected) {
-      assertEquals(expected.getMessage(), "Overridden cxx:cc path not found: /does/not/exist");
-    }
 
     ProcessResult result = primary.runBuckBuild("--config", "cxx.cc=", "//:cxxbinary");
 
@@ -580,23 +595,28 @@ public class InterCellIntegrationTest {
 
   @Test
   public void childCellWithCellMappingNotInRootCellShouldThrowError() throws IOException {
+    thrown.expect(HumanReadableException.class);
+    thrown.expectMessage("repositories.third must exist in the root cell's cell mappings.");
+
     ProjectWorkspace root = createWorkspace("inter-cell/validation/root");
     ProjectWorkspace second = createWorkspace("inter-cell/validation/root");
     ProjectWorkspace third = createWorkspace("inter-cell/validation/root");
     registerCell(root, "second", second);
     registerCell(second, "third", third);
 
-    // should fail if "third" is not specified in root
-    try {
-      root.runBuckBuild("//:dummy");
-      fail("Should have thrown a HumanReadableException.");
-    } catch (HumanReadableException e) {
-      assertThat(
-          e.getHumanReadableErrorMessage(),
-          containsString("repositories.third must exist in the root cell's cell mappings."));
-    }
+    // should fail since "third" is not specified in root
+    root.runBuckBuild("//:dummy");
+  }
 
-    // and succeeds when it is
+  @Test
+  public void childCellWithCellMappingInRootCellShouldSucceed() throws IOException {
+    ProjectWorkspace root = createWorkspace("inter-cell/validation/root");
+    ProjectWorkspace second = createWorkspace("inter-cell/validation/root");
+    ProjectWorkspace third = createWorkspace("inter-cell/validation/root");
+    registerCell(root, "second", second);
+    registerCell(second, "third", third);
+
+    // now that "third" is registered in root, should succeed
     registerCell(root, "third", third);
     ProcessResult result = root.runBuckBuild("//:dummy");
     result.assertSuccess();
@@ -604,29 +624,19 @@ public class InterCellIntegrationTest {
 
   @Test
   public void childCellWithCellMappingThatDiffersFromRootCellShouldThrowError() throws IOException {
+    thrown.expect(HumanReadableException.class);
+    thrown.expectMessage(
+        "repositories.third must point to the same directory as the root cell's cell "
+            + "mapping:");
     ProjectWorkspace root = createWorkspace("inter-cell/validation/root");
     ProjectWorkspace second = createWorkspace("inter-cell/validation/root");
     ProjectWorkspace third = createWorkspace("inter-cell/validation/root");
     registerCell(root, "second", second);
     registerCell(second, "third", third);
-
-    // should fail if "third" is not mapped to third in the root.
     registerCell(root, "third", second);
-    try {
-      root.runBuckBuild("//:dummy");
-      fail("Should have thrown a HumanReadableException.");
-    } catch (HumanReadableException e) {
-      assertThat(
-          e.getHumanReadableErrorMessage(),
-          containsString(
-              "repositories.third must point to the same directory as the root cell's cell "
-                  + "mapping:"));
-    }
 
-    // and succeeds when it is
-    registerCell(root, "third", third);
-    ProcessResult result = root.runBuckBuild("//:dummy");
-    result.assertSuccess();
+    // should fail since we mapped "third" to wrong cell
+    root.runBuckBuild("//:dummy");
   }
 
   @Test

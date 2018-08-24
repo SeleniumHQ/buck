@@ -61,12 +61,8 @@ public class PatternTestSelectorTest {
   public void shouldThrowOnMultiHashInput() {
     assertThrowsParseException("##");
     assertThrowsParseException("a##");
-    assertThrowsParseException("#b#");
-    assertThrowsParseException("a#b#");
     assertThrowsParseException("##c");
     assertThrowsParseException("a##c");
-    assertThrowsParseException("#b#c");
-    assertThrowsParseException("a#b#c");
   }
 
   private void assertThrowsParseException(String rawSelector) {
@@ -127,5 +123,81 @@ public class PatternTestSelectorTest {
     assertTrue(selector.matches(desc1));
     assertTrue(selector.matches(desc2));
     assertFalse(selector.matches(desc3));
+  }
+
+  @Test
+  public void sholdMatchParameterizedTestMethod() {
+    TestSelector selector = PatternTestSelector.buildFromSelectorString("Foo#bar\\[Param\\]");
+
+    assertTrue(selector.matches(new TestDescription("Foo", "bar[Param]")));
+    assertTrue(selector.matches(new TestDescription("Outer$Foo", "bar[Param]")));
+    assertFalse(selector.matches(new TestDescription("Foo", "bar[NotParam]")));
+    assertFalse(selector.matches(new TestDescription("Foo", "bazzz[Param]")));
+  }
+
+  @Test
+  public void sholdMatchParameterizedTestMethodWithHash() {
+    TestSelector selector = PatternTestSelector.buildFromSelectorString("Foo#bar\\[Param#name\\]");
+
+    assertTrue(selector.matches(new TestDescription("Foo", "bar[Param#name]")));
+    assertTrue(selector.matches(new TestDescription("Outer$Foo", "bar[Param#name]")));
+    assertFalse(selector.matches(new TestDescription("Outer$Foo", "bar[Param#notname]")));
+    assertFalse(selector.matches(new TestDescription("Foo", "bar[NotParam#name]")));
+    assertFalse(selector.matches(new TestDescription("Foo", "bazzz[Param#name]")));
+  }
+
+  @Test
+  public void shouldMatchNestedClassesWithOuterAndInnerPattern() {
+    TestSelector selector = PatternTestSelector.buildFromSelectorString("Outer\\$InnerTest");
+
+    assertTrue(selector.matchesClassName("com.example.Outer$InnerTest"));
+    assertTrue(selector.matchesClassName("com.AnotherOuter$InnerTest"));
+    assertFalse(selector.matchesClassName("com.example.Outer$AnotherInner"));
+    assertFalse(selector.matchesClassName("com.example.AnotherClass$InnerTest"));
+  }
+
+  @Test
+  public void shouldMatchNestedClassesWithOnlyInnerPattern() {
+    TestSelector selector = PatternTestSelector.buildFromSelectorString("\\$InnerTest");
+
+    assertTrue(selector.matchesClassName("com.example.Outer$InnerTest"));
+    assertTrue(selector.matchesClassName("com.AnotherOuter$InnerTest"));
+    assertTrue(selector.matchesClassName("com.example.AnotherClass$InnerTest"));
+    assertFalse(selector.matchesClassName("com.example.Outer$AnotherInner"));
+  }
+
+  @Test
+  public void shouldMatchAllClassPathsWhenClassPatternEmpty() {
+    TestSelector selector = PatternTestSelector.buildFromSelectorString("#someMethod");
+
+    assertTrue(selector.containsClassPath("com.example.Foo"));
+    assertTrue(selector.containsClassPath("com.Bar"));
+  }
+
+  @Test
+  public void shouldMatchClassPathsWithoutNestedClass() {
+    TestSelector selector = PatternTestSelector.buildFromSelectorString("FooTest$");
+
+    assertTrue(selector.containsClassPath("com.example.FooTest"));
+    assertTrue(selector.containsClassPath("com.OtherFooTest"));
+    assertFalse(selector.containsClassPath("com.example.BarTest"));
+    assertFalse(selector.containsClassPath("com.example.FooTest2"));
+
+    selector = PatternTestSelector.buildFromSelectorString("com.example.FooTest$");
+
+    assertTrue(selector.containsClassPath("com.example.FooTest"));
+    assertFalse(selector.containsClassPath("com.OtherFooTest"));
+    assertFalse(selector.containsClassPath("com.example.BarTest"));
+    assertFalse(selector.containsClassPath("com.example.FooTest2"));
+  }
+
+  @Test
+  public void shouldMatchClassPathOfOuterClass() {
+    TestSelector selector = PatternTestSelector.buildFromSelectorString("FooTest\\$Inner");
+
+    assertTrue(selector.containsClassPath("com.example.FooTest"));
+    assertTrue(selector.containsClassPath("com.OtherFooTest"));
+    assertFalse(selector.containsClassPath("com.example.BarTest"));
+    assertFalse(selector.containsClassPath("com.example.FooTest2"));
   }
 }

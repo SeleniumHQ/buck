@@ -16,7 +16,7 @@
 
 package com.facebook.buck.features.go;
 
-import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
@@ -156,6 +156,7 @@ abstract class AbstractGoPlatformFactory {
         .setLinker(getGoTool(section, goRoot, "linker", "link", "linker_flags"))
         .setCover(getGoTool(section, goRoot, "cover", "cover", ""))
         .setCxxPlatform(cxxPlatform)
+        .setExternalLinkerFlags(getFlags(section, "external_linker_flags"))
         .build();
   }
 

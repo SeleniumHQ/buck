@@ -22,7 +22,7 @@ import static org.junit.Assert.fail;
 
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.model.BuildTargetFactory;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -66,7 +66,8 @@ public class CommandLineTargetNodeSpecParserIntegrationTest {
     ProcessResult result = workspace.runBuckCommand("targets", "//simple/...").assertSuccess();
     assertEquals(
         ImmutableSet.of("//simple:simple", "//simple/foo:foo", "//simple/bar:bar"),
-        ImmutableSet.copyOf(Splitter.on('\n').omitEmptyStrings().split(result.getStdout())));
+        ImmutableSet.copyOf(
+            Splitter.on(System.lineSeparator()).omitEmptyStrings().split(result.getStdout())));
 
     // Check for some expected failure cases.
     try {
@@ -109,7 +110,8 @@ public class CommandLineTargetNodeSpecParserIntegrationTest {
     ProcessResult result = workspace.runBuckCommand("targets", "//simple:").assertSuccess();
     assertEquals(
         ImmutableSet.of("//simple:simple"),
-        ImmutableSet.copyOf(Splitter.on('\n').omitEmptyStrings().split(result.getStdout())));
+        ImmutableSet.copyOf(
+            Splitter.on(System.lineSeparator()).omitEmptyStrings().split(result.getStdout())));
 
     result = workspace.runBuckCommand("targets", "//simple:.");
     result.assertExitCode(
@@ -122,11 +124,13 @@ public class CommandLineTargetNodeSpecParserIntegrationTest {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "command_line_parser", tmp);
     workspace.setUp();
-    workspace.writeContentsToPath("[project]\n  ignore = ignored", ".buckconfig");
+    workspace.writeContentsToPath(
+        "[project]" + System.lineSeparator() + " ignore = ignored", ".buckconfig");
     ProcessResult result = workspace.runBuckCommand("targets", "...").assertSuccess();
     assertEquals(
         ImmutableSet.of("//simple:simple", "//simple/foo:foo", "//simple/bar:bar"),
-        ImmutableSet.copyOf(Splitter.on('\n').omitEmptyStrings().split(result.getStdout())));
+        ImmutableSet.copyOf(
+            Splitter.on(System.lineSeparator()).omitEmptyStrings().split(result.getStdout())));
   }
 
   @Test

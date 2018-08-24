@@ -19,8 +19,11 @@ package com.facebook.buck.rules.query;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.TestCellBuilder;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.macros.MacroException;
+import com.facebook.buck.core.macros.MacroMatchResult;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -33,9 +36,6 @@ import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.macros.MacroException;
-import com.facebook.buck.model.macros.MacroMatchResult;
 import com.facebook.buck.rules.macros.MacroHandler;
 import com.facebook.buck.rules.macros.QueryTargetsMacroExpander;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
@@ -73,14 +73,14 @@ public class QueryTargetsMacroExpanderTest {
     handler = new MacroHandler(ImmutableMap.of("query_targets", expander));
     filesystem = new FakeProjectFilesystem(tmp.getRoot());
     cellNames = TestCellBuilder.createCellRoots(filesystem);
-    TargetNode<?, ?> depNode =
+    TargetNode<?> depNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance(filesystem.getRootPath(), "//exciting:dep"),
                 filesystem)
             .addSrc(Paths.get("Dep.java"))
             .build();
 
-    TargetNode<?, ?> ruleNode =
+    TargetNode<?> ruleNode =
         JavaLibraryBuilder.createBuilder(
                 BuildTargetFactory.newInstance(filesystem.getRootPath(), "//exciting:target"),
                 filesystem)

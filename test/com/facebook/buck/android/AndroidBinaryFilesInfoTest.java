@@ -23,16 +23,17 @@ import com.facebook.buck.android.exopackage.ExopackageInfo.DexInfo;
 import com.facebook.buck.android.exopackage.ExopackageMode;
 import com.facebook.buck.android.packageable.AndroidPackageableCollection;
 import com.facebook.buck.android.packageable.AndroidPackageableCollector;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.util.concurrent.MoreExecutors;
@@ -68,7 +69,8 @@ public class AndroidBinaryFilesInfoTest {
         new DexFilesInfo(
             FakeSourcePath.of("primary.dex"),
             ImmutableSortedSet.of(FakeSourcePath.of("secondary_dexes")),
-            Optional.empty());
+            Optional.empty(),
+            ImmutableMap.of());
     AndroidGraphEnhancementResult enhancementResult =
         AndroidGraphEnhancementResult.builder()
             .setDexMergeRule(Either.ofLeft(preDexMerge))
@@ -117,7 +119,8 @@ public class AndroidBinaryFilesInfoTest {
               /* primaryDexScenarioFile */ Optional.empty(),
               /* isPrimaryDexScenarioOverflowAllowed */ false,
               /* secondaryDexHeadClassesFile */ Optional.empty(),
-              /* secondaryDexTailClassesFile */ Optional.empty()),
+              /* secondaryDexTailClassesFile */ Optional.empty(),
+              /* allowRDotJavaInSecondaryDex */ false),
           apkModuleGraph,
           null,
           MoreExecutors.newDirectExecutorService(),

@@ -72,12 +72,17 @@ public class SimpleTestSelector implements TestSelector {
     if (className == null) {
       return true;
     }
-    int indexOfInnerClassSeparator = this.className.indexOf('$');
-    boolean outerClassMatches =
-        indexOfInnerClassSeparator != -1
-            && Objects.equals(
-                this.className.substring(0, indexOfInnerClassSeparator), thatClassName);
-    return outerClassMatches || Objects.equals(this.className, thatClassName);
+    return Objects.equals(this.className, thatClassName);
+  }
+
+  @Override
+  public boolean containsClassPath(String classPath) {
+    // classpath of com.example.A should match selectors matching com.example.A and
+    // com.example.A.Inner
+    if (className == null) {
+      return true;
+    }
+    return className.startsWith(classPath);
   }
 
   private boolean matchesMethodName(String thatMethodName) {

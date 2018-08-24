@@ -21,11 +21,11 @@ import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.module.BuckModuleManager;
+import com.facebook.buck.core.module.BuckModuleManager;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
-import com.facebook.buck.util.MoreStrings;
 import com.facebook.buck.util.MoreStringsForTests;
+import com.facebook.buck.util.string.MoreStrings;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;

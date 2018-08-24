@@ -23,13 +23,12 @@ import com.facebook.buck.apple.toolchain.CodeSignIdentityStore;
 import com.facebook.buck.apple.toolchain.ProvisioningProfileStore;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
-import com.facebook.buck.core.description.BuildRuleParams;
-import com.facebook.buck.core.description.DescriptionCache;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.MetadataProvidingDescription;
 import com.facebook.buck.core.description.arg.HasContacts;
 import com.facebook.buck.core.description.arg.HasTestTimeout;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
+import com.facebook.buck.core.description.impl.DescriptionCache;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
@@ -37,15 +36,18 @@ import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.FlavorDomainException;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
@@ -65,12 +67,11 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
+import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.SwiftRuntimeNativeLinkable;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.unarchive.UnzipStep;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.types.Either;
@@ -118,19 +119,24 @@ public class AppleTestDescription
       ImmutableSet.of(
           CxxCompilationDatabase.COMPILATION_DATABASE,
           CxxDescriptionEnhancer.HEADER_SYMLINK_TREE_FLAVOR,
-          CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR,
-          CxxDescriptionEnhancer.SANDBOX_TREE_FLAVOR);
+          CxxDescriptionEnhancer.EXPORTED_HEADER_SYMLINK_TREE_FLAVOR);
 
   private final ToolchainProvider toolchainProvider;
+  private final XCodeDescriptions xcodeDescriptions;
   private final AppleConfig appleConfig;
+  private final SwiftBuckConfig swiftBuckConfig;
   private final AppleLibraryDescription appleLibraryDescription;
 
   public AppleTestDescription(
       ToolchainProvider toolchainProvider,
+      XCodeDescriptions xcodeDescriptions,
       AppleConfig appleConfig,
+      SwiftBuckConfig swiftBuckConfig,
       AppleLibraryDescription appleLibraryDescription) {
     this.toolchainProvider = toolchainProvider;
+    this.xcodeDescriptions = xcodeDescriptions;
     this.appleConfig = appleConfig;
+    this.swiftBuckConfig = swiftBuckConfig;
     this.appleLibraryDescription = appleLibraryDescription;
   }
 
@@ -280,6 +286,7 @@ public class AppleTestDescription
 
     AppleBundle bundle =
         AppleDescriptions.createAppleBundle(
+            xcodeDescriptions,
             getCxxPlatformsProvider(),
             appleCxxPlatformFlavorDomain,
             context.getTargetGraph(),
@@ -316,7 +323,8 @@ public class AppleTestDescription
             args.getCodesignFlags(),
             args.getCodesignIdentity(),
             Optional.empty(),
-            appleConfig.getCodesignTimeout());
+            appleConfig.getCodesignTimeout(),
+            swiftBuckConfig.getCopyStdlibToFrameworks());
     graphBuilder.addToIndex(bundle);
 
     Optional<SourcePath> xctool = getXctool(projectFilesystem, params, graphBuilder);
@@ -381,7 +389,7 @@ public class AppleTestDescription
               .withAppendedFlavors(UNZIP_XCTOOL_FLAVOR)
               .withAppendedFlavors(InternalFlavor.of(sha1Hash));
       Path outputDirectory =
-          BuildTargets.getGenPath(projectFilesystem, unzipXctoolTarget, "%s/unzipped");
+          BuildTargetPaths.getGenPath(projectFilesystem, unzipXctoolTarget, "%s/unzipped");
       graphBuilder.computeIfAbsent(
           unzipXctoolTarget,
           ignored -> {
@@ -516,7 +524,7 @@ public class AppleTestDescription
           buildTarget,
           testHostKeyName,
           testHostBuildTarget,
-          DescriptionCache.getBuildRuleType(AppleBundleDescription.class));
+          DescriptionCache.getRuleType(AppleBundleDescription.class));
     }
     return (AppleBundle) rule;
   }

@@ -21,15 +21,17 @@ import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
-import com.facebook.buck.toolchain.impl.ToolchainProviderBuilder;
+import com.facebook.buck.rules.macros.StringWithMacros;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -97,13 +99,13 @@ public class PrebuiltCxxLibraryBuilder
     return this;
   }
 
-  public PrebuiltCxxLibraryBuilder setExportedHeaders(SourceList exportedHeaders) {
+  public PrebuiltCxxLibraryBuilder setExportedHeaders(SourceSortedSet exportedHeaders) {
     getArgForPopulating().setExportedHeaders(exportedHeaders);
     return this;
   }
 
   public PrebuiltCxxLibraryBuilder setExportedPlatformHeaders(
-      PatternMatchedCollection<SourceList> collection) {
+      PatternMatchedCollection<SourceSortedSet> collection) {
     getArgForPopulating().setExportedPlatformHeaders(collection);
     return this;
   }
@@ -155,6 +157,34 @@ public class PrebuiltCxxLibraryBuilder
 
   public PrebuiltCxxLibraryBuilder setPreferredLinkage(NativeLinkable.Linkage linkage) {
     getArgForPopulating().setPreferredLinkage(linkage);
+    return this;
+  }
+
+  public PrebuiltCxxLibraryBuilder setExportedPreprocessorFlags(
+      ImmutableList<StringWithMacros> exportedPreprocessorFlags) {
+    getArgForPopulating().setExportedPreprocessorFlags(exportedPreprocessorFlags);
+    return this;
+  }
+
+  public PrebuiltCxxLibraryBuilder setExportedPlatformPreprocessorFlags(
+      PatternMatchedCollection<ImmutableList<StringWithMacros>> exportedPlatformPreprocessorFlags) {
+    getArgForPopulating().setExportedPlatformPreprocessorFlags(exportedPlatformPreprocessorFlags);
+    return this;
+  }
+
+  public PrebuiltCxxLibraryBuilder setExportedLangPlatformPreprocessorFlags(
+      ImmutableMap<
+              AbstractCxxSource.Type, PatternMatchedCollection<ImmutableList<StringWithMacros>>>
+          exportedLangPlatformPreprocessorFlags) {
+    getArgForPopulating()
+        .setExportedLangPlatformPreprocessorFlags(exportedLangPlatformPreprocessorFlags);
+    return this;
+  }
+
+  public PrebuiltCxxLibraryBuilder setVersionedExportedPreprocessorFlags(
+      VersionMatchedCollection<ImmutableList<StringWithMacros>>
+          versionedExportedPreprocessorFlags) {
+    getArgForPopulating().setVersionedExportedPreprocessorFlags(versionedExportedPreprocessorFlags);
     return this;
   }
 }

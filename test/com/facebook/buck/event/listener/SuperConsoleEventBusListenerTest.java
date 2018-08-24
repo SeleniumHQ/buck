@@ -28,19 +28,22 @@ import com.facebook.buck.artifact_cache.DirArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEvent;
 import com.facebook.buck.artifact_cache.HttpArtifactCacheEventFetchData;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.build.engine.BuildRuleStatus;
 import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.build.engine.type.UploadToCacheResultType;
 import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.test.event.TestRunEvent;
 import com.facebook.buck.core.test.event.TestSummaryEvent;
 import com.facebook.buck.distributed.DistBuildStatus;
 import com.facebook.buck.distributed.DistBuildStatusEvent;
+import com.facebook.buck.distributed.DistributedExitCode;
 import com.facebook.buck.distributed.StampedeLocalBuildStatusEvent;
 import com.facebook.buck.distributed.build_client.DistBuildRemoteProgressEvent;
 import com.facebook.buck.distributed.build_client.DistBuildSuperConsoleEvent;
@@ -65,7 +68,6 @@ import com.facebook.buck.event.ProgressEvent;
 import com.facebook.buck.event.ProjectGenerationEvent;
 import com.facebook.buck.event.WatchmanStatusEvent;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.ParseEvent;
 import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.keys.FakeRuleKeyFactory;
@@ -382,7 +384,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.ignored(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-                false,
+                UploadToCacheResultType.UNCACHEABLE,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -430,7 +432,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.hit(ArtifactCacheMode.dir.name(), ArtifactCacheMode.dir),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.FETCHED_FROM_CACHE),
-                false,
+                UploadToCacheResultType.UNCACHEABLE,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -725,7 +727,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-                false,
+                UploadToCacheResultType.UNCACHEABLE,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -773,7 +775,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-                false,
+                UploadToCacheResultType.UNCACHEABLE,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -970,7 +972,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-                false,
+                UploadToCacheResultType.UNCACHEABLE,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -1151,7 +1153,7 @@ public class SuperConsoleEventBusListenerTest {
                     ArtifactCacheMode.thrift_over_http.name(), ArtifactCacheMode.thrift_over_http),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.FETCHED_FROM_CACHE),
-                false,
+                UploadToCacheResultType.UNCACHEABLE,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -1242,7 +1244,7 @@ public class SuperConsoleEventBusListenerTest {
     eventBus.postWithoutConfiguring(
         configureTestEventAtTime(
             BuildEvent.distBuildFinished(
-                distBuildStartedEvent, com.facebook.buck.distributed.ExitCode.SUCCESSFUL.getCode()),
+                distBuildStartedEvent, DistributedExitCode.SUCCESSFUL.getCode()),
             timeMillis,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
@@ -1553,7 +1555,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-                false,
+                UploadToCacheResultType.UNCACHEABLE,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -1741,7 +1743,7 @@ public class SuperConsoleEventBusListenerTest {
             testingLine),
         ImmutableList.of(),
         Optional.of(
-            Joiner.on('\n')
+            Joiner.on(System.lineSeparator())
                 .join(
                     "RESULTS FOR ALL TESTS",
                     "PASS    <100ms  1 Passed   0 Skipped   0 Failed   TestClass",
@@ -1840,7 +1842,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-                false,
+                UploadToCacheResultType.UNCACHEABLE,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -2029,7 +2031,7 @@ public class SuperConsoleEventBusListenerTest {
             testingLine),
         ImmutableList.of(),
         Optional.of(
-            Joiner.on('\n')
+            Joiner.on(System.lineSeparator())
                 .join(
                     "RESULTS FOR ALL TESTS",
                     "ASSUME  <100ms  0 Passed   1 Skipped   0 Failed   TestClass",
@@ -2146,7 +2148,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-                false,
+                UploadToCacheResultType.UNCACHEABLE,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -2335,7 +2337,7 @@ public class SuperConsoleEventBusListenerTest {
             testingLine),
         ImmutableList.of(),
         Optional.of(
-            Joiner.on('\n')
+            Joiner.on(System.lineSeparator())
                 .join(
                     "RESULTS FOR ALL TESTS",
                     "FAIL    <100ms  0 Passed   0 Skipped   1 Failed   TestClass",
@@ -2478,7 +2480,7 @@ public class SuperConsoleEventBusListenerTest {
                 CacheResult.miss(),
                 Optional.empty(),
                 Optional.of(BuildRuleSuccessType.BUILT_LOCALLY),
-                false,
+                UploadToCacheResultType.UNCACHEABLE,
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),

@@ -16,7 +16,9 @@
 
 package com.facebook.buck.test.selectors;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 import org.hamcrest.Matchers;
 import org.junit.Test;
@@ -55,5 +57,25 @@ public class SimpleTestSelectorTest {
     TestSelector testSelector = new SimpleTestSelector("Suite1", methodName);
     TestDescription desc = new TestDescription("Suite2", methodName);
     assertThat(desc, Matchers.not(new TestSelectorMatcher(testSelector)));
+  }
+
+  @Test
+  public void shouldMatchClassPathWithOrWithoutInnerClass() {
+    TestSelector selector = new SimpleTestSelector("com.example.Foo", "");
+    assertTrue(selector.containsClassPath("com.example.Foo"));
+    assertFalse(selector.containsClassPath("Foo"));
+
+    selector = new SimpleTestSelector("com.example.Foo$Inner", "");
+    assertTrue(selector.containsClassPath("com.example.Foo"));
+    assertFalse(selector.containsClassPath("Foo"));
+  }
+
+  @Test
+  public void shouldMatchOnlyNestedClass() {
+    TestSelector selector = new SimpleTestSelector("com.example.Foo$InnerTest", "");
+    assertTrue(selector.matchesClassName("com.example.Foo$InnerTest"));
+    assertFalse(selector.matchesClassName("com.example.Foo"));
+    assertFalse(selector.matchesClassName("com.example.Foo$OtherInner"));
+    assertFalse(selector.matchesClassName("com.Foo$InnerTest"));
   }
 }

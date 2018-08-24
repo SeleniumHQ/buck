@@ -29,10 +29,10 @@ import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.DefaultBuckEventBus;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
@@ -756,5 +756,197 @@ public class MiniAaptTest {
             new FakeRDotTxtEntry(IdType.INT, RType.ATTR, "attr2_2"),
             new FakeRDotTxtEntry(IdType.INT, RType.ATTR, "attr2_3")),
         resources);
+  }
+
+  @Test
+  public void ignoresValidPublicResourceType() throws IOException, ResourceParseException {
+    ImmutableList<String> lines =
+        ImmutableList.<String>builder()
+            .add(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+                "<resources>",
+                "<public name=\"some_resource_name\" type=\"string\"/>",
+                "</resources>")
+            .build();
+
+    filesystem.writeLinesToPath(lines, Paths.get("public.xml"));
+
+    MiniAapt aapt =
+        new MiniAapt(
+            resolver,
+            filesystem,
+            FakeSourcePath.of(filesystem, "res"),
+            Paths.get("R.txt"),
+            ImmutableSet.of());
+
+    aapt.processValuesFile(filesystem, Paths.get("public.xml"));
+  }
+
+  @Test
+  public void invalidPublicResourceWithNoName() throws IOException, ResourceParseException {
+    thrown.expect(ResourceParseException.class);
+    thrown.expectMessage(
+        "Error parsing file 'public.xml', expected a 'name' attribute in \n" + "'[public: null]'");
+
+    ImmutableList<String> lines =
+        ImmutableList.<String>builder()
+            .add(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+                "<resources>",
+                "<public type=\"string\"/>",
+                "</resources>")
+            .build();
+
+    filesystem.writeLinesToPath(lines, Paths.get("public.xml"));
+
+    MiniAapt aapt =
+        new MiniAapt(
+            resolver,
+            filesystem,
+            FakeSourcePath.of(filesystem, "res"),
+            Paths.get("R.txt"),
+            ImmutableSet.of());
+
+    aapt.processValuesFile(filesystem, Paths.get("public.xml"));
+  }
+
+  @Test
+  public void invalidPublicResourceWithEmptyName() throws IOException, ResourceParseException {
+    thrown.expect(ResourceParseException.class);
+    thrown.expectMessage(
+        "Error parsing file 'public.xml', expected a 'name' attribute in \n" + "'[public: null]'");
+
+    ImmutableList<String> lines =
+        ImmutableList.<String>builder()
+            .add(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+                "<resources>",
+                "<public name=\"\" type=\"string\"/>",
+                "</resources>")
+            .build();
+
+    filesystem.writeLinesToPath(lines, Paths.get("public.xml"));
+
+    MiniAapt aapt =
+        new MiniAapt(
+            resolver,
+            filesystem,
+            FakeSourcePath.of(filesystem, "res"),
+            Paths.get("R.txt"),
+            ImmutableSet.of());
+
+    aapt.processValuesFile(filesystem, Paths.get("public.xml"));
+  }
+
+  @Test
+  public void invalidPublicResourceWithNoType() throws IOException, ResourceParseException {
+    thrown.expect(ResourceParseException.class);
+    thrown.expectMessage(
+        "Error parsing file 'public.xml', expected a 'type' attribute in: \n" + "'[public: null]'");
+
+    ImmutableList<String> lines =
+        ImmutableList.<String>builder()
+            .add(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+                "<resources>",
+                "<public name=\"some_resource_name\"/>",
+                "</resources>")
+            .build();
+
+    filesystem.writeLinesToPath(lines, Paths.get("public.xml"));
+
+    MiniAapt aapt =
+        new MiniAapt(
+            resolver,
+            filesystem,
+            FakeSourcePath.of(filesystem, "res"),
+            Paths.get("R.txt"),
+            ImmutableSet.of());
+
+    aapt.processValuesFile(filesystem, Paths.get("public.xml"));
+  }
+
+  @Test
+  public void invalidPublicResourceWithEmptyType() throws IOException, ResourceParseException {
+    thrown.expect(ResourceParseException.class);
+    thrown.expectMessage(
+        "Error parsing file 'public.xml', expected a 'type' attribute in: \n" + "'[public: null]'");
+
+    ImmutableList<String> lines =
+        ImmutableList.<String>builder()
+            .add(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+                "<resources>",
+                "<public name=\"some_resource_name\" type=\"\"/>",
+                "</resources>")
+            .build();
+
+    filesystem.writeLinesToPath(lines, Paths.get("public.xml"));
+
+    MiniAapt aapt =
+        new MiniAapt(
+            resolver,
+            filesystem,
+            FakeSourcePath.of(filesystem, "res"),
+            Paths.get("R.txt"),
+            ImmutableSet.of());
+
+    aapt.processValuesFile(filesystem, Paths.get("public.xml"));
+  }
+
+  @Test
+  public void invalidPublicResourceWithUnknownType() throws IOException, ResourceParseException {
+    thrown.expect(ResourceParseException.class);
+    thrown.expectMessage(
+        "Invalid resource type 'unknown_type' in <public> resource 'some_resource_name' in file 'public.xml'");
+
+    ImmutableList<String> lines =
+        ImmutableList.<String>builder()
+            .add(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+                "<resources>",
+                "<public name=\"some_resource_name\" type=\"unknown_type\"/>",
+                "</resources>")
+            .build();
+
+    filesystem.writeLinesToPath(lines, Paths.get("public.xml"));
+
+    MiniAapt aapt =
+        new MiniAapt(
+            resolver,
+            filesystem,
+            FakeSourcePath.of(filesystem, "res"),
+            Paths.get("R.txt"),
+            ImmutableSet.of());
+
+    aapt.processValuesFile(filesystem, Paths.get("public.xml"));
+  }
+
+  @Test
+  public void validPublicResourceTypeInInvalidFile() throws IOException, ResourceParseException {
+    thrown.expect(ResourceParseException.class);
+    thrown.expectMessage(
+        "<public> resource 'some_resource_name' must be declared in res/values/public.xml, but was declared in 'non-public.xml'");
+
+    ImmutableList<String> lines =
+        ImmutableList.<String>builder()
+            .add(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+                "<resources>",
+                "<public name=\"some_resource_name\" type=\"string\"/>",
+                "</resources>")
+            .build();
+
+    filesystem.writeLinesToPath(lines, Paths.get("non-public.xml"));
+
+    MiniAapt aapt =
+        new MiniAapt(
+            resolver,
+            filesystem,
+            FakeSourcePath.of(filesystem, "res"),
+            Paths.get("R.txt"),
+            ImmutableSet.of());
+
+    aapt.processValuesFile(filesystem, Paths.get("non-public.xml"));
   }
 }

@@ -43,13 +43,12 @@ abstract class AbstractTargetNodePredicateSpec implements TargetNodeSpec {
   }
 
   @Override
-  public ImmutableMap<BuildTarget, Optional<TargetNode<?, ?>>> filter(
-      Iterable<TargetNode<?, ?>> nodes) {
-    ImmutableMap.Builder<BuildTarget, Optional<TargetNode<?, ?>>> resultBuilder =
+  public ImmutableMap<BuildTarget, Optional<TargetNode<?>>> filter(Iterable<TargetNode<?>> nodes) {
+    ImmutableMap.Builder<BuildTarget, Optional<TargetNode<?>>> resultBuilder =
         ImmutableMap.builder();
 
-    for (TargetNode<?, ?> node : nodes) {
-      if (!onlyTests() || node.getBuildRuleType().isTestRule()) {
+    for (TargetNode<?> node : nodes) {
+      if (!onlyTests() || node.getRuleType().isTestRule()) {
         resultBuilder.put(node.getBuildTarget(), Optional.of(node));
       }
     }

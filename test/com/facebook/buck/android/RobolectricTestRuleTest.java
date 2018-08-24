@@ -21,8 +21,9 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.facebook.buck.config.FakeBuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -31,14 +32,13 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -115,7 +115,7 @@ public class RobolectricTestRuleTest {
         BuildTargetFactory.newInstance(
             "//java/src/com/facebook/base/robolectricTest:robolectricTest");
 
-    TargetNode<?, ?> robolectricTestNode =
+    TargetNode<?> robolectricTestNode =
         RobolectricTestBuilder.createBuilder(robolectricBuildTarget, filesystem).build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(robolectricTestNode);
@@ -159,7 +159,7 @@ public class RobolectricTestRuleTest {
                 .setSections("[test]", "pass_robolectric_directories_in_file = true")
                 .build());
 
-    TargetNode<?, ?> robolectricTestNode =
+    TargetNode<?> robolectricTestNode =
         RobolectricTestBuilder.createBuilder(robolectricBuildTarget, filesystem, javaBuckConfig)
             .build();
 
@@ -202,7 +202,7 @@ public class RobolectricTestRuleTest {
                 .setSections("[test]", "pass_robolectric_directories_in_file = true")
                 .build());
 
-    TargetNode<?, ?> robolectricTestNode =
+    TargetNode<?> robolectricTestNode =
         RobolectricTestBuilder.createBuilder(robolectricBuildTarget, filesystem, javaBuckConfig)
             .build();
 
@@ -250,7 +250,7 @@ public class RobolectricTestRuleTest {
         BuildTargetFactory.newInstance(
             "//java/src/com/facebook/base/robolectricTest:robolectricTest");
 
-    TargetNode<?, ?> robolectricTestNode =
+    TargetNode<?> robolectricTestNode =
         RobolectricTestBuilder.createBuilder(robolectricBuildTarget, filesystem).build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(robolectricTestNode);
@@ -283,7 +283,7 @@ public class RobolectricTestRuleTest {
     BuildTarget robolectricBuildTarget =
         BuildTargetFactory.newInstance(
             "//java/src/com/facebook/base/robolectricTest:robolectricTest");
-    TargetNode<?, ?> robolectricTestNode =
+    TargetNode<?> robolectricTestNode =
         RobolectricTestBuilder.createBuilder(robolectricBuildTarget, filesystem).build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(robolectricTestNode);
@@ -330,7 +330,7 @@ public class RobolectricTestRuleTest {
         BuildTargetFactory.newInstance(
             "//java/src/com/facebook/base/robolectricTest:robolectricTest");
 
-    TargetNode<?, ?> robolectricTestNode =
+    TargetNode<?> robolectricTestNode =
         RobolectricTestBuilder.createBuilder(robolectricBuildTarget, filesystem).build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(robolectricTestNode);
@@ -362,7 +362,7 @@ public class RobolectricTestRuleTest {
     BuildTarget robolectricBuildTarget =
         BuildTargetFactory.newInstance(
             "//java/src/com/facebook/base/robolectricTest:robolectricTest");
-    TargetNode<?, ?> robolectricTestNode =
+    TargetNode<?> robolectricTestNode =
         RobolectricTestBuilder.createBuilder(robolectricBuildTarget, filesystem).build();
 
     TargetGraph targetGraph = TargetGraphFactory.newInstance(robolectricTestNode);
@@ -390,15 +390,15 @@ public class RobolectricTestRuleTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem(temporaryFolder.getRoot());
 
     BuildTarget resGenRuleTarget = BuildTargetFactory.newInstance("//:res-gen");
-    TargetNode<?, ?> resGenRuleNode =
+    TargetNode<?> resGenRuleNode =
         GenruleBuilder.newGenruleBuilder(resGenRuleTarget).setOut("res-out").build();
 
     BuildTarget assetsGenRuleTarget = BuildTargetFactory.newInstance("//:assets-gen");
-    TargetNode<?, ?> assetsGenRuleNode =
+    TargetNode<?> assetsGenRuleNode =
         GenruleBuilder.newGenruleBuilder(assetsGenRuleTarget).setOut("assets-out").build();
 
     BuildTarget res2RuleTarget = BuildTargetFactory.newInstance("//:res2");
-    TargetNode<?, ?> res2Node =
+    TargetNode<?> res2Node =
         AndroidResourceBuilder.createBuilder(res2RuleTarget)
             .setRes(DefaultBuildTargetSourcePath.of(resGenRuleTarget))
             .setAssets(DefaultBuildTargetSourcePath.of(assetsGenRuleTarget))
@@ -408,7 +408,7 @@ public class RobolectricTestRuleTest {
     BuildTarget robolectricBuildTarget =
         BuildTargetFactory.newInstance(
             "//java/src/com/facebook/base/robolectricTest:robolectricTest");
-    TargetNode<?, ?> robolectricTestNode =
+    TargetNode<?> robolectricTestNode =
         RobolectricTestBuilder.createBuilder(robolectricBuildTarget, filesystem)
             .addDep(res2RuleTarget)
             .build();

@@ -20,9 +20,10 @@ import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.build.event.BuildEvent.DistBuildStarted;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.distributed.DistBuildService;
 import com.facebook.buck.distributed.DistLocalBuildMode;
-import com.facebook.buck.distributed.ExitCode;
+import com.facebook.buck.distributed.DistributedExitCode;
 import com.facebook.buck.distributed.thrift.BuildJobState;
 import com.facebook.buck.distributed.thrift.BuildMode;
 import com.facebook.buck.distributed.thrift.BuildStatus;
@@ -32,7 +33,6 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.log.Logger;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.types.Pair;
@@ -47,6 +47,7 @@ import java.util.logging.Level;
 /** High level controls the distributed build. */
 public class DistBuildController {
   private static final Logger LOG = Logger.get(DistBuildController.class);
+  private static final int MISMATCHING_RULE_PRINT_LIMIT = 100;
 
   private final BuckEventBus eventBus;
   private final ConsoleEventsDispatcher consoleEventsDispatcher;
@@ -58,17 +59,6 @@ public class DistBuildController {
 
   private final ListenableFuture<BuildJobState> asyncJobState;
   private final AtomicReference<StampedeId> stampedeIdReference;
-
-  /** Result of a distributed build execution. */
-  public static class ExecutionResult {
-    public final StampedeId stampedeId;
-    public final int exitCode;
-
-    public ExecutionResult(StampedeId stampedeId, int exitCode) {
-      this.stampedeId = stampedeId;
-      this.exitCode = exitCode;
-    }
-  }
 
   public DistBuildController(DistBuildControllerArgs args) {
     this.stampedeIdReference = args.getStampedeIdReference();
@@ -111,7 +101,7 @@ public class DistBuildController {
   }
 
   /** Executes the tbuild and prints failures to the event bus. */
-  public ExecutionResult executeAndPrintFailuresToEventBus(
+  public StampedeExecutionResult executeAndPrintFailuresToEventBus(
       ListeningExecutorService executorService,
       ProjectFilesystem projectFilesystem,
       FileHashCache fileHashCache,
@@ -144,11 +134,11 @@ public class DistBuildController {
               ConsoleEvent.createForMessageWithAnsiEscapeCodes(
                   Level.WARNING, console.getAnsi().asWarningText(ex.getMessage()))));
       return createFailedExecutionResult(
-          Preconditions.checkNotNull(stampedeIdReference.get()), ExitCode.PREPARATION_STEP_FAILED);
+          DistributedExitCode.PREPARATION_STEP_FAILED, "preparation", ex, true);
     } catch (IOException | RuntimeException ex) {
       LOG.error(ex, "Distributed build preparation steps failed.");
       return createFailedExecutionResult(
-          Preconditions.checkNotNull(stampedeIdReference.get()), ExitCode.PREPARATION_STEP_FAILED);
+          DistributedExitCode.PREPARATION_STEP_FAILED, "preparation", ex);
     }
 
     stampedeIdReference.set(stampedeIdAndPendingPrepFuture.getFirst());
@@ -165,7 +155,7 @@ public class DistBuildController {
     } catch (ExecutionException ex) {
       LOG.error(ex, "Distributed build preparation async steps failed.");
       return createFailedExecutionResult(
-          stampedeIdReference.get(), ExitCode.PREPARATION_ASYNC_STEP_FAILED);
+          DistributedExitCode.PREPARATION_ASYNC_STEP_FAILED, "async preparation", ex);
     }
 
     BuildPhase.BuildResult buildResult = null;
@@ -179,20 +169,54 @@ public class DistBuildController {
               distLocalBuildMode,
               invocationInfo,
               ruleKeyCalculatorFuture);
-    } catch (IOException | RuntimeException ex) { // Important: Don't swallow InterruptedException
+    } catch (IOException
+        | ExecutionException
+        | RuntimeException ex) { // Important: Don't swallow InterruptedException
       // Don't print an error here, because we might have failed due to local finishing first.
       LOG.warn(ex, "Distributed build step failed.");
       return createFailedExecutionResult(
-          Preconditions.checkNotNull(stampedeIdReference.get()),
-          ExitCode.DISTRIBUTED_BUILD_STEP_LOCAL_EXCEPTION);
+          DistributedExitCode.DISTRIBUTED_BUILD_STEP_LOCAL_EXCEPTION, "build", ex);
     }
 
     // In the case of Fire-and-Forget mode do not run post-build steps.
     if (distLocalBuildMode.equals(DistLocalBuildMode.FIRE_AND_FORGET)) {
       LOG.info("Fire-and-forget mode enabled, exiting with default code.");
-      eventBus.post(BuildEvent.distBuildFinished(startedEvent, ExitCode.SUCCESSFUL.getCode()));
-      return new ExecutionResult(
-          buildResult.getFinalBuildJob().stampedeId, ExitCode.SUCCESSFUL.getCode());
+      eventBus.post(
+          BuildEvent.distBuildFinished(startedEvent, DistributedExitCode.SUCCESSFUL.getCode()));
+      return StampedeExecutionResult.of(DistributedExitCode.SUCCESSFUL);
+    } else if (distLocalBuildMode.equals(DistLocalBuildMode.RULE_KEY_DIVERGENCE_CHECK)) {
+      boolean ruleKeysMismatched = buildResult.getMismatchingBuildTargets().size() > 0;
+
+      LOG.info("Rule key divergence check finished. Divergence detected: %s", ruleKeysMismatched);
+
+      if (ruleKeysMismatched) {
+        eventBus.post(
+            ConsoleEvent.severe(
+                "*** [%d] default rule keys mismatched between client and server. *** \nMismatching rule keys:",
+                buildResult.getMismatchingBuildTargets().size()));
+      } else {
+        eventBus.post(
+            ConsoleEvent.info("*** All rule keys matched between client and server ***:"));
+      }
+
+      // Outputs up to first 100 mismatching rules
+      int rulesPrinted = 0;
+      for (String mismatchingRule : buildResult.getMismatchingBuildTargets()) {
+        if (rulesPrinted == MISMATCHING_RULE_PRINT_LIMIT) {
+          eventBus.post(ConsoleEvent.severe(".... Further mismatches truncated"));
+          break;
+        }
+        eventBus.post(ConsoleEvent.severe("MISMATCHING RULE: %s", mismatchingRule));
+        rulesPrinted++;
+      }
+
+      DistributedExitCode exitCode =
+          ruleKeysMismatched
+              ? DistributedExitCode.RULE_KEY_CONSISTENCY_CHECK_FAILED
+              : DistributedExitCode.SUCCESSFUL;
+      eventBus.post(BuildEvent.distBuildFinished(startedEvent, exitCode.getCode()));
+      return StampedeExecutionResult.of(exitCode);
+
     } else {
       // Send DistBuildFinished event if we reach this point without throwing.
       boolean buildSuccess =
@@ -200,7 +224,9 @@ public class DistBuildController {
       eventBus.post(
           BuildEvent.distBuildFinished(
               startedEvent,
-              buildSuccess ? 0 : ExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE.getCode()));
+              buildSuccess
+                  ? 0
+                  : DistributedExitCode.DISTRIBUTED_BUILD_STEP_REMOTE_FAILURE.getCode()));
 
       // Note: always returns distributed exit code 0
       // TODO(alisdair,ruibm,shivanker): consider new exit code if failed to fetch finished stats
@@ -212,10 +238,21 @@ public class DistBuildController {
     }
   }
 
-  private ExecutionResult createFailedExecutionResult(StampedeId stampedeId, ExitCode exitCode) {
+  private StampedeExecutionResult createFailedExecutionResult(
+      DistributedExitCode exitCode, String failureStage, Throwable ex) {
+    return createFailedExecutionResult(exitCode, failureStage, ex, false);
+  }
+
+  private StampedeExecutionResult createFailedExecutionResult(
+      DistributedExitCode exitCode, String failureStage, Throwable ex, boolean handleGracefully) {
     LOG.warn("Stampede failed. Cancel async job state computation if that's still going on.");
     asyncJobState.cancel(true);
     eventBus.post(BuildEvent.distBuildFinished(startedEvent, exitCode.getCode()));
-    return new ExecutionResult(stampedeId, exitCode.getCode());
+    return StampedeExecutionResult.builder()
+        .setExitCode(exitCode)
+        .setException(ex)
+        .setErrorStage(failureStage)
+        .setHandleGracefully(handleGracefully)
+        .build();
   }
 }

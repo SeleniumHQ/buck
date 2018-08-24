@@ -17,8 +17,8 @@
 package com.facebook.buck.core.model.targetgraph;
 
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.graph.MutableDirectedGraph;
-import com.facebook.buck.model.ImmutableBuildTarget;
+import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
+import com.facebook.buck.core.util.graph.MutableDirectedGraph;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -29,9 +29,9 @@ public class TargetGraphFactory {
 
   private TargetGraphFactory() {}
 
-  public static TargetGraph newInstance(Iterable<TargetNode<?, ?>> nodes) {
-    Map<BuildTarget, TargetNode<?, ?>> builder = new HashMap<>();
-    for (TargetNode<?, ?> node : nodes) {
+  public static TargetGraph newInstance(Iterable<TargetNode<?>> nodes) {
+    Map<BuildTarget, TargetNode<?>> builder = new HashMap<>();
+    for (TargetNode<?> node : nodes) {
       builder.put(node.getBuildTarget(), node);
       BuildTarget unflavoredTarget =
           ImmutableBuildTarget.of(node.getBuildTarget().getUnflavoredBuildTarget());
@@ -39,10 +39,10 @@ public class TargetGraphFactory {
         builder.put(unflavoredTarget, node.withFlavors(ImmutableSet.of()));
       }
     }
-    ImmutableMap<BuildTarget, TargetNode<?, ?>> map = ImmutableMap.copyOf(builder);
+    ImmutableMap<BuildTarget, TargetNode<?>> map = ImmutableMap.copyOf(builder);
 
-    MutableDirectedGraph<TargetNode<?, ?>> graph = new MutableDirectedGraph<>();
-    for (TargetNode<?, ?> node : map.values()) {
+    MutableDirectedGraph<TargetNode<?>> graph = new MutableDirectedGraph<>();
+    for (TargetNode<?> node : map.values()) {
       graph.addNode(node);
       for (BuildTarget dep : node.getBuildDeps()) {
         graph.addEdge(node, Preconditions.checkNotNull(map.get(dep), dep));
@@ -55,15 +55,15 @@ public class TargetGraphFactory {
    * Like {@link #newInstance(TargetNode[])} but does not also add a node for unflavored version of
    * the given node.
    */
-  public static TargetGraph newInstanceExact(TargetNode<?, ?>... nodes) {
-    Map<BuildTarget, TargetNode<?, ?>> builder = new HashMap<>();
-    for (TargetNode<?, ?> node : nodes) {
+  public static TargetGraph newInstanceExact(TargetNode<?>... nodes) {
+    Map<BuildTarget, TargetNode<?>> builder = new HashMap<>();
+    for (TargetNode<?> node : nodes) {
       builder.put(node.getBuildTarget(), node);
     }
-    ImmutableMap<BuildTarget, TargetNode<?, ?>> map = ImmutableMap.copyOf(builder);
+    ImmutableMap<BuildTarget, TargetNode<?>> map = ImmutableMap.copyOf(builder);
 
-    MutableDirectedGraph<TargetNode<?, ?>> graph = new MutableDirectedGraph<>();
-    for (TargetNode<?, ?> node : map.values()) {
+    MutableDirectedGraph<TargetNode<?>> graph = new MutableDirectedGraph<>();
+    for (TargetNode<?> node : map.values()) {
       graph.addNode(node);
       for (BuildTarget dep : node.getBuildDeps()) {
         graph.addEdge(node, Preconditions.checkNotNull(map.get(dep), dep));
@@ -72,7 +72,7 @@ public class TargetGraphFactory {
     return new TargetGraph(graph, map);
   }
 
-  public static TargetGraph newInstance(TargetNode<?, ?>... nodes) {
+  public static TargetGraph newInstance(TargetNode<?>... nodes) {
     return newInstance(ImmutableSet.copyOf(nodes));
   }
 }

@@ -20,14 +20,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.core.cell.name.RelativeCellName;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.jimfs.Configuration;
@@ -160,8 +159,8 @@ public class CellTest {
             .setFilesystem(filesystem1)
             .setCellConfigOverride(
                 CellConfig.builder()
-                    .put(RelativeCellName.fromComponents("second"), "test", "value", "cell2")
-                    .put(RelativeCellName.ALL_CELLS_SPECIAL_NAME, "test", "common_value", "all")
+                    .put(CellName.of("second"), "test", "value", "cell2")
+                    .put(CellName.ALL_CELLS_SPECIAL_NAME, "test", "common_value", "all")
                     .build())
             .build();
     BuildTarget target =

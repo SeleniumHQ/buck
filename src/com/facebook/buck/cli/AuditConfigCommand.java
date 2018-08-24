@@ -16,10 +16,10 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.config.BuckConfig;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.util.BuckCellArg;
+import com.facebook.buck.support.cli.args.BuckCellArg;
 import com.facebook.buck.util.DirtyPrintStreamDecorator;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.json.ObjectMappers;
@@ -99,7 +99,12 @@ public class AuditConfigCommand extends AbstractCommand {
               (section_name, section) ->
                   section.forEach(
                       (key, val) ->
-                          builder.add(ConfigValue.of(key, section_name, key, Optional.of(val)))));
+                          builder.add(
+                              ConfigValue.of(
+                                  String.join(".", section_name, key),
+                                  section_name,
+                                  key,
+                                  Optional.of(val)))));
     } else {
       // Dump specified sections/values
       getArguments()
@@ -197,7 +202,7 @@ public class AuditConfigCommand extends AbstractCommand {
       CommandRunnerParams params, ImmutableSortedSet<ConfigValue> configs) {
     ImmutableListMultimap<String, ConfigValue> iniData =
         FluentIterable.from(configs)
-            .filter(config -> config.getSection() != "" && config.getValue().isPresent())
+            .filter(config -> !config.getSection().isEmpty() && config.getValue().isPresent())
             .index(ConfigValue::getSection);
 
     for (Map.Entry<String, Collection<ConfigValue>> entry : iniData.asMap().entrySet()) {

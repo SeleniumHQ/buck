@@ -19,18 +19,18 @@ package com.facebook.buck.apple;
 import com.facebook.buck.apple.toolchain.AppleCxxPlatform;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
 import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
@@ -40,7 +40,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Optional;
 
 public class CoreDataModel extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
@@ -70,7 +69,7 @@ public class CoreDataModel extends AbstractBuildRuleWithDeclaredAndExtraDeps {
     this.moduleName = moduleName;
     this.dataModelPaths = dataModelPaths;
     String outputDirString =
-        BuildTargets.getGenPath(getProjectFilesystem(), buildTarget, "%s")
+        BuildTargetPaths.getGenPath(getProjectFilesystem(), buildTarget, "%s")
             .toString()
             .replace('#', '-'); // momc doesn't like # in paths
     this.outputDir = Paths.get(outputDirString);
@@ -90,7 +89,7 @@ public class CoreDataModel extends AbstractBuildRuleWithDeclaredAndExtraDeps {
                 context.getBuildCellRootPath(), getProjectFilesystem(), outputDir)));
     for (SourcePath dataModelPath : dataModelPaths) {
       stepsBuilder.add(
-          new ShellStep(Optional.of(getBuildTarget()), getProjectFilesystem().getRootPath()) {
+          new ShellStep(getProjectFilesystem().getRootPath()) {
             @Override
             protected ImmutableList<String> getShellCommandInternal(
                 ExecutionContext executionContext) {

@@ -23,35 +23,32 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildFileTree;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.impl.FilesystemBackedBuildFileTree;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
-import com.facebook.buck.core.rules.knowntypes.DefaultKnownBuildRuleTypesFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypes;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesFactory;
-import com.facebook.buck.core.rules.knowntypes.KnownBuildRuleTypesProvider;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.ExecutableFinder;
-import com.facebook.buck.model.BuildFileTree;
-import com.facebook.buck.model.BuildTargetFactory;
-import com.facebook.buck.model.FilesystemBackedBuildFileTree;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.parser.api.BuildFileManifest;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.rules.visibility.VisibilityPatternFactory;
-import com.facebook.buck.sandbox.TestSandboxExecutionStrategyFactory;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
-import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.concurrent.MostExecutors;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -122,12 +119,11 @@ public class ParsePipelineTest {
   public void speculativeDepsTraversal() throws Exception {
     Fixture fixture = createMultiThreadedFixture("pipeline_test");
     Cell cell = fixture.getCell();
-    TargetNode<?, ?> libTargetNode =
+    TargetNode<?> libTargetNode =
         fixture
             .getTargetNodeParsePipeline()
             .getNode(
                 cell,
-                fixture.getKnownBuildRuleTypes(),
                 BuildTargetFactory.newInstance(cell.getFilesystem().getRootPath(), "//:lib"),
                 new AtomicLong());
 
@@ -143,14 +139,10 @@ public class ParsePipelineTest {
   public void speculativeDepsTraversalWhenGettingAllNodes() throws Exception {
     Fixture fixture = createMultiThreadedFixture("pipeline_test");
     Cell cell = fixture.getCell();
-    ImmutableSet<TargetNode<?, ?>> libTargetNodes =
+    ImmutableSet<TargetNode<?>> libTargetNodes =
         fixture
             .getTargetNodeParsePipeline()
-            .getAllNodes(
-                cell,
-                fixture.getKnownBuildRuleTypes(),
-                fixture.getCell().getFilesystem().resolve("BUCK"),
-                new AtomicLong());
+            .getAllNodes(cell, fixture.getCell().getFilesystem().resolve("BUCK"), new AtomicLong());
     FluentIterable<BuildTarget> allDeps =
         FluentIterable.from(libTargetNodes).transformAndConcat(input -> input.getBuildDeps());
     waitForAll(
@@ -172,7 +164,6 @@ public class ParsePipelineTest {
           .getTargetNodeParsePipeline()
           .getNode(
               cell,
-              fixture.getKnownBuildRuleTypes(),
               BuildTargetFactory.newInstance(cell.getFilesystem().getRootPath(), "//:notthere"),
               new AtomicLong());
     }
@@ -187,11 +178,7 @@ public class ParsePipelineTest {
           stringContainsInOrder("Buck wasn't able to parse", "No such file or directory"));
       fixture
           .getTargetNodeParsePipeline()
-          .getAllNodes(
-              cell,
-              fixture.getKnownBuildRuleTypes(),
-              cell.getFilesystem().resolve("no/such/file/BUCK"),
-              new AtomicLong());
+          .getAllNodes(cell, cell.getFilesystem().resolve("no/such/file/BUCK"), new AtomicLong());
     }
   }
 
@@ -204,11 +191,7 @@ public class ParsePipelineTest {
           stringContainsInOrder("Buck wasn't able to parse", "No such file or directory"));
       fixture
           .getRawNodeParsePipeline()
-          .getAllNodes(
-              cell,
-              fixture.getKnownBuildRuleTypes(),
-              cell.getFilesystem().resolve("no/such/file/BUCK"),
-              new AtomicLong());
+          .getAllNodes(cell, cell.getFilesystem().resolve("no/such/file/BUCK"), new AtomicLong());
     }
   }
 
@@ -220,7 +203,6 @@ public class ParsePipelineTest {
           .getTargetNodeParsePipeline()
           .getNode(
               cell,
-              fixture.getKnownBuildRuleTypes(),
               BuildTargetFactory.newInstance(cell.getFilesystem().getRootPath(), "//:base"),
               new AtomicLong());
     }
@@ -237,9 +219,7 @@ public class ParsePipelineTest {
               cell, rootBuildFilePath, ImmutableSet.of(ImmutableMap.of("name", "bar")), eventBus);
       expectedException.expect(IllegalStateException.class);
       expectedException.expectMessage("malformed raw data");
-      fixture
-          .getTargetNodeParsePipeline()
-          .getAllNodes(cell, fixture.getKnownBuildRuleTypes(), rootBuildFilePath, new AtomicLong());
+      fixture.getTargetNodeParsePipeline().getAllNodes(cell, rootBuildFilePath, new AtomicLong());
     }
   }
 
@@ -249,9 +229,7 @@ public class ParsePipelineTest {
       Cell cell = fixture.getCell();
       Path rootBuildFilePath = cell.getFilesystem().resolve("BUCK");
       Path aBuildFilePath = cell.getFilesystem().resolve("a/BUCK");
-      fixture
-          .getTargetNodeParsePipeline()
-          .getAllNodes(cell, fixture.getKnownBuildRuleTypes(), rootBuildFilePath, new AtomicLong());
+      fixture.getTargetNodeParsePipeline().getAllNodes(cell, rootBuildFilePath, new AtomicLong());
       Optional<ImmutableSet<Map<String, Object>>> rootRawNodes =
           fixture
               .getRawNodeParsePipelineCache()
@@ -262,9 +240,7 @@ public class ParsePipelineTest {
       expectedException.expect(IllegalStateException.class);
       expectedException.expectMessage(
           "Raw data claims to come from [], but we tried rooting it at [a].");
-      fixture
-          .getTargetNodeParsePipeline()
-          .getAllNodes(cell, fixture.getKnownBuildRuleTypes(), aBuildFilePath, new AtomicLong());
+      fixture.getTargetNodeParsePipeline().getAllNodes(cell, aBuildFilePath, new AtomicLong());
     }
   }
 
@@ -277,9 +253,7 @@ public class ParsePipelineTest {
       Cell cell = fixture.getCell();
       Path rootBuildFilePath = cell.getFilesystem().resolve("BUCK");
       Path aBuildFilePath = cell.getFilesystem().resolve("a/BUCK");
-      fixture
-          .getTargetNodeParsePipeline()
-          .getAllNodes(cell, fixture.getKnownBuildRuleTypes(), rootBuildFilePath, new AtomicLong());
+      fixture.getTargetNodeParsePipeline().getAllNodes(cell, rootBuildFilePath, new AtomicLong());
       Optional<ImmutableSet<Map<String, Object>>> rootRawNodes =
           fixture
               .getRawNodeParsePipelineCache()
@@ -294,7 +268,6 @@ public class ParsePipelineTest {
           .getTargetNodeParsePipeline()
           .getNode(
               cell,
-              fixture.getKnownBuildRuleTypes(),
               BuildTargetFactory.newInstance(cell.getFilesystem().getRootPath(), "//a:lib"),
               new AtomicLong());
     }
@@ -309,7 +282,6 @@ public class ParsePipelineTest {
             .getTargetNodeParsePipeline()
             .getNode(
                 cell,
-                fixture.getKnownBuildRuleTypes(),
                 BuildTargetFactory.newInstance(cell.getFilesystem().getRootPath(), "//error:error"),
                 new AtomicLong());
         Assert.fail("Expected BuildFileParseException");
@@ -321,7 +293,6 @@ public class ParsePipelineTest {
           .getTargetNodeParsePipeline()
           .getNode(
               cell,
-              fixture.getKnownBuildRuleTypes(),
               BuildTargetFactory.newInstance(
                   cell.getFilesystem().getRootPath(), "//correct:correct"),
               new AtomicLong());
@@ -386,9 +357,7 @@ public class ParsePipelineTest {
     private final RawNodeParsePipeline rawNodeParsePipeline;
     private final ProjectBuildFileParserPool projectBuildFileParserPool;
     private final Cell cell;
-    private final KnownBuildRuleTypes knownBuildRuleTypes;
-    private final TypedParsePipelineCache<BuildTarget, TargetNode<?, ?>>
-        targetNodeParsePipelineCache;
+    private final TypedParsePipelineCache<BuildTarget, TargetNode<?>> targetNodeParsePipelineCache;
     private final RawNodeParsePipelineCache rawNodeParsePipelineCache;
     private final ListeningExecutorService executorService;
     private final Set<CloseRecordingProjectBuildFileParserDecorator> projectBuildFileParsers;
@@ -406,12 +375,6 @@ public class ParsePipelineTest {
       this.workspace.setUp();
 
       this.cell = this.workspace.asCell();
-      KnownBuildRuleTypesFactory knownBuildRuleTypesFactory =
-          DefaultKnownBuildRuleTypesFactory.of(
-              new DefaultProcessExecutor(new TestConsole()),
-              BuckPluginManagerFactory.createPluginManager(),
-              new TestSandboxExecutionStrategyFactory());
-      this.knownBuildRuleTypes = knownBuildRuleTypesFactory.create(cell);
       this.targetNodeParsePipelineCache = new TypedParsePipelineCache<>();
       this.rawNodeParsePipelineCache = new RawNodeParsePipelineCache();
       TypeCoercerFactory coercerFactory = new DefaultTypeCoercerFactory();
@@ -421,7 +384,7 @@ public class ParsePipelineTest {
       projectBuildFileParserPool =
           new ProjectBuildFileParserPool(
               4, // max parsers
-              (buckEventBus, input) -> {
+              (buckEventBus, input, watchman) -> {
                 CloseRecordingProjectBuildFileParserDecorator buildFileParser =
                     new CloseRecordingProjectBuildFileParserDecorator(
                         new DefaultProjectBuildFileParserFactory(
@@ -429,15 +392,16 @@ public class ParsePipelineTest {
                                 console,
                                 new ParserPythonInterpreterProvider(
                                     input.getBuckConfig(), new ExecutableFinder()),
-                                KnownBuildRuleTypesProvider.of(knownBuildRuleTypesFactory))
-                            .createBuildFileParser(eventBus, input));
+                                TestKnownRuleTypesProvider.create(
+                                    BuckPluginManagerFactory.createPluginManager()))
+                            .createBuildFileParser(eventBus, input, watchman));
                 synchronized (projectBuildFileParsers) {
                   projectBuildFileParsers.add(buildFileParser);
                 }
                 return buildFileParser;
               },
               false);
-      TargetNodeListener<TargetNode<?, ?>> nodeListener = (buildFile, node) -> {};
+      TargetNodeListener<TargetNode<?>> nodeListener = (buildFile, node) -> {};
       LoadingCache<Cell, BuildFileTree> buildFileTrees =
           CacheBuilder.newBuilder()
               .build(
@@ -453,11 +417,15 @@ public class ParsePipelineTest {
               this.rawNodeParsePipelineCache,
               this.projectBuildFileParserPool,
               executorService,
-              eventBus);
+              eventBus,
+              WatchmanFactory.NULL_WATCHMAN);
+      KnownRuleTypesProvider knownRuleTypesProvider =
+          TestKnownRuleTypesProvider.create(BuckPluginManagerFactory.createPluginManager());
       this.targetNodeParsePipeline =
           new TargetNodeParsePipeline(
               this.targetNodeParsePipelineCache,
               DefaultParserTargetNodeFactory.createForParser(
+                  knownRuleTypesProvider,
                   constructorArgMarshaller,
                   buildFileTrees,
                   nodeListener,
@@ -467,8 +435,7 @@ public class ParsePipelineTest {
               this.executorService,
               this.eventBus,
               speculativeParsing == SpeculativeParsing.ENABLED,
-              this.rawNodeParsePipeline,
-              KnownBuildRuleTypesProvider.of(knownBuildRuleTypesFactory));
+              this.rawNodeParsePipeline);
     }
 
     public TargetNodeParsePipeline getTargetNodeParsePipeline() {
@@ -483,12 +450,7 @@ public class ParsePipelineTest {
       return cell;
     }
 
-    public KnownBuildRuleTypes getKnownBuildRuleTypes() {
-      return knownBuildRuleTypes;
-    }
-
-    public TypedParsePipelineCache<BuildTarget, TargetNode<?, ?>>
-        getTargetNodeParsePipelineCache() {
+    public TypedParsePipelineCache<BuildTarget, TargetNode<?>> getTargetNodeParsePipelineCache() {
       return targetNodeParsePipelineCache;
     }
 

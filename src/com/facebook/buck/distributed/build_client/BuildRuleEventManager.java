@@ -16,7 +16,8 @@
 package com.facebook.buck.distributed.build_client;
 
 import com.facebook.buck.core.build.distributed.synchronization.RemoteBuildRuleCompletionNotifier;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.core.util.log.Logger;
+import com.facebook.buck.distributed.thrift.RuleKeyCalculatedEvent;
 import com.facebook.buck.util.timing.Clock;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -36,6 +37,9 @@ public class BuildRuleEventManager {
   private final List<TimestampedBuildRuleFinishedEvent> pendingBuildRuleFinishedEvent =
       new ArrayList<>();
 
+  @GuardedBy("this")
+  private final List<RuleKeyCalculatedEvent> ruleKeyCalculatedEvents = new ArrayList<>();
+
   private volatile boolean allBuildRulesFinishedEventReceived = false;
 
   public BuildRuleEventManager(
@@ -45,6 +49,17 @@ public class BuildRuleEventManager {
     this.remoteBuildRuleCompletionNotifier = remoteBuildRuleCompletionNotifier;
     this.clock = clock;
     this.cacheSynchronizationSafetyMarginMillis = cacheSynchronizationSafetyMarginMillis;
+  }
+
+  /** Keeps track of all received RuleKeyCalculatedEvents */
+  public synchronized void recordRuleKeyCalculatedEvent(RuleKeyCalculatedEvent event) {
+    LOG.debug(
+        String.format("Received RULE_KEY_CALCULATED_EVENT for [%s].", event.getBuildTarget()));
+    ruleKeyCalculatedEvents.add(event);
+  }
+
+  public synchronized List<RuleKeyCalculatedEvent> getRuleKeyCalculatedEvents() {
+    return ruleKeyCalculatedEvents;
   }
 
   /**
@@ -79,15 +94,15 @@ public class BuildRuleEventManager {
   }
 
   /**
-   * Records the receipt of a BuildRuleUnlocked event. As we do not expect remote machines taking
-   * part in the build to be uploading artifacts for the rule, we signal completion immediately to
-   * unlock the rule and allow local client to progress with the build.
+   * Records the receipt of a BuildRuleUnlocked event. As this indicates that remote machines taking
+   * part in the build will not be uploading artifacts for the rule, we signal immediately that rule
+   * needs to be unlocked to allow local client to progress with the build.
    *
    * @param buildTarget
    */
   public void recordBuildRuleUnlockedEvent(String buildTarget) {
     LOG.debug(String.format("Received BUILD_RULE_UNLOCKED_EVENT for [%s].", buildTarget));
-    remoteBuildRuleCompletionNotifier.signalCompletionOfBuildRule(buildTarget);
+    remoteBuildRuleCompletionNotifier.signalUnlockedBuildRule(buildTarget);
   }
 
   /** @return true if ALL_BUILD_RULES_FINISHED_EVENT received. */

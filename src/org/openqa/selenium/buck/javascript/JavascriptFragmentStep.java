@@ -41,7 +41,7 @@ class JavascriptFragmentStep extends ShellStep {
       Path temp,
       Path output,
       Iterable<Path> jsDeps) {
-    super(Optional.empty(), workingDirectory);
+    super(workingDirectory);
     this.resolver = resolver;
     this.compiler = compiler;
     this.flags = flags;

@@ -20,11 +20,12 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.io.ProjectWatch;
-import com.facebook.buck.io.Watchman;
-import com.facebook.buck.io.WatchmanClient;
+import com.facebook.buck.core.util.log.Logger;
+import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.log.Logger;
+import com.facebook.buck.io.watchman.ProjectWatch;
+import com.facebook.buck.io.watchman.Watchman;
+import com.facebook.buck.io.watchman.WatchmanClient;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -204,7 +205,7 @@ abstract class AbstractBuildFileSpec {
 
     for (String file : files) {
       Path relativePath = Paths.get(file);
-      if (!filesystem.isIgnored(relativePath)) {
+      if (!isIgnored(filesystem, relativePath)) {
         // To avoid an extra stat() and realpath(), we assume we have no symlinks here
         // (since Watchman doesn't follow them anyway), and directly resolve the path
         // instead of using ProjectFilesystem.resolve().
@@ -230,7 +231,7 @@ abstract class AbstractBuildFileSpec {
           @Override
           public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
             // Skip sub-dirs that we should ignore.
-            if (filesystem.isIgnored(dir)) {
+            if (isIgnored(filesystem, dir)) {
               return FileVisitResult.SKIP_SUBTREE;
             }
             return FileVisitResult.CONTINUE;
@@ -239,7 +240,7 @@ abstract class AbstractBuildFileSpec {
           @Override
           public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
             if (buildFileName.equals(file.getFileName().toString())
-                && !filesystem.isIgnored(file)) {
+                && !isIgnored(filesystem, file)) {
               function.accept(filesystem.resolve(file));
             }
             return FileVisitResult.CONTINUE;
@@ -262,7 +263,7 @@ abstract class AbstractBuildFileSpec {
 
   /** @return paths to build files that this spec match in the given {@link ProjectFilesystem}. */
   public ImmutableSet<Path> findBuildFiles(
-      Cell cell, ParserConfig.BuildFileSearchMethod buildFileSearchMethod)
+      Cell cell, Watchman watchman, ParserConfig.BuildFileSearchMethod buildFileSearchMethod)
       throws IOException, InterruptedException {
     ImmutableSet.Builder<Path> buildFiles = ImmutableSet.builder();
 
@@ -270,9 +271,15 @@ abstract class AbstractBuildFileSpec {
         cell.getFilesystem(),
         cell.getBuildFileName(),
         buildFileSearchMethod,
-        cell.getWatchman(),
+        watchman,
         buildFiles::add);
 
     return buildFiles.build();
+  }
+
+  static boolean isIgnored(ProjectFilesystem filesystem, Path path) {
+    // Ignoring buck-out in addition to the blacklist paths
+    return filesystem.isIgnored(path)
+        || new PathOrGlobMatcher(filesystem.getBuckPaths().getBuckOut()).matches(path);
   }
 }

@@ -25,6 +25,7 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
@@ -35,10 +36,12 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.cxx.AbstractCxxSource.Type;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
@@ -47,15 +50,16 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.FakeSourcePath;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
-import com.facebook.buck.rules.coercer.SourceList;
+import com.facebook.buck.rules.coercer.SourceSortedSet;
 import com.facebook.buck.rules.coercer.VersionMatchedCollection;
+import com.facebook.buck.rules.macros.LocationMacro;
+import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.testutil.AllExistingProjectFilesystem;
@@ -403,7 +407,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
     PrebuiltCxxLibraryBuilder libBuilder =
         new PrebuiltCxxLibraryBuilder(TARGET)
             .setExportedHeaders(
-                SourceList.ofNamedSources(
+                SourceSortedSet.ofNamedSources(
                     ImmutableSortedMap.of("foo.h", FakeSourcePath.of("foo.h"))));
     TargetGraph targetGraph = TargetGraphFactory.newInstance(libBuilder.build());
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
@@ -425,14 +429,14 @@ public class PrebuiltCxxLibraryDescriptionTest {
     PrebuiltCxxLibraryBuilder libBuilder =
         new PrebuiltCxxLibraryBuilder(TARGET)
             .setExportedPlatformHeaders(
-                PatternMatchedCollection.<SourceList>builder()
+                PatternMatchedCollection.<SourceSortedSet>builder()
                     .add(
                         Pattern.compile(CXX_PLATFORM.getFlavor().toString()),
-                        SourceList.ofNamedSources(
+                        SourceSortedSet.ofNamedSources(
                             ImmutableSortedMap.of("foo.h", FakeSourcePath.of("foo.h"))))
                     .add(
                         Pattern.compile("DO NOT MATCH ANYTNING"),
-                        SourceList.ofNamedSources(
+                        SourceSortedSet.ofNamedSources(
                             ImmutableSortedMap.of("bar.h", FakeSourcePath.of("bar.h"))))
                     .build());
     TargetGraph targetGraph = TargetGraphFactory.newInstance(libBuilder.build());
@@ -486,7 +490,8 @@ public class PrebuiltCxxLibraryDescriptionTest {
         new PrebuiltCxxLibraryBuilder(TARGET)
             .setHeaderNamespace("hello")
             .setExportedHeaders(
-                SourceList.ofUnnamedSources(ImmutableSortedSet.of(FakeSourcePath.of("foo.h"))));
+                SourceSortedSet.ofUnnamedSources(
+                    ImmutableSortedSet.of(FakeSourcePath.of("foo.h"))));
     TargetGraph targetGraph = TargetGraphFactory.newInstance(libBuilder.build());
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
     PrebuiltCxxLibrary lib =
@@ -896,5 +901,91 @@ public class PrebuiltCxxLibraryDescriptionTest {
     assertThat(
         Arg.stringify(nativeLinkableInput.getArgs(), pathResolver).get(0),
         Matchers.endsWith(TARGET.getBasePath().resolve("sub-dir").resolve("libfoo.a").toString()));
+  }
+
+  @Test
+  public void preprocessorFlagsLocationMacro() throws NoSuchBuildTargetException {
+    GenruleBuilder genruleBuilder =
+        GenruleBuilder.newGenruleBuilder(BuildTargetFactory.newInstance("//other:gen_lib"))
+            .setOut("libtest.a");
+    PrebuiltCxxLibraryBuilder libraryBuilder =
+        new PrebuiltCxxLibraryBuilder(TARGET)
+            .setExportedPreprocessorFlags(
+                ImmutableList.of(
+                    StringWithMacrosUtils.format(
+                        "%s", LocationMacro.of(genruleBuilder.getTarget()))));
+    TargetGraph targetGraph =
+        TargetGraphFactory.newInstance(genruleBuilder.build(), libraryBuilder.build());
+    ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    Genrule genrule = genruleBuilder.build(graphBuilder, filesystem, targetGraph);
+    PrebuiltCxxLibrary library =
+        (PrebuiltCxxLibrary) libraryBuilder.build(graphBuilder, filesystem, targetGraph);
+    CxxPreprocessorInput input =
+        library.getCxxPreprocessorInput(CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder);
+    assertThat(
+        Arg.stringify(input.getPreprocessorFlags().get(Type.C), pathResolver),
+        contains(pathResolver.getAbsolutePath(genrule.getSourcePathToOutput()).toString()));
+  }
+
+  @Test
+  public void langPlatformPreprocessorFlags() throws NoSuchBuildTargetException {
+    PrebuiltCxxLibraryBuilder libraryBuilder =
+        new PrebuiltCxxLibraryBuilder(TARGET)
+            .setExportedLangPlatformPreprocessorFlags(
+                ImmutableMap.of(
+                    Type.C,
+                    PatternMatchedCollection.<ImmutableList<StringWithMacros>>builder()
+                        .add(
+                            Pattern.compile(
+                                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor().toString(),
+                                Pattern.LITERAL),
+                            ImmutableList.of(StringWithMacrosUtils.format("-expected")))
+                        .add(
+                            Pattern.compile("no such platform", Pattern.LITERAL),
+                            ImmutableList.of(StringWithMacrosUtils.format("-unexpected")))
+                        .build()));
+    TargetGraph targetGraph = TargetGraphFactory.newInstance(libraryBuilder.build());
+    ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    PrebuiltCxxLibrary library =
+        (PrebuiltCxxLibrary) libraryBuilder.build(graphBuilder, filesystem, targetGraph);
+    CxxPreprocessorInput input =
+        library.getCxxPreprocessorInput(CxxPlatformUtils.DEFAULT_PLATFORM, graphBuilder);
+    assertThat(
+        Arg.stringify(input.getPreprocessorFlags().get(Type.C), pathResolver),
+        contains("-expected"));
+  }
+
+  @Test
+  public void versionedPreprocessorFlags() {
+    BuildTarget dep = BuildTargetFactory.newInstance("//:dep");
+    PrebuiltCxxLibraryBuilder depBuilder = new PrebuiltCxxLibraryBuilder(dep);
+    PrebuiltCxxLibraryBuilder builder = new PrebuiltCxxLibraryBuilder(TARGET);
+    builder.setSelectedVersions(ImmutableMap.of(dep, Version.of("1.0")));
+    builder.setVersionedExportedPreprocessorFlags(
+        VersionMatchedCollection.<ImmutableList<StringWithMacros>>builder()
+            .add(
+                ImmutableMap.of(dep, Version.of("1.0")),
+                ImmutableList.of(StringWithMacrosUtils.format("-expected")))
+            .add(
+                ImmutableMap.of(dep, Version.of("2.0")),
+                ImmutableList.of(StringWithMacrosUtils.format("-unexpected")))
+            .build());
+    TargetGraph graph = TargetGraphFactory.newInstance(depBuilder.build(), builder.build());
+    ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(graph);
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
+    ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
+    depBuilder.build(graphBuilder, filesystem, graph);
+    PrebuiltCxxLibrary lib = (PrebuiltCxxLibrary) builder.build(graphBuilder, filesystem, graph);
+    CxxPreprocessorInput input = lib.getCxxPreprocessorInput(CXX_PLATFORM, graphBuilder);
+    assertThat(
+        Arg.stringify(input.getPreprocessorFlags().get(Type.C), pathResolver),
+        contains("-expected"));
   }
 }

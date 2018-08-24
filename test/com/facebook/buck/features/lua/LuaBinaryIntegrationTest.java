@@ -16,16 +16,14 @@
 
 package com.facebook.buck.features.lua;
 
-import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
 import static org.junit.Assume.assumeTrue;
 
-import com.facebook.buck.config.BuckConfig;
-import com.facebook.buck.config.FakeBuckConfig;
-import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
@@ -50,7 +48,6 @@ import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.Configs;
-import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -79,21 +76,17 @@ public class LuaBinaryIntegrationTest {
   private Path lua;
   private boolean luaDevel;
 
-  @Parameterized.Parameters(name = "{0} {1} sandbox_sources={2}")
+  @Parameterized.Parameters(name = "{0} {1}")
   public static Collection<Object[]> data() {
     return ParameterizedTests.getPermutations(
         Arrays.asList(LuaBinaryDescription.StarterType.values()),
-        Arrays.asList(NativeLinkStrategy.values()),
-        ImmutableList.of(true, false));
+        Arrays.asList(NativeLinkStrategy.values()));
   }
 
   @Parameterized.Parameter public LuaBinaryDescription.StarterType starterType;
 
   @Parameterized.Parameter(value = 1)
   public NativeLinkStrategy nativeLinkStrategy;
-
-  @Parameterized.Parameter(value = 2)
-  public boolean sandboxSources;
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
@@ -147,9 +140,7 @@ public class LuaBinaryIntegrationTest {
                 ImmutableList.of(
                     "[lua]",
                     "  starter_type = " + starterType.toString().toLowerCase(),
-                    "  native_link_strategy = " + nativeLinkStrategy.toString().toLowerCase(),
-                    "[cxx]",
-                    "  sandbox_sources =" + sandboxSources)),
+                    "  native_link_strategy = " + nativeLinkStrategy.toString().toLowerCase())),
         ".buckconfig");
     LuaPlatform platform =
         getLuaBuckConfig()
@@ -297,21 +288,6 @@ public class LuaBinaryIntegrationTest {
   }
 
   @Test
-  public void cxxLuaExtensionWithIncludeDirs() throws IOException {
-    assumeTrue("", sandboxSources && starterType == LuaBinaryDescription.StarterType.NATIVE);
-    workspace.runBuckBuild("//with_includes:native_with_extension").assertSuccess();
-  }
-
-  @Test
-  public void cxxLuaExtensionWithoutIncludeDirs() throws IOException {
-    assumeTrue("", sandboxSources && starterType == LuaBinaryDescription.StarterType.NATIVE);
-    workspace.replaceFileContents("with_includes/BUCK", "include_dirs", "#");
-    ProcessResult luaBinaryResult = workspace.runBuckBuild("//with_includes:native_with_extension");
-    luaBinaryResult.assertFailure();
-    assertThat(luaBinaryResult.getStderr(), containsString("extension.h"));
-  }
-
-  @Test
   public void usedInGenruleCommand() throws IOException {
     assumeTrue(luaDevel);
     workspace.writeContentsToPath("require 'os'; io.stdout:write('okay')", "simple.lua");
@@ -322,13 +298,11 @@ public class LuaBinaryIntegrationTest {
   private LuaBuckConfig getLuaBuckConfig() throws IOException {
     Config rawConfig = Configs.createDefaultConfig(tmp.getRoot());
     BuckConfig buckConfig =
-        new BuckConfig(
-            rawConfig,
-            TestProjectFilesystems.createProjectFilesystem(tmp.getRoot()),
-            Architecture.detect(),
-            Platform.detect(),
-            ImmutableMap.of(),
-            DefaultCellPathResolver.of(tmp.getRoot(), rawConfig));
+        FakeBuckConfig.builder()
+            .setEnvironment(ImmutableMap.of())
+            .setSections(rawConfig.getRawConfig())
+            .setFilesystem(TestProjectFilesystems.createProjectFilesystem(tmp.getRoot()))
+            .build();
     return new LuaBuckConfig(buckConfig, new FakeExecutableFinder(ImmutableList.of()));
   }
 }

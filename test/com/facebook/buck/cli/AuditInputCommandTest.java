@@ -20,11 +20,12 @@ import static org.junit.Assert.assertEquals;
 
 import com.facebook.buck.artifact_cache.ArtifactCache;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
-import com.facebook.buck.config.FakeBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -33,7 +34,6 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.environment.Platform;
@@ -108,20 +108,20 @@ public class AuditInputCommandTest {
                 "}");
 
     BuildTarget rootTarget = BuildTargetFactory.newInstance("//:test-java-library");
-    TargetNode<?, ?> rootNode =
+    TargetNode<?> rootNode =
         JavaLibraryBuilder.createBuilder(rootTarget)
             .addSrc(Paths.get("src/com/facebook/TestJavaLibrary.java"))
             .build();
 
     BuildTarget libraryTarget = BuildTargetFactory.newInstance("//:test-android-library");
-    TargetNode<?, ?> libraryNode =
+    TargetNode<?> libraryNode =
         JavaLibraryBuilder.createBuilder(libraryTarget)
             .addSrc(Paths.get("src/com/facebook/TestAndroidLibrary.java"))
             .addSrc(Paths.get("src/com/facebook/AndroidLibraryTwo.java"))
             .addDep(rootTarget)
             .build();
 
-    ImmutableSet<TargetNode<?, ?>> nodes = ImmutableSet.of(rootNode, libraryNode);
+    ImmutableSet<TargetNode<?>> nodes = ImmutableSet.of(rootNode, libraryNode);
     TargetGraph targetGraph = TargetGraphFactory.newInstance(nodes);
 
     auditInputCommand.printJsonInputs(params, targetGraph);
@@ -137,12 +137,12 @@ public class AuditInputCommandTest {
             + MorePaths.pathWithPlatformSeparators("src/com/facebook/NonExistentFile.java"));
 
     BuildTarget rootTarget = BuildTargetFactory.newInstance("//:test-java-library");
-    TargetNode<?, ?> rootNode =
+    TargetNode<?> rootNode =
         JavaLibraryBuilder.createBuilder(rootTarget)
             .addSrc(Paths.get("src/com/facebook/NonExistentFile.java"))
             .build();
 
-    ImmutableSet<TargetNode<?, ?>> nodes = ImmutableSet.of(rootNode);
+    ImmutableSet<TargetNode<?>> nodes = ImmutableSet.of(rootNode);
     TargetGraph targetGraph = TargetGraphFactory.newInstance(nodes);
     auditInputCommand.printJsonInputs(params, targetGraph);
   }
@@ -166,16 +166,16 @@ public class AuditInputCommandTest {
                 "}");
 
     BuildTarget exportedTarget = BuildTargetFactory.newInstance("//:test-java-library");
-    TargetNode<?, ?> exportedNode =
+    TargetNode<?> exportedNode =
         JavaLibraryBuilder.createBuilder(exportedTarget)
             .addSrc(Paths.get("src/com/facebook/TestJavaLibrary.java"))
             .build();
 
     BuildTarget rootTarget = BuildTargetFactory.newInstance("//:test-exported-dep");
-    TargetNode<?, ?> rootNode =
+    TargetNode<?> rootNode =
         JavaLibraryBuilder.createBuilder(rootTarget).addExportedDep(exportedTarget).build();
 
-    ImmutableSet<TargetNode<?, ?>> nodes = ImmutableSet.of(rootNode, exportedNode);
+    ImmutableSet<TargetNode<?>> nodes = ImmutableSet.of(rootNode, exportedNode);
     TargetGraph targetGraph = TargetGraphFactory.newInstance(nodes);
 
     auditInputCommand.printJsonInputs(params, targetGraph);

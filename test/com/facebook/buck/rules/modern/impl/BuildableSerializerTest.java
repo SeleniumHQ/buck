@@ -25,8 +25,9 @@ import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
 
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
@@ -37,7 +38,6 @@ import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.model.BuildTargetFactory;
 import com.facebook.buck.rules.modern.Buildable;
 import com.facebook.buck.rules.modern.CustomClassSerialization;
 import com.facebook.buck.rules.modern.CustomFieldSerialization;
@@ -52,7 +52,7 @@ import com.facebook.buck.util.types.Either;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -79,7 +79,8 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
     cellResolver = createMock(CellPathResolver.class);
 
     expect(cellResolver.getKnownRoots())
-        .andReturn(ImmutableSet.of(rootFilesystem.getRootPath(), otherFilesystem.getRootPath()))
+        .andReturn(
+            ImmutableSortedSet.of(rootFilesystem.getRootPath(), otherFilesystem.getRootPath()))
         .anyTimes();
 
     expect(cellResolver.getCanonicalCellName(rootFilesystem.getRootPath()))
@@ -184,6 +185,12 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
     test(new WithSet());
   }
 
+  @Override
+  @Test
+  public void sortedSet() throws Exception {
+    test(new WithSortedSet());
+  }
+
   @Test
   @Override
   public void list() throws IOException {
@@ -267,6 +274,12 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
   @Test
   public void nonHashableSourcePathContainer() throws Exception {
     test(new WithNonHashableSourcePathContainer());
+  }
+
+  @Override
+  @Test
+  public void map() throws Exception {
+    test(new WithMap());
   }
 
   @Override

@@ -18,10 +18,10 @@ package com.facebook.buck.apple;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
@@ -132,7 +132,6 @@ public class MultiarchFile extends AbstractBuildRuleWithDeclaredAndExtraDeps
     }
     steps.add(
         new DefaultShellStep(
-            getBuildTarget(),
             getProjectFilesystem().getRootPath(),
             commandBuilder.build(),
             lipo.getEnvironment(context.getSourcePathResolver())));
@@ -147,6 +146,10 @@ public class MultiarchFile extends AbstractBuildRuleWithDeclaredAndExtraDeps
   public Stream<BuildRule> getAppleDebugSymbolDeps() {
     return RichStream.from(getBuildDeps())
         .filter(HasAppleDebugSymbolDeps.class)
-        .flatMap(HasAppleDebugSymbolDeps::getAppleDebugSymbolDeps);
+        .flatMap(HasAppleDebugSymbolDeps::getAppleDebugSymbolDeps)
+        // Include the build deps themselves, which are the rules generating the thin binary.
+        // These rules may generate supplemental object files that are linked into the binary, and
+        // must be materialized in order for dsymutil to find them.
+        .concat(getBuildDeps().stream());
   }
 }

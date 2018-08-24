@@ -41,23 +41,13 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
   @VisibleForTesting public static final String BUCK_BUCKD_DIR_KEY = "buck.buckd_dir";
 
   // A non-exhaustive list of characters that might indicate that we're about to deal with a glob.
-  private static final Pattern GLOB_CHARS = Pattern.compile("[\\*\\?\\{\\[]");
+  private static final Pattern GLOB_CHARS = Pattern.compile("[*?{\\[]");
 
-  // WindowsFS singleton instance
-  @Nullable private static WindowsFS winFSInstance = null;
+  @Nullable
+  private static final WindowsFS winFSInstance =
+      Platform.detect() == Platform.WINDOWS ? new WindowsFS() : null;
 
-  /** Intialize the winFSInstane singleton when on Windows. */
-  static {
-    if (Platform.detect().getType().isWindows()) {
-      winFSInstance = new WindowsFS();
-    }
-  }
-
-  /**
-   * Factory to get a WindowsFS instance.
-   *
-   * @return the WindowsFS instance.
-   */
+  /** @return the WindowsFS singleton. */
   @Nullable
   public static WindowsFS getWindowsFSInstance() {
     return winFSInstance;
@@ -65,8 +55,7 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
 
   @Override
   public ProjectFilesystem createProjectFilesystem(
-      Path root, Config config, Optional<EmbeddedCellBuckOutInfo> embeddedCellBuckOutInfo)
-      throws InterruptedException {
+      Path root, Config config, Optional<EmbeddedCellBuckOutInfo> embeddedCellBuckOutInfo) {
     BuckPaths buckPaths = getConfiguredBuckPaths(root, config, embeddedCellBuckOutInfo);
     return new DefaultProjectFilesystem(
         root.getFileSystem(),
@@ -78,13 +67,12 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
   }
 
   @Override
-  public ProjectFilesystem createProjectFilesystem(Path root, Config config)
-      throws InterruptedException {
+  public ProjectFilesystem createProjectFilesystem(Path root, Config config) {
     return createProjectFilesystem(root, config, Optional.empty());
   }
 
   @Override
-  public ProjectFilesystem createProjectFilesystem(Path root) throws InterruptedException {
+  public ProjectFilesystem createProjectFilesystem(Path root) {
     return createProjectFilesystem(root, new Config());
   }
 
@@ -158,7 +146,7 @@ public class DefaultProjectFilesystemFactory implements ProjectFilesystemFactory
   }
 
   @Override
-  public ProjectFilesystem createOrThrow(Path path) throws InterruptedException {
+  public ProjectFilesystem createOrThrow(Path path) {
     try {
       // toRealPath() is necessary to resolve symlinks, allowing us to later
       // check whether files are inside or outside of the project without issue.

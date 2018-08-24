@@ -20,11 +20,14 @@ import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.core.build.context.BuildContext;
-import com.facebook.buck.core.cell.resolver.CellPathResolver;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.model.impl.BuildTargetPaths;
+import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
+import com.facebook.buck.core.model.impl.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
@@ -33,6 +36,8 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.util.graph.MutableDirectedGraph;
+import com.facebook.buck.core.util.graph.TopologicalSort;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.CxxLibrary;
 import com.facebook.buck.cxx.CxxLinkOptions;
@@ -48,12 +53,7 @@ import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTarget;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
-import com.facebook.buck.graph.MutableDirectedGraph;
-import com.facebook.buck.graph.TopologicalSort;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.model.BuildTargets;
-import com.facebook.buck.model.ImmutableBuildTarget;
-import com.facebook.buck.model.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -801,7 +801,6 @@ class NativeLibraryMergeEnhancer {
         CxxPlatform cxxPlatform,
         Linker.LinkableDepType type,
         boolean forceLinkWhole,
-        ImmutableSet<LanguageExtensions> languageExtensions,
         ActionGraphBuilder graphBuilder) {
 
       // This path gets taken for a force-static library.
@@ -880,7 +879,8 @@ class NativeLibraryMergeEnhancer {
                   cxxPlatform, Linker.LinkableDepType.STATIC_PIC, graphBuilder);
           builder.add(
               staticPic.withArgs(
-                  FluentIterable.from(staticPic.getArgs()).transformAndConcat(linker::linkWhole)));
+                  FluentIterable.from(staticPic.getArgs())
+                      .transformAndConcat(arg -> linker.linkWhole(arg, pathResolver))));
         }
       }
       return NativeLinkableInput.concat(builder.build());
@@ -936,7 +936,7 @@ class NativeLibraryMergeEnhancer {
                       target,
                       Linker.LinkType.SHARED,
                       Optional.of(soname),
-                      BuildTargets.getGenPath(
+                      BuildTargetPaths.getGenPath(
                           projectFilesystem, target, "%s/" + getSoname(cxxPlatform)),
                       ImmutableList.of(),
                       // Android Binaries will use share deps by default.

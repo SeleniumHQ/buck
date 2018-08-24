@@ -19,7 +19,6 @@ package com.facebook.buck.shell;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
-import com.facebook.buck.core.description.BuildRuleParams;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.HasTests;
 import com.facebook.buck.core.model.BuildTarget;
@@ -28,12 +27,14 @@ import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
-import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.coercer.SourceSet;
 import com.facebook.buck.rules.macros.AbstractMacroExpander;
 import com.facebook.buck.rules.macros.ClasspathAbiMacroExpander;
 import com.facebook.buck.rules.macros.ClasspathMacroExpander;
@@ -52,7 +53,6 @@ import com.facebook.buck.rules.macros.WorkerMacro;
 import com.facebook.buck.rules.macros.WorkerMacroArg;
 import com.facebook.buck.rules.macros.WorkerMacroExpander;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
-import com.facebook.buck.toolchain.ToolchainProvider;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
 import com.facebook.infer.annotation.SuppressFieldNotInitialized;
@@ -62,6 +62,7 @@ import java.util.Comparator;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import org.immutables.value.Value;
 
 public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescription.CommonArg>
     implements DescriptionWithTargetGraph<T> {
@@ -112,7 +113,7 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
         args.getType(),
         outputFileName,
         args.getEnableSandbox().orElse(enableSandbox),
-        true,
+        args.getCacheable().orElse(true),
         args.getEnvironmentExpansionSeparator(),
         toolchainProvider.getByNameIfPresent(
             AndroidPlatformTarget.DEFAULT_NAME, AndroidPlatformTarget.class),
@@ -183,7 +184,7 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
           context.getProjectFilesystem(),
           params.withExtraDeps(
               Stream.concat(
-                      ruleFinder.filterBuildRuleInputs(args.getSrcs()).stream(),
+                      ruleFinder.filterBuildRuleInputs(args.getSrcs().getPaths()).stream(),
                       Stream.of(cmd, bash, cmdExe)
                           .flatMap(Optionals::toStream)
                           .flatMap(input -> BuildableSupport.getDeps(input, ruleFinder)))
@@ -215,10 +216,21 @@ public abstract class AbstractGenruleDescription<T extends AbstractGenruleDescri
 
     Optional<String> getType();
 
-    ImmutableList<SourcePath> getSrcs();
+    @Value.Default
+    default SourceSet getSrcs() {
+      return SourceSet.EMPTY;
+    }
 
     Optional<Boolean> getEnableSandbox();
 
     Optional<String> getEnvironmentExpansionSeparator();
+
+    /**
+     * This functionality only exists to get around the lack of extensibility in our current build
+     * rule / build file apis. It may go away at some point. Also, make sure that you understand
+     * what {@link BuildRule.isCacheable} does with respect to caching if you decide to use this
+     * attribute
+     */
+    Optional<Boolean> getCacheable();
   }
 }

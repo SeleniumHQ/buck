@@ -16,12 +16,12 @@
 
 package com.facebook.buck.cli;
 
-import com.facebook.buck.config.BuckConfig;
+import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.description.BaseDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.UserFlavor;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.parser.BuildTargetParser;
@@ -89,11 +89,11 @@ public class AuditFlavorsCommand extends AbstractCommand {
       throw new CommandLineException("must specify at least one build target");
     }
 
-    ImmutableList.Builder<TargetNode<?, ?>> builder = ImmutableList.builder();
+    ImmutableList.Builder<TargetNode<?>> builder = ImmutableList.builder();
     try (CommandThreadManager pool =
         new CommandThreadManager("Audit", getConcurrencyLimit(params.getBuckConfig()))) {
       for (BuildTarget target : targets) {
-        TargetNode<?, ?> targetNode =
+        TargetNode<?> targetNode =
             params
                 .getParser()
                 .getTargetNode(
@@ -110,7 +110,7 @@ public class AuditFlavorsCommand extends AbstractCommand {
           .post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return ExitCode.PARSE_ERROR;
     }
-    ImmutableList<TargetNode<?, ?>> targetNodes = builder.build();
+    ImmutableList<TargetNode<?>> targetNodes = builder.build();
 
     if (shouldGenerateJsonOutput()) {
       printJsonFlavors(targetNodes, params);
@@ -126,11 +126,10 @@ public class AuditFlavorsCommand extends AbstractCommand {
     return true;
   }
 
-  private void printFlavors(
-      ImmutableList<TargetNode<?, ?>> targetNodes, CommandRunnerParams params) {
+  private void printFlavors(ImmutableList<TargetNode<?>> targetNodes, CommandRunnerParams params) {
     DirtyPrintStreamDecorator stdout = params.getConsole().getStdOut();
-    for (TargetNode<?, ?> node : targetNodes) {
-      DescriptionWithTargetGraph<?> description = node.getDescription();
+    for (TargetNode<?> node : targetNodes) {
+      BaseDescription<?> description = node.getDescription();
       stdout.println(node.getBuildTarget().getFullyQualifiedName());
       if (description instanceof Flavored) {
         Optional<ImmutableSet<FlavorDomain<?>>> flavorDomains =
@@ -165,11 +164,11 @@ public class AuditFlavorsCommand extends AbstractCommand {
   }
 
   private void printJsonFlavors(
-      ImmutableList<TargetNode<?, ?>> targetNodes, CommandRunnerParams params) throws IOException {
+      ImmutableList<TargetNode<?>> targetNodes, CommandRunnerParams params) throws IOException {
     DirtyPrintStreamDecorator stdout = params.getConsole().getStdOut();
     SortedMap<String, SortedMap<String, SortedMap<String, String>>> targetsJson = new TreeMap<>();
-    for (TargetNode<?, ?> node : targetNodes) {
-      DescriptionWithTargetGraph<?> description = node.getDescription();
+    for (TargetNode<?> node : targetNodes) {
+      BaseDescription<?> description = node.getDescription();
       SortedMap<String, SortedMap<String, String>> flavorDomainsJson = new TreeMap<>();
 
       if (description instanceof Flavored) {
