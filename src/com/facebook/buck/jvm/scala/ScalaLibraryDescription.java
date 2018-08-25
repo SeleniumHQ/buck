@@ -23,8 +23,10 @@ import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
+import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -152,8 +154,11 @@ public class ScalaLibraryDescription
     if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
       return defaultScalaLibrary;
     } else {
-      context.getActionGraphBuilder().addToIndex(defaultScalaLibrary);
+      ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
+      graphBuilder.addToIndex(defaultScalaLibrary);
       return MavenUberJar.create(
+          ruleFinder,
           defaultScalaLibrary,
           buildTargetWithMavenFlavor,
           projectFilesystem,

@@ -23,6 +23,7 @@ import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.features.python.PythonLibrary;
 import com.facebook.buck.features.python.PythonLibraryBuilder;
@@ -62,6 +63,7 @@ public class MavenUberJarTest {
 
     MavenUberJar buildRule =
         MavenUberJar.create(
+            new SourcePathRuleFinder(graphBuilder),
             javaLibrary,
             javaTarget,
             new FakeProjectFilesystem(),

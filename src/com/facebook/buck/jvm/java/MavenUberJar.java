@@ -21,6 +21,7 @@ import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -37,6 +38,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.ImmutableSortedSet.Builder;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import java.nio.file.Path;
@@ -70,10 +72,13 @@ public class MavenUberJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.mavenPomTemplate = mavenPomTemplate;
   }
 
-  private static BuildRuleParams adjustParams(BuildRuleParams params, TraversedDeps traversedDeps) {
+  private static BuildRuleParams adjustParams(
+      BuildRuleParams params,
+      TraversedDeps traversedDeps,
+      ImmutableSortedSet<BuildRule> extras) {
     return params
         .withDeclaredDeps(ImmutableSortedSet.copyOf(Ordering.natural(), traversedDeps.packagedDeps))
-        .withoutExtraDeps();
+        .withExtraDeps(extras);
   }
 
   /**
@@ -84,6 +89,7 @@ public class MavenUberJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
    * published item.
    */
   public static MavenUberJar create(
+      SourcePathRuleFinder resolver,
       JavaLibrary rootRule,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
@@ -91,11 +97,15 @@ public class MavenUberJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
       Optional<String> mavenCoords,
       Optional<SourcePath> mavenPomTemplate) {
     TraversedDeps traversedDeps = TraversedDeps.traverse(ImmutableSet.of(rootRule));
+
+    Builder<BuildRule> templateRule = ImmutableSortedSet.naturalOrder();
+    mavenPomTemplate.ifPresent(path -> resolver.getRule(path).ifPresent(templateRule::add));
+
     return new MavenUberJar(
         traversedDeps,
         buildTarget,
         projectFilesystem,
-        adjustParams(params, traversedDeps),
+        adjustParams(params, traversedDeps, templateRule.build()),
         mavenCoords,
         mavenPomTemplate);
   }
@@ -195,6 +205,7 @@ public class MavenUberJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
       Set<JavaLibrary> difference = Sets.difference(candidates.build(), removals.build());
       Set<? extends BuildRule> mandatoryRules = alwaysPackageRoots ? roots : Collections.emptySet();
+
       return new TraversedDeps(
           /* mavenDeps */ depsCollector.build(),
           /* packagedDeps */ Sets.union(mandatoryRules, difference));

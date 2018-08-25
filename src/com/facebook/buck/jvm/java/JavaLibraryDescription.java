@@ -217,8 +217,8 @@ public class JavaLibraryDescription
     if (!flavors.contains(JavaLibrary.MAVEN_JAR)) {
       return defaultJavaLibrary;
     } else {
-      graphBuilder.addToIndex(defaultJavaLibrary);
       return MavenUberJar.create(
+          ruleFinder,
           defaultJavaLibrary,
           buildTargetWithMavenFlavor,
           projectFilesystem,
