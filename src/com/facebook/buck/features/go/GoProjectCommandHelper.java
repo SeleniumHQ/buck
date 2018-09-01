@@ -26,12 +26,10 @@ import com.facebook.buck.core.description.arg.HasSrcs;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
 import com.facebook.buck.core.model.targetgraph.NoSuchTargetException;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
-import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -45,11 +43,9 @@ import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
-import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.versions.VersionException;
 import com.facebook.buck.versions.VersionedTargetGraphAndTargets;
 import com.google.common.base.Preconditions;
@@ -65,7 +61,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -119,7 +114,6 @@ public class GoProjectCommandHelper {
           ImmutableSet.copyOf(
               Iterables.concat(
                   parser.resolveTargetSpecs(
-                      buckEventBus,
                       cell,
                       enableParserProfiling,
                       executor,
@@ -170,23 +164,7 @@ public class GoProjectCommandHelper {
   }
 
   private ActionGraphAndBuilder getActionGraph(TargetGraph targetGraph) {
-    try (CloseableMemoizedSupplier<ForkJoinPool> forkJoinPoolSupplier =
-        CloseableMemoizedSupplier.of(
-            () ->
-                MostExecutors.forkJoinPoolWithThreadLimit(
-                    buckConfig.getView(ResourcesConfig.class).getMaximumResourceAmounts().getCpu(),
-                    16),
-            ForkJoinPool::shutdownNow)) {
-      return params
-          .getActionGraphProvider()
-          .getActionGraph(
-              buckEventBus,
-              targetGraph,
-              cell.getCellProvider(),
-              buckConfig.getView(ActionGraphConfig.class),
-              params.getRuleKeyConfiguration(),
-              forkJoinPoolSupplier);
-    }
+    return params.getActionGraphProvider().getActionGraph(targetGraph);
   }
 
   private TargetGraph getProjectGraphForIde(
@@ -196,7 +174,6 @@ public class GoProjectCommandHelper {
     if (passedInTargets.isEmpty()) {
       return parser
           .buildTargetGraphForTargetNodeSpecs(
-              buckEventBus,
               cell,
               enableParserProfiling,
               executor,
@@ -205,8 +182,7 @@ public class GoProjectCommandHelper {
                       BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))))
           .getTargetGraph();
     }
-    return parser.buildTargetGraph(
-        buckEventBus, cell, enableParserProfiling, executor, passedInTargets);
+    return parser.buildTargetGraph(cell, enableParserProfiling, executor, passedInTargets);
   }
 
   /**
@@ -363,11 +339,7 @@ public class GoProjectCommandHelper {
       explicitTestTargets = getExplicitTestTargets(graphRoots, projectGraph);
       projectGraph =
           parser.buildTargetGraph(
-              buckEventBus,
-              cell,
-              enableParserProfiling,
-              executor,
-              Sets.union(graphRoots, explicitTestTargets));
+              cell, enableParserProfiling, executor, Sets.union(graphRoots, explicitTestTargets));
     }
 
     TargetGraphAndTargets targetGraphAndTargets =

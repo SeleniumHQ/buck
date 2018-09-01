@@ -18,7 +18,6 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
@@ -69,7 +68,6 @@ public class AuditActionGraphCommand extends AbstractCommand {
           params
               .getParser()
               .buildTargetGraphForTargetNodeSpecs(
-                  params.getBuckEventBus(),
                   params.getCell(),
                   getEnableParserProfiling(),
                   pool.getListeningExecutorService(),
@@ -85,13 +83,7 @@ public class AuditActionGraphCommand extends AbstractCommand {
       ActionGraphAndBuilder actionGraphAndBuilder =
           params
               .getActionGraphProvider()
-              .getActionGraph(
-                  params.getBuckEventBus(),
-                  targetGraphAndBuildTargets.getTargetGraph(),
-                  params.getCell().getCellProvider(),
-                  params.getBuckConfig().getView(ActionGraphConfig.class),
-                  params.getRuleKeyConfiguration(),
-                  params.getPoolSupplier());
+              .getActionGraph(targetGraphAndBuildTargets.getTargetGraph());
       SourcePathRuleFinder ruleFinder =
           new SourcePathRuleFinder(actionGraphAndBuilder.getActionGraphBuilder());
 

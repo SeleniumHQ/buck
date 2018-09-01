@@ -65,7 +65,7 @@ public class IjProject {
     this.projectFilesystem = projectFilesystem;
     this.projectConfig = projectConfig;
     this.outFilesystem = outFilesystem;
-    cleaner = new IJProjectCleaner(projectFilesystem);
+    cleaner = new IJProjectCleaner(outFilesystem);
   }
 
   /**
@@ -150,7 +150,7 @@ public class IjProject {
             outFilesystem);
 
     if (updateOnly) {
-      writer.update(targetGraphAndTargets, moduleGraph);
+      writer.update();
     } else {
       writer.write();
     }
@@ -173,6 +173,7 @@ public class IjProject {
   private void clean() throws IOException {
     cleaner.clean(
         projectConfig.getBuckConfig(),
+        projectConfig.getProjectPaths().getIdeaConfigDir(),
         projectConfig.getProjectPaths().getLibrariesDir(),
         projectConfig.isCleanerEnabled(),
         projectConfig.isRemovingUnusedLibrariesEnabled());

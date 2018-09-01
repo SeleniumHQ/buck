@@ -27,34 +27,33 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.resolver.impl.MultiThreadedActionGraphBuilder;
 import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.util.graph.AbstractBottomUpTraversal;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.core.util.log.Logger;
+import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import java.util.HashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ForkJoinPool;
-import org.immutables.value.Value;
 
-public class ParallelActionGraphFactory {
+public class ParallelActionGraphFactory implements ActionGraphFactoryDelegate {
   private static final Logger LOG = Logger.get(ParallelActionGraphFactory.class);
 
-  public ActionGraphAndBuilder create(ParallelActionGraphCreationParameters parameters) {
-    return createActionGraphInParallel(
-        parameters.getTransformer(),
-        parameters.getTargetGraph(),
-        parameters.getCellProvider(),
-        parameters.getPool(),
-        parameters.getActionGraphCreationLifecycleListener());
+  private final CloseableMemoizedSupplier<ForkJoinPool> poolSupplier;
+  private final CellProvider cellProvider;
+
+  public ParallelActionGraphFactory(
+      CloseableMemoizedSupplier<ForkJoinPool> poolSupplier, CellProvider cellProvider) {
+    this.poolSupplier = poolSupplier;
+    this.cellProvider = cellProvider;
   }
 
-  private ActionGraphAndBuilder createActionGraphInParallel(
+  @Override
+  public ActionGraphAndBuilder create(
       TargetNodeToBuildRuleTransformer transformer,
       TargetGraph targetGraph,
-      CellProvider cellProvider,
-      ForkJoinPool pool,
       ActionGraphCreationLifecycleListener actionGraphCreationLifecycleListener) {
+    ForkJoinPool pool = poolSupplier.get();
     ActionGraphBuilder graphBuilder =
         new MultiThreadedActionGraphBuilder(pool, targetGraph, transformer, cellProvider);
     HashMap<BuildTarget, CompletableFuture<BuildRule>> futures = new HashMap<>();
@@ -95,24 +94,5 @@ public class ParallelActionGraphFactory {
         .setActionGraph(new ActionGraph(graphBuilder.getBuildRules()))
         .setActionGraphBuilder(graphBuilder)
         .build();
-  }
-
-  @BuckStyleImmutable
-  @Value.Immutable(builder = false, copy = false)
-  abstract static class AbstractParallelActionGraphCreationParameters {
-    @Value.Parameter
-    public abstract TargetNodeToBuildRuleTransformer getTransformer();
-
-    @Value.Parameter
-    public abstract TargetGraph getTargetGraph();
-
-    @Value.Parameter
-    public abstract CellProvider getCellProvider();
-
-    @Value.Parameter
-    public abstract ForkJoinPool getPool();
-
-    @Value.Parameter
-    public abstract ActionGraphCreationLifecycleListener getActionGraphCreationLifecycleListener();
   }
 }

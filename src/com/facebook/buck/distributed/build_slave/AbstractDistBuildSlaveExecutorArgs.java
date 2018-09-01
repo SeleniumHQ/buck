@@ -20,8 +20,6 @@ import com.facebook.buck.artifact_cache.ArtifactCacheFactory;
 import com.facebook.buck.command.BuildExecutorArgs;
 import com.facebook.buck.core.build.engine.cache.manager.BuildInfoStoreManager;
 import com.facebook.buck.core.cell.Cell;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphParallelizationMode;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
 import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rulekey.RuleKey;
@@ -118,10 +116,6 @@ abstract class AbstractDistBuildSlaveExecutorArgs {
 
   public abstract HealthCheckStatsTracker getHealthCheckStatsTracker();
 
-  public abstract int getMaxActionGraphParallelism();
-
-  public abstract ActionGraphParallelizationMode getActionGraphParallelizationMode();
-
   public abstract RemoteCommand getRemoteCommand();
 
   public int getBuildThreadCount() {
@@ -167,25 +161,7 @@ abstract class AbstractDistBuildSlaveExecutorArgs {
         .setExecutors(this.getExecutors())
         .setProvider(this.getProvider())
         .setKnownRuleTypesProvider(getKnownRuleTypesProvider())
-        .setShouldInstrumentActionGraph(
-            this.getDistBuildConfig()
-                .getBuckConfig()
-                .getView(ActionGraphConfig.class)
-                .getShouldInstrumentActionGraph())
-        .setIncrementalActionGraphMode(
-            this.getDistBuildConfig()
-                .getBuckConfig()
-                .getView(ActionGraphConfig.class)
-                .getIncrementalActionGraphMode())
-        .setIncrementalActionGraphExperimentGroups(
-            this.getDistBuildConfig()
-                .getBuckConfig()
-                .getView(ActionGraphConfig.class)
-                .getIncrementalActionGraphExperimentGroups())
         .setDistBuildConfig(this.getDistBuildConfig())
-        .setMaxActionGraphParallelism(this.getMaxActionGraphParallelism())
-        .setActionGraphParallelizationMode(this.getActionGraphParallelizationMode())
-        .setCellProvider(this.getRootCell().getCellProvider())
         .build();
   }
 

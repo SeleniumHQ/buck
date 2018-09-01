@@ -40,7 +40,6 @@ import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
 import com.facebook.buck.core.model.graph.ActionAndTargetGraphs;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
@@ -49,6 +48,7 @@ import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.transformer.impl.DefaultTargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -774,7 +774,6 @@ public class BuildCommand extends AbstractCommand {
               return params
                   .getParser()
                   .getTargetNodeRawAttributes(
-                      params.getBuckEventBus(),
                       params.getCell().getCell(input.getBuildTarget()),
                       false /* enableProfiling */,
                       executorService,
@@ -1353,7 +1352,6 @@ public class BuildCommand extends AbstractCommand {
       return params
           .getParser()
           .buildTargetGraphForTargetNodeSpecs(
-              params.getBuckEventBus(),
               params.getCell(),
               getEnableParserProfiling(),
               executor,
@@ -1373,13 +1371,9 @@ public class BuildCommand extends AbstractCommand {
         params
             .getActionGraphProvider()
             .getActionGraph(
-                params.getBuckEventBus(),
+                new DefaultTargetNodeToBuildRuleTransformer(),
                 targetGraphAndBuildTargets.getTargetGraph(),
-                params.getCell().getCellProvider(),
-                params.getBuckConfig().getView(ActionGraphConfig.class),
-                params.getRuleKeyConfiguration(),
-                ruleKeyLogger,
-                params.getPoolSupplier());
+                ruleKeyLogger);
     return actionGraphAndBuilder;
   }
 

@@ -35,6 +35,7 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphFactory;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
 import com.facebook.buck.core.module.BuckModuleManager;
 import com.facebook.buck.core.module.impl.BuckModuleJarHashProvider;
@@ -103,6 +104,7 @@ import com.facebook.buck.log.InvocationInfo;
 import com.facebook.buck.log.LogConfig;
 import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.parser.BuildTargetPatternParser;
+import com.facebook.buck.parser.DaemonicParserState;
 import com.facebook.buck.parser.DefaultParser;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
@@ -118,6 +120,7 @@ import com.facebook.buck.rules.keys.config.impl.ConfigRuleKeyConfigurationFactor
 import com.facebook.buck.sandbox.SandboxExecutionStrategyFactory;
 import com.facebook.buck.sandbox.impl.PlatformSandboxExecutionStrategyFactory;
 import com.facebook.buck.step.ExecutorPool;
+import com.facebook.buck.support.bgtasks.AsyncBackgroundTaskManager;
 import com.facebook.buck.support.bgtasks.BackgroundTaskManager;
 import com.facebook.buck.support.bgtasks.BackgroundTaskManager.Notification;
 import com.facebook.buck.support.bgtasks.SynchronousBackgroundTaskManager;
@@ -774,7 +777,7 @@ public final class Main {
           context.isPresent() && (watchman != WatchmanFactory.NULL_WATCHMAN)
               ? Optional.of(
                   daemonLifecycleManager.getDaemon(
-                      rootCell, knownRuleTypesProvider, executableFinder, watchman, console))
+                      rootCell, knownRuleTypesProvider, watchman, console))
               : Optional.empty();
 
       if (!daemon.isPresent() && shouldCleanUpTrash) {
@@ -785,10 +788,19 @@ public final class Main {
         TRASH_CLEANER.startCleaningDirectory(filesystem.getBuckPaths().getTrashDir());
       }
 
-      BackgroundTaskManager bgTaskManager =
-          daemon.isPresent()
-              ? daemon.map(Daemon::getBgTaskManager).get()
-              : new SynchronousBackgroundTaskManager();
+      BackgroundTaskManager bgTaskManager;
+      if (rootCell.getBuckConfig().getUseSynchronousTaskManager()) {
+        bgTaskManager =
+            daemon.map((d) -> d.getBgTaskManager()).orElse(new SynchronousBackgroundTaskManager());
+      } else {
+        boolean blocking = rootCell.getBuckConfig().getFlushEventsBeforeExit();
+        if (!blocking && !daemon.isPresent()) {
+          LOG.warn(
+              "Manager cannot be async (as currently set in config) when not on daemon. Initializing blocking manager.");
+        }
+        bgTaskManager =
+            daemon.map((d) -> d.getBgTaskManager()).orElse(new AsyncBackgroundTaskManager(true));
+      }
       bgTaskManager.notify(Notification.COMMAND_START);
 
       ImmutableList<BuckEventListener> eventListeners = ImmutableList.of();
@@ -1149,6 +1161,9 @@ public final class Main {
                   getBuckPID());
           buildEventBus.post(startedEvent);
 
+          CloseableMemoizedSupplier<ForkJoinPool> forkJoinPoolSupplier =
+              getForkJoinPoolSupplier(buckConfig);
+
           ParserAndCaches parserAndCaches =
               getParserAndCaches(
                   context,
@@ -1160,6 +1175,8 @@ public final class Main {
                   rootCell,
                   daemon,
                   buildEventBus,
+                  forkJoinPoolSupplier,
+                  ruleKeyConfiguration,
                   executableFinder);
 
           // Because the Parser is potentially constructed before the CounterRegistry,
@@ -1234,7 +1251,7 @@ public final class Main {
                         executableFinder,
                         pluginManager,
                         moduleManager,
-                        getForkJoinPoolSupplier(buckConfig)));
+                        forkJoinPoolSupplier));
           } catch (InterruptedException | ClosedByInterruptException e) {
             buildEventBus.post(CommandEvent.interrupted(startedEvent, ExitCode.SIGNAL_INTERRUPT));
             throw e;
@@ -1304,6 +1321,8 @@ public final class Main {
       Cell rootCell,
       Optional<Daemon> daemonOptional,
       BuckEventBus buildEventBus,
+      CloseableMemoizedSupplier<ForkJoinPool> forkJoinPoolSupplier,
+      RuleKeyConfiguration ruleKeyConfiguration,
       ExecutableFinder executableFinder)
       throws IOException, InterruptedException {
     WatchmanWatcher watchmanWatcher = null;
@@ -1350,34 +1369,65 @@ public final class Main {
       } else {
         defaultRuleKeyFactoryCacheRecycler = Optional.empty();
       }
+      TypeCoercerFactory typeCoercerFactory = daemon.getTypeCoercerFactory();
+      Parser parser =
+          new DefaultParser(
+              daemon.getDaemonicParserState(),
+              new PerBuildStateFactory(
+                  typeCoercerFactory,
+                  new ConstructorArgMarshaller(typeCoercerFactory),
+                  knownRuleTypesProvider,
+                  new ParserPythonInterpreterProvider(parserConfig, executableFinder),
+                  watchman,
+                  buildEventBus),
+              new TargetSpecResolver(),
+              watchman,
+              buildEventBus);
+      daemon.getFileEventBus().register(daemon.getDaemonicParserState());
+
       parserAndCaches =
           ParserAndCaches.of(
-              daemon.getParser(),
+              parser,
               daemon.getTypeCoercerFactory(),
               new InstrumentedVersionedTargetGraphCache(
                   daemon.getVersionedTargetGraphCache(), new InstrumentingCacheStatsTracker()),
-              new ActionGraphProvider(daemon.getActionGraphCache()),
+              new ActionGraphProvider(
+                  buildEventBus,
+                  ActionGraphFactory.create(
+                      buildEventBus, rootCell.getCellProvider(), forkJoinPoolSupplier, buckConfig),
+                  daemon.getActionGraphCache(),
+                  ruleKeyConfiguration,
+                  buckConfig),
               defaultRuleKeyFactoryCacheRecycler);
     } else {
       TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
       parserAndCaches =
           ParserAndCaches.of(
               new DefaultParser(
+                  new DaemonicParserState(
+                      typeCoercerFactory,
+                      parserConfig.getNumParsingThreads(),
+                      parserConfig.shouldIgnoreEnvironmentVariablesChanges()),
                   new PerBuildStateFactory(
                       typeCoercerFactory,
                       new ConstructorArgMarshaller(typeCoercerFactory),
                       knownRuleTypesProvider,
                       new ParserPythonInterpreterProvider(parserConfig, executableFinder),
-                      watchman),
-                  parserConfig,
-                  typeCoercerFactory,
+                      watchman,
+                      buildEventBus),
                   new TargetSpecResolver(),
-                  watchman),
+                  watchman,
+                  buildEventBus),
               typeCoercerFactory,
               new InstrumentedVersionedTargetGraphCache(
                   new VersionedTargetGraphCache(), new InstrumentingCacheStatsTracker()),
               new ActionGraphProvider(
-                  new ActionGraphCache(buckConfig.getMaxActionGraphCacheEntries())),
+                  buildEventBus,
+                  ActionGraphFactory.create(
+                      buildEventBus, rootCell.getCellProvider(), forkJoinPoolSupplier, buckConfig),
+                  new ActionGraphCache(buckConfig.getMaxActionGraphCacheEntries()),
+                  ruleKeyConfiguration,
+                  buckConfig),
               /* defaultRuleKeyFactoryCacheRecycler */ Optional.empty());
     }
     return parserAndCaches;
@@ -2033,7 +2083,7 @@ public final class Main {
       NGServer server =
           new NGServer(
               new NGListeningAddress(socketPath),
-              NGServer.DEFAULT_SESSIONPOOLSIZE,
+              1, // store only 1 NGSession in a pool to avoid excessive memory usage
               heartbeatTimeout);
       daemonKillers = new DaemonKillers(housekeepingExecutorService, server, Paths.get(socketPath));
       server.run();

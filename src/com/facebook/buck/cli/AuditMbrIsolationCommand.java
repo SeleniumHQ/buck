@@ -18,7 +18,7 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphFactory;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
@@ -84,7 +84,6 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
             params
                 .getParser()
                 .buildTargetGraph(
-                    params.getBuckEventBus(),
                     params.getCell(),
                     getEnableParserProfiling(),
                     pool.getListeningExecutorService(),
@@ -104,21 +103,17 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
       ActionGraphBuilder graphBuilder =
           Preconditions.checkNotNull(
                   new ActionGraphProvider(
-                          new ActionGraphCache(
-                              params.getBuckConfig().getMaxActionGraphCacheEntries()))
-                      .getFreshActionGraph(
                           params.getBuckEventBus(),
-                          targetGraph,
-                          params.getCell().getCellProvider(),
-                          params
-                              .getBuckConfig()
-                              .getView(ActionGraphConfig.class)
-                              .getActionGraphParallelizationMode(),
-                          params
-                              .getBuckConfig()
-                              .getView(ActionGraphConfig.class)
-                              .getShouldInstrumentActionGraph(),
-                          params.getPoolSupplier()))
+                          ActionGraphFactory.create(
+                              params.getBuckEventBus(),
+                              params.getCell().getCellProvider(),
+                              params.getPoolSupplier(),
+                              params.getBuckConfig()),
+                          new ActionGraphCache(
+                              params.getBuckConfig().getMaxActionGraphCacheEntries()),
+                          params.getRuleKeyConfiguration(),
+                          params.getBuckConfig())
+                      .getFreshActionGraph(targetGraph))
               .getActionGraphBuilder();
       graphBuilder.requireAllRules(targets);
 

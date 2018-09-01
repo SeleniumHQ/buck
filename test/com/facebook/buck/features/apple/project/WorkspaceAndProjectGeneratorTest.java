@@ -47,8 +47,7 @@ import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphParallelizationMode;
-import com.facebook.buck.core.model.actiongraph.computation.TestActionGraphProviderFactory;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProviderBuilder;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -69,7 +68,6 @@ import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.shell.GenruleDescriptionArg;
 import com.facebook.buck.swift.SwiftBuckConfig;
-import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.IncrementingFakeClock;
 import com.facebook.buck.util.types.Either;
@@ -1058,19 +1056,9 @@ public class WorkspaceAndProjectGeneratorTest {
   private Function<TargetNode<?>, ActionGraphBuilder> getActionGraphBuilderForNodeFunction(
       TargetGraph targetGraph) {
     return input ->
-        TestActionGraphProviderFactory.create(1)
-            .getFreshActionGraph(
-                BuckEventBusForTests.newInstance(),
-                targetGraph.getSubgraph(ImmutableSet.of(input)),
-                new TestCellBuilder().build().getCellProvider(),
-                ActionGraphParallelizationMode.DISABLED,
-                false,
-                CloseableMemoizedSupplier.of(
-                    () -> {
-                      throw new IllegalStateException(
-                          "should not use parallel executor for single threaded action graph construction in test");
-                    },
-                    ignored -> {}))
+        new ActionGraphProviderBuilder()
+            .build()
+            .getFreshActionGraph(targetGraph.getSubgraph(ImmutableSet.of(input)))
             .getActionGraphBuilder();
   }
 }

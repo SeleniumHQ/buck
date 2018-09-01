@@ -25,7 +25,6 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.model.actiongraph.ActionGraph;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
 import com.facebook.buck.core.model.impl.InMemoryBuildFileTree;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
@@ -450,16 +449,7 @@ public class TargetsCommand extends AbstractCommand {
     TargetGraphAndBuildTargets targetGraphAndTargets = buildTargetGraphAndTargets(params, executor);
     TargetGraph targetGraph =
         getSubgraphWithoutConfigurationNodes(targetGraphAndTargets.getTargetGraph());
-    ActionGraphAndBuilder result =
-        params
-            .getActionGraphProvider()
-            .getActionGraph(
-                params.getBuckEventBus(),
-                targetGraph,
-                params.getCell().getCellProvider(),
-                params.getBuckConfig().getView(ActionGraphConfig.class),
-                params.getRuleKeyConfiguration(),
-                params.getPoolSupplier());
+    ActionGraphAndBuilder result = params.getActionGraphProvider().getActionGraph(targetGraph);
 
     // construct real graph
     MutableDirectedGraph<BuildRule> actionGraphMutable = new MutableDirectedGraph<>();
@@ -514,7 +504,6 @@ public class TargetsCommand extends AbstractCommand {
           params
               .getParser()
               .buildTargetGraphForTargetNodeSpecs(
-                  params.getBuckEventBus(),
                   params.getCell(),
                   getEnableParserProfiling(),
                   executor,
@@ -538,7 +527,6 @@ public class TargetsCommand extends AbstractCommand {
           params
               .getParser()
               .buildTargetGraphForTargetNodeSpecs(
-                  params.getBuckEventBus(),
                   params.getCell(),
                   getEnableParserProfiling(),
                   executor,
@@ -644,7 +632,6 @@ public class TargetsCommand extends AbstractCommand {
                   params
                       .getParser()
                       .buildTargetGraphForTargetNodeSpecs(
-                          params.getBuckEventBus(),
                           params.getCell(),
                           getEnableParserProfiling(),
                           executor,
@@ -660,7 +647,6 @@ public class TargetsCommand extends AbstractCommand {
           params
               .getParser()
               .buildTargetGraphForTargetNodeSpecs(
-                  params.getBuckEventBus(),
                   params.getCell(),
                   getEnableParserProfiling(),
                   executor,
@@ -847,10 +833,10 @@ public class TargetsCommand extends AbstractCommand {
                 params.getKnownRuleTypesProvider(),
                 new ParserPythonInterpreterProvider(
                     params.getCell().getBuckConfig(), params.getExecutableFinder()),
-                params.getWatchman())
+                params.getWatchman(),
+                params.getBuckEventBus())
             .create(
                 params.getParser().getPermState(),
-                params.getBuckEventBus(),
                 executor,
                 params.getCell(),
                 getEnableParserProfiling(),
@@ -970,12 +956,7 @@ public class TargetsCommand extends AbstractCommand {
             params
                 .getActionGraphProvider()
                 .getActionGraph(
-                    params.getBuckEventBus(),
-                    getSubgraphWithoutConfigurationNodes(targetGraphAndTargetNodes.getFirst()),
-                    params.getCell().getCellProvider(),
-                    params.getBuckConfig().getView(ActionGraphConfig.class),
-                    params.getRuleKeyConfiguration(),
-                    params.getPoolSupplier());
+                    getSubgraphWithoutConfigurationNodes(targetGraphAndTargetNodes.getFirst()));
         actionGraph = Optional.of(result.getActionGraph());
         graphBuilder = Optional.of(result.getActionGraphBuilder());
         if (isShowRuleKey) {
@@ -1138,7 +1119,6 @@ public class TargetsCommand extends AbstractCommand {
           params
               .getParser()
               .buildTargetGraph(
-                  params.getBuckEventBus(),
                   params.getCell(),
                   getEnableParserProfiling(),
                   executor,

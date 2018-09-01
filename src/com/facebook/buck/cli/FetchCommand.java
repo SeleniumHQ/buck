@@ -26,7 +26,7 @@ import com.facebook.buck.core.build.event.BuildEvent;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
-import com.facebook.buck.core.model.actiongraph.computation.ActionGraphConfig;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphFactory;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
@@ -82,7 +82,6 @@ public class FetchCommand extends BuildCommand {
             params
                 .getParser()
                 .buildTargetGraphForTargetNodeSpecs(
-                    params.getBuckEventBus(),
                     params.getCell(),
                     getEnableParserProfiling(),
                     pool.getListeningExecutorService(),
@@ -97,22 +96,17 @@ public class FetchCommand extends BuildCommand {
         actionGraphAndBuilder =
             Preconditions.checkNotNull(
                 new ActionGraphProvider(
-                        new ActionGraphCache(
-                            params.getBuckConfig().getMaxActionGraphCacheEntries()))
-                    .getFreshActionGraph(
                         params.getBuckEventBus(),
-                        ruleGenerator,
-                        result.getTargetGraph(),
-                        params.getCell().getCellProvider(),
-                        params
-                            .getBuckConfig()
-                            .getView(ActionGraphConfig.class)
-                            .getActionGraphParallelizationMode(),
-                        params
-                            .getBuckConfig()
-                            .getView(ActionGraphConfig.class)
-                            .getShouldInstrumentActionGraph(),
-                        params.getPoolSupplier()));
+                        ActionGraphFactory.create(
+                            params.getBuckEventBus(),
+                            params.getCell().getCellProvider(),
+                            params.getPoolSupplier(),
+                            params.getBuckConfig()),
+                        new ActionGraphCache(
+                            params.getBuckConfig().getMaxActionGraphCacheEntries()),
+                        params.getRuleKeyConfiguration(),
+                        params.getBuckConfig())
+                    .getFreshActionGraph(ruleGenerator, result.getTargetGraph()));
         buildTargets = ruleGenerator.getDownloadableTargets();
       } catch (BuildFileParseException | VersionException e) {
         params

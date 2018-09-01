@@ -28,22 +28,17 @@ import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.FileHashCacheEvent;
 import com.facebook.buck.httpserver.WebServer;
-import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.watchman.Watchman;
 import com.facebook.buck.io.watchman.WatchmanCursor;
 import com.facebook.buck.io.watchman.WatchmanWatcher;
-import com.facebook.buck.parser.DefaultParser;
-import com.facebook.buck.parser.Parser;
+import com.facebook.buck.parser.DaemonicParserState;
 import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.parser.ParserPythonInterpreterProvider;
-import com.facebook.buck.parser.PerBuildStateFactory;
-import com.facebook.buck.parser.TargetSpecResolver;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
+import com.facebook.buck.support.bgtasks.AsyncBackgroundTaskManager;
 import com.facebook.buck.support.bgtasks.BackgroundTaskManager;
 import com.facebook.buck.support.bgtasks.SynchronousBackgroundTaskManager;
 import com.facebook.buck.util.RichStream;
@@ -73,7 +68,7 @@ final class Daemon implements Closeable {
 
   private final Cell rootCell;
   private final TypeCoercerFactory typeCoercerFactory;
-  private final Parser parser;
+  private final DaemonicParserState daemonicParserState;
   private final ImmutableList<ProjectFileHashCache> hashCaches;
   private final EventBus fileEventBus;
   private final Optional<WebServer> webServer;
@@ -89,7 +84,6 @@ final class Daemon implements Closeable {
   Daemon(
       Cell rootCell,
       KnownRuleTypesProvider knownRuleTypesProvider,
-      ExecutableFinder executableFinder,
       Watchman watchman,
       Optional<WebServer> webServerToReuse) {
     this.rootCell = rootCell;
@@ -119,19 +113,11 @@ final class Daemon implements Closeable {
 
     typeCoercerFactory = new DefaultTypeCoercerFactory();
     ParserConfig parserConfig = rootCell.getBuckConfig().getView(ParserConfig.class);
-    this.parser =
-        new DefaultParser(
-            new PerBuildStateFactory(
-                typeCoercerFactory,
-                new ConstructorArgMarshaller(typeCoercerFactory),
-                knownRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, executableFinder),
-                watchman),
-            parserConfig,
+    this.daemonicParserState =
+        new DaemonicParserState(
             typeCoercerFactory,
-            new TargetSpecResolver(),
-            watchman);
-    parser.register(fileEventBus);
+            parserConfig.getNumParsingThreads(),
+            parserConfig.shouldIgnoreEnvironmentVariablesChanges());
 
     // Build the the rule key cache recycler.
     this.defaultRuleKeyFactoryCacheRecycler =
@@ -159,7 +145,12 @@ final class Daemon implements Closeable {
     LOG.debug("Using Watchman Cursor: %s", cursor);
     persistentWorkerPools = new ConcurrentHashMap<>();
 
-    this.bgTaskManager = new SynchronousBackgroundTaskManager();
+    if (rootCell.getBuckConfig().getUseSynchronousTaskManager()) {
+      this.bgTaskManager = new SynchronousBackgroundTaskManager();
+    } else {
+      boolean blocking = rootCell.getBuckConfig().getFlushEventsBeforeExit();
+      this.bgTaskManager = new AsyncBackgroundTaskManager(blocking);
+    }
   }
 
   Cell getRootCell() {
@@ -215,10 +206,6 @@ final class Daemon implements Closeable {
     return typeCoercerFactory;
   }
 
-  Parser getParser() {
-    return parser;
-  }
-
   VersionedTargetGraphCache getVersionedTargetGraphCache() {
     return versionedTargetGraphCache;
   }
@@ -243,13 +230,17 @@ final class Daemon implements Closeable {
     return defaultRuleKeyFactoryCacheRecycler;
   }
 
+  DaemonicParserState getDaemonicParserState() {
+    return daemonicParserState;
+  }
+
   void interruptOnClientExit(Thread threadToInterrupt) {
     // Synchronize on parser object so that the main command processing thread is not
     // interrupted mid way through a Parser cache update by the Thread.interrupt() call
     // triggered by System.exit(). The Parser cache will be reused by subsequent commands
     // so needs to be left in a consistent state even if the current command is interrupted
     // due to a client disconnection.
-    synchronized (parser) {
+    synchronized (daemonicParserState) {
       // signal to the main thread that we want to exit
       threadToInterrupt.interrupt();
     }
@@ -265,7 +256,7 @@ final class Daemon implements Closeable {
     // as a single, atomic Parser cache update and are not interleaved with Parser cache
     // invalidations triggered by requests to parse build files or interrupted by client
     // disconnections.
-    synchronized (parser) {
+    synchronized (daemonicParserState) {
       // Track the file hash cache invalidation run time.
       FileHashCacheEvent.InvalidationStarted started = FileHashCacheEvent.invalidationStarted();
       eventBus.post(started);
@@ -309,6 +300,7 @@ final class Daemon implements Closeable {
 
   @Override
   public void close() {
+    bgTaskManager.shutdownNow();
     shutdownPersistentWorkerPools();
     shutdownWebServer();
   }

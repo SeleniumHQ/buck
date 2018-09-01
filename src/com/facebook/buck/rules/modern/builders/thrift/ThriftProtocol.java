@@ -19,6 +19,7 @@ package com.facebook.buck.rules.modern.builders.thrift;
 import com.facebook.buck.rules.modern.builders.Protocol;
 import com.facebook.buck.util.function.ThrowingSupplier;
 import com.facebook.remoteexecution.executionengine.EnvironmentVariable;
+import com.facebook.remoteexecution.executionengine.Platform;
 import com.facebook.thrift.TBase;
 import com.facebook.thrift.TDeserializer;
 import com.facebook.thrift.TException;
@@ -34,12 +35,18 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 
 /** A Thrift-based Protocol implementation. */
 public class ThriftProtocol implements Protocol {
-  private static final HashFunction HASHER = Hashing.sipHash24();
+  // TODO(shivanker): This hash function is only used to generate hashes of data we have in memory.
+  // We still use the FileHashCache to compute hashes of source files. So until that is switched
+  // over to SHA256, we cannot really change this.
+  private static final HashFunction HASHER = Hashing.sha1();
+  private static final int ACTION_TIMEOUT_SECS = 600;
+  private static final boolean ACTION_DO_NOT_CACHE = false;
+  private static final String COMMAND_WORKING_DIRECTORY = "";
 
   /** Digest mapping */
   public static class ThriftDigest implements Digest {
@@ -91,6 +98,34 @@ public class ThriftProtocol implements Protocol {
           .environment_variables
           .stream()
           .collect(ImmutableMap.toImmutableMap(var -> var.name, var -> var.value));
+    }
+
+    @Override
+    public ImmutableList<String> getOutputFiles() {
+      return ImmutableList.copyOf(command.output_files);
+    }
+
+    @Override
+    public ImmutableList<String> getOutputDirectories() {
+      return ImmutableList.copyOf(command.output_directories);
+    }
+  }
+
+  private static class ThriftAction implements Action {
+    private final com.facebook.remoteexecution.executionengine.Action action;
+
+    ThriftAction(com.facebook.remoteexecution.executionengine.Action action) {
+      this.action = action;
+    }
+
+    @Override
+    public Digest getCommandDigest() {
+      return new ThriftDigest(action.command_digest);
+    }
+
+    @Override
+    public Digest getInputRootDigest() {
+      return new ThriftDigest(action.input_root_digest);
     }
   }
 
@@ -162,18 +197,18 @@ public class ThriftProtocol implements Protocol {
     }
   }
 
-  private void parseStruct(ByteBuffer data, TBase command) throws IOException {
+  private void parseStruct(ByteBuffer source, TBase dest) throws IOException {
     try {
-      deserialize(data, command);
+      deserialize(source, dest);
     } catch (ThriftException e) {
       throw new IOException(e);
     }
   }
 
   private static class ThriftTree implements Tree {
-    private final com.facebook.remoteexecution.cas.Tree tree;
+    private final com.facebook.remoteexecution.executionengine.Tree tree;
 
-    public ThriftTree(com.facebook.remoteexecution.cas.Tree tree) {
+    public ThriftTree(com.facebook.remoteexecution.executionengine.Tree tree) {
       this.tree = tree;
     }
 
@@ -217,7 +252,12 @@ public class ThriftProtocol implements Protocol {
 
   @Override
   public Command newCommand(
-      ImmutableList<String> command, ImmutableSortedMap<String, String> commandEnvironment) {
+      ImmutableList<String> command,
+      ImmutableSortedMap<String, String> commandEnvironment,
+      Set<Path> outputs) {
+    List<String> outputFiles =
+        outputs.stream().map(Path::toString).sorted().collect(Collectors.toList());
+
     return new ThriftCommand(
         new com.facebook.remoteexecution.executionengine.Command(
             command,
@@ -225,11 +265,22 @@ public class ThriftProtocol implements Protocol {
                 .entrySet()
                 .stream()
                 .map(entry -> new EnvironmentVariable(entry.getKey(), entry.getValue()))
-                .collect(ImmutableList.toImmutableList())));
+                .collect(ImmutableList.toImmutableList()),
+            outputFiles,
+            outputFiles,
+            new Platform(),
+            COMMAND_WORKING_DIRECTORY));
   }
 
   @Override
-  public OutputDirectory newOutputDirectory(Path output, Digest digest, Digest treeDigest) {
+  public Action newAction(Digest commandDigest, Digest inputRootDigest) {
+    return new ThriftAction(
+        new com.facebook.remoteexecution.executionengine.Action(
+            get(commandDigest), get(inputRootDigest), ACTION_TIMEOUT_SECS, ACTION_DO_NOT_CACHE));
+  }
+
+  @Override
+  public OutputDirectory newOutputDirectory(Path output, Digest treeDigest) {
     return new ThriftOutputDirectory(
         new com.facebook.remoteexecution.executionengine.OutputDirectory(
             output.toString(), get(treeDigest)));
@@ -238,7 +289,7 @@ public class ThriftProtocol implements Protocol {
   @Override
   public Tree newTree(Directory directory, List<Directory> directories) {
     return new ThriftTree(
-        new com.facebook.remoteexecution.cas.Tree(
+        new com.facebook.remoteexecution.executionengine.Tree(
             get(directory),
             directories.stream().map(ThriftProtocol::get).collect(Collectors.toList())));
   }
@@ -257,11 +308,20 @@ public class ThriftProtocol implements Protocol {
     return serialize(get(actionCommand));
   }
 
+  @Override
+  public byte[] toByteArray(Action action) {
+    return serialize(get(action));
+  }
+
   private com.facebook.remoteexecution.executionengine.Command get(Command command) {
     return ((ThriftCommand) command).command;
   }
 
-  private com.facebook.remoteexecution.cas.Tree get(Tree tree) {
+  private com.facebook.remoteexecution.executionengine.Action get(Action action) {
+    return ((ThriftAction) action).action;
+  }
+
+  private com.facebook.remoteexecution.executionengine.Tree get(Tree tree) {
     return ((ThriftTree) tree).tree;
   }
 
@@ -319,12 +379,6 @@ public class ThriftProtocol implements Protocol {
     }
 
     @Override
-    @Nullable
-    public ByteBuffer getContent() {
-      return ByteBuffer.wrap(outputFile.content);
-    }
-
-    @Override
     public boolean getIsExecutable() {
       return outputFile.is_executable;
     }
@@ -361,6 +415,14 @@ public class ThriftProtocol implements Protocol {
   }
 
   @Override
+  public Action parseAction(ByteBuffer data) throws IOException {
+    com.facebook.remoteexecution.executionengine.Action action =
+        new com.facebook.remoteexecution.executionengine.Action();
+    parseStruct(data, action);
+    return new ThriftAction(action);
+  }
+
+  @Override
   public Directory parseDirectory(ByteBuffer data) throws IOException {
     com.facebook.remoteexecution.cas.Directory directory =
         new com.facebook.remoteexecution.cas.Directory();
@@ -370,7 +432,8 @@ public class ThriftProtocol implements Protocol {
 
   @Override
   public Tree parseTree(ByteBuffer data) throws IOException {
-    com.facebook.remoteexecution.cas.Tree tree = new com.facebook.remoteexecution.cas.Tree();
+    com.facebook.remoteexecution.executionengine.Tree tree =
+        new com.facebook.remoteexecution.executionengine.Tree();
     parseStruct(data, tree);
     return new ThriftTree(tree);
   }
@@ -407,6 +470,11 @@ public class ThriftProtocol implements Protocol {
     return new ThriftDigest(
         new com.facebook.remoteexecution.cas.Digest(
             HASHER.hashBytes(data).toString(), data.length));
+  }
+
+  @Override
+  public HashFunction getHashFunction() {
+    return HASHER;
   }
 
   private static byte[] serialize(TBase source) {

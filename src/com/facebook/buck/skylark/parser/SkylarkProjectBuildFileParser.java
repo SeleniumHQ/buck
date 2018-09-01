@@ -37,8 +37,7 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Ordering;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import com.google.devtools.build.lib.cmdline.Label;
 import com.google.devtools.build.lib.cmdline.PackageIdentifier;
@@ -133,11 +132,7 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
     ParseResult parseResult = parseBuildFile(buildFile);
     return BuildFileManifest.of(
         parseResult.getRawRules(),
-        parseResult
-            .getLoadedPaths()
-            .stream()
-            .map(Object::toString)
-            .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural())),
+        ImmutableSet.copyOf(parseResult.getLoadedPaths()),
         parseResult.getReadConfigurationOptions(),
         Optional.empty(),
         parseResult.getGlobManifest());
@@ -203,12 +198,13 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
       ImmutableList<ImmutableMap<String, Object>> rules = parseContext.getRecordedRules();
       LOG.verbose("Got rules: %s", rules);
       LOG.verbose("Parsed %d rules from %s", rules.size(), buildFile);
+      ImmutableList.Builder<String> loadedPaths =
+          ImmutableList.builderWithExpectedSize(envData.getLoadedPaths().size() + 1);
+      loadedPaths.add(buildFilePath.toString());
+      loadedPaths.addAll(envData.getLoadedPaths());
       return ParseResult.of(
           rules,
-          ImmutableSortedSet.<com.google.devtools.build.lib.vfs.Path>naturalOrder()
-              .addAll(envData.getLoadedPaths())
-              .add(buildFilePath)
-              .build(),
+          loadedPaths.build(),
           parseContext.getAccessedConfigurationOptions(),
           globber.createGlobManifest());
     }
@@ -266,17 +262,18 @@ public class SkylarkProjectBuildFileParser implements ProjectBuildFileParser {
         eventHandler);
   }
 
-  private ImmutableList<com.google.devtools.build.lib.vfs.Path> toLoadedPaths(
-      ImmutableList<ExtensionData> dependencies) {
+  private ImmutableList<String> toLoadedPaths(ImmutableList<ExtensionData> dependencies) {
     // expected size is used to reduce the number of unnecessary resize invocations
     int expectedSize = 0;
     for (int i = 0; i < dependencies.size(); ++i) {
       expectedSize += dependencies.get(i).getLoadTransitiveClosureSize();
     }
-    ImmutableList.Builder<com.google.devtools.build.lib.vfs.Path> loadedPathsBuilder =
+    ImmutableList.Builder<String> loadedPathsBuilder =
         ImmutableList.builderWithExpectedSize(expectedSize);
-    for (ExtensionData extensionData : dependencies) {
-      loadedPathsBuilder.add(extensionData.getPath());
+    // for loop is used instead of foreach to avoid iterator overhead, since it's a hot spot
+    for (int i = 0; i < dependencies.size(); ++i) {
+      ExtensionData extensionData = dependencies.get(i);
+      loadedPathsBuilder.add(extensionData.getPath().toString());
       loadedPathsBuilder.addAll(toLoadedPaths(extensionData.getDependencies()));
     }
     return loadedPathsBuilder.build();

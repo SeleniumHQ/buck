@@ -1671,11 +1671,13 @@ public class ProjectGenerator {
     // Focused: Included in the workspace and built by Xcode but not in current project.
     // Other: Not included in the workspace to be built by Xcode.
     FluentIterable<TargetNode<?>> depTargetNodes = collectRecursiveLibraryDepTargets(targetNode);
-    if (options.shouldForceLoadLinkWholeLibraries() || options.shouldAddLinkedLibrariesAsFlags()) {
-      FluentIterable<TargetNode<?>> filteredDeps =
-          collectRecursiveLibraryDepsMinusBundleLoaderDeps(
-              targetNode, depTargetNodes, bundleLoaderNode);
 
+    // Don't duplicate linker flags for the bundle loader.
+    FluentIterable<TargetNode<?>> filteredDeps =
+        collectRecursiveLibraryDepsMinusBundleLoaderDeps(
+            targetNode, depTargetNodes, bundleLoaderNode);
+
+    if (options.shouldForceLoadLinkWholeLibraries() || options.shouldAddLinkedLibrariesAsFlags()) {
       ImmutableList<String> forceLoadLocal =
           collectForceLoadLinkerFlags(
               filterRecursiveLibraryDepsIterable(
@@ -1715,21 +1717,21 @@ public class ProjectGenerator {
       Iterable<String> localLibraryFlags =
           collectLibraryLinkerFlags(
               filterRecursiveLibraryDepsIterable(
-                  depTargetNodes,
+                  filteredDeps,
                   shouldLimitByForceLoad
                       ? FilterFlags.LIBRARY_CURRENT_PROJECT_WITHOUT_FORCE_LOAD
                       : FilterFlags.LIBRARY_CURRENT_PROJECT));
       Iterable<String> focusedLibraryFlags =
           collectLibraryLinkerFlags(
               filterRecursiveLibraryDepsIterable(
-                  depTargetNodes,
+                  filteredDeps,
                   shouldLimitByForceLoad
                       ? FilterFlags.LIBRARY_FOCUSED_WITHOUT_FORCE_LOAD
                       : FilterFlags.LIBRARY_FOCUSED));
       Iterable<String> otherLibraryFlags =
           collectLibraryLinkerFlags(
               filterRecursiveLibraryDepsIterable(
-                  depTargetNodes,
+                  filteredDeps,
                   shouldLimitByForceLoad
                       ? FilterFlags.LIBRARY_OTHER_WITHOUT_FORCE_LOAD
                       : FilterFlags.LIBRARY_OTHER));
@@ -2952,11 +2954,15 @@ public class ProjectGenerator {
   }
 
   /** @param targetNode Must have a header symlink tree or an exception will be thrown. */
-  private Path getHeaderSymlinkTreeRelativePath(
+  private Path getHeaderSymlinkTreePath(
       TargetNode<? extends CxxLibraryDescription.CommonArg> targetNode,
       HeaderVisibility headerVisibility) {
     Path treeRoot = getAbsolutePathToHeaderSymlinkTree(targetNode, headerVisibility);
-    return projectFilesystem.resolve(outputDirectory).relativize(treeRoot);
+    if (options.shouldUseAbsoluteHeaderMapPaths()) {
+      return treeRoot;
+    } else {
+      return projectFilesystem.resolve(outputDirectory).relativize(treeRoot);
+    }
   }
 
   private Path getObjcModulemapVFSOverlayLocationFromSymlinkTreeRoot(Path headerSymlinkTreeRoot) {
@@ -3063,14 +3069,14 @@ public class ProjectGenerator {
     if (shouldMergeHeaderMaps()) {
       builder.add(
           getHeaderSearchPathFromSymlinkTreeRoot(
-              getHeaderSymlinkTreeRelativePath(targetNode, HeaderVisibility.PRIVATE)));
+              getHeaderSymlinkTreePath(targetNode, HeaderVisibility.PRIVATE)));
       builder.add(getHeaderSearchPathFromSymlinkTreeRoot(getRelativePathToMergedHeaderMap()));
       visitRecursivePrivateHeaderSymlinkTreesForTests(
           targetNode,
           (nativeNode, headerVisibility) -> {
             builder.add(
                 getHeaderSearchPathFromSymlinkTreeRoot(
-                    getHeaderSymlinkTreeRelativePath(nativeNode, headerVisibility)));
+                    getHeaderSymlinkTreePath(nativeNode, headerVisibility)));
           });
     } else {
       for (Path headerSymlinkTreePath : collectRecursiveHeaderSymlinkTrees(targetNode)) {
@@ -3094,15 +3100,28 @@ public class ProjectGenerator {
       visitRecursiveHeaderSymlinkTrees(
           targetNode,
           (nativeNode, headerVisibility) -> {
-            builder.add(
-                targetNode
-                    .getFilesystem()
-                    .resolve(outputDirectory)
-                    .relativize(
-                        nativeNode
-                            .getFilesystem()
-                            .resolve(
-                                nativeNode.getFilesystem().getBuckPaths().getConfiguredBuckOut())));
+            if (options.shouldUseAbsoluteHeaderMapPaths()) {
+              builder.add(
+                  nativeNode
+                      .getFilesystem()
+                      .getBuckPaths()
+                      .getConfiguredBuckOut()
+                      .toAbsolutePath()
+                      .normalize());
+            } else {
+              builder.add(
+                  targetNode
+                      .getFilesystem()
+                      .resolve(outputDirectory)
+                      .relativize(
+                          nativeNode
+                              .getFilesystem()
+                              .resolve(
+                                  nativeNode
+                                      .getFilesystem()
+                                      .getBuckPaths()
+                                      .getConfiguredBuckOut())));
+            }
           });
     }
     return builder.build();
@@ -3180,7 +3199,7 @@ public class ProjectGenerator {
     visitRecursiveHeaderSymlinkTrees(
         targetNode,
         (nativeNode, headerVisibility) -> {
-          builder.add(getHeaderSymlinkTreeRelativePath(nativeNode, headerVisibility));
+          builder.add(getHeaderSymlinkTreePath(nativeNode, headerVisibility));
         });
     return builder.build();
   }

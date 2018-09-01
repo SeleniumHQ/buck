@@ -25,44 +25,32 @@ import com.facebook.buck.rules.modern.builders.thrift.ThriftProtocol.ThriftOutpu
 import com.facebook.buck.rules.modern.builders.thrift.ThriftProtocol.ThriftOutputFile;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.remoteexecution.cas.ContentAddressableStorage;
-import com.facebook.remoteexecution.cas.Digest;
+import com.facebook.remoteexecution.cas.ContentAddressableStorageException;
 import com.facebook.remoteexecution.cas.ReadBlobRequest;
 import com.facebook.remoteexecution.cas.ReadBlobResponse;
-import com.facebook.remoteexecution.executionengine.Action;
 import com.facebook.remoteexecution.executionengine.ActionResult;
+import com.facebook.remoteexecution.executionengine.ExecuteOperation;
 import com.facebook.remoteexecution.executionengine.ExecuteRequest;
 import com.facebook.remoteexecution.executionengine.ExecuteResponse;
 import com.facebook.remoteexecution.executionengine.ExecutionEngine;
 import com.facebook.remoteexecution.executionengine.ExecutionEngine.Client;
-import com.facebook.remoteexecution.executionengine.ExecutionState;
-import com.facebook.remoteexecution.executionengine.GetExecutionStateRequest;
-import com.facebook.remoteexecution.executionengine.GetExecutionStateResponse;
-import com.facebook.remoteexecution.executionengine.NonUniqueExecutionIdException;
-import com.facebook.remoteexecution.executionengine.RejectedActionException;
-import com.facebook.remoteexecution.executionengine.Requirements;
-import com.facebook.remoteexecution.executionengine.ServiceOverloadedException;
-import com.facebook.remoteexecution.executionengine.UnknownExecutionIdException;
+import com.facebook.remoteexecution.executionengine.ExecutionEngineException;
+import com.facebook.remoteexecution.executionengine.GetExecuteOperationRequest;
 import com.facebook.thrift.TException;
 import java.io.IOException;
 import java.nio.charset.Charset;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /** A Thrift-based remote execution (execution engine) implementation. */
 public class ThriftExecutionEngine implements RemoteExecutionService {
 
-  private static final int TIMEOUT_SECS = 600;
-  private static final boolean DO_NOT_CACHE = false;
-  private static final String INSTANCE_NAME = "";
+  private static final int INITIAL_POLL_INTERVAL = 50;
+  private static final int MAX_POLL_INTERVAL = 2000;
+  private static final float POLL_INTERVAL_GROWTH = 1.5f;
   private static final boolean SKIP_CACHE_LOOKUP = false;
   private static Charset CHARSET = Charset.forName("UTF-8");
-
-  private static int initialPollInterval = 50;
-  private static float pollIntervalGrowth = 1.5f;
-  private static int maxPollInterval = 2000;
 
   private final Client client;
   private final ContentAddressableStorage.Client casClient;
@@ -74,73 +62,51 @@ public class ThriftExecutionEngine implements RemoteExecutionService {
   }
 
   @Override
-  public ExecutionResult execute(
-      Protocol.Digest command, Protocol.Digest inputsRootDigest, Set<Path> outputs)
+  public ExecutionResult execute(Protocol.Digest actionDigest)
       throws IOException, InterruptedException {
 
-    Digest commandDigest = ThriftProtocol.get(command);
-    List<String> outputFiles =
-        outputs.stream().map(Path::toString).sorted().collect(Collectors.toList());
-    Requirements requirements = new Requirements();
-
-    Action action =
-        new Action(
-            commandDigest,
-            ThriftProtocol.get(inputsRootDigest),
-            outputFiles,
-            outputFiles,
-            requirements,
-            TIMEOUT_SECS,
-            DO_NOT_CACHE);
-
-    ExecuteRequest request = new ExecuteRequest(INSTANCE_NAME, action, SKIP_CACHE_LOOKUP);
+    ExecuteRequest request =
+        new ExecuteRequest(SKIP_CACHE_LOOKUP, ThriftProtocol.get(actionDigest));
 
     try {
-      ExecuteResponse response;
+      ExecuteOperation operation;
       synchronized (client) {
         // TODO(shivanker): Thrift client is not thread-safe. We *really* don't want this for the
         // long-term. Will convert this to an async-client in the next diff.
-        response = client.execute(request);
+        operation = client.execute(request);
       }
-      com.facebook.remoteexecution.executionengine.ExecutionResult result = waitForResult(response);
-      ActionResult actionResult = result.action_result;
+      ExecuteResponse response = waitForResponse(operation);
+      ActionResult actionResult = response.result;
       return actionResultToExecutionResult(actionResult);
-    } catch (TException
-        | RejectedActionException
-        | NonUniqueExecutionIdException
-        | ServiceOverloadedException e) {
+    } catch (TException | ExecutionEngineException e) {
       throw new RuntimeException(e);
     }
   }
 
-  private com.facebook.remoteexecution.executionengine.ExecutionResult waitForResult(
-      ExecuteResponse response) throws TException {
+  private ExecuteResponse waitForResponse(ExecuteOperation operation) throws TException {
     // TODO(orr): This is currently blocking and infinite, like the Grpc implementation. This is
     // not a good long-term solution:
-    ExecutionState state = response.state;
-    int pollInterval = initialPollInterval;
-    while (!state.done) {
+    int pollInterval = INITIAL_POLL_INTERVAL;
+    while (!operation.done) {
       try {
         Thread.sleep(pollInterval);
       } catch (InterruptedException e) {
         Thread.currentThread().interrupt();
         throw new BuckUncheckedExecutionException(e);
       }
-      pollInterval = (int) Math.min(pollInterval * pollIntervalGrowth, maxPollInterval);
+      pollInterval = (int) Math.min(pollInterval * POLL_INTERVAL_GROWTH, MAX_POLL_INTERVAL);
 
-      GetExecutionStateRequest request = new GetExecutionStateRequest(response.state.execution_id);
-      GetExecutionStateResponse stateResponse;
+      GetExecuteOperationRequest request = new GetExecuteOperationRequest(operation.execution_id);
 
       try {
         synchronized (client) {
-          stateResponse = client.getExecutionState(request);
+          operation = client.getExecuteOperation(request);
         }
-      } catch (UnknownExecutionIdException e) {
+      } catch (ExecutionEngineException e) {
         throw new RuntimeException(e);
       }
-      state = stateResponse.state;
     }
-    return state.result;
+    return operation.response;
   }
 
   private ExecutionResult actionResultToExecutionResult(ActionResult actionResult) {
@@ -182,7 +148,7 @@ public class ThriftExecutionEngine implements RemoteExecutionService {
               response = casClient.readBlob(request);
             }
             return Optional.of(new String(response.data, CHARSET));
-          } catch (TException e) {
+          } catch (TException | ContentAddressableStorageException e) {
             throw new RuntimeException(e);
           }
         } else {

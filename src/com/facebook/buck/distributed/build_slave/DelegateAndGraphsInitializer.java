@@ -39,11 +39,9 @@ import com.facebook.buck.rules.coercer.PathTypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.visibility.VisibilityPatternFactory;
 import com.facebook.buck.step.ExecutorPool;
-import com.facebook.buck.util.CloseableMemoizedSupplier;
 import com.facebook.buck.util.cache.ProjectFileHashCache;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
-import com.facebook.buck.util.concurrent.MostExecutors;
 import com.facebook.buck.versions.VersionException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -55,8 +53,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.ForkJoinPool;
 
 /** Initializes the build engine delegate, the target graph and the action graph. */
 public class DelegateAndGraphsInitializer {
@@ -150,34 +146,8 @@ public class DelegateAndGraphsInitializer {
   private ActionGraphAndBuilder createActionGraphAndResolver(TargetGraph targetGraph) {
     args.getTimingStatsTracker().startTimer(SlaveEvents.ACTION_GRAPH_CREATION_TIME);
     try {
-      LOG.info(
-          String.format(
-              "Parallel action graph mode: [%s]. Parallel action graph threads [%d]",
-              args.getActionGraphParallelizationMode(), args.getMaxActionGraphParallelism()));
       ActionGraphAndBuilder actionGraphAndBuilder =
-          args.getActionGraphProvider()
-              .getActionGraph(
-                  args.getBuckEventBus(),
-                  /* checkActionGraphs */ false,
-                  /* skipActionGraphCache */ false,
-                  Preconditions.checkNotNull(targetGraph),
-                  args.getCellProvider(),
-                  args.getRuleKeyConfiguration(),
-                  args.getActionGraphParallelizationMode(),
-                  Optional.empty(),
-                  args.getShouldInstrumentActionGraph(),
-                  args.getIncrementalActionGraphMode(),
-                  args.getIncrementalActionGraphExperimentGroups(),
-                  CloseableMemoizedSupplier.of(
-                      () -> {
-                        int threadCount = args.getMaxActionGraphParallelism();
-                        LOG.info(
-                            String.format(
-                                "Creating parallel action graph construction pool with [%d] threads.",
-                                threadCount));
-                        return MostExecutors.forkJoinPoolWithThreadLimit(threadCount, 16);
-                      },
-                      ForkJoinPool::shutdownNow));
+          args.getActionGraphProvider().getActionGraph(Preconditions.checkNotNull(targetGraph));
       return actionGraphAndBuilder;
     } finally {
       args.getTimingStatsTracker().stopTimer(SlaveEvents.ACTION_GRAPH_CREATION_TIME);
@@ -255,7 +225,6 @@ public class DelegateAndGraphsInitializer {
           try {
             return args.getParser()
                 .getTargetNodeRawAttributes(
-                    args.getBuckEventBus(),
                     args.getState().getRootCell().getCell(input.getBuildTarget()),
                     /* enableProfiling */ false,
                     args.getExecutorService(),

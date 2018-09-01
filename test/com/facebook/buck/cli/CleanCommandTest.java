@@ -30,7 +30,7 @@ import com.facebook.buck.core.cell.CellName;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
-import com.facebook.buck.core.model.actiongraph.computation.TestActionGraphProviderFactory;
+import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProviderBuilder;
 import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
@@ -41,12 +41,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.jvm.java.FakeJavaPackageFinder;
-import com.facebook.buck.parser.DefaultParser;
-import com.facebook.buck.parser.ParserConfig;
-import com.facebook.buck.parser.ParserPythonInterpreterProvider;
-import com.facebook.buck.parser.PerBuildStateFactory;
-import com.facebook.buck.parser.TargetSpecResolver;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
+import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
@@ -294,7 +289,6 @@ public class CleanCommandTest {
     KnownRuleTypesProvider knownRuleTypesProvider =
         TestKnownRuleTypesProvider.create(pluginManager);
     ExecutableFinder executableFinder = new ExecutableFinder();
-    ParserConfig parserConfig = buckConfig.getView(ParserConfig.class);
 
     return CommandRunnerParams.of(
         new TestConsole(),
@@ -305,17 +299,7 @@ public class CleanCommandTest {
             new VersionedTargetGraphCache(), new NoOpCacheStatsTracker()),
         new SingletonArtifactCacheFactory(new NoopArtifactCache()),
         typeCoercerFactory,
-        new DefaultParser(
-            new PerBuildStateFactory(
-                typeCoercerFactory,
-                new ConstructorArgMarshaller(typeCoercerFactory),
-                knownRuleTypesProvider,
-                new ParserPythonInterpreterProvider(parserConfig, executableFinder),
-                WatchmanFactory.NULL_WATCHMAN),
-            parserConfig,
-            typeCoercerFactory,
-            new TargetSpecResolver(),
-            WatchmanFactory.NULL_WATCHMAN),
+        TestParserFactory.create(buckConfig, knownRuleTypesProvider),
         BuckEventBusForTests.newInstance(),
         Platform.detect(),
         ImmutableMap.copyOf(System.getenv()),
@@ -330,7 +314,10 @@ public class CleanCommandTest {
         ImmutableMap.of(),
         new FakeExecutor(),
         CommandRunnerParamsForTesting.BUILD_ENVIRONMENT_DESCRIPTION,
-        TestActionGraphProviderFactory.create(buckConfig.getMaxActionGraphCacheEntries()),
+        new ActionGraphProviderBuilder()
+            .withMaxEntries(buckConfig.getMaxActionGraphCacheEntries())
+            .withPoolSupplier(Main.getForkJoinPoolSupplier(buckConfig))
+            .build(),
         knownRuleTypesProvider,
         new BuildInfoStoreManager(),
         Optional.empty(),

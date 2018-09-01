@@ -160,7 +160,7 @@ public class JavaTestDescription
     return new JavaTest(
         buildTarget,
         projectFilesystem,
-        params.copyAppendingExtraDeps(ImmutableSortedSet.of(testsLibrary)),
+        params.withDeclaredDeps(ImmutableSortedSet.of(testsLibrary)).withoutExtraDeps(),
         testsLibrary,
         args.getTestClasses(),
         /* additionalClasspathEntries */ ImmutableSet.of(),
@@ -320,10 +320,7 @@ public class JavaTestDescription
           ruleFinder,
           cxxPlatform,
           buildRuleParams.getBuildDeps(),
-          r ->
-              r instanceof JavaLibrary
-                  ? Optional.of(((JavaLibrary) r).getDepsForTransitiveClasspathEntries())
-                  : Optional.empty());
+          r -> r instanceof JavaLibrary ? Optional.of(r.getBuildDeps()) : Optional.empty());
     }
   }
 }

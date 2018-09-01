@@ -20,12 +20,13 @@ import com.facebook.buck.util.function.ThrowingSupplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.hash.HashFunction;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.List;
-import javax.annotation.Nullable;
+import java.util.Set;
 
 /**
  * The Protocol interface is used by many parts of isolated/remote execution and abstracts away the
@@ -87,6 +88,18 @@ public interface Protocol {
     ImmutableList<String> getCommand();
 
     ImmutableMap<String, String> getEnvironment();
+
+    ImmutableList<String> getOutputFiles();
+
+    ImmutableList<String> getOutputDirectories();
+  }
+
+  /** An action to execute remotely */
+  interface Action {
+
+    Digest getCommandDigest();
+
+    Digest getInputRootDigest();
   }
 
   /** An OutputDirectory is a merkle tree rooted at a particular path. */
@@ -104,16 +117,17 @@ public interface Protocol {
 
     Digest getDigest();
 
-    @Nullable
-    ByteBuffer getContent();
-
     boolean getIsExecutable();
   }
 
   Command newCommand(
-      ImmutableList<String> command, ImmutableSortedMap<String, String> commandEnvironment);
+      ImmutableList<String> command,
+      ImmutableSortedMap<String, String> commandEnvironment,
+      Set<Path> outputs);
 
-  OutputDirectory newOutputDirectory(Path output, Digest digest, Digest treeDigest);
+  Action newAction(Digest commandDigest, Digest inputRootDigest);
+
+  OutputDirectory newOutputDirectory(Path output, Digest treeDigest);
 
   Tree newTree(Directory directory, List<Directory> directories);
 
@@ -132,6 +146,8 @@ public interface Protocol {
 
   Command parseCommand(ByteBuffer data) throws IOException;
 
+  Action parseAction(ByteBuffer data) throws IOException;
+
   Directory parseDirectory(ByteBuffer data) throws IOException;
 
   Tree parseTree(ByteBuffer data) throws IOException;
@@ -147,7 +163,11 @@ public interface Protocol {
 
   byte[] toByteArray(Command actionCommand);
 
+  byte[] toByteArray(Action action);
+
   Digest computeDigest(Directory directory) throws IOException;
 
   Digest computeDigest(byte[] data);
+
+  HashFunction getHashFunction();
 }

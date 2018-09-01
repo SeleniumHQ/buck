@@ -40,7 +40,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.HashCode;
-import com.google.common.hash.Hashing;
 import com.google.common.io.MoreFiles;
 import java.io.ByteArrayInputStream;
 import java.io.FileInputStream;
@@ -49,7 +48,9 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -118,11 +119,10 @@ public class ActionRunner {
 
     ImmutableList.Builder<OutputFile> outputFiles;
     ImmutableList.Builder<OutputDirectory> outputDirectories;
-    ImmutableMap.Builder<Digest, ThrowingSupplier<InputStream, IOException>> requiredData;
+    Map<Digest, ThrowingSupplier<InputStream, IOException>> requiredData = new HashMap<>();
     try (Scope ignored = LeafEvents.scope(eventBus, "collecting_outputs")) {
       outputFiles = ImmutableList.builder();
       outputDirectories = ImmutableList.builder();
-      requiredData = ImmutableMap.builder();
       if (result.getExitCode() == 0) {
         // TODO(cjhopman): Should outputs be returned on failure?
         collectOutputs(outputs, buildDir, outputFiles, outputDirectories, requiredData);
@@ -132,7 +132,7 @@ public class ActionRunner {
     return new ActionResult(
         outputFiles.build(),
         outputDirectories.build(),
-        requiredData.build(),
+        ImmutableMap.copyOf(requiredData),
         result.getExitCode(),
         result.getStderr().get(),
         result.getStdout().get());
@@ -143,7 +143,7 @@ public class ActionRunner {
       Path buildDir,
       ImmutableList.Builder<OutputFile> outputFilesBuilder,
       ImmutableList.Builder<OutputDirectory> outputDirectoriesBuilder,
-      ImmutableMap.Builder<Digest, ThrowingSupplier<InputStream, IOException>> requiredDataBuilder)
+      Map<Digest, ThrowingSupplier<InputStream, IOException>> requiredDataBuilder)
       throws IOException {
     for (Path output : outputs) {
       Path path = buildDir.resolve(output);
@@ -169,15 +169,14 @@ public class ActionRunner {
         }
 
         List<Directory> directories = new ArrayList<>();
-        Digest digest =
-            builder.buildTree(
-                new ProtocolTreeBuilder(requiredDataBuilder::put, directories::add, protocol));
+        builder.buildTree(
+            new ProtocolTreeBuilder(requiredDataBuilder::put, directories::add, protocol));
         Preconditions.checkState(!directories.isEmpty());
         Tree tree = protocol.newTree(directories.get(directories.size() - 1), directories);
         byte[] treeData = protocol.toByteArray(tree);
         Digest treeDigest = protocol.computeDigest(treeData);
 
-        outputDirectoriesBuilder.add(protocol.newOutputDirectory(output, digest, treeDigest));
+        outputDirectoriesBuilder.add(protocol.newOutputDirectory(output, treeDigest));
         requiredDataBuilder.put(treeDigest, () -> new ByteArrayInputStream(treeData));
       } else {
         long size = Files.size(path);
@@ -193,6 +192,6 @@ public class ActionRunner {
   }
 
   private HashCode hashFile(Path file) throws IOException {
-    return MoreFiles.asByteSource(file).hash(Hashing.sha1());
+    return MoreFiles.asByteSource(file).hash(protocol.getHashFunction());
   }
 }

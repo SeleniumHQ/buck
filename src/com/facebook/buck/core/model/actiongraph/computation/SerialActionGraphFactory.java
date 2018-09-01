@@ -27,7 +27,6 @@ import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.resolver.impl.SingleThreadedActionGraphBuilder;
 import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
 import com.facebook.buck.core.util.graph.AbstractBottomUpTraversal;
-import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ActionGraphPerfStatEvent;
 import com.facebook.buck.event.BuckEventBus;
@@ -36,27 +35,25 @@ import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.google.common.collect.Iterables;
 import java.util.stream.StreamSupport;
-import org.immutables.value.Value;
 
-public class SerialActionGraphFactory {
+public class SerialActionGraphFactory implements ActionGraphFactoryDelegate {
   private static final Logger LOG = Logger.get(SerialActionGraphFactory.class);
 
-  public ActionGraphAndBuilder create(SerialActionGraphCreationParameters parameters) {
-    return createActionGraphSerially(
-        parameters.getEventBus(),
-        parameters.getTransformer(),
-        parameters.getTargetGraph(),
-        parameters.getCellProvider(),
-        parameters.getShouldInstrumentGraphBuilding(),
-        parameters.getActionGraphCreationLifecycleListener());
+  private final BuckEventBus eventBus;
+  private final CellProvider cellProvider;
+  private final boolean shouldInstrumentGraphBuilding;
+
+  public SerialActionGraphFactory(
+      BuckEventBus eventBus, CellProvider cellProvider, boolean shouldInstrumentGraphBuilding) {
+    this.eventBus = eventBus;
+    this.cellProvider = cellProvider;
+    this.shouldInstrumentGraphBuilding = shouldInstrumentGraphBuilding;
   }
 
-  private ActionGraphAndBuilder createActionGraphSerially(
-      BuckEventBus eventBus,
+  @Override
+  public ActionGraphAndBuilder create(
       TargetNodeToBuildRuleTransformer transformer,
       TargetGraph targetGraph,
-      CellProvider cellProvider,
-      boolean shouldInstrumentGraphBuilding,
       ActionGraphCreationLifecycleListener actionGraphCreationLifecycleListener) {
     // TODO: Reduce duplication between the serial and parallel creation methods.
     ActionGraphBuilder graphBuilder =
@@ -97,27 +94,5 @@ public class SerialActionGraphFactory {
         .setActionGraph(new ActionGraph(graphBuilder.getBuildRules()))
         .setActionGraphBuilder(graphBuilder)
         .build();
-  }
-
-  @BuckStyleImmutable
-  @Value.Immutable(builder = false, copy = false)
-  abstract static class AbstractSerialActionGraphCreationParameters {
-    @Value.Parameter
-    public abstract BuckEventBus getEventBus();
-
-    @Value.Parameter
-    public abstract TargetNodeToBuildRuleTransformer getTransformer();
-
-    @Value.Parameter
-    public abstract TargetGraph getTargetGraph();
-
-    @Value.Parameter
-    public abstract CellProvider getCellProvider();
-
-    @Value.Parameter
-    public abstract boolean getShouldInstrumentGraphBuilding();
-
-    @Value.Parameter
-    public abstract ActionGraphCreationLifecycleListener getActionGraphCreationLifecycleListener();
   }
 }
