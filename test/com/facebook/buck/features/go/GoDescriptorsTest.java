@@ -28,6 +28,7 @@ import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
+import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.features.go.GoListStep.ListType;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -41,7 +42,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 import java.nio.file.Paths;
-import java.util.Arrays;
+import java.util.Collections;
 import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Rule;
@@ -159,7 +160,7 @@ public class GoDescriptorsTest {
             goPlatform,
             ImmutableList.of(),
             ImmutableList.of(),
-            Arrays.asList(ListType.GoFiles));
+            Collections.singletonList(ListType.GoFiles));
 
     Assert.assertTrue(
         compile
@@ -196,6 +197,7 @@ public class GoDescriptorsTest {
             params,
             graphBuilder,
             goBuckConfig,
+            Linker.LinkableDepType.STATIC_PIC,
             ImmutableSet.of(
                 PathSourcePath.of(filesystem, Paths.get("not_build_target.go")),
                 DefaultBuildTargetSourcePath.of(srcTarget)),

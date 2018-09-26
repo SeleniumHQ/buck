@@ -138,6 +138,7 @@ public class DefaultParserTest {
 
   private final int threads;
   private final boolean parallelParsing;
+  private BuildTarget buildTarget;
   private Path defaultIncludeFile;
   private Path includedByIncludeFile;
   private Path includedByBuildFile;
@@ -199,6 +200,7 @@ public class DefaultParserTest {
                 parser.getPermState(),
                 executor,
                 cell,
+                ImmutableList.of(),
                 enableProfiling,
                 SpeculativeParsing.DISABLED)) {
       return DefaultParser.getTargetNodeRawAttributes(state, cell, buildFile);
@@ -237,6 +239,7 @@ public class DefaultParserTest {
         TestProjectFilesystems.createProjectFilesystem(
             root, ConfigBuilder.createFromText("[project]", "ignore = **/*.swp"));
     cellRoot = filesystem.getRootPath();
+    buildTarget = BuildTargetFactory.newInstance(cellRoot, "//:cake");
     eventBus = BuckEventBusForTests.newInstance();
 
     ImmutableMap.Builder<String, String> projectSectionBuilder = ImmutableMap.builder();
@@ -392,7 +395,7 @@ public class DefaultParserTest {
         "genrule(name = 'cake', out = 'file.txt', cmd = '$(exe ////cake:walk) > $OUT')"
             .getBytes(UTF_8));
 
-    parser.getAllTargetNodes(cell, false, executorService, buckFile);
+    parser.getTargetNode(cell, false, executorService, buildTarget);
   }
 
   @Test
@@ -431,7 +434,7 @@ public class DefaultParserTest {
                 + "genrule(name = 'cake', out = 'file.txt', cmd = 'touch $OUT')\n")
             .getBytes(UTF_8));
 
-    parser.getAllTargetNodes(cell, false, executorService, buckFile);
+    parser.getTargetNode(cell, false, executorService, buildTarget);
   }
 
   @Test
@@ -441,7 +444,11 @@ public class DefaultParserTest {
         "def foo(name): native.export_file(name=name)\n".getBytes(UTF_8),
         StandardOpenOption.APPEND);
     Files.write(testBuildFile, "foo(name='BUCK')\n".getBytes(UTF_8), StandardOpenOption.APPEND);
-    parser.getAllTargetNodes(cell, false, executorService, testBuildFile);
+    parser.getTargetNode(
+        cell,
+        false,
+        executorService,
+        BuildTargetFactory.newInstance(cellRoot, "//java/com/facebook:foo"));
   }
 
   @Test
@@ -453,7 +460,7 @@ public class DefaultParserTest {
     Files.write(
         buckFile, ("genrule(name = None, out = 'file.txt', cmd = 'touch $OUT')\n").getBytes(UTF_8));
 
-    parser.getAllTargetNodes(cell, false, executorService, buckFile);
+    parser.getTargetNode(cell, false, executorService, buildTarget);
   }
 
   @Test
@@ -1769,35 +1776,6 @@ public class DefaultParserTest {
   }
 
   @Test
-  public void loadedBuildFileWithoutLoadedTargetNodesLoadsAdditionalTargetNodes()
-      throws IOException, BuildFileParseException {
-    tempDir.newFolder("foo");
-
-    Path testFooBuckFile = tempDir.newFile("foo/BUCK").toRealPath();
-    Files.write(
-        testFooBuckFile,
-        "java_library(name = 'lib1')\njava_library(name = 'lib2')\n".getBytes(UTF_8));
-    BuildTarget fooLib1Target = BuildTargetFactory.newInstance(cellRoot, "//foo", "lib1");
-    BuildTarget fooLib2Target = BuildTargetFactory.newInstance(cellRoot, "//foo", "lib2");
-
-    // First, only load one target from the build file so the file is parsed, but only one of the
-    // TargetNodes will be cached.
-    TargetNode<?> targetNode = parser.getTargetNode(cell, false, executorService, fooLib1Target);
-    assertThat(targetNode.getBuildTarget(), equalTo(fooLib1Target));
-
-    // Now, try to load the entire build file and get all TargetNodes.
-    ImmutableSet<TargetNode<?>> targetNodes =
-        parser.getAllTargetNodes(cell, false, executorService, testFooBuckFile);
-    assertThat(targetNodes.size(), equalTo(2));
-    assertThat(
-        targetNodes
-            .stream()
-            .map(TargetNode::getBuildTarget)
-            .collect(ImmutableList.toImmutableList()),
-        hasItems(fooLib1Target, fooLib2Target));
-  }
-
-  @Test
   public void getOrLoadTargetNodeRules() throws IOException, BuildFileParseException {
     tempDir.newFolder("foo");
 
@@ -2067,10 +2045,7 @@ public class DefaultParserTest {
   @Test
   public void readConfigReadsConfig() throws Exception {
     Path buckFile = cellRoot.resolve("BUCK");
-    BuildTarget buildTarget =
-        ImmutableBuildTarget.of(
-            ImmutableUnflavoredBuildTarget.of(
-                filesystem.getRootPath(), Optional.empty(), "//", "cake"));
+    BuildTarget buildTarget = ImmutableBuildTarget.of(filesystem.getRootPath(), "//", "cake");
     Files.write(
         buckFile,
         Joiner.on("")
@@ -2115,11 +2090,11 @@ public class DefaultParserTest {
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
 
-    parser.getAllTargetNodes(cell, false, executorService, buckFile);
+    parser.getTargetNode(cell, false, executorService, buildTarget);
 
     cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
 
-    parser.getAllTargetNodes(cell, false, executorService, buckFile);
+    parser.getTargetNode(cell, false, executorService, buildTarget);
 
     // Test that the second parseBuildFile call repopulated the cache.
     assertEquals("Should not have invalidated.", 1, counter.calls);
@@ -2378,7 +2353,7 @@ public class DefaultParserTest {
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
 
-    parser.getAllTargetNodes(cell, false, executorService, buckFile);
+    parser.getTargetNode(cell, false, executorService, buildTarget);
 
     // Call filterAllTargetsInProject to request cached rules.
     config =
@@ -2393,7 +2368,7 @@ public class DefaultParserTest {
 
     cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
 
-    parser.getAllTargetNodes(cell, false, executorService, buckFile);
+    parser.getTargetNode(cell, false, executorService, buildTarget);
 
     // Test that the second parseBuildFile call repopulated the cache.
     assertEquals("Should have invalidated.", 2, counter.calls);
@@ -2416,7 +2391,7 @@ public class DefaultParserTest {
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
 
-    parser.getAllTargetNodes(cell, false, executorService, buckFile);
+    parser.getTargetNode(cell, false, executorService, buildTarget);
 
     // Call filterAllTargetsInProject to request cached rules.
     config =
@@ -2431,7 +2406,7 @@ public class DefaultParserTest {
 
     cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
 
-    parser.getAllTargetNodes(cell, false, executorService, buckFile);
+    parser.getTargetNode(cell, false, executorService, buildTarget);
 
     // Test that the second parseBuildFile call repopulated the cache.
     assertEquals("Should have invalidated.", 2, counter.calls);
@@ -2462,14 +2437,14 @@ public class DefaultParserTest {
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
 
-    parser.getAllTargetNodes(cell, false, executorService, buckFile);
+    parser.getTargetNode(cell, false, executorService, buildTarget);
 
     // Call filterAllTargetsInProject to request cached rules.
     config = FakeBuckConfig.builder().setFilesystem(filesystem).build();
 
     cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
 
-    parser.getAllTargetNodes(cell, false, executorService, buckFile);
+    parser.getTargetNode(cell, false, executorService, buildTarget);
 
     // Test that the second parseBuildFile call repopulated the cache.
     assertEquals("Should have invalidated.", 2, counter.calls);
@@ -2501,7 +2476,7 @@ public class DefaultParserTest {
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
 
-    parser.getAllTargetNodes(cell, false, executorService, buckFile);
+    parser.getTargetNode(cell, false, executorService, buildTarget);
 
     // Call filterAllTargetsInProject to request cached rules.
     config =
@@ -2517,7 +2492,7 @@ public class DefaultParserTest {
 
     cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
 
-    parser.getAllTargetNodes(cell, false, executorService, buckFile);
+    parser.getTargetNode(cell, false, executorService, buildTarget);
 
     // Test that the second parseBuildFile call repopulated the cache.
     assertEquals("Should not have invalidated.", 1, counter.calls);
@@ -2543,8 +2518,7 @@ public class DefaultParserTest {
             .build();
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
-
-    parser.getAllTargetNodes(cell, false, executorService, buckFile);
+    parser.getTargetNode(cell, false, executorService, buildTarget);
   }
 
   @Test
@@ -2565,11 +2539,11 @@ public class DefaultParserTest {
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
 
-    ImmutableSet<TargetNode<?>> targetNodes =
-        parser.getAllTargetNodes(cell, false, executorService, buckFile);
-    assertEquals(1, targetNodes.size());
+    TargetNode<?> targetNode =
+        parser.getTargetNode(
+            cell, false, executorService, BuildTargetFactory.newInstance(cellRoot, "//:string"));
     // in Skylark the type of str is "string" and in Python DSL it's "<type 'str'>"
-    assertEquals(targetNodes.iterator().next().getBuildTarget().getShortName(), "string");
+    assertEquals(targetNode.getBuildTarget().getShortName(), "string");
   }
 
   private ActionGraphBuilder buildActionGraph(
@@ -2624,7 +2598,7 @@ public class DefaultParserTest {
     return toReturn.build();
   }
 
-  private static class ParseEventStartedCounter {
+  static class ParseEventStartedCounter {
     int calls = 0;
 
     // We know that the ProjectBuildFileParser emits a Started event when it parses a build file.

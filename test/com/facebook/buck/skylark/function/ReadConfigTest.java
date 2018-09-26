@@ -20,11 +20,11 @@ import static org.hamcrest.core.IsEqual.equalTo;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.io.filesystem.skylark.SkylarkFilesystem;
 import com.facebook.buck.skylark.io.impl.NativeGlobber;
 import com.facebook.buck.skylark.packages.PackageContext;
 import com.facebook.buck.skylark.parser.context.ParseContext;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableMap;
 import com.google.devtools.build.lib.cmdline.PackageIdentifier;
 import com.google.devtools.build.lib.cmdline.RepositoryName;
@@ -64,19 +64,20 @@ public class ReadConfigTest {
   @Test
   public void defaultValueIsReturned() throws Exception {
     assertThat(
-        evaluate("value = read_config('foo', 'bar', 'baz')").lookup("value"), equalTo("baz"));
+        evaluate("value = read_config('foo', 'bar', 'baz')").moduleLookup("value"), equalTo("baz"));
   }
 
   @Test
   public void noneIsReturnedWhenFieldIsNotPresent() throws Exception {
     assertThat(
-        evaluate("value = read_config('foo', 'bar')").lookup("value"), equalTo(Runtime.NONE));
+        evaluate("value = read_config('foo', 'bar')").moduleLookup("value"), equalTo(Runtime.NONE));
   }
 
   @Test
   public void configValueIsReturnedIfExists() throws Exception {
     rawConfig = ImmutableMap.of("foo", ImmutableMap.of("bar", "value"));
-    assertThat(evaluate("value = read_config('foo', 'bar')").lookup("value"), equalTo("value"));
+    assertThat(
+        evaluate("value = read_config('foo', 'bar')").moduleLookup("value"), equalTo("value"));
   }
 
   private Environment evaluate(String expression) throws IOException, InterruptedException {

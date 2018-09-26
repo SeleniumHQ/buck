@@ -20,11 +20,11 @@ import static org.hamcrest.core.IsEqual.equalTo;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.io.filesystem.skylark.SkylarkFilesystem;
 import com.facebook.buck.skylark.io.impl.NativeGlobber;
 import com.facebook.buck.skylark.packages.PackageContext;
 import com.facebook.buck.skylark.parser.context.ParseContext;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableMap;
 import com.google.devtools.build.lib.cmdline.PackageIdentifier;
 import com.google.devtools.build.lib.cmdline.RepositoryName;
@@ -33,10 +33,11 @@ import com.google.devtools.build.lib.events.PrintingEventHandler;
 import com.google.devtools.build.lib.packages.BazelLibrary;
 import com.google.devtools.build.lib.syntax.BuildFileAST;
 import com.google.devtools.build.lib.syntax.Environment;
-import com.google.devtools.build.lib.syntax.Environment.Phase;
 import com.google.devtools.build.lib.syntax.FuncallExpression;
 import com.google.devtools.build.lib.syntax.Mutability;
 import com.google.devtools.build.lib.syntax.ParserInputSource;
+import com.google.devtools.build.lib.syntax.SkylarkUtils;
+import com.google.devtools.build.lib.syntax.SkylarkUtils.Phase;
 import com.google.devtools.build.lib.vfs.FileSystemUtils;
 import com.google.devtools.build.lib.vfs.Path;
 import com.google.devtools.build.lib.vfs.PathFragment;
@@ -63,7 +64,7 @@ public class SkylarkNativeModuleTest {
 
   @Test
   public void defaultValueIsReturned() throws Exception {
-    assertThat(evaluate("pkg = package_name()").lookup("pkg"), equalTo("my/package"));
+    assertThat(evaluate("pkg = package_name()").moduleLookup("pkg"), equalTo("my/package"));
   }
 
   private Environment evaluate(String expression) throws IOException, InterruptedException {
@@ -88,9 +89,9 @@ public class SkylarkNativeModuleTest {
     Environment env =
         Environment.builder(mutability)
             .setGlobals(BazelLibrary.GLOBALS)
-            .setPhase(Phase.LOADING)
             .useDefaultSemantics()
             .build();
+    SkylarkUtils.setPhase(env, Phase.LOADING);
     new ParseContext(
             PackageContext.of(
                 NativeGlobber.create(root),

@@ -132,7 +132,7 @@
       {param currentnavid: $navid /}
       {param folder: 'about' /}
       {param page: 'overview' /}
-      {param text: 'Key Topics' /}
+      {param text: 'Key Concepts' /}
     {/call}
     {call navigation.link}
       {param currentnavid: $navid /}
@@ -228,14 +228,8 @@
     {call navigation.link}
       {param currentnavid: $navid /}
       {param folder: 'concept' /}
-      {param page: 'buckjavaargs' /}
-      {param text: '.buckjavaargs' /}
-    {/call}
-    {call navigation.link}
-      {param currentnavid: $navid /}
-      {param folder: 'concept' /}
-      {param page: 'buckconfig' /}
-      {param text: '.buckconfig' /}
+      {param page: 'buckd' /}
+      {param text: 'Buck Daemon (buckd)' /}
     {/call}
     {call navigation.link}
       {param currentnavid: $navid /}
@@ -268,6 +262,9 @@
       {param text: 'Skylark' /}
     {/call}
   </ul>
+  {call .tocFilesDirs}
+    {param navid: $navid /}
+  {/call}
   {call .tocCommands}
     {param navid: $navid /}
   {/call}
@@ -421,6 +418,30 @@
 {/template}
 
 /**
+ * Table of contents for Buck files and directories section.
+ * @param navid The current page's navigation id.
+ */
+{template .tocFilesDirs}
+  <h3>Files and Directories</h3>
+  <ul>
+    {foreach $file_dir in [
+        'buckconfig',
+        'buckjavaargs',
+        ]}
+      {let $file_dir_text}
+        .{$file_dir}
+      {/let}
+      {call navigation.link}
+        {param currentnavid: $navid /}
+        {param folder: 'files-and-dirs' /}
+        {param page: $file_dir /}
+        {param text: $file_dir_text /}
+      {/call}
+    {/foreach}
+  </ul>
+{/template}
+
+/**
  * Table of contents for Buck commands section.
  * @param navid The current page's navigation id.
  */
@@ -462,12 +483,6 @@
         {param text: $commandtext /}
       {/call}
     {/foreach}
-    {call navigation.link}
-      {param currentnavid: $navid /}
-      {param folder: 'command' /}
-      {param page: 'buckd' /}
-      {param text: 'buckd' /}
-    {/call}
     {call navigation.link}
       {param currentnavid: $navid /}
       {param folder: 'command' /}

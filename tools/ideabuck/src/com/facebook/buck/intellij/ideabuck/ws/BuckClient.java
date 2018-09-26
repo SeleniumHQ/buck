@@ -74,7 +74,7 @@ public class BuckClient {
               @Override
               public void run() {
                 try {
-                  int port = BuckWSServerPortUtils.getPort(mProject.getBasePath());
+                  int port = BuckWSServerPortUtils.getPort(mProject, mProject.getBasePath());
                   if (port == -1) {
                     String warning =
                         "Your buck server may be turned off, since the Buck daemon is on port "
@@ -97,6 +97,7 @@ public class BuckClient {
                 } catch (IOException e) {
                   LOG.error(e);
                 } catch (RuntimeException e) {
+                  LOG.error(e);
                   if (!mProject.isDisposed()) {
                     BuckModule buckModule = mProject.getComponent(BuckModule.class);
                     /* FIXME(shemitz) attachIfDetached() adds a lot of listeners to the IJ message

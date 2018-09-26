@@ -16,10 +16,13 @@
 
 package com.facebook.buck.android.toolchain;
 
+import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.toolchain.Toolchain;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.function.Supplier;
 import org.immutables.value.Value;
 
 /**
@@ -28,19 +31,23 @@ import org.immutables.value.Value;
  */
 @Value.Immutable(builder = false, copy = false)
 @BuckStyleImmutable
-public abstract class AbstractAndroidPlatformTarget implements Toolchain {
-
+public abstract class AbstractAndroidPlatformTarget implements Toolchain, AddsToRuleKey {
   public static final String DEFAULT_NAME = "android-platform-target";
 
   public static final String DEFAULT_ANDROID_PLATFORM_TARGET = "android-23";
 
+  @Override
+  public String getName() {
+    return DEFAULT_NAME;
+  }
+
   /** This is likely something like {@code "Google Inc.:Google APIs:21"}. */
   @Value.Parameter
-  public abstract String getName();
+  public abstract String getPlatformName();
 
   @Override
   public String toString() {
-    return getName();
+    return getPlatformName();
   }
 
   @Value.Parameter
@@ -51,10 +58,10 @@ public abstract class AbstractAndroidPlatformTarget implements Toolchain {
   public abstract List<Path> getBootclasspathEntries();
 
   @Value.Parameter
-  public abstract Path getAaptExecutable();
+  public abstract Supplier<Tool> getAaptExecutable();
 
   @Value.Parameter
-  public abstract Path getAapt2Executable();
+  public abstract Supplier<Tool> getAapt2Executable();
 
   @Value.Parameter
   public abstract Path getAdbExecutable();

@@ -37,12 +37,12 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestInputBasedRuleKeyFactory;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.RmStep;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.cache.FileHashCacheMode;
 import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
@@ -122,6 +122,7 @@ public class DirectHeaderMapTest {
     BuildContext buildContext = FakeBuildContext.withSourcePathResolver(pathResolver);
     FakeBuildableContext buildableContext = new FakeBuildableContext();
 
+    Path includeRoot = projectFilesystem.resolve(buildRule.getIncludeRoot());
     ImmutableList<Step> expectedBuildSteps =
         ImmutableList.of(
             RmStep.of(
@@ -145,8 +146,8 @@ public class DirectHeaderMapTest {
                 projectFilesystem,
                 headerMapPath,
                 ImmutableMap.of(
-                    Paths.get("file"), file1,
-                    Paths.get("directory/then/file"), file2)));
+                    Paths.get("file"), includeRoot.relativize(file1),
+                    Paths.get("directory/then/file"), includeRoot.relativize(file2))));
     ImmutableList<Step> actualBuildSteps = buildRule.getBuildSteps(buildContext, buildableContext);
     assertEquals(expectedBuildSteps, actualBuildSteps.subList(1, actualBuildSteps.size()));
   }

@@ -19,7 +19,6 @@ package com.facebook.buck.parser;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
-import com.facebook.buck.parser.TargetSpecResolver.TargetNodeProviderForSpecResolver;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.google.common.base.Preconditions;
@@ -27,36 +26,17 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.nio.file.Path;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class PerBuildState implements AutoCloseable {
 
-  private final AtomicLong parseProcessedBytes;
   private final CellManager cellManager;
   private final RawNodeParsePipeline rawNodeParsePipeline;
   private final ParsePipeline<TargetNode<?>> targetNodeParsePipeline;
 
-  private final TargetNodeProviderForSpecResolver<TargetNode<?>> targetNodeProviderForSpecResolver =
-      new TargetNodeProviderForSpecResolver<TargetNode<?>>() {
-        @Override
-        public ListenableFuture<TargetNode<?>> getTargetNodeJob(BuildTarget target)
-            throws BuildTargetException {
-          return PerBuildState.this.getTargetNodeJob(target);
-        }
-
-        @Override
-        public ListenableFuture<ImmutableSet<TargetNode<?>>> getAllTargetNodesJob(
-            Cell cell, Path buildFile) throws BuildTargetException {
-          return PerBuildState.this.getAllTargetNodesJob(cell, buildFile);
-        }
-      };
-
   PerBuildState(
-      AtomicLong parseProcessedBytes,
       CellManager cellManager,
       RawNodeParsePipeline rawNodeParsePipeline,
       ParsePipeline<TargetNode<?>> targetNodeParsePipeline) {
-    this.parseProcessedBytes = parseProcessedBytes;
     this.cellManager = cellManager;
     this.rawNodeParsePipeline = rawNodeParsePipeline;
     this.targetNodeParsePipeline = targetNodeParsePipeline;
@@ -65,27 +45,27 @@ public class PerBuildState implements AutoCloseable {
   TargetNode<?> getTargetNode(BuildTarget target) throws BuildFileParseException {
     Cell owningCell = cellManager.getCell(target);
 
-    return targetNodeParsePipeline.getNode(owningCell, target, parseProcessedBytes);
+    return targetNodeParsePipeline.getNode(owningCell, target);
   }
 
   ListenableFuture<TargetNode<?>> getTargetNodeJob(BuildTarget target) throws BuildTargetException {
     Cell owningCell = cellManager.getCell(target);
 
-    return targetNodeParsePipeline.getNodeJob(owningCell, target, parseProcessedBytes);
+    return targetNodeParsePipeline.getNodeJob(owningCell, target);
   }
 
   ImmutableSet<TargetNode<?>> getAllTargetNodes(Cell cell, Path buildFile)
       throws BuildFileParseException {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
 
-    return targetNodeParsePipeline.getAllNodes(cell, buildFile, parseProcessedBytes);
+    return targetNodeParsePipeline.getAllNodes(cell, buildFile);
   }
 
   ListenableFuture<ImmutableSet<TargetNode<?>>> getAllTargetNodesJob(Cell cell, Path buildFile)
       throws BuildTargetException {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
 
-    return targetNodeParsePipeline.getAllNodesJob(cell, buildFile, parseProcessedBytes);
+    return targetNodeParsePipeline.getAllNodesJob(cell, buildFile);
   }
 
   ImmutableSet<Map<String, Object>> getAllRawNodes(Cell cell, Path buildFile)
@@ -93,15 +73,7 @@ public class PerBuildState implements AutoCloseable {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
 
     // The raw nodes are just plain JSON blobs, and so we don't need to check for symlinks
-    return rawNodeParsePipeline.getAllNodes(cell, buildFile, parseProcessedBytes);
-  }
-
-  long getParseProcessedBytes() {
-    return parseProcessedBytes.get();
-  }
-
-  TargetNodeProviderForSpecResolver<TargetNode<?>> getTargetNodeProviderForSpecResolver() {
-    return targetNodeProviderForSpecResolver;
+    return rawNodeParsePipeline.getAllNodes(cell, buildFile);
   }
 
   @Override

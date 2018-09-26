@@ -18,6 +18,8 @@ package com.facebook.buck.android;
 
 import static org.hamcrest.CoreMatchers.hasItem;
 import static org.hamcrest.CoreMatchers.not;
+import static org.hamcrest.Matchers.allOf;
+import static org.hamcrest.Matchers.containsString;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
@@ -34,12 +36,14 @@ import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
+import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.util.DefaultProcessExecutor;
+import com.facebook.buck.util.ExitCode;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -51,10 +55,13 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 public class AndroidBinaryNativeIntegrationTest extends AbiCompilationModeTest {
 
   @Rule public TemporaryPaths tmpFolder = new TemporaryPaths();
+
+  @Rule public ExpectedException thrown = ExpectedException.none();
 
   private ProjectWorkspace workspace;
 
@@ -188,50 +195,48 @@ public class AndroidBinaryNativeIntegrationTest extends AbiCompilationModeTest {
   }
 
   @Test
-  public void testNativeLibraryMergeErrors() throws IOException {
-    try {
-      workspace.runBuckBuild("//apps/sample:app_with_merge_lib_into_two_targets");
-      Assert.fail("No exception from trying to merge lib into two targets.");
-    } catch (RuntimeException e) {
-      assertThat(e.getMessage(), Matchers.containsString("into both"));
-    }
+  public void throwIfLibMergedIntoTwoTargets() throws IOException {
+    ProcessResult processResult =
+        workspace.runBuckBuild("//apps/sample:app_with_merge_lib_into_two_targets");
+    processResult.assertFailure();
+    assertThat(
+        processResult.getStderr(),
+        allOf(containsString("attempted to merge"), containsString("into both")));
+  }
 
-    try {
-      workspace.runBuckBuild("//apps/sample:app_with_cross_asset_merged_libs");
-      Assert.fail("No exception from trying to merge between asset and non-asset.");
-    } catch (RuntimeException e) {
-      assertThat(e.getMessage(), Matchers.containsString("contains both asset and non-asset"));
-    }
+  @Test
+  public void throwIfLibMergedContainsAssetsAndNonAssets() throws IOException {
+    ProcessResult processResult =
+        workspace.runBuckBuild("//apps/sample:app_with_cross_asset_merged_libs");
+    processResult.assertFailure();
+    assertThat(
+        processResult.getStderr(), containsString("contains both asset and non-asset libraries"));
+  }
 
-    // An older version of the code made this illegal.
-    // Keep the test around in case we want to restore this behavior.
-    //    try {
-    //      workspace.runBuckBuild("//apps/sample:app_with_merge_into_existing_lib");
-    //      Assert.fail("No exception from trying to merge into existing name.");
-    //    } catch (RuntimeException e) {
-    //      assertThat(e.getMessage(), Matchers.containsString("already a library name"));
-    //    }
+  @Test
+  public void throwIfMergeHasCircularDependency() throws IOException {
+    ProcessResult processResult =
+        workspace.runBuckBuild("//apps/sample:app_with_circular_merged_libs");
+    processResult.assertFailure();
+    assertThat(processResult.getStderr(), containsString("Error: Dependency cycle detected"));
+  }
 
-    try {
-      workspace.runBuckBuild("//apps/sample:app_with_circular_merged_libs");
-      Assert.fail("No exception from trying circular merged dep.");
-    } catch (RuntimeException e) {
-      assertThat(e.getMessage(), Matchers.containsString("Dependency cycle"));
-    }
+  @Test
+  public void throwIfMergedHasCircularDependencyIncludeRoot() throws IOException {
+    ProcessResult processResult =
+        workspace.runBuckBuild("//apps/sample:app_with_circular_merged_libs_including_root");
+    processResult.assertFailure();
+    assertThat(processResult.getStderr(), containsString("Error: Dependency cycle detected"));
+  }
 
-    try {
-      workspace.runBuckBuild("//apps/sample:app_with_circular_merged_libs_including_root");
-      Assert.fail("No exception from trying circular merged dep.");
-    } catch (RuntimeException e) {
-      assertThat(e.getMessage(), Matchers.containsString("Dependency cycle"));
-    }
-
-    try {
-      workspace.runBuckBuild("//apps/sample:app_with_invalid_native_lib_merge_glue");
-      Assert.fail("No exception from trying invalid glue.");
-    } catch (RuntimeException e) {
-      assertThat(e.getMessage(), Matchers.matchesPattern(".*glue.*is not linkable.*"));
-    }
+  @Test
+  public void throwIfMergedWithInvalidGlue() throws IOException {
+    ProcessResult processResult =
+        workspace.runBuckBuild("//apps/sample:app_with_invalid_native_lib_merge_glue");
+    processResult.assertExitCode(ExitCode.FATAL_GENERIC);
+    assertThat(
+        processResult.getStderr(),
+        allOf(containsString("Native library merge glue"), containsString("is not linkable")));
   }
 
   @Test

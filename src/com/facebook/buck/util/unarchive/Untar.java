@@ -17,7 +17,9 @@
 package com.facebook.buck.util.unarchive;
 
 import com.facebook.buck.io.file.MorePosixFilePermissions;
+import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.util.PatternsMatcher;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
@@ -78,6 +80,7 @@ public class Untar extends Unarchiver {
       ProjectFilesystem filesystem,
       Path filesystemRelativePath,
       Optional<Path> stripPath,
+      PatternsMatcher entriesToExclude,
       ExistingFileMode existingFileMode)
       throws IOException {
     return extractArchive(
@@ -86,6 +89,7 @@ public class Untar extends Unarchiver {
         filesystemRelativePath,
         stripPath,
         existingFileMode,
+        entriesToExclude,
         Platform.detect() == Platform.WINDOWS);
   }
 
@@ -96,6 +100,7 @@ public class Untar extends Unarchiver {
       Path filesystemRelativePath,
       Optional<Path> stripPath,
       ExistingFileMode existingFileMode,
+      PatternsMatcher entriesToExclude,
       boolean writeSymlinksAfterCreatingFiles)
       throws IOException {
 
@@ -112,7 +117,11 @@ public class Untar extends Unarchiver {
     try (TarArchiveInputStream archiveStream = getArchiveInputStream(archiveFile)) {
       TarArchiveEntry entry;
       while ((entry = archiveStream.getNextTarEntry()) != null) {
-        Path destFile = Paths.get(entry.getName());
+        String entryName = entry.getName();
+        if (entriesToExclude.matchesAny(entryName)) {
+          continue;
+        }
+        Path destFile = Paths.get(entryName);
         Path destPath;
         if (stripPath.isPresent()) {
           if (!destFile.startsWith(stripPath.get())) {
@@ -293,12 +302,19 @@ public class Untar extends Unarchiver {
   }
 
   /** Sets the modification time and the execution bit on a file */
-  private void setAttributes(ProjectFilesystem filesystem, Path path, TarArchiveEntry entry) {
-    File file = filesystem.getRootPath().resolve(path).toFile();
+  private void setAttributes(ProjectFilesystem filesystem, Path path, TarArchiveEntry entry)
+      throws IOException {
+    Path filePath = filesystem.getRootPath().resolve(path);
+    File file = filePath.toFile();
     file.setLastModified(entry.getModTime().getTime());
     Set<PosixFilePermission> posixPermissions = MorePosixFilePermissions.fromMode(entry.getMode());
     if (posixPermissions.contains(PosixFilePermission.OWNER_EXECUTE)) {
-      file.setExecutable(true, true);
+      // setting posix file permissions on a symlink does not work, so use File API instead
+      if (entry.isSymbolicLink()) {
+        file.setExecutable(true, true);
+      } else {
+        MostFiles.makeExecutable(filePath);
+      }
     }
   }
 

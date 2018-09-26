@@ -22,7 +22,6 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.HasDefaultFlavors;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -32,9 +31,9 @@ import com.facebook.buck.core.util.graph.MutableDirectedGraph;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.io.watchman.Watchman;
+import com.facebook.buck.parser.TargetSpecResolver.TargetNodeProviderForSpecResolver;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
-import com.facebook.buck.parser.exceptions.MissingBuildFileException;
 import com.facebook.buck.util.MoreMaps;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -53,6 +52,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
@@ -69,23 +70,31 @@ public class DefaultParser implements Parser {
   private final TargetSpecResolver targetSpecResolver;
   private final Watchman watchman;
   private final BuckEventBus eventBus;
+  private final Supplier<ImmutableList<String>> targetPlatforms;
 
   public DefaultParser(
       DaemonicParserState daemonicParserState,
       PerBuildStateFactory perBuildStateFactory,
       TargetSpecResolver targetSpecResolver,
       Watchman watchman,
-      BuckEventBus eventBus) {
+      BuckEventBus eventBus,
+      Supplier<ImmutableList<String>> targetPlatforms) {
     this.perBuildStateFactory = perBuildStateFactory;
     this.watchman = watchman;
     this.permState = daemonicParserState;
     this.targetSpecResolver = targetSpecResolver;
     this.eventBus = eventBus;
+    this.targetPlatforms = targetPlatforms;
   }
 
   @Override
   public DaemonicParserState getPermState() {
     return permState;
+  }
+
+  @Override
+  public PerBuildStateFactory getPerBuildStateFactory() {
+    return perBuildStateFactory;
   }
 
   @VisibleForTesting
@@ -98,23 +107,8 @@ public class DefaultParser implements Parser {
 
   @Override
   public ImmutableSet<TargetNode<?>> getAllTargetNodes(
-      Cell cell, boolean enableProfiling, ListeningExecutorService executor, Path buildFile)
-      throws BuildFileParseException {
-    Preconditions.checkState(
-        buildFile.isAbsolute(),
-        "Build file should be referred to using an absolute path: %s",
-        buildFile);
-    Preconditions.checkState(
-        buildFile.startsWith(cell.getRoot()),
-        "Roots do not match %s -> %s",
-        cell.getRoot(),
-        buildFile);
-
-    try (PerBuildState state =
-        perBuildStateFactory.create(
-            permState, executor, cell, enableProfiling, SpeculativeParsing.ENABLED)) {
-      return state.getAllTargetNodes(cell, buildFile);
-    }
+      PerBuildState perBuildState, Cell cell, Path buildFile) throws BuildFileParseException {
+    return perBuildState.getAllTargetNodes(cell, buildFile);
   }
 
   @Override
@@ -123,7 +117,12 @@ public class DefaultParser implements Parser {
       throws BuildFileParseException {
     try (PerBuildState state =
         perBuildStateFactory.create(
-            permState, executor, cell, enableProfiling, SpeculativeParsing.DISABLED)) {
+            permState,
+            executor,
+            cell,
+            targetPlatforms.get(),
+            enableProfiling,
+            SpeculativeParsing.DISABLED)) {
       return state.getTargetNode(target);
     }
   }
@@ -144,29 +143,24 @@ public class DefaultParser implements Parser {
   @Override
   public SortedMap<String, Object> getTargetNodeRawAttributes(
       PerBuildState state, Cell cell, TargetNode<?> targetNode) throws BuildFileParseException {
-    try {
+    Cell owningCell = cell.getCell(targetNode.getBuildTarget());
+    ImmutableSet<Map<String, Object>> allRawNodes =
+        getTargetNodeRawAttributes(
+            state, owningCell, cell.getAbsolutePathToBuildFile(targetNode.getBuildTarget()));
 
-      Cell owningCell = cell.getCell(targetNode.getBuildTarget());
-      ImmutableSet<Map<String, Object>> allRawNodes =
-          getTargetNodeRawAttributes(
-              state, owningCell, cell.getAbsolutePathToBuildFile(targetNode.getBuildTarget()));
-
-      String shortName = targetNode.getBuildTarget().getShortName();
-      for (Map<String, Object> rawNode : allRawNodes) {
-        if (shortName.equals(rawNode.get("name"))) {
-          SortedMap<String, Object> toReturn = new TreeMap<>(rawNode);
-          toReturn.put(
-              "buck.direct_dependencies",
-              targetNode
-                  .getParseDeps()
-                  .stream()
-                  .map(Object::toString)
-                  .collect(ImmutableList.toImmutableList()));
-          return toReturn;
-        }
+    String shortName = targetNode.getBuildTarget().getShortName();
+    for (Map<String, Object> rawNode : allRawNodes) {
+      if (shortName.equals(rawNode.get("name"))) {
+        SortedMap<String, Object> toReturn = new TreeMap<>(rawNode);
+        toReturn.put(
+            "buck.direct_dependencies",
+            targetNode
+                .getParseDeps()
+                .stream()
+                .map(Object::toString)
+                .collect(ImmutableList.toImmutableList()));
+        return toReturn;
       }
-    } catch (MissingBuildFileException e) {
-      throw new RuntimeException("Deeply unlikely to be true: the cell is missing: " + targetNode);
     }
     return null;
   }
@@ -187,7 +181,12 @@ public class DefaultParser implements Parser {
 
     try (PerBuildState state =
         perBuildStateFactory.create(
-            permState, executor, cell, enableProfiling, SpeculativeParsing.DISABLED)) {
+            permState,
+            executor,
+            cell,
+            targetPlatforms.get(),
+            enableProfiling,
+            SpeculativeParsing.DISABLED)) {
       return getTargetNodeRawAttributes(state, cell, targetNode);
     }
   }
@@ -217,14 +216,22 @@ public class DefaultParser implements Parser {
       return TargetGraph.EMPTY;
     }
 
+    AtomicLong processedBytes = new AtomicLong();
     try (PerBuildState state =
         perBuildStateFactory.create(
-            permState, executor, rootCell, enableProfiling, SpeculativeParsing.ENABLED)) {
-      return buildTargetGraph(state, toExplore);
+            permState,
+            executor,
+            rootCell,
+            targetPlatforms.get(),
+            enableProfiling,
+            processedBytes,
+            SpeculativeParsing.ENABLED)) {
+      return buildTargetGraph(state, toExplore, processedBytes);
     }
   }
 
-  private TargetGraph buildTargetGraph(PerBuildState state, Iterable<BuildTarget> toExplore)
+  private TargetGraph buildTargetGraph(
+      PerBuildState state, Iterable<BuildTarget> toExplore, AtomicLong processedBytes)
       throws IOException, InterruptedException, BuildFileParseException {
 
     if (Iterables.isEmpty(toExplore)) {
@@ -275,7 +282,7 @@ public class DefaultParser implements Parser {
         graph.addNode(targetNode);
         MoreMaps.putCheckEquals(index, target, targetNode);
         if (target.isFlavored()) {
-          BuildTarget unflavoredTarget = ImmutableBuildTarget.of(target.getUnflavoredBuildTarget());
+          BuildTarget unflavoredTarget = target.withoutFlavors();
           MoreMaps.putCheckEquals(index, unflavoredTarget, state.getTargetNode(unflavoredTarget));
         }
         for (BuildTarget dep : targetNode.getParseDeps()) {
@@ -291,8 +298,7 @@ public class DefaultParser implements Parser {
       throw propagateRuntimeCause(e);
     } finally {
       eventBus.post(
-          ParseEvent.finished(
-              parseStart, state.getParseProcessedBytes(), Optional.ofNullable(targetGraph)));
+          ParseEvent.finished(parseStart, processedBytes.get(), Optional.ofNullable(targetGraph)));
     }
   }
 
@@ -328,9 +334,19 @@ public class DefaultParser implements Parser {
       ParserConfig.ApplyDefaultFlavorsMode applyDefaultFlavorsMode)
       throws BuildFileParseException, IOException, InterruptedException {
 
+    AtomicLong processedBytes = new AtomicLong();
     try (PerBuildState state =
         perBuildStateFactory.create(
-            permState, executor, rootCell, enableProfiling, SpeculativeParsing.ENABLED)) {
+            permState,
+            executor,
+            rootCell,
+            targetPlatforms.get(),
+            enableProfiling,
+            processedBytes,
+            SpeculativeParsing.ENABLED)) {
+
+      TargetNodeProviderForSpecResolver<TargetNode<?>> targetNodeProvider =
+          createTargetNodeProviderForSpecResolver(state);
 
       ImmutableSet<BuildTarget> buildTargets =
           ImmutableSet.copyOf(
@@ -343,15 +359,32 @@ public class DefaultParser implements Parser {
                       (buildTarget, targetNode, targetType) ->
                           applyDefaultFlavors(
                               buildTarget, targetNode, targetType, applyDefaultFlavorsMode),
-                      state.getTargetNodeProviderForSpecResolver(),
+                      targetNodeProvider,
                       (spec, nodes) -> spec.filter(nodes))));
-      TargetGraph graph = buildTargetGraph(state, buildTargets);
+      TargetGraph graph = buildTargetGraph(state, buildTargets, processedBytes);
 
       return TargetGraphAndBuildTargets.builder()
           .setBuildTargets(buildTargets)
           .setTargetGraph(graph)
           .build();
     }
+  }
+
+  static TargetNodeProviderForSpecResolver<TargetNode<?>> createTargetNodeProviderForSpecResolver(
+      PerBuildState state) {
+    return new TargetNodeProviderForSpecResolver<TargetNode<?>>() {
+      @Override
+      public ListenableFuture<TargetNode<?>> getTargetNodeJob(BuildTarget target)
+          throws BuildTargetException {
+        return state.getTargetNodeJob(target);
+      }
+
+      @Override
+      public ListenableFuture<ImmutableSet<TargetNode<?>>> getAllTargetNodesJob(
+          Cell cell, Path buildFile) throws BuildTargetException {
+        return state.getAllTargetNodesJob(cell, buildFile);
+      }
+    };
   }
 
   @Override
@@ -371,7 +404,14 @@ public class DefaultParser implements Parser {
 
     try (PerBuildState state =
         perBuildStateFactory.create(
-            permState, executor, rootCell, enableProfiling, speculativeParsing)) {
+            permState,
+            executor,
+            rootCell,
+            targetPlatforms.get(),
+            enableProfiling,
+            speculativeParsing)) {
+      TargetNodeProviderForSpecResolver<TargetNode<?>> targetNodeProvider =
+          createTargetNodeProviderForSpecResolver(state);
       return targetSpecResolver.resolveTargetSpecs(
           eventBus,
           rootCell,
@@ -379,7 +419,7 @@ public class DefaultParser implements Parser {
           specs,
           (buildTarget, targetNode, targetType) ->
               applyDefaultFlavors(buildTarget, targetNode, targetType, applyDefaultFlavorsMode),
-          state.getTargetNodeProviderForSpecResolver(),
+          targetNodeProvider,
           (spec, nodes) -> spec.filter(nodes));
     }
   }

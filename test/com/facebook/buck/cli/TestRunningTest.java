@@ -34,17 +34,18 @@ import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
+import com.facebook.buck.core.rules.impl.FakeTestRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.util.log.Logger;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
 import com.facebook.buck.rules.FakeBuildEngine;
-import com.facebook.buck.rules.FakeTestRule;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.shell.GenruleDescriptionArg;
 import com.facebook.buck.step.DefaultStepRunner;
@@ -57,7 +58,6 @@ import com.facebook.buck.test.TestResultSummary;
 import com.facebook.buck.test.TestResults;
 import com.facebook.buck.test.TestRunningOptions;
 import com.facebook.buck.test.result.type.ResultType;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.ExitCode;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -466,6 +466,7 @@ public class TestRunningTest {
     int ret =
         TestRunning.runTests(
             commandRunnerParams,
+            new TestActionGraphBuilder(),
             ImmutableList.of(separateTest1, separateTest2, separateTest3),
             fakeExecutionContext,
             DEFAULT_OPTIONS,
@@ -624,6 +625,7 @@ public class TestRunningTest {
     int ret =
         TestRunning.runTests(
             commandRunnerParams,
+            new TestActionGraphBuilder(),
             ImmutableList.of(
                 separateTest1,
                 parallelTest1,
@@ -744,6 +746,7 @@ public class TestRunningTest {
     int ret =
         TestRunning.runTests(
             commandRunnerParams,
+            new TestActionGraphBuilder(),
             ImmutableList.of(failingTest),
             fakeExecutionContext,
             DEFAULT_OPTIONS,

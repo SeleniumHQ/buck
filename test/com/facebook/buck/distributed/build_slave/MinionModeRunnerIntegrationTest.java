@@ -16,11 +16,11 @@
 
 package com.facebook.buck.distributed.build_slave;
 
-import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.CHAIN_TOP_TARGET;
-import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.LEAF_TARGET;
-import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.LEFT_TARGET;
-import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.RIGHT_TARGET;
-import static com.facebook.buck.distributed.testutil.CustomActiongGraphBuilderFactory.ROOT_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActionGraphBuilderFactory.CHAIN_TOP_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActionGraphBuilderFactory.LEAF_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActionGraphBuilderFactory.LEFT_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActionGraphBuilderFactory.RIGHT_TARGET;
+import static com.facebook.buck.distributed.testutil.CustomActionGraphBuilderFactory.ROOT_TARGET;
 
 import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.command.BuildExecutor;
@@ -30,19 +30,21 @@ import com.facebook.buck.core.build.engine.BuildRuleStatus;
 import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
 import com.facebook.buck.core.build.engine.impl.CachingBuildEngine;
 import com.facebook.buck.core.model.BuildId;
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.distributed.thrift.BuildSlaveRunId;
 import com.facebook.buck.distributed.thrift.MinionType;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.DefaultBuckEventBus;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.slb.ThriftException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.timing.FakeClock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Streams;
 import com.google.common.util.concurrent.Futures;
 import java.io.Closeable;
 import java.io.IOException;
@@ -310,6 +312,15 @@ public class MinionModeRunnerIntegrationTest {
     public ExitCode buildLocallyAndReturnExitCode(
         Iterable<String> targetsToBuild, Optional<Path> pathToBuildReport) {
       buildTargets.addAll(ImmutableList.copyOf((targetsToBuild)));
+      return ExitCode.SUCCESS;
+    }
+
+    @Override
+    public ExitCode buildTargets(
+        Iterable<BuildTarget> targetsToBuild, Optional<Path> pathToBuildReport) {
+      Streams.stream(targetsToBuild)
+          .map(BuildTarget::getFullyQualifiedName)
+          .forEach(buildTargets::add);
       return ExitCode.SUCCESS;
     }
 

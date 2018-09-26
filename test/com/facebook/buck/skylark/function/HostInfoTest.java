@@ -20,6 +20,7 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.io.filesystem.skylark.SkylarkFilesystem;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
@@ -28,7 +29,6 @@ import com.facebook.buck.skylark.io.impl.NativeGlobber;
 import com.facebook.buck.skylark.parser.BuckGlobals;
 import com.facebook.buck.skylark.parser.RuleFunctionFactory;
 import com.facebook.buck.skylark.parser.SkylarkProjectBuildFileParser;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Architecture;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
@@ -41,26 +41,14 @@ import com.google.devtools.build.lib.events.EventHandler;
 import com.google.devtools.build.lib.events.EventKind;
 import com.google.devtools.build.lib.packages.SkylarkInfo;
 import com.google.devtools.build.lib.syntax.EvalException;
-import com.google.devtools.build.lib.vfs.Path;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.EnumSet;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
 
 public class HostInfoTest {
-
-  private Path root;
-
-  @Before
-  public void setUp() {
-    ProjectFilesystem projectFilesystem = FakeProjectFilesystem.createRealTempFilesystem();
-    SkylarkFilesystem fileSystem = SkylarkFilesystem.using(projectFilesystem);
-    root = fileSystem.getPath(projectFilesystem.getRootPath().toString());
-  }
 
   private void validateSkylarkStruct(SkylarkInfo struct, String topLevel, String trueKey)
       throws EvalException {
@@ -259,7 +247,7 @@ public class HostInfoTest {
     Files.write(fs.resolve("file.bzl"), macroFile.getBytes(Charsets.UTF_8));
 
     SkylarkProjectBuildFileParser parser = createParser(cell.getFilesystem(), eventHandler);
-    parser.getBuildFileManifest(fs.resolve("BUCK"), new AtomicLong());
+    parser.getBuildFileManifest(fs.resolve("BUCK"));
   }
 
   private SkylarkProjectBuildFileParser createParser(

@@ -17,13 +17,19 @@
 package com.facebook.buck.rules.modern.builders;
 
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.event.LeafEvents;
 import com.facebook.buck.io.file.MostFiles;
+import com.facebook.buck.remoteexecution.ContentAddressedStorage;
+import com.facebook.buck.remoteexecution.Protocol;
+import com.facebook.buck.remoteexecution.Protocol.Digest;
+import com.facebook.buck.remoteexecution.RemoteExecutionActionEvent;
+import com.facebook.buck.remoteexecution.RemoteExecutionActionEvent.State;
+import com.facebook.buck.remoteexecution.RemoteExecutionClients;
+import com.facebook.buck.remoteexecution.RemoteExecutionService;
+import com.facebook.buck.remoteexecution.RemoteExecutionService.ExecutionResult;
 import com.facebook.buck.rules.modern.builders.FileTreeBuilder.InputFile;
 import com.facebook.buck.rules.modern.builders.FileTreeBuilder.ProtocolTreeBuilder;
-import com.facebook.buck.rules.modern.builders.Protocol.Digest;
-import com.facebook.buck.rules.modern.builders.RemoteExecutionService.ExecutionResult;
 import com.facebook.buck.step.AbstractExecutionStep;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
@@ -60,7 +66,8 @@ import java.util.stream.Stream;
  * <p>See https://docs.google.com/document/d/1AaGk7fOPByEvpAbqeXIyE8HX_A3_axxNnvroblTZ_6s/preview
  * for a high-level description of the approach to remote execution.
  */
-public abstract class RemoteExecution implements IsolatedExecution {
+public final class RemoteExecution implements IsolatedExecution {
+  private static final Logger LOG = Logger.get(RemoteExecution.class);
   private static final Path TRAMPOLINE =
       Paths.get(
           System.getProperty(
@@ -72,16 +79,16 @@ public abstract class RemoteExecution implements IsolatedExecution {
 
   private final byte[] trampoline;
   private final BuckEventBus eventBus;
-  private final Protocol protocol;
 
   private final ImmutableMap<Path, Supplier<InputFile>> classPath;
   private final ImmutableMap<Path, Supplier<InputFile>> bootstrapClassPath;
   private final ImmutableMap<Path, Supplier<InputFile>> pluginFiles;
 
-  protected RemoteExecution(BuckEventBus eventBus, Protocol protocol) throws IOException {
+  private final RemoteExecutionClients clients;
+
+  public RemoteExecution(BuckEventBus eventBus, RemoteExecutionClients clients) throws IOException {
     this.eventBus = eventBus;
     this.trampoline = Files.readAllBytes(TRAMPOLINE);
-    this.protocol = protocol;
 
     this.classPath = prepareClassPath(BuckClasspath.getClasspath());
     this.bootstrapClassPath = prepareClassPath(BuckClasspath.getBootstrapClasspath());
@@ -91,11 +98,17 @@ public abstract class RemoteExecution implements IsolatedExecution {
     } else {
       pluginFiles = prepareClassPath(findPlugins());
     }
+
+    this.clients = clients;
   }
 
-  protected abstract ContentAddressedStorage getStorage();
+  protected ContentAddressedStorage getStorage() {
+    return clients.getContentAddressedStorage();
+  }
 
-  protected abstract RemoteExecutionService getExecutionService();
+  protected RemoteExecutionService getExecutionService() {
+    return clients.getRemoteExecutionService();
+  }
 
   public BuckEventBus getEventBus() {
     return eventBus;
@@ -103,7 +116,7 @@ public abstract class RemoteExecution implements IsolatedExecution {
 
   @Override
   public Protocol getProtocol() {
-    return protocol;
+    return clients.getProtocol();
   }
 
   private static ImmutableList<Path> findPlugins() throws IOException {
@@ -126,7 +139,9 @@ public abstract class RemoteExecution implements IsolatedExecution {
   }
 
   @Override
-  public void close() throws IOException {}
+  public void close() throws IOException {
+    clients.close();
+  }
 
   @Override
   public void build(
@@ -142,13 +157,14 @@ public abstract class RemoteExecution implements IsolatedExecution {
     HashMap<Digest, ThrowingSupplier<InputStream, IOException>> requiredDataBuilder;
     Digest actionDigest;
 
-    try (Scope ignored = LeafEvents.scope(eventBus, "deleting_stale_outputs")) {
+    try (Scope ignored =
+        RemoteExecutionActionEvent.sendEvent(eventBus, State.DELETING_STALE_OUTPUTS)) {
       for (Path path : outputs) {
         MostFiles.deleteRecursivelyIfExists(cellPrefixRoot.resolve(path));
       }
     }
 
-    try (Scope ignored = LeafEvents.scope(eventBus, "computing_action")) {
+    try (Scope ignored = RemoteExecutionActionEvent.sendEvent(eventBus, State.COMPUTING_ACTION)) {
       ImmutableList<Path> isolatedClasspath =
           processClasspath(inputsBuilder, cellPrefixRoot, classPath);
       ImmutableList<Path> isolatedBootstrapClasspath =
@@ -186,18 +202,30 @@ public abstract class RemoteExecution implements IsolatedExecution {
       requiredDataBuilder.put(actionDigest, () -> new ByteArrayInputStream(actionData));
     }
 
-    try (Scope scope = LeafEvents.scope(eventBus, "uploading_inputs")) {
+    try (Scope scope = RemoteExecutionActionEvent.sendEvent(eventBus, State.UPLOADING_INPUTS)) {
       getStorage().addMissing(ImmutableMap.copyOf(requiredDataBuilder));
     }
-    ExecutionResult result11 = getExecutionService().execute(actionDigest);
-    try (Scope scope = LeafEvents.scope(eventBus, "materializing_outputs")) {
-      getStorage()
-          .materializeOutputs(
-              result11.getOutputDirectories(), result11.getOutputFiles(), cellPrefixRoot);
-    }
-    ExecutionResult result = result11;
 
-    if (result.getExitCode() != 0) {
+    ExecutionResult result = null;
+    try (Scope scope = RemoteExecutionActionEvent.sendEvent(eventBus, State.EXECUTING)) {
+      result = getExecutionService().execute(actionDigest);
+    }
+
+    if (result.getExitCode() == 0) {
+      try (Scope scope =
+          RemoteExecutionActionEvent.sendEvent(eventBus, State.MATERIALIZING_OUTPUTS)) {
+        getStorage()
+            .materializeOutputs(
+                result.getOutputDirectories(), result.getOutputFiles(), cellPrefixRoot);
+        RemoteExecutionActionEvent.sendTerminalEvent(eventBus, State.ACTION_SUCCEEDED);
+      }
+    } else {
+      LOG.error(
+          "Failed to build target [%s] with exit code [%d]. stderr: %s",
+          buildTarget.getFullyQualifiedName(),
+          result.getExitCode(),
+          result.getStderr().orElse("<empty>"));
+      RemoteExecutionActionEvent.sendTerminalEvent(eventBus, State.ACTION_FAILED);
       throw StepFailedException.createForFailingStepWithExitCode(
           new AbstractExecutionStep("remote_execution") {
             @Override

@@ -98,15 +98,15 @@ public class EndToEndTestDescriptor {
     if (nameIsCached) {
       return name;
     }
-    StringBuilder stringBuilder = new StringBuilder("Test");
-    stringBuilder.append(capitalizeAndJoin(templateSet));
-    stringBuilder.append(capitalizeAndJoin(command));
-    stringBuilder.append(capitalizeAndJoin(arguments));
-    stringBuilder.append(buckdEnabled ? "BuckdOn" : "BuckdOff");
-    stringBuilder.append(capitalizeAndJoinMap(variableMap));
-    stringBuilder.append(capitalizeAndJoinLocalConfigs(localConfigs));
-    stringBuilder.append(method.getName());
-    name = stringBuilder.toString();
+    name =
+        "Test"
+            + capitalizeAndJoin(templateSet)
+            + capitalizeAndJoin(command)
+            + capitalizeAndJoin(arguments)
+            + (buckdEnabled ? "BuckdOn" : "BuckdOff")
+            + capitalizeAndJoinMap(variableMap)
+            + capitalizeAndJoinLocalConfigs(localConfigs)
+            + method.getName();
     nameIsCached = true;
     return name;
   }

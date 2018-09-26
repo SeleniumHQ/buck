@@ -17,19 +17,32 @@
 package com.facebook.buck.rules.modern.builders;
 
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.cell.CellConfig;
+import com.facebook.buck.core.cell.CellProvider;
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
+import com.facebook.buck.core.cell.impl.LocalCellProviderFactory;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.module.BuckModuleManager;
+import com.facebook.buck.core.module.impl.BuckModuleJarHashProvider;
+import com.facebook.buck.core.module.impl.DefaultBuckModuleManager;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
+import com.facebook.buck.core.rules.AbstractBuildRuleResolver;
+import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.impl.AbstractSourcePathResolver;
+import com.facebook.buck.core.toolchain.ToolchainProvider;
+import com.facebook.buck.core.toolchain.ToolchainProviderFactory;
+import com.facebook.buck.core.toolchain.impl.DefaultToolchainProviderFactory;
+import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.LeafEvents;
+import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.BuckPaths;
-import com.facebook.buck.io.filesystem.EmbeddedCellBuckOutInfo;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
@@ -66,7 +79,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import org.pf4j.PluginManager;
 import org.pf4j.PluginWrapper;
@@ -78,12 +90,14 @@ import org.pf4j.PluginWrapper;
  * (see getProvider() below for the expected layout of this directory).
  */
 public abstract class IsolatedBuildableBuilder {
+  private static final Logger LOG = Logger.get(IsolatedBuildableBuilder.class);
   private final BuildContext buildContext;
   private final ExecutionContext executionContext;
   private final Function<Optional<String>, ProjectFilesystem> filesystemFunction;
   private final Deserializer.ClassFinder classFinder;
   private final Path dataRoot;
   private final BuckEventBus eventBus;
+  private final Function<Optional<String>, ToolchainProvider> toolchainProviderFunction;
 
   @SuppressWarnings("PMD.EmptyCatchBlock")
   IsolatedBuildableBuilder(Path workRoot, Path projectRoot) throws IOException {
@@ -122,23 +136,6 @@ public abstract class IsolatedBuildableBuilder {
       throw new RuntimeException(e);
     }
 
-    ConcurrentHashMap<Path, ProjectFilesystem> filesystemMap = new ConcurrentHashMap<>();
-    ConcurrentHashMap<Path, Config> configMap = new ConcurrentHashMap<>();
-
-    Function<Path, Config> configFunction =
-        (path) ->
-            configMap.computeIfAbsent(
-                path,
-                ignored -> {
-                  try {
-                    return Configs.createDefaultConfig(path);
-                  } catch (IOException e) {
-                    throw new RuntimeException(e);
-                  }
-                });
-
-    filesystemMap.put(canonicalProjectRoot, filesystem);
-
     Architecture architecture = Architecture.detect();
     Platform platform = Platform.detect();
 
@@ -146,6 +143,7 @@ public abstract class IsolatedBuildableBuilder {
 
     DefaultCellPathResolver cellPathResolver =
         DefaultCellPathResolver.of(filesystem.getRootPath(), config);
+
     BuckConfig buckConfig =
         new BuckConfig(
             config,
@@ -157,40 +155,38 @@ public abstract class IsolatedBuildableBuilder {
                 BuildTargetParser.INSTANCE.parse(
                     target, BuildTargetPatternParser.fullyQualified(), cellPathResolver));
 
+    BuckModuleManager moduleManager =
+        new DefaultBuckModuleManager(pluginManager, new BuckModuleJarHashProvider());
+
+    Console console = createConsole();
+    ProcessExecutor processExecutor = new DefaultProcessExecutor(console);
+    ExecutableFinder executableFinder = new ExecutableFinder();
+
+    ToolchainProviderFactory toolchainProviderFactory =
+        new DefaultToolchainProviderFactory(
+            pluginManager, clientEnvironment, processExecutor, executableFinder);
+
+    CellProvider cellProvider =
+        LocalCellProviderFactory.create(
+            filesystem,
+            buckConfig,
+            CellConfig.of(),
+            cellPathResolver.getPathMapping(),
+            cellPathResolver,
+            moduleManager,
+            toolchainProviderFactory,
+            projectFilesystemFactory);
+
     this.filesystemFunction =
-        (cellName) -> {
-          Path cellPath =
-              cellName == null
-                  ? cellPathResolver.getCellPath(Optional.empty()).get()
-                  : cellPathResolver.getCellPath(cellName).get();
-          Preconditions.checkNotNull(cellPath);
-          return filesystemMap.computeIfAbsent(
-              cellPath,
-              ignored -> {
-                try {
-                  Optional<EmbeddedCellBuckOutInfo> embeddedCellBuckOutInfo = Optional.empty();
-                  Optional<String> canonicalCellName =
-                      cellPathResolver.getCanonicalCellName(cellPath);
-                  if (buckConfig.isEmbeddedCellBuckOutEnabled() && canonicalCellName.isPresent()) {
-                    embeddedCellBuckOutInfo =
-                        Optional.of(
-                            EmbeddedCellBuckOutInfo.of(
-                                filesystem.resolve(filesystem.getBuckPaths().getBuckOut()),
-                                canonicalCellName.get()));
-                  }
-                  return projectFilesystemFactory.createProjectFilesystem(
-                      cellPath, configFunction.apply(cellPath), embeddedCellBuckOutInfo);
-                } catch (InterruptedException e) {
-                  throw new RuntimeException(e);
-                }
-              });
-        };
+        (cellName) ->
+            cellProvider
+                .getCellByPath(cellPathResolver.getCellPath(cellName).get())
+                .getFilesystem();
 
     JavaPackageFinder javaPackageFinder =
         buckConfig.getView(JavaBuckConfig.class).createDefaultJavaPackageFinder();
-    Console console = createConsole();
+
     this.eventBus = createEventBus(console);
-    ProcessExecutor processExecutor = new DefaultProcessExecutor(console);
 
     this.executionContext =
         ExecutionContext.of(
@@ -240,13 +236,22 @@ public abstract class IsolatedBuildableBuilder {
             .setShouldDeleteTemporaries(buckConfig.getShouldDeleteTemporaries())
             .build();
 
+    this.toolchainProviderFunction =
+        cellName ->
+            cellProvider
+                .getCellByPath(cellPathResolver.getCellPath(cellName).get())
+                .getToolchainProvider();
+
     RichStream.from(cellPathResolver.getCellPaths().keySet())
         .forEachThrowing(
             name -> {
               // Sadly, some things assume this exists and writes to it.
               ProjectFilesystem fs = filesystemFunction.apply(Optional.of(name));
               BuckPaths configuredPaths = fs.getBuckPaths();
-              Files.createDirectories(configuredPaths.getTmpDir());
+
+              fs.mkdirs(configuredPaths.getTmpDir());
+              fs.mkdirs(configuredPaths.getBuckOut());
+              fs.createSymLink(configuredPaths.getProjectRootDir(), fs.getRootPath(), true);
 
               if (!configuredPaths.getConfiguredBuckOut().equals(configuredPaths.getBuckOut())
                   && buckConfig.getBuckOutCompatLink()
@@ -274,7 +279,13 @@ public abstract class IsolatedBuildableBuilder {
   /** Deserializes the BuildableAndTarget corresponding to hash and builds it. */
   public void build(HashCode hash) throws IOException, StepFailedException, InterruptedException {
     Deserializer deserializer =
-        new Deserializer(filesystemFunction, classFinder, buildContext::getSourcePathResolver);
+        new Deserializer(
+            filesystemFunction,
+            classFinder,
+            buildContext::getSourcePathResolver,
+            // TODO(cjhopman): This gets toolchains from the root cell (instead of the cell the rule
+            // is in).
+            toolchainProviderFunction.apply(Optional.empty()));
 
     BuildableAndTarget reconstructed;
     try (Scope ignored = LeafEvents.scope(eventBus, "deserializing")) {
@@ -284,15 +295,34 @@ public abstract class IsolatedBuildableBuilder {
     }
 
     try (Scope ignored = LeafEvents.scope(eventBus, "steps")) {
+      ProjectFilesystem filesystem = filesystemFunction.apply(reconstructed.target.getCell());
+      ModernBuildRule.injectFieldsIfNecessary(
+          filesystem,
+          reconstructed.target,
+          reconstructed.buildable,
+          new SourcePathRuleFinder(
+              new AbstractBuildRuleResolver() {
+                @Override
+                public Optional<BuildRule> getRuleOptional(BuildTarget buildTarget) {
+                  throw new RuntimeException("Cannot resolve rules in deserialized MBR state.");
+                }
+              }));
+
+      LOG.info(
+          String.format(
+              "Finished deserializing the rule at [%s]. Running the build now.",
+              new java.util.Date()));
+
       for (Step step :
           ModernBuildRule.stepsForBuildable(
-              buildContext,
-              reconstructed.buildable,
-              filesystemFunction.apply(reconstructed.target.getCell()),
-              reconstructed.target)) {
+              buildContext, reconstructed.buildable, filesystem, reconstructed.target)) {
         new DefaultStepRunner()
             .runStepForBuildTarget(executionContext, step, Optional.of(reconstructed.target));
       }
+
+      LOG.info(
+          String.format(
+              "Finished running the build at [%s]. Exiting buck now.", new java.util.Date()));
     }
   }
 

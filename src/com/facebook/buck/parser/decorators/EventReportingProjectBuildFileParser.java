@@ -19,12 +19,12 @@ package com.facebook.buck.parser.decorators;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.json.ProjectBuildFileParseEvents;
 import com.facebook.buck.parser.api.BuildFileManifest;
+import com.facebook.buck.parser.api.ForwardingProjectBuildFileParserDecorator;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.google.common.base.Preconditions;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.GuardedBy;
 
@@ -35,9 +35,9 @@ import javax.annotation.concurrent.GuardedBy;
  * <p>This decouples status reporting functionality so that it can be used with different underlying
  * {@link ProjectBuildFileParser}s.
  */
-public class EventReportingProjectBuildFileParser implements ProjectBuildFileParser {
+public class EventReportingProjectBuildFileParser
+    extends ForwardingProjectBuildFileParserDecorator {
 
-  private final ProjectBuildFileParser delegate;
   private final BuckEventBus eventBus;
   private final Object eventLock;
 
@@ -47,7 +47,7 @@ public class EventReportingProjectBuildFileParser implements ProjectBuildFilePar
 
   private EventReportingProjectBuildFileParser(
       ProjectBuildFileParser delegate, BuckEventBus eventBus) {
-    this.delegate = delegate;
+    super(delegate);
     this.eventBus = eventBus;
     this.eventLock = new Object();
   }
@@ -63,15 +63,10 @@ public class EventReportingProjectBuildFileParser implements ProjectBuildFilePar
   }
 
   @Override
-  public BuildFileManifest getBuildFileManifest(Path buildFile, AtomicLong processedBytes)
+  public BuildFileManifest getBuildFileManifest(Path buildFile)
       throws BuildFileParseException, InterruptedException, IOException {
     maybePostStartEvent();
-    return delegate.getBuildFileManifest(buildFile, processedBytes);
-  }
-
-  @Override
-  public void reportProfile() throws IOException {
-    delegate.reportProfile();
+    return delegate.getBuildFileManifest(buildFile);
   }
 
   @Override

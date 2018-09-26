@@ -35,7 +35,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.CharBuffer;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -172,7 +171,7 @@ class Depfiles {
     }
   }
 
-  private static List<String> getRawUsedHeadersFromDepfile(
+  private static ImmutableList<String> getRawUsedHeadersFromDepfile(
       ProjectFilesystem filesystem,
       Path sourceDepFile,
       Path inputPath,
@@ -206,9 +205,10 @@ class Depfiles {
         // So, we "strip" the the source file first.
         List<String> srcAndIncludes = filesystem.readLines(sourceDepFile);
         List<String> includes = srcAndIncludes.subList(1, srcAndIncludes.size());
-        return includes;
+        // We don't require the tree structure here, we remove the spaces
+        return includes.stream().map(String::trim).collect(ImmutableList.toImmutableList());
       case NONE:
-        return Collections.emptyList();
+        return ImmutableList.<String>of();
       default:
         // never happens
         throw new IllegalStateException();
@@ -263,7 +263,14 @@ class Depfiles {
               filesystem, sourceDepFile, inputPath, dependencyTrackingMode);
 
       return normalizeAndVerifyHeaders(
-          eventBus, filesystem, headerPathNormalizer, headerVerification, inputPath, headers);
+          eventBus,
+          filesystem,
+          headerPathNormalizer,
+          headerVerification,
+          inputPath,
+          headers,
+          sourceDepFile,
+          dependencyTrackingMode);
     }
   }
 
@@ -273,9 +280,14 @@ class Depfiles {
       HeaderPathNormalizer headerPathNormalizer,
       HeaderVerification headerVerification,
       Path inputPath,
-      List<String> headers)
+      List<String> headers,
+      Path sourceDepFile,
+      DependencyTrackingMode dependencyTrackingMode)
       throws IOException, HeaderVerificationException {
     ImmutableList.Builder<Path> resultBuilder = ImmutableList.builder();
+    UntrackedHeaderReporterWithFallback untrackedHeaderReporter =
+        new UntrackedHeaderReporterWithFallback(
+            dependencyTrackingMode, filesystem, headerPathNormalizer, sourceDepFile, inputPath);
     for (String rawHeader : headers) {
       Path header = filesystem.resolve(rawHeader).normalize();
       Optional<Path> absolutePath = headerPathNormalizer.getAbsolutePathForUnnormalizedPath(header);
@@ -291,12 +303,7 @@ class Depfiles {
         // Check again with the real path with all symbolic links resolved.
         header = header.toRealPath();
         if (!(headerVerification.isWhitelisted(header.toString()))) {
-          String errorMessage =
-              String.format(
-                  "%s: included an untracked header \"%s\"\n\n"
-                      + "Please reference this header file from \"headers\", \"exported_headers\" or \"raw_headers\" \n"
-                      + "in the appropriate build rule.",
-                  inputPath, repoRelativePath.orElse(header));
+          String errorMessage = untrackedHeaderReporter.getErrorReport(header);
           eventBus.post(
               ConsoleEvent.create(
                   headerVerification.getMode() == HeaderVerification.Mode.ERROR

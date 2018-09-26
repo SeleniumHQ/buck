@@ -54,6 +54,7 @@ import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.TestBuildRuleParams;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.impl.NoopBuildRuleWithDeclaredAndExtraDeps;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
@@ -74,14 +75,13 @@ import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.swift.toolchain.SwiftPlatform;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TestLogSink;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Charsets;
@@ -96,6 +96,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -921,7 +922,7 @@ public class AppleCxxPlatformsTest {
             .getCodesignProvider()
             .resolve(buildRuleResolver)
             .getCommandPrefix(sourcePathResolver),
-        is(Arrays.asList("/usr/bin/codesign")));
+        is(Collections.singletonList("/usr/bin/codesign")));
   }
 
   private abstract static class NoopBinaryBuildRule extends NoopBuildRuleWithDeclaredAndExtraDeps
@@ -986,7 +987,7 @@ public class AppleCxxPlatformsTest {
             .getCodesignProvider()
             .resolve(buildRuleResolver)
             .getCommandPrefix(sourcePathResolver),
-        is(Arrays.asList(codesignPath.toString())));
+        is(Collections.singletonList(codesignPath.toString())));
   }
 
   // The important aspects we check for in rule keys is that the host platform and the path

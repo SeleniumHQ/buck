@@ -22,11 +22,11 @@ import static org.hamcrest.core.IsEqual.equalTo;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.io.filesystem.skylark.SkylarkFilesystem;
 import com.facebook.buck.skylark.io.impl.NativeGlobber;
 import com.facebook.buck.skylark.packages.PackageContext;
 import com.facebook.buck.skylark.parser.context.ParseContext;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -74,7 +74,7 @@ public class GlobTest {
     Path buildFile = root.getChild("BUCK");
     FileSystemUtils.writeContentAsLatin1(buildFile, "txts = glob(['*.txt'])");
     assertThat(
-        assertEvaluate(buildFile).lookup("txts"),
+        assertEvaluate(buildFile).moduleLookup("txts"),
         equalTo(SkylarkList.createImmutable(ImmutableList.of("bar.txt", "foo.txt"))));
   }
 
@@ -86,7 +86,7 @@ public class GlobTest {
     Path buildFile = root.getChild("BUCK");
     FileSystemUtils.writeContentAsLatin1(buildFile, "txts = glob(include=['*.txt'])");
     assertThat(
-        assertEvaluate(buildFile).lookup("txts"),
+        assertEvaluate(buildFile).moduleLookup("txts"),
         equalTo(SkylarkList.createImmutable(ImmutableList.of("bar.txt", "foo.txt"))));
   }
 
@@ -98,7 +98,7 @@ public class GlobTest {
     Path buildFile = root.getChild("BUCK");
     FileSystemUtils.writeContentAsLatin1(buildFile, "txts = glob(['*.txt'], exclude=['bar.txt'])");
     assertThat(
-        assertEvaluate(buildFile).lookup("txts"),
+        assertEvaluate(buildFile).moduleLookup("txts"),
         equalTo(SkylarkList.createImmutable(ImmutableList.of("foo.txt"))));
   }
 
@@ -109,7 +109,7 @@ public class GlobTest {
     FileSystemUtils.writeContentAsLatin1(
         buildFile, "txts = glob(['some_dir'], exclude_directories=False)");
     assertThat(
-        assertEvaluate(buildFile).lookup("txts"),
+        assertEvaluate(buildFile).moduleLookup("txts"),
         equalTo(SkylarkList.createImmutable(ImmutableList.of("some_dir"))));
   }
 
@@ -120,7 +120,7 @@ public class GlobTest {
     FileSystemUtils.writeContentAsLatin1(
         buildFile, "txts = glob(['some_dir'], exclude_directories=True)");
     assertThat(
-        assertEvaluate(buildFile).lookup("txts"),
+        assertEvaluate(buildFile).moduleLookup("txts"),
         equalTo(SkylarkList.createImmutable(ImmutableList.of())));
   }
 
@@ -130,7 +130,7 @@ public class GlobTest {
     Path buildFile = root.getChild("BUCK");
     FileSystemUtils.writeContentAsLatin1(buildFile, "txts = glob(['some_dir'])");
     assertThat(
-        assertEvaluate(buildFile).lookup("txts"),
+        assertEvaluate(buildFile).moduleLookup("txts"),
         equalTo(SkylarkList.createImmutable(ImmutableList.of())));
   }
 
@@ -139,7 +139,7 @@ public class GlobTest {
     Path buildFile = root.getChild("BUCK");
     FileSystemUtils.writeContentAsLatin1(buildFile, "txts = glob([])");
     assertThat(
-        assertEvaluate(buildFile).lookup("txts"),
+        assertEvaluate(buildFile).moduleLookup("txts"),
         equalTo(SkylarkList.createImmutable(ImmutableList.of())));
     Event event = Iterables.getOnlyElement(eventHandler);
     assertThat(event.getKind(), is(EventKind.WARNING));

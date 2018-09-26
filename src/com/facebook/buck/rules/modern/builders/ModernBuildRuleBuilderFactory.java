@@ -24,10 +24,10 @@ import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.build.strategy.BuildRuleStrategy;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.rules.modern.builders.grpc.GrpcExecutionFactory;
-import com.facebook.buck.rules.modern.builders.grpc.GrpcProtocol;
-import com.facebook.buck.rules.modern.builders.thrift.ThriftProtocol;
-import com.facebook.buck.rules.modern.builders.thrift.ThriftRemoteExecutionFactory;
+import com.facebook.buck.remoteexecution.Protocol;
+import com.facebook.buck.remoteexecution.config.RemoteExecutionConfig;
+import com.facebook.buck.remoteexecution.grpc.GrpcProtocol;
+import com.facebook.buck.remoteexecution.thrift.ThriftProtocol;
 import com.facebook.buck.rules.modern.config.ModernBuildRuleConfig;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
@@ -47,6 +47,7 @@ public class ModernBuildRuleBuilderFactory {
   /** Creates a BuildRuleStrategy for ModernBuildRules based on the buck configuration. */
   public static Optional<BuildRuleStrategy> getBuildStrategy(
       ModernBuildRuleConfig config,
+      RemoteExecutionConfig remoteExecutionConfig,
       BuildRuleResolver resolver,
       Cell rootCell,
       CellPathResolver cellResolver,
@@ -65,8 +66,8 @@ public class ModernBuildRuleBuilderFactory {
                   cellResolver,
                   rootCell,
                   hashLoader::get,
-                  config.getRemoteHost(),
-                  config.getRemotePort()));
+                  remoteExecutionConfig.getRemoteHost(),
+                  remoteExecutionConfig.getRemotePort()));
         case THRIFT_REMOTE:
           return Optional.of(
               createThriftRemote(
@@ -75,10 +76,7 @@ public class ModernBuildRuleBuilderFactory {
                   cellResolver,
                   rootCell,
                   hashLoader::get,
-                  config.getRemoteHost(),
-                  config.getRemotePort(),
-                  config.getCasHost(),
-                  config.getCasPort()));
+                  remoteExecutionConfig));
         case DEBUG_RECONSTRUCT:
           return Optional.of(
               createReconstructing(new SourcePathRuleFinder(resolver), cellResolver, rootCell));
@@ -163,7 +161,8 @@ public class ModernBuildRuleBuilderFactory {
       Protocol protocol)
       throws IOException {
     return IsolatedExecution.createIsolatedExecutionStrategy(
-        OutOfProcessIsolatedExecution.create(protocol, eventBus),
+        new RemoteExecution(
+            eventBus, OutOfProcessIsolatedExecutionClients.create(protocol, eventBus)),
         ruleFinder,
         cellResolver,
         rootCell,
@@ -215,14 +214,10 @@ public class ModernBuildRuleBuilderFactory {
       CellPathResolver cellResolver,
       Cell rootCell,
       ThrowingFunction<Path, HashCode, IOException> fileHasher,
-      String remoteExecutionEngineHost,
-      int remoteExecutionEnginePort,
-      String casHost,
-      int casPort)
+      RemoteExecutionConfig remoteExecutionConfig)
       throws IOException {
     return IsolatedExecution.createIsolatedExecutionStrategy(
-        ThriftRemoteExecutionFactory.createRemote(
-            remoteExecutionEngineHost, remoteExecutionEnginePort, casHost, casPort, eventBus),
+        ThriftRemoteExecutionFactory.createRemote(remoteExecutionConfig, eventBus),
         ruleFinder,
         cellResolver,
         rootCell,

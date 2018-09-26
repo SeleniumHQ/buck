@@ -23,6 +23,7 @@ import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
+import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
@@ -34,7 +35,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.io.File;
 import java.nio.file.Files;
-import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -46,8 +47,10 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
 
   public static final String SECTION = "java";
   public static final String PROPERTY_COMPILE_AGAINST_ABIS = "compile_against_abis";
-  private static final JavaOptions DEFAULT_JAVA_OPTIONS =
-      JavaOptions.of(new CommandTool.Builder().addArg("java").build());
+  public static final CommandTool DEFAULT_JAVA_TOOL =
+      new CommandTool.Builder().addArg("java").build();
+  static final JavaOptions DEFAULT_JAVA_OPTIONS =
+      JavaOptions.of(new ConstantToolProvider(DEFAULT_JAVA_TOOL));
 
   private final BuckConfig delegate;
   private final Supplier<JavacSpec> javacSpecSupplier;
@@ -75,11 +78,15 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
   }
 
   public JavaOptions getDefaultJavaOptions() {
-    return getToolForExecutable("java").map(JavaOptions::of).orElse(DEFAULT_JAVA_OPTIONS);
+    return getToolForExecutable("java")
+        .map(ConstantToolProvider::new)
+        .map(JavaOptions::of)
+        .orElse(DEFAULT_JAVA_OPTIONS);
   }
 
   public JavaOptions getDefaultJavaOptionsForTests() {
     return getToolForExecutable("java_for_tests")
+        .map(ConstantToolProvider::new)
         .map(JavaOptions::of)
         .orElseGet(this::getDefaultJavaOptions);
   }
@@ -100,9 +107,6 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
     ImmutableList<String> extraArguments =
         delegate.getListWithoutComments(SECTION, "extra_arguments");
 
-    ImmutableList<String> safeAnnotationProcessors =
-        delegate.getListWithoutComments(SECTION, "safe_annotation_processors");
-
     builder.setTrackClassUsage(trackClassUsage());
     Optional<Boolean> trackJavacPhaseEvents =
         delegate.getBoolean(SECTION, "track_javac_phase_events");
@@ -117,17 +121,26 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
     }
 
     ImmutableMap<String, String> allEntries = delegate.getEntriesForSection(SECTION);
-    ImmutableMap.Builder<String, String> bootclasspaths = ImmutableMap.builder();
+    ImmutableMap.Builder<String, ImmutableList<PathSourcePath>> bootclasspaths =
+        ImmutableMap.builder();
     for (Map.Entry<String, String> entry : allEntries.entrySet()) {
-      if (entry.getKey().startsWith("bootclasspath-")) {
-        bootclasspaths.put(entry.getKey().substring("bootclasspath-".length()), entry.getValue());
+      String key = entry.getKey();
+      if (key.startsWith("bootclasspath-")) {
+        String[] values = entry.getValue().split(File.pathSeparator);
+        ImmutableList.Builder<PathSourcePath> pathsBuilder =
+            ImmutableList.builderWithExpectedSize(values.length);
+        for (String value : values) {
+          Preconditions.checkState(value != null);
+          pathsBuilder.add(PathSourcePath.of(delegate.getFilesystem(), Paths.get(value)));
+        }
+
+        bootclasspaths.put(key.substring("bootclasspath-".length()), pathsBuilder.build());
       }
     }
 
     return builder
         .putAllSourceToBootclasspath(bootclasspaths.build())
         .addAllExtraArguments(extraArguments)
-        .setSafeAnnotationProcessors(safeAnnotationProcessors)
         .build();
   }
 
@@ -163,24 +176,19 @@ public class JavaBuckConfig implements ConfigView<BuckConfig> {
   }
 
   @VisibleForTesting
-  Optional<PathSourcePath> getJavacPath() {
-    return getPathToExecutable("javac").map(delegate::getPathSourcePath);
+  Optional<SourcePath> getJavacPath() {
+    Optional<SourcePath> sourcePath = delegate.getSourcePath("tools", "javac");
+    if (sourcePath.isPresent() && sourcePath.get() instanceof PathSourcePath) {
+      PathSourcePath pathSourcePath = (PathSourcePath) sourcePath.get();
+      if (!pathSourcePath.getFilesystem().isExecutable(pathSourcePath.getRelativePath())) {
+        throw new HumanReadableException("javac is not executable: %s", pathSourcePath);
+      }
+    }
+    return sourcePath;
   }
 
   private Optional<SourcePath> getJavacJarPath() {
     return delegate.getSourcePath("tools", "javac_jar");
-  }
-
-  private Optional<Path> getPathToExecutable(String executableName) {
-    Optional<Path> path = delegate.getPath("tools", executableName);
-    if (path.isPresent()) {
-      File file = path.get().toFile();
-      if (!file.canExecute()) {
-        throw new HumanReadableException(executableName + " is not executable: " + file.getPath());
-      }
-      return Optional.of(file.toPath());
-    }
-    return Optional.empty();
   }
 
   private Optional<Tool> getToolForExecutable(String executableName) {

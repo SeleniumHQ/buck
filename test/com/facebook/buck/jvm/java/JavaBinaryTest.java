@@ -32,7 +32,7 @@ import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -88,7 +88,7 @@ public class JavaBinaryTest {
                 target,
                 new FakeProjectFilesystem(),
                 params,
-                JavaCompilationConstants.DEFAULT_JAVA_OPTIONS.getJavaRuntimeLauncher(),
+                JavaCompilationConstants.DEFAULT_JAVA_OPTIONS.getJavaRuntimeLauncher(graphBuilder),
                 "com.facebook.base.Main",
                 null,
                 /* merge manifests */ true,

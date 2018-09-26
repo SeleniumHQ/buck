@@ -17,8 +17,8 @@
 package com.facebook.buck.intellij.ideabuck.build;
 
 import com.facebook.buck.intellij.ideabuck.config.BuckModule;
-import com.facebook.buck.intellij.ideabuck.config.BuckSettingsProvider;
-import com.facebook.buck.intellij.ideabuck.ui.BuckEventsConsumer;
+import com.facebook.buck.intellij.ideabuck.config.BuckProjectSettingsProvider;
+import com.facebook.buck.intellij.ideabuck.ui.tree.BuckTextNode.TextType;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.process.OSProcessHandler;
@@ -43,6 +43,7 @@ public abstract class BuckCommandHandler {
   private static final long LONG_TIME = 10 * 1000;
 
   protected final Project project;
+  protected final BuckModule buckModule;
   protected final BuckCommand command;
 
   private final File workingDirectory;
@@ -81,9 +82,11 @@ public abstract class BuckCommandHandler {
       Project project, File directory, BuckCommand command, boolean doStartNotify) {
     this.doStartNotify = doStartNotify;
 
-    String buckExecutable = BuckSettingsProvider.getInstance().resolveBuckExecutable();
+    String buckExecutable =
+        BuckProjectSettingsProvider.getInstance(project).resolveBuckExecutable();
 
     this.project = project;
+    this.buckModule = project.getComponent(BuckModule.class);
     this.command = command;
     commandLine = new GeneralCommandLine();
     commandLine.setExePath(buckExecutable);
@@ -99,6 +102,9 @@ public abstract class BuckCommandHandler {
   public synchronized void start() {
     checkNotStarted();
 
+    buckModule
+        .getBuckEventsConsumer()
+        .sendAsConsoleEvent(commandLine.getCommandLineString(), TextType.INFO);
     try {
       startTime = System.currentTimeMillis();
       process = startProcess();
@@ -271,8 +277,6 @@ public abstract class BuckCommandHandler {
    * saved.
    */
   protected void notifyLines(final Key outputType, final Iterable<String> lines) {
-    BuckEventsConsumer buckEventsConsumer =
-        project.getComponent(BuckModule.class).getBuckEventsConsumer();
     if (outputType == ProcessOutputTypes.STDERR) {
       StringBuilder stderr = new StringBuilder();
       for (String line : lines) {
@@ -282,7 +286,7 @@ public abstract class BuckCommandHandler {
         }
       }
       if (stderr.length() != 0) {
-        buckEventsConsumer.consumeConsoleEvent(stderr.toString());
+        buckModule.getBuckEventsConsumer().consumeConsoleEvent(stderr.toString());
       }
     }
   }

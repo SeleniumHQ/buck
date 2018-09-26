@@ -25,6 +25,8 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasCustomDepsLogic;
 import com.facebook.buck.core.rules.common.RecordArtifactVerifier;
+import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.core.rules.modern.annotations.DefaultFieldSerialization;
 import com.facebook.buck.core.rules.pipeline.RulePipelineStateFactory;
 import com.facebook.buck.core.sourcepath.ArchiveMemberSourcePath;
 import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
@@ -35,6 +37,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
+import com.facebook.buck.rules.modern.DefaultFieldInputs;
 import com.facebook.buck.rules.modern.impl.ModernBuildableSupport;
 import com.facebook.buck.step.Step;
 import com.google.common.annotations.VisibleForTesting;
@@ -55,9 +58,10 @@ public class JarBuildStepsFactory
     implements AddsToRuleKey, RulePipelineStateFactory<JavacPipelineState> {
   private static final Path METADATA_DIR = Paths.get("META-INF");
 
+  @CustomFieldBehavior(DefaultFieldSerialization.class)
   private final BuildTarget libraryTarget;
 
-  @AddToRuleKey private final ConfiguredCompiler configuredCompiler;
+  @AddToRuleKey private final CompileToJarStepFactory configuredCompiler;
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> srcs;
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> resources;
   @AddToRuleKey private final ResourcesParameters resourcesParameters;
@@ -68,9 +72,12 @@ public class JarBuildStepsFactory
   @AddToRuleKey private final DependencyInfoHolder dependencyInfos;
   @AddToRuleKey private final ZipArchiveDependencySupplier abiClasspath;
 
-  private final boolean trackClassUsage;
+  @AddToRuleKey private final boolean trackClassUsage;
+
+  @CustomFieldBehavior(DefaultFieldSerialization.class)
   private final boolean trackJavacPhaseEvents;
-  private final boolean isRequiredForSourceOnlyAbi;
+
+  @AddToRuleKey private final boolean isRequiredForSourceOnlyAbi;
   @AddToRuleKey private final RemoveClassesPatternsMatcher classesToRemoveFromJar;
 
   @AddToRuleKey private final AbiGenerationMode abiGenerationMode;
@@ -95,6 +102,7 @@ public class JarBuildStepsFactory
     // all
     // the inputs.
     // TODO(cjhopman): Improve rulekey calculation so we don't need such micro-optimizations.
+    @CustomFieldBehavior({DefaultFieldSerialization.class, DefaultFieldInputs.class})
     private final ImmutableList<JavaDependencyInfo> infos;
 
     public DependencyInfoHolder(ImmutableList<JavaDependencyInfo> infos) {
@@ -130,7 +138,7 @@ public class JarBuildStepsFactory
 
   public JarBuildStepsFactory(
       BuildTarget libraryTarget,
-      ConfiguredCompiler configuredCompiler,
+      CompileToJarStepFactory configuredCompiler,
       ImmutableSortedSet<SourcePath> srcs,
       ImmutableSortedSet<SourcePath> resources,
       ResourcesParameters resourcesParameters,
@@ -216,11 +224,9 @@ public class JarBuildStepsFactory
   }
 
   public boolean useRulePipelining() {
-    boolean usePipelining =
-        configuredCompiler instanceof JavacToJarStepFactory
-            && abiGenerationMode.isSourceAbi()
-            && abiGenerationMode.usesDependencies();
-    return usePipelining;
+    return configuredCompiler instanceof JavacToJarStepFactory
+        && abiGenerationMode.isSourceAbi()
+        && abiGenerationMode.usesDependencies();
   }
 
   public ImmutableList<Step> getBuildStepsForAbiJar(
@@ -238,8 +244,7 @@ public class JarBuildStepsFactory
 
     ResourcesParameters resourcesParameters = getResourcesParameters();
 
-    CompileToJarStepFactory compileToJarStepFactory = (CompileToJarStepFactory) configuredCompiler;
-    compileToJarStepFactory.createCompileToJarStep(
+    configuredCompiler.createCompileToJarStep(
         context,
         filesystem,
         buildTarget,
@@ -286,8 +291,7 @@ public class JarBuildStepsFactory
     CompilerParameters compilerParameters = getCompilerParameters(context, filesystem, buildTarget);
     ResourcesParameters resourcesParameters = getResourcesParameters();
 
-    CompileToJarStepFactory compileToJarStepFactory = (CompileToJarStepFactory) configuredCompiler;
-    compileToJarStepFactory.createCompileToJarStep(
+    configuredCompiler.createCompileToJarStep(
         context,
         filesystem,
         buildTarget,

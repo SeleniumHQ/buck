@@ -55,6 +55,8 @@ import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.filesystem.impl.AllExistingProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.HasJavaAbi;
 import com.facebook.buck.jvm.core.JavaLibrary;
@@ -71,9 +73,7 @@ import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepRunner;
 import com.facebook.buck.step.TestExecutionContext;
-import com.facebook.buck.testutil.AllExistingProjectFilesystem;
 import com.facebook.buck.testutil.FakeFileHashCache;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
@@ -100,7 +100,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -150,9 +149,9 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     Path src = Paths.get(folder, "Main.java");
     tmp.newFile(src.toString());
 
-    BuildRule libraryRule =
+    DefaultJavaLibrary libraryRule =
         AndroidLibraryBuilder.createBuilder(buildTarget).addSrc(src).build(graphBuilder);
-    DefaultJavaLibrary javaLibrary = (DefaultJavaLibrary) libraryRule;
+    DefaultJavaLibrary javaLibrary = libraryRule;
 
     BuildContext context = createBuildContext();
 
@@ -581,7 +580,6 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     Set<BuildRule> expectedDeps = new TreeSet<>();
     addAbiAndMaybeFullJar(depLibraryTarget, expectedDeps);
     addAbiAndMaybeFullJar(depProvidedDepLibraryTarget, expectedDeps);
-    expectedDeps.add(graphBuilder.getRule(depExportFileTarget));
     addAbiAndMaybeFullJar(depLibraryExportedDepTarget, expectedDeps);
     addAbiAndMaybeFullJar(providedDepLibraryTarget, expectedDeps);
     addAbiAndMaybeFullJar(providedDepLibraryExportedDepTarget, expectedDeps);
@@ -1329,18 +1327,18 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
   @Test
   public void testWhenNoJavacIsProvidedAJavacInMemoryStepIsAdded() {
     BuildTarget libraryOneTarget = BuildTargetFactory.newInstance("//:libone");
-    BuildRule rule =
+    DefaultJavaLibrary rule =
         createJavaLibraryBuilder(libraryOneTarget)
             .addSrc(Paths.get("java/src/com/libone/Bar.java"))
             .build(graphBuilder);
-    DefaultJavaLibrary buildRule = (DefaultJavaLibrary) rule;
+    DefaultJavaLibrary buildRule = rule;
     ImmutableList<Step> steps =
         buildRule.getBuildSteps(
             FakeBuildContext.withSourcePathResolver(
                 DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder))),
             new FakeBuildableContext());
 
-    assertEquals(17, steps.size());
+    assertEquals(26, steps.size());
     JavacStep javac = getJavacStep(steps);
     assertTrue(javac.getJavac() instanceof Jsr199Javac);
   }
@@ -1373,7 +1371,7 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
             FakeBuildContext.withSourcePathResolver(
                 DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder))),
             new FakeBuildableContext());
-    assertEquals(17, steps.size());
+    assertEquals(26, steps.size());
     JavacStep javacStep = getJavacStep(steps);
     assertTrue(javacStep.getJavac() instanceof Jsr199Javac);
     JarBackedJavac jsrJavac = ((JarBackedJavac) javacStep.getJavac());
@@ -1481,15 +1479,13 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
 
   // Captures all the common code between the different annotation processing test scenarios.
   private class AnnotationProcessingScenario {
-    private final AnnotationProcessingParams.Builder annotationProcessingParamsBuilder;
+    private final AbstractAnnotationProcessingParams.Builder annotationProcessingParamsBuilder;
 
     public AnnotationProcessingScenario() {
-      annotationProcessingParamsBuilder =
-          AnnotationProcessingParams.builder()
-              .setLegacySafeAnnotationProcessors(Collections.emptySet());
+      annotationProcessingParamsBuilder = AnnotationProcessingParams.builder();
     }
 
-    public AnnotationProcessingParams.Builder getAnnotationProcessingParamsBuilder() {
+    public AbstractAnnotationProcessingParams.Builder getAnnotationProcessingParamsBuilder() {
       return annotationProcessingParamsBuilder;
     }
 
@@ -1523,7 +1519,6 @@ public class DefaultJavaLibraryTest extends AbiCompilationModeTest {
     private DefaultJavaLibrary createJavaLibraryRule(ProjectFilesystem projectFilesystem)
         throws IOException, NoSuchBuildTargetException {
       BuildTarget buildTarget = BuildTargetFactory.newInstance(ANNOTATION_SCENARIO_TARGET);
-      annotationProcessingParamsBuilder.setProjectFilesystem(projectFilesystem);
 
       tmp.newFolder("android", "java", "src", "com", "facebook");
       String src = "android/java/src/com/facebook/Main.java";

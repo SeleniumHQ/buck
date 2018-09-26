@@ -36,13 +36,15 @@ import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.impl.FakeTestRule;
 import com.facebook.buck.event.listener.BuildTargetDurationListener.BuildRuleInfo;
 import com.facebook.buck.event.listener.BuildTargetDurationListener.BuildRuleInfo.Chain;
 import com.facebook.buck.event.listener.BuildTargetDurationListener.BuildRuleInfoSelectedChain;
 import com.facebook.buck.event.listener.BuildTargetDurationListener.CriticalPathEntry;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.rules.FakeTestRule;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.support.bgtasks.TaskManagerScope;
+import com.facebook.buck.support.bgtasks.TestBackgroundTaskManager;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
@@ -57,6 +59,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Paths;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
@@ -64,7 +67,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.junit.Assert;
@@ -487,6 +489,7 @@ public class BuildTargetDurationListenerTest {
   public void testBuildStartFinishTimes() {
     final String target = "//:celik";
     BuildId buildId = new BuildId("19911501");
+    TaskManagerScope managerScope = new TestBackgroundTaskManager().getNewScope(buildId);
     BuildTargetDurationListener listener =
         new BuildTargetDurationListener(
             InvocationInfo.of(
@@ -494,12 +497,12 @@ public class BuildTargetDurationListenerTest {
                 false,
                 false,
                 "test",
-                Arrays.asList(target),
-                Arrays.asList(),
+                Collections.singletonList(target),
+                Collections.emptyList(),
                 Paths.get(".")),
             new FakeProjectFilesystem(),
-            Executors.newSingleThreadExecutor(),
-            1);
+            1,
+            managerScope);
     BuildRuleDurationTracker tracker = new BuildRuleDurationTracker();
     BuildRule rule =
         new FakeTestRule(
@@ -530,5 +533,7 @@ public class BuildTargetDurationListenerTest {
     listener.buildRuleEventFinished(end);
     BuildRuleInfo buildRuleInfo = listener.getBuildRuleInfos().get(target);
     assertEquals(42, buildRuleInfo.getWholeTargetDuration());
+    listener.close();
+    managerScope.close();
   }
 }

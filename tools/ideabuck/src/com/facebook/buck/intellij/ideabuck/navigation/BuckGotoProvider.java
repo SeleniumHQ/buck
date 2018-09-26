@@ -16,12 +16,16 @@
 
 package com.facebook.buck.intellij.ideabuck.navigation;
 
-import com.facebook.buck.intellij.ideabuck.build.BuckBuildUtil;
 import com.facebook.buck.intellij.ideabuck.external.IntellijBuckAction;
 import com.facebook.buck.intellij.ideabuck.lang.BuckLanguage;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BuckExpression;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckLoadTargetArgument;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BuckProperty;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BuckRuleBlock;
+import com.facebook.buck.intellij.ideabuck.lang.psi.BuckRuleBody;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckValue;
-import com.google.common.base.Optional;
+import com.facebook.buck.intellij.ideabuck.util.BuckCellFinder;
+import com.google.common.collect.Iterables;
 import com.intellij.codeInsight.navigation.actions.GotoDeclarationHandlerBase;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -30,68 +34,107 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.util.PsiTreeUtil;
+import java.util.Optional;
 import org.jetbrains.annotations.Nullable;
 
 public class BuckGotoProvider extends GotoDeclarationHandlerBase {
 
+  @Nullable
   @Override
   public PsiElement getGotoDeclarationTarget(@Nullable PsiElement source, Editor editor) {
-    if (source != null && source.getLanguage() instanceof BuckLanguage) {
-      @Nullable
-      BuckLoadTargetArgument loadTargetArgument =
-          PsiTreeUtil.getParentOfType(source, BuckLoadTargetArgument.class);
-      if (loadTargetArgument != null) {
-        return getExtensionFileElement(loadTargetArgument);
-      }
+    if (source == null || !(source.getLanguage() instanceof BuckLanguage)) {
+      return null;
+    }
 
-      // The parent type of the element must be BuckValue.
-      BuckValue value = PsiTreeUtil.getParentOfType(source, BuckValue.class);
-      if (value == null) {
-        return null;
-      }
-      final Project project = editor.getProject();
-      if (project == null) {
-        return null;
-      }
+    final Project project = editor.getProject();
+    if (project == null) {
+      return null;
+    }
 
-      String target = source.getText();
-      if ((target.startsWith("'") && target.endsWith("'"))
-          || (target.startsWith("\"") && target.endsWith("\""))) {
-        target = target.substring(1, target.length() - 1);
-      }
+    PsiFile sourcePsiFile = source.getContainingFile();
+    BuckCellFinder buckCellFinder = BuckCellFinder.getInstance(project);
+    PsiManager psiManager = PsiManager.getInstance(project);
 
-      VirtualFile targetFile =
-          // Try to find the BUCK file
-          Optional.fromNullable(BuckBuildUtil.getBuckFileFromAbsoluteTarget(project, target))
-              // Try to find the normal file
-              .or(
-                  Optional.fromNullable(
-                      source
-                          .getContainingFile()
-                          .getParent()
-                          .getVirtualFile()
-                          // If none exist, then it's null
-                          .findFileByRelativePath(target)))
-              .orNull();
+    String target = unwrapString(source.getText());
+    Optional<PsiElement> psiTarget;
 
-      if (targetFile == null) {
-        return null;
+    if (PsiTreeUtil.getParentOfType(source, BuckLoadTargetArgument.class) != null) {
+      psiTarget =
+          buckCellFinder
+              .findExtensionFile(sourcePsiFile.getVirtualFile(), target)
+              .map(psiManager::findFile);
+    } else if (PsiTreeUtil.getParentOfType(source, BuckValue.class) != null) {
+      if (target.startsWith(":")) {
+        // ':' prefix means this is a target in the same BUCK file
+        psiTarget = findTargetInPsiTree(sourcePsiFile, target.substring(1));
+      } else if (target.contains(":")) {
+        // If it contains the ':' character, it's a target somewhere else
+        psiTarget =
+            buckCellFinder
+                .findBuckTargetFile(sourcePsiFile.getVirtualFile(), target)
+                .map(psiManager::findFile)
+                .map(
+                    psiFile -> {
+                      // Try to refine it to find the actual target in the file
+                      String targetName = target.substring(target.lastIndexOf(':') + 1);
+                      return findTargetInPsiTree(psiFile, targetName).orElse(psiFile);
+                    });
+      } else {
+        // If there's no ':' character, try to find file relative to the current file
+        psiTarget = findLocalFile(source, target).map(psiManager::findFile);
       }
+    } else {
+      psiTarget = Optional.empty();
+    }
+    if (psiTarget.isPresent()) {
       project
           .getMessageBus()
           .syncPublisher(IntellijBuckAction.EVENT)
           .consume(this.getClass().toString());
-      return PsiManager.getInstance(project).findFile(targetFile);
     }
-    return null;
+    return psiTarget.orElse(null);
   }
 
-  @Nullable
-  private PsiFile getExtensionFileElement(BuckLoadTargetArgument loadTargetArgument) {
-    @Nullable VirtualFile extensionFile = BuckBuildUtil.resolveExtensionFile(loadTargetArgument);
-    if (extensionFile != null) {
-      return PsiManager.getInstance(loadTargetArgument.getProject()).findFile(extensionFile);
+  private static String unwrapString(String target) {
+    if (target.length() >= 2 && target.startsWith("\"") && target.endsWith("\"")) {
+      target = target.substring(1, target.length() - 1);
+    } else if (target.length() >= 2 && target.startsWith("'") && target.endsWith("'")) {
+      target = target.substring(1, target.length() - 1);
     }
-    return null;
+    return target;
+  }
+
+  private static Optional<PsiElement> findTargetInPsiTree(PsiElement root, String target) {
+    for (BuckRuleBlock buckRuleBlock : PsiTreeUtil.findChildrenOfType(root, BuckRuleBlock.class)) {
+      BuckRuleBody buckRuleBody = buckRuleBlock.getRuleBody();
+      for (BuckProperty buckProperty :
+          PsiTreeUtil.findChildrenOfType(buckRuleBody, BuckProperty.class)) {
+        if (!Optional.ofNullable(buckProperty.getPropertyLvalue().getIdentifier())
+            .map(PsiElement::getText)
+            .filter("name"::equals)
+            .isPresent()) {
+          continue;
+        }
+        if (Optional.of(buckProperty.getExpression())
+            .map(BuckExpression::getValueList)
+            .map(list -> Iterables.getFirst(list, null))
+            .map(BuckValue::getText)
+            .map(BuckGotoProvider::unwrapString)
+            .filter(target::equals)
+            .isPresent()) {
+          return Optional.of(buckRuleBlock);
+        }
+      }
+    }
+    return Optional.empty();
+  }
+
+  private static @Nullable Optional<VirtualFile> findLocalFile(
+      PsiElement sourceElement, String target) {
+    return Optional.of(sourceElement)
+        .map(PsiElement::getContainingFile)
+        .map(PsiFile::getVirtualFile)
+        .map(VirtualFile::getParent)
+        .map(parent -> parent.findFileByRelativePath(unwrapString(target)));
   }
 }

@@ -24,18 +24,16 @@ import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
-import com.facebook.buck.core.model.impl.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.event.TestEventConfigurator;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.log.GlobalStateManager;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.rules.FakeBuildRule;
-import com.facebook.buck.support.bgtasks.BackgroundTaskManager;
-import com.facebook.buck.support.bgtasks.BackgroundTaskManager.Notification;
+import com.facebook.buck.support.bgtasks.TaskManagerScope;
 import com.facebook.buck.support.bgtasks.TestBackgroundTaskManager;
 import com.facebook.buck.util.concurrent.CommandThreadFactory;
 import com.facebook.buck.util.concurrent.MostExecutors;
@@ -55,6 +53,7 @@ public class RuleKeyLoggerListenerTest {
   private ExecutorService outputExecutor;
   private InvocationInfo info;
   private BuildRuleDurationTracker durationTracker;
+  private TaskManagerScope managerScope;
 
   @Before
   public void setUp() throws InterruptedException, IOException {
@@ -76,45 +75,42 @@ public class RuleKeyLoggerListenerTest {
             ImmutableList.of(),
             tempDirectory.getRoot().toPath());
     durationTracker = new BuildRuleDurationTracker();
+    managerScope = new TestBackgroundTaskManager().getNewScope(info.getBuildId());
   }
 
   @Test
   public void testFileIsNotCreatedWithoutEvents() throws InterruptedException {
-    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
-    RuleKeyLoggerListener listener = newInstance(bgTaskManager, 1);
+    RuleKeyLoggerListener listener = newInstance(managerScope, 1);
     listener.close();
-    bgTaskManager.notify(Notification.COMMAND_END);
+    managerScope.close();
     Assert.assertFalse(Files.exists(listener.getLogFilePath()));
   }
 
   @Test
   public void testSendingHttpCacheEvent() throws InterruptedException, IOException {
-    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
-    RuleKeyLoggerListener listener = newInstance(bgTaskManager, 1);
+    RuleKeyLoggerListener listener = newInstance(managerScope, 1);
     listener.onArtifactCacheEvent(createArtifactCacheEvent(CacheResultType.MISS));
     listener.close();
-    bgTaskManager.notify(Notification.COMMAND_END);
+    managerScope.close();
     Assert.assertTrue(Files.exists(listener.getLogFilePath()));
     Assert.assertTrue(Files.size(listener.getLogFilePath()) > 0);
   }
 
   @Test
   public void testSendingInvalidHttpCacheEvent() throws InterruptedException {
-    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
-    RuleKeyLoggerListener listener = newInstance(bgTaskManager, 1);
+    RuleKeyLoggerListener listener = newInstance(managerScope, 1);
     listener.onArtifactCacheEvent(createArtifactCacheEvent(CacheResultType.HIT));
     listener.close();
-    bgTaskManager.notify(Notification.COMMAND_END);
+    managerScope.close();
     Assert.assertFalse(Files.exists(listener.getLogFilePath()));
   }
 
   @Test
   public void testSendingBuildEvent() throws InterruptedException, IOException {
-    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
-    RuleKeyLoggerListener listener = newInstance(bgTaskManager, 1);
+    RuleKeyLoggerListener listener = newInstance(managerScope, 1);
     listener.onBuildRuleEvent(createBuildEvent());
     listener.close();
-    bgTaskManager.notify(Notification.COMMAND_END);
+    managerScope.close();
     Assert.assertTrue(Files.exists(listener.getLogFilePath()));
     Assert.assertTrue(Files.size(listener.getLogFilePath()) > 0);
   }
@@ -122,12 +118,7 @@ public class RuleKeyLoggerListenerTest {
   private BuildRuleEvent.Finished createBuildEvent() {
     BuildRule rule =
         new FakeBuildRule(
-            ImmutableBuildTarget.of(
-                ImmutableUnflavoredBuildTarget.of(
-                    projectFilesystem.getRootPath(),
-                    Optional.empty(),
-                    "//topspin",
-                    "//downtheline")));
+            ImmutableBuildTarget.of(projectFilesystem.getRootPath(), "//topspin", "//downtheline"));
     BuildRuleKeys keys = BuildRuleKeys.of(new RuleKey("1a1a1a"));
     BuildRuleEvent.Started started =
         TestEventConfigurator.configureTestEvent(BuildRuleEvent.started(rule, durationTracker));
@@ -157,8 +148,8 @@ public class RuleKeyLoggerListenerTest {
   }
 
   private RuleKeyLoggerListener newInstance(
-      BackgroundTaskManager bgTaskManager, int minLinesForAutoFlush) {
+      TaskManagerScope managerScope, int minLinesForAutoFlush) {
     return new RuleKeyLoggerListener(
-        projectFilesystem, info, outputExecutor, bgTaskManager, minLinesForAutoFlush);
+        projectFilesystem, info, outputExecutor, managerScope, minLinesForAutoFlush);
   }
 }

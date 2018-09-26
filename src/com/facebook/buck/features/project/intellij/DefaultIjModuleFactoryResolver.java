@@ -32,9 +32,11 @@ import com.facebook.buck.features.project.intellij.model.IjModuleFactoryResolver
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.AnnotationProcessingParams;
 import com.facebook.buck.jvm.java.CompilerOutputPaths;
+import com.facebook.buck.jvm.java.JavaLibraryRules;
 import com.facebook.buck.jvm.java.JvmLibraryArg;
 import com.facebook.buck.util.Optionals;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Optional;
 
@@ -121,13 +123,26 @@ class DefaultIjModuleFactoryResolver implements IjModuleFactoryResolver {
     AnnotationProcessingParams annotationProcessingParams =
         targetNode
             .getConstructorArg()
-            .buildAnnotationProcessingParams(
-                targetNode.getBuildTarget(), projectFilesystem, graphBuilder, ImmutableSet.of());
+            .buildAnnotationProcessingParams(targetNode.getBuildTarget(), graphBuilder);
     if (annotationProcessingParams == null || annotationProcessingParams.isEmpty()) {
       return Optional.empty();
     }
 
     return CompilerOutputPaths.getAnnotationPath(projectFilesystem, targetNode.getBuildTarget());
+  }
+
+  @Override
+  public Optional<Path> getAbiAnnotationOutputPath(TargetNode<? extends JvmLibraryArg> targetNode) {
+    Optional<BuildRule> buildRule = graphBuilder.getRuleOptional(targetNode.getBuildTarget());
+    if (buildRule.isPresent()) {
+      ImmutableSortedSet<BuildRule> sourceOnlyAbiRules =
+          JavaLibraryRules.getSourceOnlyAbiRules(graphBuilder, ImmutableSet.of(buildRule.get()));
+      if (!sourceOnlyAbiRules.isEmpty()) {
+        return getAnnotationOutputPath(
+            targetNode.copyWithFlavors(sourceOnlyAbiRules.first().getBuildTarget().getFlavors()));
+      }
+    }
+    return Optional.empty();
   }
 
   @Override

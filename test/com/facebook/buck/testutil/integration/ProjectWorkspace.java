@@ -27,6 +27,7 @@ import com.dd.plist.BinaryPropertyListParser;
 import com.dd.plist.NSDictionary;
 import com.dd.plist.NSObject;
 import com.facebook.buck.cli.Main;
+import com.facebook.buck.cli.exceptions.handlers.ExceptionHandlerRegistryFactory;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellConfig;
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
@@ -267,7 +268,7 @@ public class ProjectWorkspace extends AbstractWorkspace {
     // Add in `--show-output` to the build, so we can parse the output paths after the fact.
     ImmutableList<String> buildArgs =
         ImmutableList.<String>builder().add("--show-output").add(args).build();
-    ProcessResult buildResult = runBuckBuild(buildArgs.toArray(new String[buildArgs.size()]));
+    ProcessResult buildResult = runBuckBuild(buildArgs.toArray(new String[0]));
     buildResult.assertSuccess();
 
     // Grab the stdout lines, which have the build outputs.
@@ -358,10 +359,15 @@ public class ProjectWorkspace extends AbstractWorkspace {
       throws IOException, InterruptedException {
     List<String> command =
         ImmutableList.<String>builder().add(exe).addAll(ImmutableList.copyOf(args)).build();
+    return runCommand(command);
+  }
+
+  public ProcessExecutor.Result runCommand(Iterable<String> command)
+      throws IOException, InterruptedException {
     return doRunCommand(command);
   }
 
-  private ProcessExecutor.Result doRunCommand(List<String> command)
+  private ProcessExecutor.Result doRunCommand(Iterable<String> command)
       throws IOException, InterruptedException {
     ProcessExecutorParams params =
         ProcessExecutorParams.builder()
@@ -441,6 +447,8 @@ public class ProjectWorkspace extends AbstractWorkspace {
       CapturingPrintStream stderr,
       String... args)
       throws IOException {
+    // TODO(cjhopman): This needs to be updated to actually get the correct error-handling from Main
+    // (which will require refactoring there).
     try {
       assertTrue("setUp() must be run before this method is invoked", isSetUp);
       CapturingPrintStream stdout = new CapturingPrintStream();
@@ -507,6 +515,9 @@ public class ProjectWorkspace extends AbstractWorkspace {
       } catch (BuildFileParseException e) {
         stderr.println(e.getHumanReadableErrorMessage());
         exitCode = ExitCode.PARSE_ERROR;
+      } catch (Exception e) {
+        e.printStackTrace(stderr);
+        exitCode = ExceptionHandlerRegistryFactory.create().handleException(e);
       }
 
       return new ProcessResult(

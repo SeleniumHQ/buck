@@ -32,10 +32,10 @@ import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.testutil.AbiCompilationModeTest;
 import com.facebook.buck.shell.GenruleBuilder;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
@@ -206,7 +206,7 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
         ImmutableSet.of(z, c, e),
         JavaLibraryClasspathProvider.getTransitiveClasspathDeps((JavaLibrary) z));
 
-    BuildRule mavenCoord =
+    JavaLibrary mavenCoord =
         new JavaLibraryBuilder(
                 BuildTargetFactory.newInstance("//has:output"),
                 filesystem,
@@ -218,7 +218,7 @@ public class JavaLibraryClasspathProviderTest extends AbiCompilationModeTest {
     assertEquals(
         "Does appear if no output jar but maven coordinate present.",
         ImmutableSet.of(z, c, e, mavenCoord),
-        JavaLibraryClasspathProvider.getTransitiveClasspathDeps((JavaLibrary) mavenCoord));
+        JavaLibraryClasspathProvider.getTransitiveClasspathDeps(mavenCoord));
   }
 
   @Test

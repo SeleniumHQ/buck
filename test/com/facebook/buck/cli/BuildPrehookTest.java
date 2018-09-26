@@ -26,7 +26,7 @@ import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.FakeBuckEventListener;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.util.FakeListeningProcessExecutor;
 import com.facebook.buck.util.FakeListeningProcessState;
 import com.facebook.buck.util.ProcessExecutorParams;
@@ -93,7 +93,7 @@ public class BuildPrehookTest {
 
     try (BuildPrehook buildPrehook = newBuildHook()) {
       buildPrehook.startPrehookScript();
-      processExecutor.waitForProcess(buildPrehook.process);
+      processExecutor.waitForAllLaunchedProcesses();
     }
     ConsoleEvent warning = (ConsoleEvent) Iterables.getOnlyElement(eventListener.getEvents());
     assertThat(warning.getLevel(), CoreMatchers.equalTo(Level.WARNING));
@@ -106,7 +106,7 @@ public class BuildPrehookTest {
 
     try (BuildPrehook buildPrehook = newBuildHook()) {
       buildPrehook.startPrehookScript();
-      processExecutor.waitForProcess(buildPrehook.process);
+      processExecutor.waitForAllLaunchedProcesses();
     }
     assertThat(eventListener.getEvents(), Matchers.empty());
   }
@@ -117,7 +117,7 @@ public class BuildPrehookTest {
 
     try (BuildPrehook buildPrehook = newBuildHook(ImmutableList.of("target"))) {
       buildPrehook.startPrehookScript();
-      processExecutor.waitForProcess(buildPrehook.process);
+      processExecutor.waitForAllLaunchedProcesses();
       String argumentsFile = params.getEnvironment().get().get("BUCK_BUILD_ARGUMENTS_FILE");
       String argumentsJson = Iterables.getOnlyElement(Files.readAllLines(Paths.get(argumentsFile)));
       assertThat(argumentsJson, Matchers.equalTo("[ \"target\" ]"));

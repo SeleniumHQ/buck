@@ -162,7 +162,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
       boolean enableProfiling) {
     return from(
         params.getCell(),
-        OwnersReport.builder(params.getCell(), params.getParser()),
+        OwnersReport.builder(params.getCell(), params.getParser(), parserState),
         params.getParser(),
         parserState,
         executor,
@@ -282,9 +282,18 @@ public class BuckQueryEnvironment implements QueryEnvironment {
   @Override
   public Set<QueryTarget> getInputs(QueryTarget target) throws QueryException {
     TargetNode<?> node = getNode(target);
+    Preconditions.checkState(target instanceof QueryBuildTarget);
+    BuildTarget buildTarget = ((QueryBuildTarget) target).getBuildTarget();
+    Cell cell = rootCell.getCell(buildTarget);
     return node.getInputs()
         .stream()
-        .map(path -> PathSourcePath.of(node.getFilesystem(), path))
+        .map(
+            path ->
+                PathSourcePath.of(
+                    cell.getFilesystem(),
+                    MorePaths.relativize(
+                        rootCell.getFilesystem().getRootPath(),
+                        cell.getFilesystem().resolve(path))))
         .map(QueryFileTarget::of)
         .collect(ImmutableSet.toImmutableSet());
   }
@@ -337,7 +346,9 @@ public class BuckQueryEnvironment implements QueryEnvironment {
       Futures.allAsList(depsFuture).get();
     } catch (ExecutionException e) {
       if (e.getCause() != null) {
-        throw new QueryException(e.getCause(), "Failed parsing: " + e.getLocalizedMessage());
+        throw new QueryException(
+            e.getCause(),
+            "Failed parsing: " + MoreExceptions.getHumanReadableOrLocalizedMessage(e.getCause()));
       }
       propagateCauseIfInstanceOf(e, ExecutionException.class);
       propagateCauseIfInstanceOf(e, UncheckedExecutionException.class);
@@ -479,7 +490,7 @@ public class BuckQueryEnvironment implements QueryEnvironment {
 
   @Override
   public ImmutableSet<QueryTarget> getFileOwners(ImmutableList<String> files) {
-    OwnersReport report = ownersReportBuilder.build(buildFileTrees, executor, files);
+    OwnersReport report = ownersReportBuilder.build(buildFileTrees, files);
     report
         .getInputsWithNoOwners()
         .forEach(path -> eventBus.post(ConsoleEvent.warning("No owner was found for %s", path)));

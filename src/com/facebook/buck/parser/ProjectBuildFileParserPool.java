@@ -33,7 +33,6 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
@@ -85,17 +84,16 @@ class ProjectBuildFileParserPool implements AutoCloseable {
       Cell cell,
       Watchman watchman,
       Path buildFile,
-      AtomicLong processedBytes,
       ListeningExecutorService executorService) {
     Preconditions.checkState(!closing.get());
 
     if (shouldUsePoolForCell(cell)) {
       return getResourcePoolForCell(buckEventBus, cell, watchman)
           .scheduleOperationWithResource(
-              parser -> parser.getBuildFileManifest(buildFile, processedBytes), executorService);
+              parser -> parser.getBuildFileManifest(buildFile), executorService);
     }
     ProjectBuildFileParser parser = getParserForCell(buckEventBus, cell, watchman);
-    return executorService.submit(() -> parser.getBuildFileManifest(buildFile, processedBytes));
+    return executorService.submit(() -> parser.getBuildFileManifest(buildFile));
   }
 
   private synchronized ResourcePool<ProjectBuildFileParser> getResourcePoolForCell(

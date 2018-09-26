@@ -55,6 +55,7 @@ import java.io.Writer;
 import java.nio.channels.Channels;
 import java.nio.file.CopyOption;
 import java.nio.file.DirectoryStream;
+import java.nio.file.DirectoryStream.Filter;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystemLoopException;
@@ -81,6 +82,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.jar.JarFile;
@@ -151,9 +153,13 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
                 FluentIterable.from(
                         // "Path" is Iterable, so avoid adding each segment.
                         // We use the default value here because that's what we've always done.
-                        ImmutableSet.of(
-                            getCacheDir(
-                                root, Optional.of(buckPaths.getCacheDir().toString()), buckPaths)))
+                        MorePaths.filterForSubpaths(
+                            ImmutableSet.of(
+                                getCacheDir(
+                                    root,
+                                    Optional.of(buckPaths.getCacheDir().toString()),
+                                    buckPaths)),
+                            root))
                     .append(ImmutableSet.of(buckPaths.getTrashDir()))
                     .transform(PathOrGlobMatcher::new))
             .toSet();
@@ -214,6 +220,11 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   }
 
   @Override
+  public DefaultProjectFilesystemView asView() {
+    return new DefaultProjectFilesystemView(this, Paths.get(""), projectRoot, ImmutableMap.of());
+  }
+
+  @Override
   public final Path getRootPath() {
     return projectRoot;
   }
@@ -240,6 +251,11 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   @Override
   public Path relativize(Path path) {
     return projectRoot.relativize(path);
+  }
+
+  @Override
+  public ImmutableSet<PathOrGlobMatcher> getBlacklistedPaths() {
+    return blackListedPaths;
   }
 
   /** @return A {@link ImmutableSet} of {@link PathOrGlobMatcher} objects to have buck ignore. */
@@ -402,8 +418,32 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
       FileVisitor<Path> fileVisitor,
       boolean skipIgnored)
       throws IOException {
+    walkRelativeFileTree(
+        pathRelativeToProjectRoot,
+        visitOptions,
+        fileVisitor,
+        skipIgnored ? input -> !isIgnored(relativize(input)) : input -> true);
+  }
 
-    FileVisitor<Path> relativizingVisitor =
+  void walkRelativeFileTree(
+      Path pathRelativeToProjectRoot,
+      EnumSet<FileVisitOption> visitOptions,
+      FileVisitor<Path> fileVisitor,
+      DirectoryStream.Filter<? super Path> ignoreFilter)
+      throws IOException {
+    Path rootPath = getPathForRelativePath(pathRelativeToProjectRoot);
+    walkFileTreeWithPathMapping(
+        rootPath, visitOptions, fileVisitor, ignoreFilter, path -> relativize(path));
+  }
+
+  void walkFileTreeWithPathMapping(
+      Path root,
+      EnumSet<FileVisitOption> visitOptions,
+      FileVisitor<Path> fileVisitor,
+      DirectoryStream.Filter<? super Path> ignoreFilter,
+      Function<Path, Path> pathMapper)
+      throws IOException {
+    FileVisitor<Path> pathMappingVisitor =
         new FileVisitor<Path>() {
           @Override
           public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
@@ -415,33 +455,31 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
             if (EDEN_MAGIC_PATH_ELEMENT.equals(dir.getFileName())) {
               return FileVisitResult.SKIP_SUBTREE;
             }
-            return fileVisitor.preVisitDirectory(relativize(dir), attrs);
+            return fileVisitor.preVisitDirectory(pathMapper.apply(dir), attrs);
           }
 
           @Override
           public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
               throws IOException {
-            return fileVisitor.visitFile(relativize(file), attrs);
+            return fileVisitor.visitFile(pathMapper.apply(file), attrs);
           }
 
           @Override
           public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
-            return fileVisitor.visitFileFailed(relativize(file), exc);
+            return fileVisitor.visitFileFailed(pathMapper.apply(file), exc);
           }
 
           @Override
           public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-            return fileVisitor.postVisitDirectory(relativize(dir), exc);
+            return fileVisitor.postVisitDirectory(pathMapper.apply(dir), exc);
           }
         };
-    Path rootPath = getPathForRelativePath(pathRelativeToProjectRoot);
-    walkFileTree(rootPath, visitOptions, relativizingVisitor, skipIgnored);
+    walkFileTree(root, visitOptions, pathMappingVisitor, ignoreFilter);
   }
 
   /** Allows {@link Files#walkFileTree} to be faked in tests. */
   @Override
   public void walkFileTree(Path root, FileVisitor<Path> fileVisitor) throws IOException {
-    root = getPathForRelativePath(root);
     walkFileTree(root, EnumSet.noneOf(FileVisitOption.class), fileVisitor);
   }
 
@@ -455,7 +493,21 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
   public void walkFileTree(
       Path root, Set<FileVisitOption> options, FileVisitor<Path> fileVisitor, boolean skipIgnored)
       throws IOException {
-    new FileTreeWalker(root, options, fileVisitor, skipIgnored).walk();
+    walkFileTree(
+        root,
+        options,
+        fileVisitor,
+        skipIgnored ? input -> !isIgnored(relativize(input)) : input -> true);
+  }
+
+  void walkFileTree(
+      Path root,
+      Set<FileVisitOption> options,
+      FileVisitor<Path> fileVisitor,
+      DirectoryStream.Filter<? super Path> ignoreFilter)
+      throws IOException {
+    root = getPathForRelativePath(root);
+    new FileTreeWalker(root, options, fileVisitor, ignoreFilter).walk();
   }
 
   @Override
@@ -1045,28 +1097,23 @@ public class DefaultProjectFilesystem implements ProjectFilesystem {
     private final FileVisitor<Path> visitor;
     private final Path root;
     private final boolean followLinks;
-    private final boolean skipIgnored;
     private final ArrayDeque<DirWalkState> state;
+    private final Filter<? super Path> ignoreFilter;
 
     FileTreeWalker(
         Path root,
         Set<FileVisitOption> options,
         FileVisitor<Path> pathFileVisitor,
-        boolean skipIgnored) {
+        DirectoryStream.Filter<? super Path> ignoreFilter) {
       this.followLinks = options.contains(FileVisitOption.FOLLOW_LINKS);
       this.visitor = pathFileVisitor;
       this.root = root;
       this.state = new ArrayDeque<>();
-      this.skipIgnored = skipIgnored;
+      this.ignoreFilter = ignoreFilter;
     }
 
     private ImmutableList<Path> getContents(Path root) throws IOException {
-      DirectoryStream.Filter<? super Path> skipIgnoredFilter =
-          input -> !isIgnored(relativize(input));
-      DirectoryStream.Filter<? super Path> doNotSkipFilter = input -> true;
-      DirectoryStream.Filter<? super Path> filter =
-          skipIgnored ? skipIgnoredFilter : doNotSkipFilter;
-      try (DirectoryStream<Path> stream = Files.newDirectoryStream(root, filter)) {
+      try (DirectoryStream<Path> stream = Files.newDirectoryStream(root, ignoreFilter)) {
         return FluentIterable.from(stream).toSortedList(Comparator.naturalOrder());
       }
     }

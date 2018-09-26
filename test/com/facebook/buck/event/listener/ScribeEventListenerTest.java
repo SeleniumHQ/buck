@@ -31,9 +31,9 @@ import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.DefaultBuckEventBus;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.network.FakeScribeLogger;
 import com.facebook.buck.util.timing.FakeClock;
@@ -43,6 +43,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -84,14 +85,14 @@ public class ScribeEventListenerTest {
 
   @Test
   public void testLoggerDispatchesEvents() {
-    eventBus.post(BuildEvent.started(Arrays.asList("arg1")));
+    eventBus.post(BuildEvent.started(Collections.singletonList("arg1")));
 
     assertEquals(1, logger.getLinesForCategory(CATEGORY).size());
   }
 
   @Test
   public void testOnlyConfiguredEventNamesAreAllowed() {
-    Started started = BuildEvent.started(Arrays.asList("arg1"));
+    Started started = BuildEvent.started(Collections.singletonList("arg1"));
     eventBus.post(started);
     eventBus.post(BuildEvent.finished(started, ExitCode.SUCCESS));
     eventBus.post(BuildEvent.distBuildStarted());
@@ -118,7 +119,7 @@ public class ScribeEventListenerTest {
   public void testEventsAreOrdered() throws IOException {
 
     for (int i = 0; i < 100; i++) {
-      eventBus.post(BuildEvent.started(Arrays.asList(String.valueOf(i))));
+      eventBus.post(BuildEvent.started(Collections.singletonList(String.valueOf(i))));
     }
 
     ImmutableList<String> lines = logger.getLinesForCategory(CATEGORY);

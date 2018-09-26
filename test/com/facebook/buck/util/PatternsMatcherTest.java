@@ -40,43 +40,66 @@ public class PatternsMatcherTest {
   }
 
   @Test
+  public void testMatchesAnyWithExactMatch() {
+    PatternsMatcher patternsMatcher =
+        new PatternsMatcher(Arrays.asList("pattern.*", "test_pattern"));
+
+    assertTrue(patternsMatcher.matchesAny("test_pattern"));
+  }
+
+  @Test
+  public void testMatchesAnyWithWildcard() {
+    PatternsMatcher patternsMatcher =
+        new PatternsMatcher(Arrays.asList("pattern.*", "test_pattern"));
+
+    assertTrue(patternsMatcher.matchesAny("pattern"));
+  }
+
+  @Test
   public void testDoesNotMatchPrefix() {
-    PatternsMatcher patternsMatcher = new PatternsMatcher(Arrays.asList("test"));
+    PatternsMatcher patternsMatcher = new PatternsMatcher(Collections.singletonList("test"));
 
     assertFalse(patternsMatcher.matches("test_pattern"));
   }
 
   @Test
+  public void testMatchAnyWithNonMatchingPrefixReturnsFalse() {
+    PatternsMatcher patternsMatcher = new PatternsMatcher(Collections.singletonList("test"));
+
+    assertFalse(patternsMatcher.matchesAny("test_pattern"));
+  }
+
+  @Test
   public void testSubstringMatchesPrefix() {
-    PatternsMatcher patternsMatcher = new PatternsMatcher(Arrays.asList("test"));
+    PatternsMatcher patternsMatcher = new PatternsMatcher(Collections.singletonList("test"));
 
     assertTrue(patternsMatcher.substringMatches("test_pattern"));
   }
 
   @Test
   public void testDoesNotMatchSuffix() {
-    PatternsMatcher patternsMatcher = new PatternsMatcher(Arrays.asList("pattern"));
+    PatternsMatcher patternsMatcher = new PatternsMatcher(Collections.singletonList("pattern"));
 
     assertFalse(patternsMatcher.matches("test_pattern"));
   }
 
   @Test
   public void testSubstringMatchesSuffix() {
-    PatternsMatcher patternsMatcher = new PatternsMatcher(Arrays.asList("pattern"));
+    PatternsMatcher patternsMatcher = new PatternsMatcher(Collections.singletonList("pattern"));
 
     assertTrue(patternsMatcher.substringMatches("test_pattern"));
   }
 
   @Test
   public void testDoesNotMatchInfix() {
-    PatternsMatcher patternsMatcher = new PatternsMatcher(Arrays.asList("_"));
+    PatternsMatcher patternsMatcher = new PatternsMatcher(Collections.singletonList("_"));
 
     assertFalse(patternsMatcher.matches("test_pattern"));
   }
 
   @Test
   public void testSubstringMatchesInfix() {
-    PatternsMatcher patternsMatcher = new PatternsMatcher(Arrays.asList("_"));
+    PatternsMatcher patternsMatcher = new PatternsMatcher(Collections.singletonList("_"));
 
     assertTrue(patternsMatcher.substringMatches("test_pattern"));
   }
@@ -88,6 +111,24 @@ public class PatternsMatcherTest {
 
     assertFalse(patternsMatcher.matches("wrong_pattern"));
     assertFalse(patternsMatcher.substringMatches("wrong_pat"));
+  }
+
+  @Test
+  public void testMatchesAnyDoesNotMatchPattern() {
+    PatternsMatcher patternsMatcher =
+        new PatternsMatcher(Arrays.asList("pattern.*", "test_pattern"));
+
+    assertFalse(patternsMatcher.matchesAny("wrong_pattern"));
+  }
+
+  @Test
+  public void testMatchesAnyDoesNotMatchEmptyPatterns() {
+    assertFalse(PatternsMatcher.EMPTY.matchesAny("wrong_pattern"));
+  }
+
+  @Test
+  public void testMatchesMatchesEmptyPatterns() {
+    assertTrue(PatternsMatcher.EMPTY.matches("wrong_pattern"));
   }
 
   @Test

@@ -93,11 +93,24 @@ public class DefaultProjectFilesystemTest {
 
   @Rule public ExpectedException expected = ExpectedException.none();
 
-  private ProjectFilesystem filesystem;
+  private DefaultProjectFilesystem filesystem;
 
   @Before
   public void setUp() throws InterruptedException {
     filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
+  }
+
+  @Test
+  public void asViewCreatesEmptyViewAtRoot() {
+    DefaultProjectFilesystemView view = filesystem.asView();
+
+    // view should be relative to root
+    assertEquals(Paths.get(""), view.projectRoot);
+    assertEquals(filesystem.getRootPath(), view.getRootPath());
+    assertEquals(Paths.get(""), view.relativize(tmp.getRoot()));
+
+    // view should have no ignores
+    assertTrue(view.ignoredPaths.isEmpty());
   }
 
   @Test

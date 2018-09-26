@@ -16,26 +16,68 @@
 
 package com.facebook.buck.intellij.ideabuck.ui;
 
-import com.facebook.buck.intellij.ideabuck.config.BuckSettingsProvider;
+import com.facebook.buck.intellij.ideabuck.config.BuckCell;
+import com.facebook.buck.intellij.ideabuck.config.BuckExecutableDetector;
+import com.facebook.buck.intellij.ideabuck.config.BuckProjectSettingsProvider;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+import com.intellij.icons.AllIcons.Actions;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
+import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task.Modal;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TextComponentAccessor;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.ui.AnActionButton;
 import com.intellij.ui.IdeBorderFactory;
+import com.intellij.ui.ToolbarDecorator;
+import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBTextField;
+import com.intellij.ui.table.TableView;
+import com.intellij.util.ui.ListTableModel;
+import com.intellij.util.ui.LocalPathCellEditor;
+import com.intellij.util.ui.table.TableModelEditor.EditableColumnInfo;
 import java.awt.BorderLayout;
+import java.awt.Dimension;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
-import java.awt.Insets;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
-import java.awt.event.ItemListener;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.lang.reflect.Type;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import javax.annotation.Nonnull;
+import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JTextField;
+import javax.swing.table.TableCellEditor;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /** Buck Setting GUI, located in "Preference > Tools > Buck". */
 public class BuckSettingsUI extends JPanel {
+
+  private static Logger LOG = Logger.getInstance(BuckSettingsUI.class);
 
   public static final String CUSTOMIZED_INSTALL_FLAGS_HINT =
       "input your additional install flags here: eg. --no-cache";
@@ -49,143 +91,488 @@ public class BuckSettingsUI extends JPanel {
   private JCheckBox multiInstallMode;
   private JCheckBox uninstallBeforeInstall;
   private JCheckBox customizedInstallSetting;
-  private BuckSettingsProvider optionsProvider;
+  private ListTableModel<BuckCell> cellTableModel;
+  private BuckProjectSettingsProvider optionsProvider;
+  private BuckExecutableDetector executableDetector;
 
-  public BuckSettingsUI() {
-    optionsProvider = BuckSettingsProvider.getInstance();
+  public BuckSettingsUI(BuckProjectSettingsProvider buckProjectSettingsProvider) {
+    optionsProvider = buckProjectSettingsProvider;
+    executableDetector = BuckExecutableDetector.newInstance();
     init();
   }
 
+  private TextFieldWithBrowseButton createTextFieldWithBrowseButton(
+      String emptyText, String title, String description, Project project) {
+    JBTextField textField = new JBTextField();
+    textField.getEmptyText().setText(emptyText);
+    TextFieldWithBrowseButton field = new TextFieldWithBrowseButton(textField);
+    FileChooserDescriptor fileChooserDescriptor =
+        new FileChooserDescriptor(true, false, false, false, false, false);
+    field.addBrowseFolderListener(
+        title,
+        description,
+        project,
+        fileChooserDescriptor,
+        TextComponentAccessor.TEXT_FIELD_WHOLE_TEXT);
+    return field;
+  }
+
+  private void checkFieldIsExecutable(
+      String name, JTextField textField, Optional<String> defaultValue) {
+    String text = textField.getText();
+    String executable = textToOptional(text).orElse(defaultValue.orElse(null));
+    if (executable == null) {
+      Messages.showErrorDialog(
+          getProject(),
+          "No " + name + " executable was specified or auto-detected for this field.",
+          "No Executable Specified");
+    } else {
+      try {
+        String found = executableDetector.getNamedExecutable(executable);
+        Messages.showInfoMessage(
+            getProject(),
+            found + " appears to be a valid executable",
+            "Found Executable " + executable);
+      } catch (RuntimeException e) {
+        Messages.showErrorDialog(
+            getProject(),
+            executable + " could not be resolved to a valid executable.",
+            "Invalid Executable");
+      }
+    }
+  }
+
+  private JButton createExecutableFieldTestingButton(
+      String executableName,
+      Optional<String> defaultExecutable,
+      TextFieldWithBrowseButton executableField) {
+    JButton button = new JButton();
+    button.setText("Test " + executableName);
+    button.setToolTipText("Verify that the supplied " + executableName + " is a valid executable");
+    button.addActionListener(
+        new ActionListener() {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            checkFieldIsExecutable(
+                executableName, executableField.getTextField(), defaultExecutable);
+          }
+        });
+    return button;
+  }
+
   private void init() {
-    setLayout(new BorderLayout());
-    JPanel container = this;
 
-    buckPathField = new TextFieldWithBrowseButton();
-    FileChooserDescriptor buckFileChooserDescriptor =
-        new FileChooserDescriptor(true, false, false, false, false, false);
-    buckPathField.addBrowseFolderListener(
-        "Buck Executable",
-        "If unspecified, dynamically find one on your PATH",
-        null,
-        buckFileChooserDescriptor,
-        TextComponentAccessor.TEXT_FIELD_WHOLE_TEXT);
+    final GridBagConstraints constraints = new GridBagConstraints();
+    constraints.anchor = GridBagConstraints.FIRST_LINE_START;
+    constraints.fill = GridBagConstraints.HORIZONTAL;
+    constraints.weightx = 1;
+    constraints.weighty = 1;
 
-    adbPathField = new TextFieldWithBrowseButton();
-    FileChooserDescriptor adbFileChooserDescriptor =
-        new FileChooserDescriptor(true, false, false, false, false, false);
-    adbPathField.addBrowseFolderListener(
-        "Adb Executable",
-        "If unspecified, dynamically find one on your PATH or relative to ANDROID_SDK",
-        null,
-        adbFileChooserDescriptor,
-        TextComponentAccessor.TEXT_FIELD_WHOLE_TEXT);
-    customizedInstallSettingField = new JBTextField();
-    customizedInstallSettingField.getEmptyText().setText(CUSTOMIZED_INSTALL_FLAGS_HINT);
-    customizedInstallSettingField.setEnabled(false);
+    JPanel container = new JPanel(new GridBagLayout());
+    container.setLayout(new GridBagLayout());
+    constraints.gridy = 0;
+    container.add(initUISettingsSection(), constraints);
+    constraints.gridy = 1;
+    container.add(initExecutablesSection(), constraints);
+    constraints.gridy = 2;
+    container.add(initInstallSettingsSection(), constraints);
+    constraints.gridy = 3;
+    container.add(initBuckCellSection(), constraints);
 
+    this.setLayout(new BorderLayout());
+    this.add(container, BorderLayout.NORTH);
+  }
+
+  private Project getProject() {
+    return optionsProvider.getProject();
+  }
+
+  private Optional<String> detectBuckExecutable() {
+    try {
+      return Optional.ofNullable(executableDetector.getBuckExecutable());
+    } catch (RuntimeException e) {
+      return Optional.empty();
+    }
+  }
+
+  private Optional<String> detectAdbExecutable() {
+    try {
+      return Optional.ofNullable(executableDetector.getAdbExecutable());
+    } catch (RuntimeException e) {
+      return Optional.empty();
+    }
+  }
+
+  private JPanel initExecutablesSection() {
+    final Optional<String> detectedBuckExecutable = detectBuckExecutable();
+    final Optional<String> detectedAdbExecutable = detectAdbExecutable();
+    buckPathField =
+        createTextFieldWithBrowseButton(
+            detectedBuckExecutable.map(s -> "Default: " + s).orElse("No 'buck' found on path"),
+            "Buck Executable",
+            "Specify the buck executable to use (for this project)",
+            null);
+    JButton testBuckPathButton =
+        createExecutableFieldTestingButton("buck", detectedBuckExecutable, buckPathField);
+
+    adbPathField =
+        createTextFieldWithBrowseButton(
+            detectedAdbExecutable.map(s -> "Default: " + s).orElse("No 'adb' found on path"),
+            "Adb Executable",
+            "Specify the adb executable to use (for this project)",
+            optionsProvider.getProject());
+    JButton testAdbPathButton =
+        createExecutableFieldTestingButton("adb", detectedAdbExecutable, adbPathField);
+
+    final JPanel panel = new JPanel(new GridBagLayout());
+    panel.setBorder(IdeBorderFactory.createTitledBorder("Executables", true));
+
+    GridBagConstraints leftSide = new GridBagConstraints();
+    leftSide.fill = GridBagConstraints.NONE;
+    leftSide.anchor = GridBagConstraints.LINE_START;
+    leftSide.gridx = 0;
+    leftSide.weightx = 0;
+
+    GridBagConstraints middle = new GridBagConstraints();
+    middle.fill = GridBagConstraints.HORIZONTAL;
+    middle.anchor = GridBagConstraints.LINE_START;
+    middle.gridx = 1;
+    middle.weightx = 1;
+
+    GridBagConstraints rightSide = new GridBagConstraints();
+    rightSide.fill = GridBagConstraints.NONE;
+    rightSide.anchor = GridBagConstraints.LINE_END;
+    rightSide.gridx = 2;
+    rightSide.weightx = 0;
+
+    leftSide.gridy = middle.gridy = rightSide.gridy = 0;
+    panel.add(new JLabel("Buck Executable:"), leftSide);
+    panel.add(buckPathField, middle);
+    panel.add(testBuckPathButton, rightSide);
+
+    leftSide.gridy = middle.gridy = rightSide.gridy = 1;
+    panel.add(new JLabel("Adb Executable:"), leftSide);
+    panel.add(adbPathField, middle);
+    panel.add(testAdbPathButton, rightSide);
+    return panel;
+  }
+
+  private JPanel initUISettingsSection() {
     showDebug = new JCheckBox("Show debug in tool window");
     enableAutoDeps = new JCheckBox("Enable auto dependencies");
+
+    JPanel panel = new JPanel(new GridBagLayout());
+    panel.setBorder(IdeBorderFactory.createTitledBorder("UI Settings", true));
+
+    GridBagConstraints constraints = new GridBagConstraints();
+    constraints.fill = GridBagConstraints.HORIZONTAL;
+    constraints.anchor = GridBagConstraints.LINE_START;
+    constraints.weightx = 1;
+
+    constraints.gridy = 0;
+    panel.add(showDebug, constraints);
+
+    constraints.gridy = 1;
+    panel.add(enableAutoDeps, constraints);
+    return panel;
+  }
+
+  private JPanel initInstallSettingsSection() {
     runAfterInstall = new JCheckBox("Run after install (-r)");
     multiInstallMode = new JCheckBox("Multi-install mode (-x)");
     uninstallBeforeInstall = new JCheckBox("Uninstall before installing (-u)");
     customizedInstallSetting = new JCheckBox("Use customized install setting:  ");
-    initCustomizedInstallCommandListener();
+    customizedInstallSettingField = new JBTextField();
+    customizedInstallSettingField.getEmptyText().setText(CUSTOMIZED_INSTALL_FLAGS_HINT);
+    customizedInstallSettingField.setEnabled(false);
 
-    JPanel buckSettings = new JPanel(new GridBagLayout());
-    buckSettings.setBorder(IdeBorderFactory.createTitledBorder("Buck Settings", true));
-    container.add(container = new JPanel(new BorderLayout()), BorderLayout.NORTH);
-    container.add(buckSettings, BorderLayout.NORTH);
-    final GridBagConstraints constraints =
-        new GridBagConstraints(
-            0,
-            0,
-            1,
-            1,
-            0,
-            0,
-            GridBagConstraints.WEST,
-            GridBagConstraints.NONE,
-            new Insets(0, 0, 0, 0),
-            0,
-            0);
+    JPanel panel = new JPanel(new GridBagLayout());
+    panel.setBorder(IdeBorderFactory.createTitledBorder("Install Settings", true));
 
-    buckSettings.add(new JLabel("Buck Executable Path:"), constraints);
-    constraints.gridx = 1;
-    constraints.weightx = 1;
-    constraints.fill = GridBagConstraints.HORIZONTAL;
-    buckSettings.add(buckPathField, constraints);
-    constraints.gridx = 0;
-    constraints.gridy = 1;
-    constraints.weightx = 1;
-    buckSettings.add(new JLabel("Adb Executable Path:"), constraints);
-    constraints.gridx = 1;
-    constraints.gridy = 1;
-    constraints.weightx = 1;
-    constraints.fill = GridBagConstraints.HORIZONTAL;
-    buckSettings.add(adbPathField, constraints);
-    constraints.gridx = 0;
-    constraints.gridy = 2;
-    buckSettings.add(showDebug, constraints);
-    constraints.gridx = 0;
-    constraints.gridy = 3;
-    buckSettings.add(enableAutoDeps, constraints);
+    GridBagConstraints leftSide = new GridBagConstraints();
+    leftSide.fill = GridBagConstraints.NONE;
+    leftSide.anchor = GridBagConstraints.LINE_START;
+    leftSide.gridx = 0;
+    leftSide.weightx = 0;
 
-    JPanel installSettings = new JPanel(new BorderLayout());
-    installSettings.setBorder(IdeBorderFactory.createTitledBorder("Buck Install Settings", true));
-    container.add(container = new JPanel(new BorderLayout()), BorderLayout.SOUTH);
-    container.add(installSettings, BorderLayout.NORTH);
+    GridBagConstraints rightSide = new GridBagConstraints();
+    rightSide.fill = GridBagConstraints.HORIZONTAL;
+    rightSide.anchor = GridBagConstraints.LINE_START;
+    leftSide.gridx = 1;
+    rightSide.weightx = 1;
 
-    installSettings.add(runAfterInstall, BorderLayout.NORTH);
-    installSettings.add(installSettings = new JPanel(new BorderLayout()), BorderLayout.SOUTH);
+    leftSide.gridy = rightSide.gridy = 0;
+    panel.add(runAfterInstall, leftSide);
 
-    installSettings.add(multiInstallMode, BorderLayout.NORTH);
-    installSettings.add(installSettings = new JPanel(new BorderLayout()), BorderLayout.SOUTH);
+    leftSide.gridy = rightSide.gridy = 1;
+    panel.add(multiInstallMode, leftSide);
 
-    installSettings.add(uninstallBeforeInstall, BorderLayout.NORTH);
-    installSettings.add(installSettings = new JPanel(new BorderLayout()), BorderLayout.SOUTH);
+    leftSide.gridy = rightSide.gridy = 2;
+    panel.add(uninstallBeforeInstall, leftSide);
 
-    final GridBagConstraints customConstraints =
-        new GridBagConstraints(
-            0,
-            0,
-            1,
-            1,
-            0,
-            0,
-            GridBagConstraints.WEST,
-            GridBagConstraints.NONE,
-            new Insets(0, 0, 0, 0),
-            0,
-            0);
-    JPanel customizedInstallSetting = new JPanel(new GridBagLayout());
-    customizedInstallSetting.add(this.customizedInstallSetting, customConstraints);
-    customConstraints.gridx = 1;
-    customConstraints.weightx = 1;
-    customConstraints.fill = GridBagConstraints.HORIZONTAL;
-    customizedInstallSetting.add(customizedInstallSettingField, customConstraints);
-    installSettings.add(customizedInstallSetting, BorderLayout.NORTH);
+    leftSide.gridy = rightSide.gridy = 3;
+    panel.add(customizedInstallSetting, leftSide);
+    panel.add(customizedInstallSettingField, rightSide);
+
+    customizedInstallSetting.addItemListener(
+        e -> {
+          if (e.getStateChange() == ItemEvent.SELECTED) {
+            customizedInstallSettingField.setEnabled(true);
+            runAfterInstall.setEnabled(false);
+            multiInstallMode.setEnabled(false);
+            uninstallBeforeInstall.setEnabled(false);
+          } else {
+            customizedInstallSettingField.setEnabled(false);
+            runAfterInstall.setEnabled(true);
+            multiInstallMode.setEnabled(true);
+            uninstallBeforeInstall.setEnabled(true);
+          }
+        });
+    return panel;
   }
 
-  // When displaying an empty Optional in a text field, use "".
-  private String optionalToText(Optional<String> optional) {
-    return optional.orElse("");
+  private static final EditableColumnInfo<BuckCell, String> CELL_NAME_COLUMN =
+      new EditableColumnInfo<BuckCell, String>("cell name") {
+        @Override
+        public String valueOf(BuckCell buckCell) {
+          return buckCell.getName();
+        }
+
+        @Override
+        public void setValue(BuckCell buckCell, String value) {
+          buckCell.setName(value);
+        }
+      };
+
+  private static final EditableColumnInfo<BuckCell, String> ROOT_COLUMN =
+      new EditableColumnInfo<BuckCell, String>("cell root directory") {
+        @Override
+        public String valueOf(BuckCell buckCell) {
+          return buckCell.getRoot();
+        }
+
+        @Override
+        public void setValue(BuckCell buckCell, String value) {
+          buckCell.setRoot(value);
+        }
+
+        @Nullable
+        @Override
+        public TableCellEditor getEditor(BuckCell buckCell) {
+          return new LocalPathCellEditor()
+              .fileChooserDescriptor(FileChooserDescriptorFactory.createSingleFolderDescriptor())
+              .normalizePath(true);
+        }
+      };
+
+  private static final EditableColumnInfo<BuckCell, String> BUILD_FILENAME_COLUMN =
+      new EditableColumnInfo<BuckCell, String>("build file name") {
+        @Override
+        public String valueOf(BuckCell buckCell) {
+          return buckCell.getBuildFileName();
+        }
+
+        @Override
+        public void setValue(BuckCell buckCell, String value) {
+          buckCell.setBuildFileName(value);
+        }
+      };
+
+  private JPanel initBuckCellSection() {
+    JPanel panel = new JPanel(new BorderLayout());
+    panel.setBorder(IdeBorderFactory.createTitledBorder("Cells", true));
+    cellTableModel = new ListTableModel<>(CELL_NAME_COLUMN, ROOT_COLUMN, BUILD_FILENAME_COLUMN);
+    cellTableModel.setItems(optionsProvider.getCells());
+    TableView<BuckCell> cellTable = new TableView<>(cellTableModel);
+    cellTable.setPreferredScrollableViewportSize(
+        new Dimension(
+            cellTable.getPreferredScrollableViewportSize().width, 8 * cellTable.getRowHeight()));
+    ToolbarDecorator decorator =
+        ToolbarDecorator.createDecorator(cellTable)
+            .setAddAction(
+                (AnActionButton button) -> {
+                  final FileChooserDescriptor dirChooser =
+                      FileChooserDescriptorFactory.createSingleFolderDescriptor()
+                          .withTitle("Select root directory of buck cell");
+                  Project project = optionsProvider.getProject();
+                  FileChooser.chooseFile(
+                      dirChooser,
+                      project,
+                      BuckSettingsUI.this,
+                      project.getBaseDir(),
+                      file -> {
+                        ProgressManager.getInstance()
+                            .run(
+                                new Modal(project, "Checking buildfile.name for cell", true) {
+                                  @Override
+                                  public void run(@NotNull ProgressIndicator progressIndicator) {
+                                    BuckCell buckCell =
+                                        discoverCell(
+                                            buckExecutableForAutoDiscovery(),
+                                            file.getName(),
+                                            Paths.get(file.getPath()),
+                                            progressIndicator);
+                                    cellTableModel.addRow(buckCell);
+                                  }
+                                });
+                      });
+                })
+            .addExtraAction(
+                new AnActionButton("Automatically discover cells", Actions.Find) {
+                  @Override
+                  public void actionPerformed(AnActionEvent anActionEvent) {
+                    discoverCells();
+                  }
+                });
+    JBLabel label = new JBLabel("By default, commands take place in the topmost cell");
+    panel.add(label, BorderLayout.NORTH);
+    panel.add(decorator.createPanel(), BorderLayout.CENTER);
+    return panel;
+  }
+
+  private String buckExecutableForAutoDiscovery() {
+    String buckExecutableText = buckPathField.getText().trim();
+    String buckExecutable;
+    if (buckExecutableText.isEmpty()) {
+      buckExecutable = BuckExecutableDetector.newInstance().getBuckExecutable();
+    } else {
+      buckExecutable = buckExecutableText;
+    }
+    return buckExecutable;
+  }
+
+  private void discoverCells() {
+    final FileChooserDescriptor dirChooser =
+        FileChooserDescriptorFactory.createSingleFolderDescriptor()
+            .withTitle("Select any directory within a buck cell");
+    Project project = optionsProvider.getProject();
+    Optional.ofNullable(
+            FileChooser.chooseFile(dirChooser, BuckSettingsUI.this, project, project.getBaseDir()))
+        .ifPresent(
+            defaultCell ->
+                ProgressManager.getInstance()
+                    .run(
+                        new Modal(project, "Autodetecting buck cells", true) {
+                          @Override
+                          public void run(@NotNull ProgressIndicator progressIndicator) {
+                            discoverCells(
+                                buckExecutableForAutoDiscovery(), defaultCell, progressIndicator);
+                          }
+                        }));
+  }
+
+  private ProcessBuilder noBuckdProcessBuilder(String... cmd) {
+    ProcessBuilder processBuilder = new ProcessBuilder(cmd);
+    processBuilder.environment().put("NO_BUCKD", "1"); // don't launch a daemon for these...
+    return processBuilder;
+  }
+
+  private void waitUntilDoneOrCanceled(Process process, ProgressIndicator progressIndicator)
+      throws InterruptedException {
+    // waitFor timeout chosen to make the UI cancel button reasonably responsive.
+    while (!process.waitFor(50, TimeUnit.MILLISECONDS)) {
+      if (progressIndicator.isCanceled()) {
+        if (process.isAlive()) {
+          process.destroy();
+        }
+        throw new InterruptedException("User canceled");
+      }
+    }
+  }
+
+  private void discoverCells(
+      String buckExecutable, VirtualFile defaultCell, ProgressIndicator progressIndicator) {
+    Path mainCellRoot;
+    try {
+      progressIndicator.setIndeterminate(true);
+      progressIndicator.setText("Finding root for " + defaultCell.getName());
+      Process process =
+          noBuckdProcessBuilder(buckExecutable, "root")
+              .directory(new File(defaultCell.getPath()))
+              .start();
+      waitUntilDoneOrCanceled(process, progressIndicator);
+      mainCellRoot =
+          Paths.get(new BufferedReader(new InputStreamReader(process.getInputStream())).readLine());
+    } catch (IOException | InterruptedException e) {
+      LOG.error("Failed to autodiscover cells", e);
+      return;
+    }
+    try {
+      progressIndicator.setText("Finding other cells visible from " + mainCellRoot.getFileName());
+      Gson gson = new Gson();
+      Type type = new TypeToken<Map<String, String>>() {}.getType();
+      Map<String, String> config;
+      Process process =
+          noBuckdProcessBuilder(buckExecutable, "audit", "cell", "--json")
+              .directory(mainCellRoot.toFile())
+              .start();
+      waitUntilDoneOrCanceled(process, progressIndicator);
+      try (InputStreamReader reader = new InputStreamReader(process.getInputStream())) {
+        config = gson.fromJson(reader, type);
+      }
+      List<BuckCell> cells = new ArrayList<>();
+      for (Map.Entry<String, String> entry : config.entrySet()) {
+        if (progressIndicator.isCanceled()) {
+          break;
+        }
+        String name = entry.getKey();
+        Path cellRoot = mainCellRoot.resolve(entry.getValue()).normalize();
+        progressIndicator.setText("Checking cell " + name);
+        BuckCell cell = discoverCell(buckExecutable, name, cellRoot, progressIndicator);
+        if (mainCellRoot.equals(cellRoot)) {
+          cells.add(0, cell); // put default cell at front of cell list
+        } else {
+          cells.add(cell);
+        }
+      }
+      if (cells.isEmpty()) {
+        BuckCell cell = new BuckCell();
+        cell.setName("");
+        cell.setRoot(mainCellRoot.toString());
+        cells.add(new BuckCell());
+      }
+      cellTableModel.setItems(cells);
+    } catch (IOException | InterruptedException e) {
+      LOG.error("Failed to autodiscover cells", e);
+    }
+  }
+
+  @Nonnull
+  private BuckCell discoverCell(
+      String buckExecutable, String name, Path cellRoot, ProgressIndicator progressIndicator) {
+    Gson gson = new Gson();
+    Type type = new TypeToken<Map<String, String>>() {}.getType();
+    BuckCell cell = new BuckCell();
+    cell.setName(name);
+    cell.setRoot(cellRoot.toString());
+    try {
+      Process process =
+          noBuckdProcessBuilder(buckExecutable, "audit", "config", "buildfile.name", "--json")
+              .directory(cellRoot.toFile())
+              .start();
+      waitUntilDoneOrCanceled(process, progressIndicator);
+      try (InputStreamReader reader = new InputStreamReader(process.getInputStream())) {
+        Map<String, String> cellConfig = gson.fromJson(reader, type);
+        Optional.ofNullable(cellConfig)
+            .flatMap(config -> Optional.ofNullable(config.get("buildfile.name")))
+            .ifPresent(cell::setBuildFileName);
+      }
+    } catch (IOException | InterruptedException e) {
+      LOG.warn("Failed to discover buildfile.name of cell at " + cellRoot, e);
+    }
+    return cell;
   }
 
   // Empty or all-whitespace text fields should be parsed as Optional.empty()
-  private Optional<String> textToOptional(String text) {
-    if (text == null || text.trim().isEmpty()) {
-      return Optional.empty();
-    }
-    return Optional.of(text);
+  private Optional<String> textToOptional(@Nullable String text) {
+    return Optional.ofNullable(text).map(String::trim).filter(s -> !s.isEmpty());
   }
 
   public boolean isModified() {
     return !Comparing.equal(
-            buckPathField.getText().trim(),
-            optionalToText(optionsProvider.getBuckExecutableOverride()))
+            buckPathField.getText().trim(), optionsProvider.getBuckExecutableOverride().orElse(""))
         || !Comparing.equal(
-            adbPathField.getText().trim(),
-            optionalToText(optionsProvider.getAdbExecutableOverride()))
+            adbPathField.getText().trim(), optionsProvider.getAdbExecutableOverride().orElse(""))
         || optionsProvider.isRunAfterInstall() != runAfterInstall.isSelected()
         || optionsProvider.isShowDebugWindow() != showDebug.isSelected()
         || optionsProvider.isAutoDepsEnabled() != enableAutoDeps.isSelected()
@@ -194,7 +581,8 @@ public class BuckSettingsUI extends JPanel {
         || optionsProvider.isUseCustomizedInstallSetting() != customizedInstallSetting.isSelected()
         || !optionsProvider
             .getCustomizedInstallSettingCommand()
-            .equals(customizedInstallSettingField.getText());
+            .equals(customizedInstallSettingField.getText())
+        || !optionsProvider.getCells().equals(cellTableModel.getItems());
   }
 
   public void apply() {
@@ -207,9 +595,11 @@ public class BuckSettingsUI extends JPanel {
     optionsProvider.setUninstallBeforeInstalling(uninstallBeforeInstall.isSelected());
     optionsProvider.setUseCustomizedInstallSetting(customizedInstallSetting.isSelected());
     optionsProvider.setCustomizedInstallSettingCommand(customizedInstallSettingField.getText());
+    optionsProvider.setCells(cellTableModel.getItems());
   }
 
   public void reset() {
+    adbPathField.setText(optionsProvider.getAdbExecutableOverride().orElse(""));
     buckPathField.setText(optionsProvider.getBuckExecutableOverride().orElse(""));
     adbPathField.setText(optionsProvider.getAdbExecutableOverride().orElse(""));
     showDebug.setSelected(optionsProvider.isShowDebugWindow());
@@ -219,25 +609,6 @@ public class BuckSettingsUI extends JPanel {
     uninstallBeforeInstall.setSelected(optionsProvider.isUninstallBeforeInstalling());
     customizedInstallSetting.setSelected(optionsProvider.isUseCustomizedInstallSetting());
     customizedInstallSettingField.setText(optionsProvider.getCustomizedInstallSettingCommand());
-  }
-
-  private void initCustomizedInstallCommandListener() {
-    customizedInstallSetting.addItemListener(
-        new ItemListener() {
-          @Override
-          public void itemStateChanged(ItemEvent e) {
-            if (e.getStateChange() == ItemEvent.SELECTED) {
-              customizedInstallSettingField.setEnabled(true);
-              runAfterInstall.setEnabled(false);
-              multiInstallMode.setEnabled(false);
-              uninstallBeforeInstall.setEnabled(false);
-            } else {
-              customizedInstallSettingField.setEnabled(false);
-              runAfterInstall.setEnabled(true);
-              multiInstallMode.setEnabled(true);
-              uninstallBeforeInstall.setEnabled(true);
-            }
-          }
-        });
+    cellTableModel.setItems(optionsProvider.getCells());
   }
 }

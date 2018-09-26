@@ -27,8 +27,10 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.versions.VersionPropagator;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import org.immutables.value.Value;
 
 public class ZipFileDescription
@@ -62,7 +64,8 @@ public class ZipFileDescription
         args.getSrcs(),
         zipSources,
         args.getFlatten(),
-        mergeSourceZips);
+        mergeSourceZips,
+        args.getEntriesToExclude());
   }
 
   @Override
@@ -87,6 +90,8 @@ public class ZipFileDescription
     default Optional<Boolean> getMergeSourceZips() {
       return Optional.empty();
     }
+
+    ImmutableSet<Pattern> getEntriesToExclude();
 
     @Value.NaturalOrder
     ImmutableSortedSet<SourcePath> getZipSrcs();

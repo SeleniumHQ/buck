@@ -235,6 +235,13 @@ class CxxPreprocessAndCompileStep implements Step {
         new CxxErrorTransformer(
             filesystem, context.shouldReportAbsolutePaths(), headerPathNormalizer);
 
+    if (compiler.needsToRemoveCompiledFilenamesFromOutput()) {
+      // In order to get cleaner logs, the following filter removes lines
+      // with only the filename of the file being compiled,
+      // which is an unavoidable behaviour of the Windows compiler.
+      lines = lines.filter(line -> !line.equals(input.getFileName().toString()));
+    }
+
     String err;
     if (compiler.getDependencyTrackingMode() == DependencyTrackingMode.SHOW_INCLUDES) {
       Map<Boolean, List<String>> includesAndErrors =
@@ -265,7 +272,8 @@ class CxxPreprocessAndCompileStep implements Step {
   }
 
   private static String parseShowIncludeLine(String line) {
-    return line.substring(DEPENDENCY_OUTPUT_PREFIX.length()).trim();
+    // We keep the spaces at the beginning since we may use them to reconstruct the include tree
+    return line.substring(DEPENDENCY_OUTPUT_PREFIX.length());
   }
 
   private ConsoleEvent createConsoleEvent(

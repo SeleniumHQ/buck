@@ -20,13 +20,13 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.RuleType;
 import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
-import com.facebook.buck.core.model.impl.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.sourcepath.AbstractDefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.io.ArchiveMemberPath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.log.thrift.ThriftRuleKeyLogger;
 import com.facebook.buck.log.thrift.rulekeys.ByteArray;
 import com.facebook.buck.log.thrift.rulekeys.FullRuleKey;
@@ -40,7 +40,6 @@ import com.facebook.buck.log.thrift.rulekeys.Value;
 import com.facebook.buck.log.thrift.rulekeys.Wrapper;
 import com.facebook.buck.rules.keys.hasher.RuleKeyHasher;
 import com.facebook.buck.rules.keys.hasher.ThriftRuleKeyHasher;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.sha1.Sha1HashCode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -52,7 +51,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Map;
-import java.util.Optional;
 import java.util.regex.Pattern;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
@@ -169,20 +167,14 @@ public class ThriftRuleKeyHasherTest {
     hasher.putRuleType(RuleType.of("sample_build_rule", RuleType.Kind.BUILD));
     hasher.putKey(".build_rule_type_value");
     hasher.putBuildTarget(
-        ImmutableBuildTarget.of(
-            ImmutableUnflavoredBuildTarget.of(
-                new File("cell_path").toPath(), Optional.empty(), "//base_name", "rule_name")));
+        ImmutableBuildTarget.of(new File("cell_path").toPath(), "//base_name", "rule_name"));
     hasher.putKey(".build_target_value");
     hasher.putBuildTargetSourcePath(
         new AbstractDefaultBuildTargetSourcePath() {
           @Override
           public BuildTarget getTarget() {
             return ImmutableBuildTarget.of(
-                ImmutableUnflavoredBuildTarget.of(
-                    new File("cell_path_2").toPath(),
-                    Optional.empty(),
-                    "//base_name_2",
-                    "rule_name_2"));
+                new File("cell_path_2").toPath(), "//base_name_2", "rule_name_2");
           }
         });
     hasher.putKey(".build_target_source_path_value");

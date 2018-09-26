@@ -40,10 +40,10 @@ import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.TestExecutionContext;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -399,7 +399,7 @@ public class MergeAndroidResourcesStepTest {
             /* forceFinalResourceIds */ true,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             /* filteredResourcesProvider */ Optional.empty(),
-            Optional.empty(),
+            /* overrideSymbolsPath */ ImmutableList.of(),
             /* unionPackage */ Optional.empty(),
             /* rName */ Optional.empty(),
             /* useOldStyleableFormat */ false,
@@ -484,7 +484,7 @@ public class MergeAndroidResourcesStepTest {
             /* forceFinalResourceIds */ true,
             /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
             /* filteredResourcesProvider */ Optional.empty(),
-            Optional.empty(),
+            /* overrideSymbolsPath */ ImmutableList.of(),
             /* unionPackage */ Optional.empty(),
             /* rName */ Optional.empty(),
             /* useOldStyleableFormat */ false,
@@ -966,7 +966,7 @@ public class MergeAndroidResourcesStepTest {
             true,
             rtypes,
             duplicateWhitelistPath,
-            Optional.empty(),
+            /* overrideSymbolsPath */ ImmutableList.of(),
             Optional.empty(),
             Optional.empty(),
             /* useOldStyleableFormat */ false,

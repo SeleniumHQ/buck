@@ -792,6 +792,57 @@ class BuckTest(unittest.TestCase):
             )
             self.assertEqual(rules[0].get("name"), "foo")
 
+    def test_can_use_provider_to_create_typed_struct(self):
+        extension_file = ProjectFile(
+            self.project_root,
+            path="ext.bzl",
+            contents=("Info = provider('name')", 'info = Info(name="foo")'),
+        )
+        build_file = ProjectFile(
+            self.project_root,
+            path="BUCK",
+            contents=(
+                'load("//:ext.bzl", "info")',
+                "foo_rule(",
+                "  name=info.name,",
+                ")",
+            ),
+        )
+        self.write_files(extension_file, build_file)
+        build_file_processor = self.create_build_file_processor(extra_funcs=[foo_rule])
+        diagnostics = []
+        with build_file_processor.with_builtins(__builtin__.__dict__):
+            rules = build_file_processor.process(
+                build_file.root, build_file.prefix, build_file.path, diagnostics
+            )
+            self.assertEqual(rules[0].get("name"), "foo")
+
+    def test_typed_struct_fails_on_invalid_fields(self):
+        extension_file = ProjectFile(
+            self.project_root,
+            path="ext.bzl",
+            contents=("Info = provider(fields=['foo'])", 'info = Info(name="foo")'),
+        )
+        build_file = ProjectFile(
+            self.project_root,
+            path="BUCK",
+            contents=(
+                'load("//:ext.bzl", "info")',
+                "foo_rule(",
+                "  name=info.name,",
+                ")",
+            ),
+        )
+        self.write_files(extension_file, build_file)
+        build_file_processor = self.create_build_file_processor(extra_funcs=[foo_rule])
+        with build_file_processor.with_builtins(__builtin__.__dict__):
+            with self.assertRaisesRegexp(
+                TypeError, "got an unexpected keyword argument 'name'"
+            ):
+                rules = build_file_processor.process(
+                    build_file.root, build_file.prefix, build_file.path, []
+                )
+
     def test_native_module_is_available(self):
         extension_file = ProjectFile(
             self.project_root,
@@ -911,6 +962,29 @@ class BuckTest(unittest.TestCase):
                 build_file.root, build_file.prefix, build_file.path, diagnostics
             )
             self.assertEqual(rules[1].get("name"), "True")
+
+    def test_rule_exists_is_not_allowed_at_top_level_of_include(self):
+        package_dir = os.path.join(self.project_root, "pkg")
+        os.makedirs(package_dir)
+        extension_file = ProjectFile(
+            self.project_root,
+            path="ext.bzl",
+            contents=("foo = native.rule_exists('foo')",),
+        )
+        self.write_file(extension_file)
+        build_file = ProjectFile(
+            self.project_root, path="pkg/BUCK", contents='load("//:ext.bzl", "foo")'
+        )
+        self.write_file(build_file)
+        build_file_processor = self.create_build_file_processor(extra_funcs=[foo_rule])
+        with build_file_processor.with_builtins(__builtin__.__dict__):
+            with self.assertRaisesRegexp(
+                AssertionError,
+                "Cannot use `rule_exists\(\)` at the top-level of an included file.",
+            ):
+                build_file_processor.process(
+                    build_file.root, build_file.prefix, build_file.path, []
+                )
 
     def test_package_name_is_available(self):
         package_dir = os.path.join(self.project_root, "pkg")
@@ -1767,42 +1841,6 @@ foo_rule(
         self.assertEqual(
             {u"foo": u"bar", u"baz": u"blech"},
             decoded_result["values"][0].get("options", {}),
-        )
-
-    def test_sort_keys(self):
-        build_file_processor = self.create_build_file_processor(extra_funcs=[foo_rule])
-        fake_stdout = StringIO.StringIO()
-        build_file = ProjectFile(
-            self.project_root,
-            path="BUCK",
-            contents=(
-                """
-foo_rule(
-  name="foo",
-  srcs=[],
-  options={'foo':'bar','baz':'blech'},
-)
-"""
-            ),
-        )
-        self.write_file(build_file)
-        with build_file_processor.with_builtins(__builtin__.__dict__):
-            process_with_diagnostics(
-                {
-                    "buildFile": self.build_file_name,
-                    "watchRoot": "",
-                    "projectPrefix": self.project_root,
-                },
-                build_file_processor,
-                fake_stdout,
-            )
-        result = fake_stdout.getvalue()
-        self.assertEquals(
-            '{"values": [{"buck.base_path": "", "buck.type": "foo", "name": '
-            '"foo", "options": {"baz": "blech", "foo": "bar"}, "srcs": [], '
-            '"visibility": []}, {"__includes": ["BUCK"]}, {"__configs": {}}, '
-            '{"__env": {}}]}',
-            result,
         )
 
     def test_file_parsed_as_build_file_and_include_def(self):

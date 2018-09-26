@@ -43,6 +43,9 @@ import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
+import com.facebook.buck.jvm.java.JavaOptions;
+import com.facebook.buck.jvm.java.JavacFactory;
+import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
@@ -52,6 +55,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.function.Supplier;
 import org.immutables.value.Value;
 
 public class AndroidBinaryDescription
@@ -70,33 +74,34 @@ public class AndroidBinaryDescription
 
   private final JavaBuckConfig javaBuckConfig;
   private final AndroidBuckConfig androidBuckConfig;
+  private final JavacFactory javacFactory;
+  private final Supplier<JavaOptions> javaOptions;
   private final ProGuardConfig proGuardConfig;
   private final CxxBuckConfig cxxBuckConfig;
   private final DxConfig dxConfig;
   private final AndroidInstallConfig androidInstallConfig;
-  private final ApkConfig apkConfig;
   private final ToolchainProvider toolchainProvider;
   private final AndroidBinaryGraphEnhancerFactory androidBinaryGraphEnhancerFactory;
   private final AndroidBinaryFactory androidBinaryFactory;
 
   public AndroidBinaryDescription(
       JavaBuckConfig javaBuckConfig,
-      AndroidBuckConfig androidBuckConfig,
       ProGuardConfig proGuardConfig,
+      AndroidBuckConfig androidBuckConfig,
       BuckConfig buckConfig,
       CxxBuckConfig cxxBuckConfig,
       DxConfig dxConfig,
-      ApkConfig apkConfig,
       ToolchainProvider toolchainProvider,
       AndroidBinaryGraphEnhancerFactory androidBinaryGraphEnhancerFactory,
       AndroidBinaryFactory androidBinaryFactory) {
     this.javaBuckConfig = javaBuckConfig;
+    this.javacFactory = JavacFactory.getDefault(toolchainProvider);
+    this.javaOptions = JavaOptionsProvider.getDefaultJavaOptions(toolchainProvider);
     this.androidBuckConfig = androidBuckConfig;
     this.proGuardConfig = proGuardConfig;
     this.cxxBuckConfig = cxxBuckConfig;
     this.dxConfig = dxConfig;
     this.androidInstallConfig = new AndroidInstallConfig(buckConfig);
-    this.apkConfig = apkConfig;
     this.toolchainProvider = toolchainProvider;
     this.androidBinaryGraphEnhancerFactory = androidBinaryGraphEnhancerFactory;
     this.androidBinaryFactory = androidBinaryFactory;
@@ -164,7 +169,9 @@ public class AndroidBinaryDescription
             exopackageModes,
             rulesToExcludeFromDex,
             args,
-            false);
+            false,
+            javaOptions.get(),
+            javacFactory);
     AndroidBinary androidBinary =
         androidBinaryFactory.create(
             toolchainProvider,
@@ -178,8 +185,8 @@ public class AndroidBinaryDescription
             exopackageModes,
             resourceFilter,
             rulesToExcludeFromDex,
-            apkConfig,
-            args);
+            args,
+            javaOptions.get());
     // The exo installer is always added to the index so that the action graph is the same
     // between build and install calls.
     new AndroidBinaryInstallGraphEnhancer(
@@ -228,6 +235,8 @@ public class AndroidBinaryDescription
       AbstractAndroidBinaryDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
+    javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, null);
+    javaOptions.get().addParseTimeDeps(targetGraphOnlyDepsBuilder);
     if (constructorArg.getRedex()) {
       // If specified, this option may point to either a BuildTarget or a file.
       Optional<BuildTarget> redexTarget = androidBuckConfig.getRedexTarget();

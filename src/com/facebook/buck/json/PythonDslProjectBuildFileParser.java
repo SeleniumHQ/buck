@@ -33,6 +33,7 @@ import com.facebook.buck.parser.events.ParseBuckProfilerReportEvent;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.skylark.io.GlobSpecWithResult;
 import com.facebook.buck.util.InputStreamConsumer;
 import com.facebook.buck.util.MoreSuppliers;
 import com.facebook.buck.util.MoreThrowables;
@@ -78,6 +79,9 @@ import javax.annotation.Nullable;
 public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
 
   private static final String PYTHONPATH_ENV_VAR_NAME = "PYTHONPATH";
+  // https://docs.python.org/3/using/cmdline.html#envvar-PYTHONHASHSEED
+  private static final String PYTHON_HASH_SEED_ENV_VAR_NAME = "PYTHONHASHSEED";
+  private static final String PYTHON_HASH_SEED_VALUE = "7";
 
   private static final Logger LOG = Logger.get(PythonDslProjectBuildFileParser.class);
 
@@ -88,7 +92,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
   private Supplier<Path> ignorePathsJson;
 
   @Nullable private ProcessExecutor.LaunchedProcess buckPyProcess;
-  @Nullable private CountingInputStream buckPyProcessInput;
+  @Nullable private ParserInputStream buckPyProcessInput;
   @Nullable private JsonGenerator buckPyProcessJsonGenerator;
   @Nullable private JsonParser buckPyProcessJsonParser;
 
@@ -97,6 +101,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
   private final BuckEventBus buckEventBus;
   private final ProcessExecutor processExecutor;
   private final AssertScopeExclusiveAccess assertSingleThreadedParsing;
+  private final Optional<AtomicLong> processedBytes;
 
   private boolean isInitialized;
   private boolean isClosed;
@@ -111,7 +116,9 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
       TypeCoercerFactory typeCoercerFactory,
       ImmutableMap<String, String> environment,
       BuckEventBus buckEventBus,
-      ProcessExecutor processExecutor) {
+      ProcessExecutor processExecutor,
+      Optional<AtomicLong> processedBytes) {
+    this.processedBytes = processedBytes;
     this.buckPythonProgram = null;
     this.options = options;
     this.typeCoercerFactory = typeCoercerFactory;
@@ -186,13 +193,20 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
     try (SimplePerfEvent.Scope scope =
         SimplePerfEvent.scope(buckEventBus, PerfEventId.of("ParserInit"))) {
 
-      ImmutableMap.Builder<String, String> pythonEnvironmentBuilder = ImmutableMap.builder();
+      ImmutableMap.Builder<String, String> pythonEnvironmentBuilder =
+          ImmutableMap.builderWithExpectedSize(environment.size());
       // Strip out PYTHONPATH. buck.py manually sets this to include only nailgun. We don't want
       // to inject nailgun into the parser's PYTHONPATH, so strip that value out.
       // If we wanted to pass on some environmental PYTHONPATH, we would have to do some actual
       // merging of this and the BuckConfig's python module search path.
+      // Also ignore PYTHONHASHSEED environment variable passed by clients since Buck manages it to
+      // prevent non-determinism.
       pythonEnvironmentBuilder.putAll(
-          Maps.filterKeys(environment, k -> !PYTHONPATH_ENV_VAR_NAME.equals(k)));
+          Maps.filterKeys(
+              environment,
+              k -> !PYTHONPATH_ENV_VAR_NAME.equals(k) && !PYTHON_HASH_SEED_ENV_VAR_NAME.equals(k)));
+      // set Python hash seed to a fixed number to make parsing reproducible
+      pythonEnvironmentBuilder.put(PYTHON_HASH_SEED_ENV_VAR_NAME, PYTHON_HASH_SEED_VALUE);
 
       if (options.getPythonModuleSearchPath().isPresent()) {
         pythonEnvironmentBuilder.put(
@@ -212,7 +226,10 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
           params.getCommand(), params.getEnvironment());
       buckPyProcess = processExecutor.launchProcess(params);
       LOG.debug("Started process %s successfully", buckPyProcess);
-      buckPyProcessInput = new CountingInputStream(buckPyProcess.getInputStream());
+      buckPyProcessInput =
+          createParserInputStream(
+              Preconditions.checkNotNull(buckPyProcess).getInputStream(),
+              processedBytes.isPresent());
       buckPyProcessJsonGenerator = ObjectMappers.createGenerator(buckPyProcess.getOutputStream());
       // We have to wait to create the JsonParser until after we write our
       // first request, because Jackson "helpfully" synchronously reads
@@ -347,10 +364,10 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
    * @param buildFile should be an absolute path to a build file. Must have rootPath as its prefix.
    */
   @Override
-  public BuildFileManifest getBuildFileManifest(Path buildFile, AtomicLong processedBytes)
+  public BuildFileManifest getBuildFileManifest(Path buildFile)
       throws BuildFileParseException, InterruptedException {
     try {
-      return getAllRulesInternal(buildFile, processedBytes);
+      return getAllRulesInternal(buildFile);
     } catch (IOException e) {
       LOG.warn(e, "Error getting all rules for %s", buildFile);
       MoreThrowables.propagateIfInterrupt(e);
@@ -359,7 +376,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
   }
 
   @VisibleForTesting
-  protected BuildFileManifest getAllRulesInternal(Path buildFile, AtomicLong processedBytes)
+  protected BuildFileManifest getAllRulesInternal(Path buildFile)
       throws IOException, BuildFileParseException {
     ensureNotClosed();
     initIfNeeded();
@@ -411,12 +428,12 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
             ImmutableSortedSet.of(),
             ImmutableMap.of(),
             Optional.empty(),
-            ImmutableMap.of());
+            ImmutableList.of());
       }
       return toBuildFileManifest(values);
     } finally {
       long parsedBytes = buckPyProcessInput.getCount() - alreadyReadBytes;
-      processedBytes.addAndGet(parsedBytes);
+      processedBytes.ifPresent(processedBytes -> processedBytes.addAndGet(parsedBytes));
       buckEventBus.post(
           ParseBuckFileEvent.finished(parseBuckFileStarted, values, parsedBytes, profile));
     }
@@ -437,7 +454,7 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
                     Preconditions.checkNotNull(
                         (Map<String, String>) values.get(values.size() - 1).get("__env")),
                     Optional::ofNullable))),
-        ImmutableMap.of());
+        ImmutableList.of());
   }
 
   private BuildFilePythonResult performJsonRequest(ImmutableMap<String, String> request)
@@ -475,8 +492,9 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
       // Since buck.py doesn't write any data until after it receives
       // a query, creating the JsonParser any earlier than this would
       // hang indefinitely.
-      Preconditions.checkNotNull(buckPyProcessInput);
-      buckPyProcessJsonParser = ObjectMappers.createParser(buckPyProcessInput);
+      buckPyProcessJsonParser =
+          ObjectMappers.createParser(
+              Preconditions.checkNotNull(buckPyProcessInput).getInputStream());
     }
     LOG.verbose("Parsing output of process %s...", buckPyProcess);
     BuildFilePythonResult resultObject;
@@ -696,6 +714,19 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
   }
 
   @Override
+  public ImmutableList<String> getIncludedFiles(Path buildFile)
+      throws BuildFileParseException, InterruptedException {
+    return getBuildFileManifest(buildFile).getIncludes();
+  }
+
+  @Override
+  public boolean globResultsMatchCurrentState(
+      Path buildFile, ImmutableList<GlobSpecWithResult> existingGlobsWithResults)
+      throws IOException, InterruptedException {
+    throw new UnsupportedOperationException("Not yet implemented!");
+  }
+
+  @Override
   @SuppressWarnings("PMD.EmptyCatchBlock")
   public void close() throws BuildFileParseException, InterruptedException, IOException {
     if (isClosed) {
@@ -780,5 +811,57 @@ public class PythonDslProjectBuildFileParser implements ProjectBuildFileParser {
               typeCoercerFactory, descriptions, !options.getEnableProfiling());
     }
     return buckPythonProgram.getExecutablePath();
+  }
+
+  private static ParserInputStream createParserInputStream(
+      InputStream inputStream, boolean withCounting) {
+    return withCounting
+        ? new CountingParserInputStream(inputStream)
+        : new NonCountingParserInputStream(inputStream);
+  }
+
+  /** Encapsulates {@link InputStream} to use {@link CountingInputStream} when needed. */
+  private abstract static class ParserInputStream {
+    private final InputStream inputStream;
+
+    private ParserInputStream(InputStream inputStream) {
+      this.inputStream = inputStream;
+    }
+
+    public abstract long getCount();
+
+    public InputStream getInputStream() {
+      return inputStream;
+    }
+  }
+
+  private static class CountingParserInputStream extends ParserInputStream {
+    private final CountingInputStream countingInputStream;
+
+    private CountingParserInputStream(InputStream inputStream) {
+      this(new CountingInputStream(inputStream));
+    }
+
+    private CountingParserInputStream(CountingInputStream inputStream) {
+      super(inputStream);
+      this.countingInputStream = inputStream;
+    }
+
+    @Override
+    public long getCount() {
+      return countingInputStream.getCount();
+    }
+  }
+
+  private static class NonCountingParserInputStream extends ParserInputStream {
+
+    private NonCountingParserInputStream(InputStream inputStream) {
+      super(inputStream);
+    }
+
+    @Override
+    public long getCount() {
+      return 0;
+    }
   }
 }

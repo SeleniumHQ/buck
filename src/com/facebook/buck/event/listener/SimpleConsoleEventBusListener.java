@@ -36,6 +36,7 @@ import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.ActionGraphEvent;
 import com.facebook.buck.event.BuckEvent;
+import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
 import com.facebook.buck.parser.ParseEvent;
@@ -75,6 +76,8 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
   private static final long LONG_RUNNING_TASK_HEARTBEAT = TimeUnit.SECONDS.toMillis(15);
 
   private final Locale locale;
+  private final BuildId buildId;
+  private final Optional<String> buildDetailsTemplate;
   private final AtomicLong parseTime;
   private final TestResultFormatter testFormatter;
   private final ImmutableList.Builder<TestStatusMessage> testStatusMessageBuilder =
@@ -98,7 +101,9 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
       Locale locale,
       Path testLogPath,
       ExecutionEnvironment executionEnvironment,
-      Optional<BuildId> buildId) {
+      BuildId buildId,
+      boolean printBuildId,
+      Optional<String> buildDetailsTemplate) {
     super(
         console,
         clock,
@@ -108,6 +113,8 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
         numberOfSlowRulesToShow,
         showSlowRulesInConsole);
     this.locale = locale;
+    this.buildId = buildId;
+    this.buildDetailsTemplate = buildDetailsTemplate;
     this.parseTime = new AtomicLong(0);
     this.hideSucceededRules = hideSucceededRules;
 
@@ -121,14 +128,14 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
 
     this.distBuildSlaveTracker = new LinkedHashMap<>();
 
+    if (printBuildId) {
+      printLines(ImmutableList.of(getBuildLogLine(buildId)));
+    }
+
     this.renderScheduler =
         Executors.newScheduledThreadPool(
             1,
             new ThreadFactoryBuilder().setNameFormat(getClass().getSimpleName() + "-%d").build());
-
-    if (buildId.isPresent()) {
-      printLines(ImmutableList.<String>builder().add(getBuildLogLine(buildId.get())));
-    }
   }
 
   public static String getBuildLogLine(BuildId buildId) {
@@ -228,6 +235,14 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
     lines.add(finished.getExitCode() == ExitCode.SUCCESS ? "BUILD SUCCEEDED" : "BUILD FAILED");
 
     printLines(lines);
+  }
+
+  @Override
+  @Subscribe
+  public void commandFinished(CommandEvent.Finished event) {
+    if (buildDetailsTemplate.isPresent() && buildDetailsCommands.contains(event.getCommandName())) {
+      printLines(ImmutableList.of(getBuildDetailsLine(buildId, buildDetailsTemplate.get())));
+    }
   }
 
   @Override
@@ -468,14 +483,17 @@ public class SimpleConsoleEventBusListener extends AbstractConsoleEventBusListen
   }
 
   private void printLines(ImmutableList.Builder<String> lines) {
+    printLines(lines.build());
+  }
+
+  private void printLines(ImmutableList<String> lines) {
     // Print through the {@code DirtyPrintStreamDecorator} so printing from the simple console
     // is considered to dirty stderr and stdout and so it gets synchronized to avoid interlacing
     // output.
-    ImmutableList<String> stringList = lines.build();
-    if (stringList.size() == 0) {
+    if (lines.size() == 0) {
       return;
     }
-    console.getStdErr().println(String.join(System.lineSeparator(), stringList));
+    console.getStdErr().println(String.join(System.lineSeparator(), lines));
   }
 
   public void startRenderScheduler(long renderInterval, TimeUnit timeUnit) {

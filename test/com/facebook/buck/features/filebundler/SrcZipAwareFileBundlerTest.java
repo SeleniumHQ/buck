@@ -28,11 +28,12 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.modern.DefaultBuildCellRelativePathFactory;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
+import com.facebook.buck.util.PatternsMatcher;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.File;
@@ -67,7 +68,7 @@ public class SrcZipAwareFileBundlerTest {
     Files.createFile(subDirectoryFile2);
     Files.createFile(subDirectoryFile3);
 
-    SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(basePath);
+    SrcZipAwareFileBundler bundler = new SrcZipAwareFileBundler(basePath, PatternsMatcher.EMPTY);
     DefaultSourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
     bundler.copy(

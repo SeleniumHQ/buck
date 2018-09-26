@@ -29,11 +29,11 @@ import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.BuildRule;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.rules.pipeline.RulePipelineState;
 import com.facebook.buck.core.rules.pipeline.RulePipelineStateFactory;
 import com.facebook.buck.core.rules.pipeline.SupportsPipelining;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.step.Step;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -349,7 +349,7 @@ public class BuildRulePipelinesRunnerTest {
         List<BuildRule> rules = new ArrayList<>(previousDeps.size() + 1);
         rules.addAll(previousDeps);
         rules.add(previous);
-        return rules.stream().toArray(BuildRule[]::new);
+        return rules.toArray(new BuildRule[0]);
       }
     }
 

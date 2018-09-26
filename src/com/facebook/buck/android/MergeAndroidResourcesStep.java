@@ -78,7 +78,7 @@ public class MergeAndroidResourcesStep implements Step {
   private final Optional<String> unionPackage;
   private final String rName;
   private final boolean useOldStyleableFormat;
-  private final Optional<Path> overrideSymbolsPath;
+  private final ImmutableList<Path> overrideSymbolsPath;
   private final boolean skipNonUnionRDotJava;
 
   /**
@@ -97,7 +97,7 @@ public class MergeAndroidResourcesStep implements Step {
       boolean forceFinalResourceIds,
       EnumSet<RType> bannedDuplicateResourceTypes,
       Optional<Path> duplicateResourceWhitelistPath,
-      Optional<Path> overrideSymbolsPath,
+      ImmutableList<Path> overrideSymbolsPath,
       Optional<String> unionPackage,
       Optional<String> rName,
       boolean useOldStyleableFormat,
@@ -136,7 +136,7 @@ public class MergeAndroidResourcesStep implements Step {
         forceFinalResourceIds,
         /* bannedDuplicateResourceTypes */ EnumSet.noneOf(RType.class),
         Optional.empty(),
-        Optional.empty(),
+        ImmutableList.of(),
         unionPackage,
         rName,
         useOldStyleableFormat,
@@ -151,7 +151,7 @@ public class MergeAndroidResourcesStep implements Step {
       Path outputDir,
       EnumSet<RType> bannedDuplicateResourceTypes,
       Optional<Path> duplicateResourceWhitelistPath,
-      Optional<Path> overrideSymbolsPath,
+      ImmutableList<Path> overrideSymbolsPath,
       Optional<String> unionPackage) {
     return new MergeAndroidResourcesStep(
         filesystem,
@@ -215,28 +215,26 @@ public class MergeAndroidResourcesStep implements Step {
         uberRDotTxtIds = Optional.empty();
       } else {
         // re-assign Ids
+        ImmutableSet.Builder<RDotTxtEntry> uberRdotTxtEntries = ImmutableSet.builder();
+        uberRDotTxt.forEach(
+            rDot -> {
+              try {
+                RDotTxtEntry.readResources(filesystem, rDot).forEach(uberRdotTxtEntries::add);
+              } catch (IOException e) {
+                throw new RuntimeException(e);
+              }
+            });
         uberRDotTxtIds =
             Optional.of(
-                FluentIterable.from(uberRDotTxt)
+                uberRdotTxtEntries
+                    .build()
                     .stream()
-                    .flatMap(
-                        rDot -> {
-                          try {
-                            return RDotTxtEntry.readResources(filesystem, rDot).stream();
-                          } catch (IOException e) {
-                            throw new RuntimeException(e);
-                          }
-                        })
-                    .distinct()
-                    .collect(ImmutableMap.toImmutableMap(input -> input, b -> b.idValue)));
+                    .collect(ImmutableMap.toImmutableMap(input -> input, input -> input.idValue)));
       }
-
       ImmutableMap<Path, String> symbolsFileToRDotJavaPackage = rDotTxtToPackage.build();
 
       Optional<SetMultimap<String, RDotTxtEntry>> overrideSymbols =
-          overrideSymbolsPath.isPresent()
-              ? loadOverrideSymbols(overrideSymbolsPath.get())
-              : Optional.empty();
+          loadOverrideSymbols(overrideSymbolsPath);
 
       ImmutableSet<String> duplciateResourceWhitelist =
           (duplicateResourceWhitelistPath.isPresent())
@@ -299,20 +297,22 @@ public class MergeAndroidResourcesStep implements Step {
     }
   }
 
-  private Optional<SetMultimap<String, RDotTxtEntry>> loadOverrideSymbols(Path path)
+  private Optional<SetMultimap<String, RDotTxtEntry>> loadOverrideSymbols(Iterable<Path> paths)
       throws IOException {
-    if (!Files.isRegularFile(path)) {
-      LOG.info("Override-symbols file %s is not present or not regular.  Skipping.", path);
-      return Optional.empty();
-    }
     ImmutableSetMultimap.Builder<String, RDotTxtEntry> symbolsBuilder =
         ImmutableSetMultimap.builder();
-    JsonNode jsonData = ObjectMappers.READER.readTree(ObjectMappers.createParser(path));
-    for (String packageName : (Iterable<String>) jsonData::fieldNames) {
-      Iterator<JsonNode> rDotTxtLines = jsonData.get(packageName).elements();
-      while (rDotTxtLines.hasNext()) {
-        String rDotTxtLine = rDotTxtLines.next().asText();
-        symbolsBuilder.put(packageName, parseEntryOrThrow(rDotTxtLine));
+    for (Path path : paths) {
+      if (!Files.isRegularFile(path)) {
+        LOG.info("Override-symbols file %s is not present or not regular.  Skipping.", path);
+        continue;
+      }
+      JsonNode jsonData = ObjectMappers.READER.readTree(ObjectMappers.createParser(path));
+      for (String packageName : (Iterable<String>) jsonData::fieldNames) {
+        Iterator<JsonNode> rDotTxtLines = jsonData.get(packageName).elements();
+        while (rDotTxtLines.hasNext()) {
+          String rDotTxtLine = rDotTxtLines.next().asText();
+          symbolsBuilder.put(packageName, parseEntryOrThrow(rDotTxtLine));
+        }
       }
     }
     return Optional.of(symbolsBuilder.build());

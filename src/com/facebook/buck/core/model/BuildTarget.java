@@ -55,11 +55,19 @@ public interface BuildTarget extends Comparable<BuildTarget> {
 
   boolean isFlavored();
 
-  UnflavoredBuildTarget checkUnflavored();
+  /**
+   * Verifies that this build target has no flavors.
+   *
+   * @return this build target
+   * @throws IllegalStateException if a build target has flavors
+   */
+  BuildTarget assertUnflavored();
 
   BuildTarget withoutFlavors(Set<Flavor> flavors);
 
   BuildTarget withoutFlavors(Flavor... flavors);
+
+  BuildTarget withoutFlavors();
 
   BuildTarget withFlavors(Flavor... flavors);
 

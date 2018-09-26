@@ -116,13 +116,14 @@ public class BuckQueryEnvironmentTest {
             parser.getPermState(),
             executor,
             cell,
+            ImmutableList.of(),
             /* enableProfiling */ false,
             SpeculativeParsing.ENABLED);
 
     TargetPatternEvaluator targetPatternEvaluator =
         new TargetPatternEvaluator(
             cell, FakeBuckConfig.builder().build(), parser, /* enableProfiling */ false);
-    OwnersReport.Builder ownersReportBuilder = OwnersReport.builder(cell, parser);
+    OwnersReport.Builder ownersReportBuilder = OwnersReport.builder(cell, parser, parserState);
     executor = MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor());
     buckQueryEnvironment =
         BuckQueryEnvironment.from(

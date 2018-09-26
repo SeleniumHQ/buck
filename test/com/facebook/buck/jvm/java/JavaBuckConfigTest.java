@@ -17,7 +17,6 @@
 package com.facebook.buck.jvm.java;
 
 import static com.facebook.buck.jvm.java.JavacOptions.TARGETED_JAVA_VERSION;
-import static org.easymock.EasyMock.createMock;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.hasEntry;
 import static org.hamcrest.Matchers.hasKey;
@@ -33,9 +32,16 @@ import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.BuckConfigTestUtils;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
+import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.AbstractSourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
@@ -59,8 +65,9 @@ import org.junit.Test;
 
 public class JavaBuckConfigTest {
 
+  public static final BuildRuleResolver RULE_RESOLVER = new TestActionGraphBuilder();
   private static final SourcePathResolver PATH_RESOLVER =
-      DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
+      DefaultSourcePathResolver.from(new SourcePathRuleFinder(RULE_RESOLVER));
 
   @Rule public TemporaryPaths temporaryFolder = new TemporaryPaths();
   private ProjectFilesystem defaultFilesystem;
@@ -76,12 +83,12 @@ public class JavaBuckConfigTest {
     JavaOptions javaOptions = config.getDefaultJavaOptions();
     assertEquals(
         ImmutableList.of("java"),
-        javaOptions.getJavaRuntimeLauncher().getCommandPrefix(PATH_RESOLVER));
+        javaOptions.getJavaRuntimeLauncher(RULE_RESOLVER).getCommandPrefix(PATH_RESOLVER));
 
     JavaOptions javaForTestsOptions = config.getDefaultJavaOptionsForTests();
     assertEquals(
         ImmutableList.of("java"),
-        javaForTestsOptions.getJavaRuntimeLauncher().getCommandPrefix(PATH_RESOLVER));
+        javaForTestsOptions.getJavaRuntimeLauncher(RULE_RESOLVER).getCommandPrefix(PATH_RESOLVER));
   }
 
   @Test
@@ -105,12 +112,12 @@ public class JavaBuckConfigTest {
     JavaOptions javaOptions = config.getDefaultJavaOptions();
     assertEquals(
         ImmutableList.of(javaCommand),
-        javaOptions.getJavaRuntimeLauncher().getCommandPrefix(PATH_RESOLVER));
+        javaOptions.getJavaRuntimeLauncher(RULE_RESOLVER).getCommandPrefix(PATH_RESOLVER));
 
     JavaOptions javaForTestsOptions = config.getDefaultJavaOptionsForTests();
     assertEquals(
         ImmutableList.of(javaForTestsCommand),
-        javaForTestsOptions.getJavaRuntimeLauncher().getCommandPrefix(PATH_RESOLVER));
+        javaForTestsOptions.getJavaRuntimeLauncher(RULE_RESOLVER).getCommandPrefix(PATH_RESOLVER));
   }
 
   @Test
@@ -127,7 +134,7 @@ public class JavaBuckConfigTest {
     JavaOptions options = config.getDefaultJavaOptions();
     assertEquals(
         ImmutableList.of(java.toString()),
-        options.getJavaRuntimeLauncher().getCommandPrefix(PATH_RESOLVER));
+        options.getJavaRuntimeLauncher(RULE_RESOLVER).getCommandPrefix(PATH_RESOLVER));
   }
 
   @Test
@@ -144,7 +151,7 @@ public class JavaBuckConfigTest {
     JavaOptions options = config.getDefaultJavaOptionsForTests();
     assertEquals(
         ImmutableList.of(javaCommand),
-        options.getJavaRuntimeLauncher().getCommandPrefix(PATH_RESOLVER));
+        options.getJavaRuntimeLauncher(RULE_RESOLVER).getCommandPrefix(PATH_RESOLVER));
   }
 
   @Test
@@ -164,6 +171,16 @@ public class JavaBuckConfigTest {
     JavaBuckConfig config = createWithDefaultFilesystem(reader);
 
     assertEquals(config.getDelegate().getPathSourcePath(javac), config.getJavacPath().get());
+  }
+
+  @Test
+  public void whenJavacIsABuildTargetThenCorrectPathIsReturned() throws IOException {
+    BuildTarget javacTarget = BuildTargetFactory.newInstance(defaultFilesystem, "//:javac");
+    Reader reader =
+        new StringReader(
+            Joiner.on('\n').join("[tools]", "    javac = " + javacTarget.getFullyQualifiedName()));
+    JavaBuckConfig config = createWithDefaultFilesystem(reader);
+    assertEquals(DefaultBuildTargetSourcePath.of(javacTarget), config.getJavacPath().get());
   }
 
   @Test
@@ -194,7 +211,10 @@ public class JavaBuckConfigTest {
     Reader reader = new StringReader(Joiner.on('\n').join("[tools]", "    javac = " + javac));
     JavaBuckConfig config = createWithDefaultFilesystem(reader);
     try {
-      config.getJavacPath();
+      config
+          .getJavacSpec()
+          .getJavacProvider()
+          .resolve(new SourcePathRuleFinder(new TestActionGraphBuilder()));
       fail("Should throw exception as javac file is not executable.");
     } catch (HumanReadableException e) {
       assertEquals(e.getHumanReadableErrorMessage(), "javac is not executable: " + javac);
@@ -378,7 +398,26 @@ public class JavaBuckConfigTest {
   private OptionAccumulator visitOptions(JavacOptions options) {
     OptionAccumulator optionsConsumer = new OptionAccumulator();
     options.appendOptionsTo(
-        optionsConsumer, createMock(SourcePathResolver.class), defaultFilesystem);
+        optionsConsumer,
+        new AbstractSourcePathResolver() {
+          @Override
+          protected SourcePath resolveDefaultBuildTargetSourcePath(
+              DefaultBuildTargetSourcePath targetSourcePath) {
+            throw new UnsupportedOperationException();
+          }
+
+          @Override
+          public String getSourcePathName(BuildTarget target, SourcePath sourcePath) {
+            throw new UnsupportedOperationException();
+          }
+
+          @Override
+          protected ProjectFilesystem getBuildTargetSourcePathFilesystem(
+              BuildTargetSourcePath sourcePath) {
+            throw new UnsupportedOperationException();
+          }
+        },
+        defaultFilesystem);
     return optionsConsumer;
   }
 

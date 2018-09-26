@@ -24,7 +24,7 @@ import com.facebook.buck.core.model.BuildFileTree;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.impl.InMemoryBuildFileTree;
 import com.facebook.buck.io.file.MorePaths;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -115,8 +115,8 @@ public class ThrowingPackageBoundaryCheckerTest {
     thrown.expectMessage(
         "Target '//a/b:c' refers to file '"
             + MorePaths.pathWithPlatformSeparators("a/b/Test.java")
-            + "', which doesn't belong to any package");
-
+            + "', which doesn't belong to any package. "
+            + "More info at:\nhttps://buckbuild.com/about/overview.html\n");
     boundaryChecker.enforceBuckPackageBoundaries(
         new TestCellBuilder().build(),
         BuildTargetFactory.newInstance("//a/b:c"),
@@ -153,14 +153,14 @@ public class ThrowingPackageBoundaryCheckerTest {
             + "' can only be referenced from '"
             + dPath
             + "' \nwhich is its closest parent 'BUCK' file.\n\n"
-            + "You should find or create the rule in '"
+            + "You should find or create a rule in '"
             + dPath
             + "' that references\n'"
             + testPath
             + "' and use that in '//a/b:c'\ninstead of directly referencing '"
             + testPath
-            + "'.\n\nThis may also be due to a bug in buckd's caching.\n"
-            + "Please check whether using `buck kill` will resolve it.");
+            + "'.\n\nThis issue might also be caused by a bug in buckd's caching.\n"
+            + "Please check whether using `buck kill` resolves it.");
 
     boundaryChecker.enforceBuckPackageBoundaries(
         new TestCellBuilder().build(),

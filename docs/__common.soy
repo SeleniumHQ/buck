@@ -406,6 +406,18 @@ docsearch({
 {/if}
 {/template}
 
+/**
+ * @param? rendered_text  Optionally, specify the rendered text for the
+ *                        link. If not specified, the rendered text is 
+ *                        "Key Concepts".
+ */
+{template .key_concepts_link}
+  {if $rendered_text}
+    <a href="{ROOT}about/overview.html">{$rendered_text}</a>
+  {else}
+    <a href="{ROOT}about/overview.html">Key Concepts</a>
+  {/if}
+{/template}
 
 /**
  * @param name
@@ -739,6 +751,11 @@ docsearch({
 <a href="{ROOT}setup/intellij_plugin_build.html">Building the Buck Intellij Plugin</a>
 {/template}
 
+/***/
+{template .buckd}
+<a href="{ROOT}concept/buckd.html"><code>buckd</code></a>
+{/template}
+
 /**
  * @param name
  * @param? section
@@ -768,11 +785,6 @@ docsearch({
 /***/
 {template .cmd_clean}
 {call .cmd_link}{param name : 'clean' /}{/call}
-{/template}
-
-/***/
-{template .cmd_buckd}
-<a href="{ROOT}command/buckd.html"><code>buckd</code></a>
 {/template}
 
 /***/
@@ -821,8 +833,8 @@ docsearch({
 {/template}
 
 /***/
-{template .concept_buckconfig}
-<a href="{ROOT}concept/buckconfig.html"><code>.buckconfig</code></a>
+{template .buckconfig_link}
+<a href="{ROOT}files-and-dirs/buckconfig.html"><code>.buckconfig</code></a>
 {/template}
 
 /***/

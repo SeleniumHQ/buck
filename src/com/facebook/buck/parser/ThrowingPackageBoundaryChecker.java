@@ -59,7 +59,8 @@ public class ThrowingPackageBoundaryChecker implements PackageBoundaryChecker {
       if (!ancestor.isPresent()) {
         throw new IllegalStateException(
             String.format(
-                "Target '%s' refers to file '%s', which doesn't belong to any package",
+                "Target '%s' refers to file '%s', which doesn't belong to any package. "
+                    + "More info at:\nhttps://buckbuild.com/about/overview.html\n",
                 target, path));
       }
       if (!ancestor.get().equals(basePath)) {
@@ -72,12 +73,12 @@ public class ThrowingPackageBoundaryChecker implements PackageBoundaryChecker {
                 + "This is not allowed because '%2$s' can only be referenced from '%3$s' \n"
                 + "which is its closest parent '%4$s' file.\n"
                 + "\n"
-                + "You should find or create the rule in '%3$s' that references\n"
+                + "You should find or create a rule in '%3$s' that references\n"
                 + "'%2$s' and use that in '%1$s'\n"
                 + "instead of directly referencing '%2$s'.\n"
                 + "\n"
-                + "This may also be due to a bug in buckd's caching.\n"
-                + "Please check whether using `buck kill` will resolve it.",
+                + "This issue might also be caused by a bug in buckd's caching.\n"
+                + "Please check whether using `buck kill` resolves it.",
             target, path, buckFile, buildFileName);
       }
     }

@@ -17,7 +17,6 @@
 package com.facebook.buck.jvm.kotlin;
 
 import static com.facebook.buck.jvm.java.Javac.SRC_ZIP;
-import static javax.xml.bind.DatatypeConverter.printBase64Binary;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
@@ -26,7 +25,6 @@ import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
-import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.AnnotationProcessingParams;
@@ -37,7 +35,6 @@ import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacPluginJsr199Fields;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
-import com.facebook.buck.jvm.java.ResolvedJavacPluginProperties;
 import com.facebook.buck.jvm.kotlin.KotlinLibraryDescription.AnnotationProcessingTool;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
@@ -55,6 +52,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -67,6 +65,8 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
   @AddToRuleKey private final ImmutableList<String> extraKotlincArguments;
   @AddToRuleKey private final AnnotationProcessingTool annotationProcessingTool;
   @AddToRuleKey private final ExtraClasspathProvider extraClassPath;
+  @AddToRuleKey private final Javac javac;
+  @AddToRuleKey private final JavacOptions javacOptions;
 
   private static final String COMPILER_BUILTINS = "-Xadd-compiler-builtins";
   private static final String LOAD_BUILTINS_FROM = "-Xload-builtins-from-dependencies";
@@ -93,8 +93,6 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
   private static final String VERBOSE = "-verbose";
 
   private final ImmutableSortedSet<Path> kotlinHomeLibraries;
-  private final Javac javac;
-  private final JavacOptions javacOptions;
 
   KotlincToJarStepFactory(
       Kotlinc kotlinc,
@@ -307,9 +305,12 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
         ImmutableList.copyOf(
             javacOptions
                 .getAnnotationProcessingParams()
-                .getAnnotationProcessors(filesystem, resolver)
+                .getModernProcessors()
                 .stream()
-                .map(ResolvedJavacPluginProperties::getJavacPluginJsr199Fields)
+                .map(
+                    resolvedJavacPluginProperties ->
+                        resolvedJavacPluginProperties.getJavacPluginJsr199Fields(
+                            resolver, filesystem))
                 .map(JavacPluginJsr199Fields::getClasspath)
                 .flatMap(List::stream)
                 .map(url -> AP_CLASSPATH_ARG + url.getFile())
@@ -398,11 +399,6 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
     return javacOptions.withBootclasspathFromContext(extraClassPath).getBootclasspath();
   }
 
-  @Override
-  public Tool getCompiler() {
-    return kotlinc;
-  }
-
   private void addCreateFolderStep(
       ImmutableList.Builder<Step> steps,
       ProjectFilesystem filesystem,
@@ -425,7 +421,7 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
       }
 
       oos.flush();
-      return printBase64Binary(os.toByteArray());
+      return Base64.getEncoder().encodeToString(os.toByteArray());
     } catch (IOException e) {
       throw new RuntimeException(e);
     }

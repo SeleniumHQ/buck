@@ -94,6 +94,10 @@ public class IjProjectBuckConfig {
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "java_module_sdk_name"))
         .setJavaModuleSdkType(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "java_module_sdk_type"))
+        .setPythonModuleSdkName(
+            buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "python_module_sdk_name"))
+        .setPythonModuleSdkType(
+            buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "python_module_sdk_type"))
         .setProjectLanguageLevel(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "language_level"))
         .setExcludedResourcePaths(excludedResourcePaths)
@@ -128,6 +132,9 @@ public class IjProjectBuckConfig {
         .setGeneratingAndroidManifestEnabled(
             buckConfig.getBooleanValue(
                 INTELLIJ_BUCK_CONFIG_SECTION, "generate_android_manifest", false))
+        .setGeneratingTargetModuleMapEnabled(
+            buckConfig.getBooleanValue(
+                INTELLIJ_BUCK_CONFIG_SECTION, "generate_target_module_map", false))
         .setOutputUrl(
             buckConfig.getValue(INTELLIJ_BUCK_CONFIG_SECTION, "project_compiler_output_url"))
         .setExtraCompilerOutputModulesPath(

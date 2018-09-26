@@ -34,19 +34,20 @@ import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.TestParserFactory;
+import com.facebook.buck.parser.TestPerBuildStateFactory;
 import com.facebook.buck.parser.exceptions.NoSuchBuildTargetException;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
-import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.function.Function;
@@ -255,12 +256,13 @@ public class OwnersReportTest {
     String input = "java/some_file";
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
+    Parser parser = TestParserFactory.create(cell.getBuckConfig());
     OwnersReport report =
-        OwnersReport.builder(cell, TestParserFactory.create(cell.getBuckConfig()))
-            .build(
-                getBuildFileTrees(cell),
-                MoreExecutors.newDirectExecutorService(),
-                ImmutableSet.of(input));
+        OwnersReport.builder(
+                cell,
+                TestParserFactory.create(cell.getBuckConfig()),
+                TestPerBuildStateFactory.create(parser, cell))
+            .build(getBuildFileTrees(cell), ImmutableSet.of(input));
 
     assertEquals(1, report.nonExistentInputs.size());
     assertTrue(report.nonExistentInputs.contains(input));

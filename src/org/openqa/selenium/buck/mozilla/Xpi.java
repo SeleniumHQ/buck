@@ -36,6 +36,7 @@ import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.CopyStep;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.MkdirStep;
+import com.facebook.buck.util.PatternsMatcher;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -108,7 +109,7 @@ public class Xpi extends ModernBuildRule<Xpi> implements Buildable {
             buildContext.getSourcePathResolver().getAbsolutePath(install),
             scratch.resolve("install.rdf")));
 
-    FileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget());
+    FileBundler bundler = new SrcZipAwareFileBundler(getBuildTarget(), PatternsMatcher.EMPTY);
 
     Path contentDir = scratch.resolve("content");
     steps.add(MkdirStep.of(buildCellPathFactory.from(contentDir)));

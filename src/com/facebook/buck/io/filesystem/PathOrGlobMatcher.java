@@ -30,10 +30,10 @@ import java.util.Set;
 public class PathOrGlobMatcher implements com.facebook.buck.io.filesystem.PathMatcher {
 
   @Override
-  public ImmutableList<?> toWatchmanMatchQuery(Path projectRoot, Set<Capability> capabilities) {
+  public ImmutableList<?> toWatchmanMatchQuery(Set<Capability> capabilities) {
     switch (getType()) {
       case PATH:
-        return pathPrefixMatcher.get().toWatchmanMatchQuery(projectRoot, capabilities);
+        return pathPrefixMatcher.get().toWatchmanMatchQuery(capabilities);
       case GLOB:
         String ignoreGlob = getGlob();
         return ImmutableList.of(
@@ -60,19 +60,11 @@ public class PathOrGlobMatcher implements com.facebook.buck.io.filesystem.PathMa
     this.globMatcher = Optional.empty();
   }
 
-  public PathOrGlobMatcher(Path root, String basePath) {
-    this(root.getFileSystem().getPath(basePath));
-  }
-
-  public PathOrGlobMatcher(PathMatcher globMatcher, String globPattern) {
+  public PathOrGlobMatcher(String globPattern) {
     this.type = Type.GLOB;
     this.pathPrefixMatcher = Optional.empty();
-    this.globMatcher = Optional.of(globMatcher);
+    this.globMatcher = Optional.of(FileSystems.getDefault().getPathMatcher("glob:" + globPattern));
     this.globPattern = Optional.of(globPattern);
-  }
-
-  public PathOrGlobMatcher(String globPattern) {
-    this(FileSystems.getDefault().getPathMatcher("glob:" + globPattern), globPattern);
   }
 
   public Type getType() {

@@ -32,12 +32,10 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 
 /** Converts nodes in a raw form (taken from build file parsers) into {@link RawTargetNode}. */
-public class RawTargetNodePipeline
-    extends ConvertingPipelineWithPerfEventScope<Map<String, Object>, RawTargetNode> {
+public class RawTargetNodePipeline extends ConvertingPipeline<Map<String, Object>, RawTargetNode> {
 
   private final RawNodeParsePipeline rawNodeParsePipeline;
   private final RawTargetNodeFactory<Map<String, Object>> rawTargetNodeFactory;
@@ -70,7 +68,6 @@ public class RawTargetNodePipeline
       Cell cell,
       BuildTarget buildTarget,
       Map<String, Object> rawNode,
-      AtomicLong processedBytes,
       Function<PerfEventId, Scope> perfEventScopeFunction)
       throws BuildTargetException {
     return rawTargetNodeFactory.create(
@@ -83,13 +80,13 @@ public class RawTargetNodePipeline
 
   @Override
   protected ListenableFuture<ImmutableSet<Map<String, Object>>> getItemsToConvert(
-      Cell cell, Path buildFile, AtomicLong processedBytes) throws BuildTargetException {
-    return rawNodeParsePipeline.getAllNodesJob(cell, buildFile, processedBytes);
+      Cell cell, Path buildFile) throws BuildTargetException {
+    return rawNodeParsePipeline.getAllNodesJob(cell, buildFile);
   }
 
   @Override
   protected ListenableFuture<Map<String, Object>> getItemToConvert(
-      Cell cell, BuildTarget buildTarget, AtomicLong processedBytes) throws BuildTargetException {
-    return rawNodeParsePipeline.getNodeJob(cell, buildTarget, processedBytes);
+      Cell cell, BuildTarget buildTarget) throws BuildTargetException {
+    return rawNodeParsePipeline.getNodeJob(cell, buildTarget);
   }
 }

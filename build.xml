@@ -173,8 +173,8 @@
     <include name="immutables/builder-2.5.7-SNAPSHOT.jar" />
     <include name="immutables/value-2.5.7-SNAPSHOT.jar" />
     <include name="infer-annotations/infer-annotations-4.2.jar" />
-    <include name="jacoco/org.jacoco.core-0.8.0.jar" />
-    <include name="jacoco/org.jacoco.report-0.8.0.jar" />
+    <include name="jacoco/org.jacoco.core-0.8.2.jar" />
+    <include name="jacoco/org.jacoco.report-0.8.2.jar" />
     <include name="jdom/jdom-2.0.6.jar" />
     <include name="jetty/jetty-all-9.4.9.v20180320-uber.jar" />
     <include name="jimfs/jimfs-1.1.jar" />
@@ -196,7 +196,7 @@
     <include name="protobuf/protobuf-lite-3.0.1.jar" />
     <include name="slf4j/slf4j-jdk14-1.7.5.jar" /><!-- redirect slf4j to java.util.logging -->
     <include name="stringtemplate/ST-4.0.8.jar" />
-    <include name="thrift/libthrift-0.10.0-patched.jar" />
+    <include name="thrift/libthrift-0.11.0.jar" />
     <include name="xz-java-1.5/xz-1.5.jar" />
     <include name="zstd-jni/zstd-jni-1.3.5-2.jar" />
 
@@ -629,11 +629,14 @@
     </build-buck-module-jar>
   </target>
 
-  <target name="build-module-intellij" depends="compile">
+  <target name="build-module-intellij" depends="compile, build-module-python">
     <build-buck-module-jar-with-resources module-name="intellij">
       <module-javac-params>
         <include name="com/facebook/buck/features/project/intellij/**/*.java" />
       </module-javac-params>
+      <additional-classpath-entries>
+        <include name="python.jar"/>
+      </additional-classpath-entries>
       <module-resources>
         <include name="com/facebook/buck/features/project/intellij/templates/*.st"/>
       </module-resources>
@@ -807,8 +810,8 @@
 
   <target name="report-generator-jar" depends="compile">
     <jar destfile="${build.dir}/report-generator.jar">
-      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/jacoco/org.jacoco.core-0.8.0.jar"/>
-      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/jacoco/org.jacoco.report-0.8.0.jar"/>
+      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/jacoco/org.jacoco.core-0.8.2.jar"/>
+      <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/jacoco/org.jacoco.report-0.8.2.jar"/>
       <zipfileset excludes="**/*SF **/*RSA" src="${third-party.dir}/java/plexus/plexus-utils-3.0.20.jar"/>
       <zipfileset includes="**/*.class" src="${third-party.dir}/java/asm/asm-6.2.1.jar" />
       <zipfileset includes="**/*.class" src="${third-party.dir}/java/asm/asm-analysis-6.2.1.jar" />
@@ -872,12 +875,6 @@
   <target name="missing-test-files-check" depends="default">
     <exec dir="${user.dir}/scripts" executable="python" failonerror="true">
       <arg line="verify-test-files.py" />
-    </exec>
-  </target>
-
-  <target name="verify-core-rules-boundaries" depends="default">
-    <exec dir="${user.dir}/tools/build/core-boundaries" executable="python" failonerror="true">
-      <arg line="verify-core-rules-boundaries.py" />
     </exec>
   </target>
 
@@ -1045,7 +1042,7 @@
     </sequential>
   </macrodef>
 
-  <target name="lint" depends="pmd, missing-test-files-check, verify-core-rules-boundaries" />
+  <target name="lint" depends="pmd, missing-test-files-check" />
 
   <macrodef name="buck-javadoc" description="generates HTML documentation for Java code">
     <attribute name="destdir" />

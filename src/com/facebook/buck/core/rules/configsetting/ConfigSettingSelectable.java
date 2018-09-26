@@ -18,8 +18,13 @@ package com.facebook.buck.core.rules.configsetting;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.platform.ConstraintResolver;
+import com.facebook.buck.core.model.platform.ConstraintValue;
+import com.facebook.buck.core.model.platform.Platform;
 import com.facebook.buck.core.select.Selectable;
+import com.facebook.buck.core.select.SelectableConfigurationContext;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.util.Map;
@@ -35,18 +40,27 @@ public class ConfigSettingSelectable implements Selectable {
 
   private final BuildTarget buildTarget;
   private final ImmutableMap<String, String> values;
-  private final boolean matches;
+  private final ImmutableList<BuildTarget> constraintValues;
 
   public ConfigSettingSelectable(
-      BuckConfig buckConfig, BuildTarget buildTarget, ImmutableMap<String, String> values) {
+      BuildTarget buildTarget,
+      ImmutableMap<String, String> values,
+      ImmutableList<BuildTarget> constraintValues) {
     this.buildTarget = buildTarget;
     this.values = values;
-    matches = calculateMatches(buckConfig, values);
+    this.constraintValues = constraintValues;
   }
 
   @Override
-  public boolean matches() {
-    return matches;
+  public boolean matches(SelectableConfigurationContext configurationContext) {
+    ConfigSettingSelectableConfigurationContext context =
+        (ConfigSettingSelectableConfigurationContext) configurationContext;
+    return calculateMatches(
+        context.getBuckConfig(),
+        context.getConstraintResolver(),
+        context.getTargetPlatform(),
+        constraintValues,
+        values);
   }
 
   @Override
@@ -73,16 +87,22 @@ public class ConfigSettingSelectable implements Selectable {
   }
 
   private static boolean calculateMatches(
-      BuckConfig buckConfig, ImmutableMap<String, String> values) {
-    if (values.isEmpty()) {
-      return false;
-    }
+      BuckConfig buckConfig,
+      ConstraintResolver constraintResolver,
+      Platform targetPlatform,
+      ImmutableList<BuildTarget> constraintValuesTargets,
+      ImmutableMap<String, String> values) {
     for (Map.Entry<String, String> entry : values.entrySet()) {
       if (!matches(buckConfig, entry.getKey(), entry.getValue())) {
         return false;
       }
     }
-    return true;
+    ImmutableList<ConstraintValue> constraintValues =
+        constraintValuesTargets
+            .stream()
+            .map(constraintResolver::getConstraintValue)
+            .collect(ImmutableList.toImmutableList());
+    return targetPlatform.matchesAll(constraintValues);
   }
 
   private static boolean matches(BuckConfig buckConfig, String key, String value) {

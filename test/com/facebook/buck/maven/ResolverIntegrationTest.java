@@ -38,6 +38,7 @@ import com.facebook.buck.file.downloader.impl.ExplodingDownloader;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.json.PythonDslProjectBuildFileParser;
 import com.facebook.buck.jvm.java.PrebuiltJarDescription;
 import com.facebook.buck.maven.aether.Repository;
@@ -45,7 +46,6 @@ import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.options.ProjectBuildFileParserOptions;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.HttpdForTests;
@@ -66,7 +66,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.atomic.AtomicLong;
 import org.eclipse.aether.RepositoryException;
 import org.eclipse.aether.artifact.Artifact;
 import org.eclipse.aether.artifact.DefaultArtifact;
@@ -133,7 +132,8 @@ public class ResolverIntegrationTest {
             new DefaultTypeCoercerFactory(),
             ImmutableMap.of(),
             BuckEventBusForTests.newInstance(),
-            new DefaultProcessExecutor(new TestConsole()));
+            new DefaultProcessExecutor(new TestConsole()),
+            Optional.empty());
   }
 
   @AfterClass
@@ -202,9 +202,7 @@ public class ResolverIntegrationTest {
     assertEquals(expected, seen);
 
     List<Map<String, Object>> rules =
-        buildFileParser
-            .getBuildFileManifest(groupDir.resolve("BUCK"), new AtomicLong())
-            .getTargets();
+        buildFileParser.getBuildFileManifest(groupDir.resolve("BUCK")).getTargets();
 
     assertEquals(1, rules.size());
     Map<String, Object> rule = rules.get(0);
@@ -230,9 +228,7 @@ public class ResolverIntegrationTest {
 
     Path groupDir = thirdParty.resolve("example");
     List<Map<String, Object>> rules =
-        buildFileParser
-            .getBuildFileManifest(groupDir.resolve("BUCK"), new AtomicLong())
-            .getTargets();
+        buildFileParser.getBuildFileManifest(groupDir.resolve("BUCK")).getTargets();
 
     Map<String, Object> rule = rules.get(0);
     assertEquals("with-sources-1.0-sources.jar", rule.get("sourceJar"));
@@ -245,14 +241,13 @@ public class ResolverIntegrationTest {
     Path exampleDir = thirdPartyRelative.resolve("example");
     Map<String, Object> withDeps =
         buildFileParser
-            .getBuildFileManifest(
-                buckRepoRoot.resolve(exampleDir).resolve("BUCK"), new AtomicLong())
+            .getBuildFileManifest(buckRepoRoot.resolve(exampleDir).resolve("BUCK"))
             .getTargets()
             .get(0);
     Path otherDir = thirdPartyRelative.resolve("othercorp");
     Map<String, Object> noDeps =
         buildFileParser
-            .getBuildFileManifest(buckRepoRoot.resolve(otherDir).resolve("BUCK"), new AtomicLong())
+            .getBuildFileManifest(buckRepoRoot.resolve(otherDir).resolve("BUCK"))
             .getTargets()
             .get(0);
 
@@ -281,8 +276,7 @@ public class ResolverIntegrationTest {
     Path exampleDir = thirdPartyRelative.resolve("example");
     List<Map<String, Object>> allTargets =
         buildFileParser
-            .getBuildFileManifest(
-                buckRepoRoot.resolve(exampleDir).resolve("BUCK"), new AtomicLong())
+            .getBuildFileManifest(buckRepoRoot.resolve(exampleDir).resolve("BUCK"))
             .getTargets();
 
     assertEquals(2, allTargets.size());

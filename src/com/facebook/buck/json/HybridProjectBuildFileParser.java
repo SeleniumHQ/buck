@@ -20,13 +20,14 @@ import com.facebook.buck.parser.api.BuildFileManifest;
 import com.facebook.buck.parser.api.ProjectBuildFileParser;
 import com.facebook.buck.parser.api.Syntax;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
+import com.facebook.buck.skylark.io.GlobSpecWithResult;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Files;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.concurrent.atomic.AtomicLong;
 import javax.annotation.Nullable;
 
 /**
@@ -55,9 +56,9 @@ public class HybridProjectBuildFileParser implements ProjectBuildFileParser {
   }
 
   @Override
-  public BuildFileManifest getBuildFileManifest(Path buildFile, AtomicLong processedBytes)
+  public BuildFileManifest getBuildFileManifest(Path buildFile)
       throws BuildFileParseException, InterruptedException, IOException {
-    return getParserForBuildFile(buildFile).getBuildFileManifest(buildFile, processedBytes);
+    return getParserForBuildFile(buildFile).getBuildFileManifest(buildFile);
   }
 
   @Override
@@ -65,6 +66,20 @@ public class HybridProjectBuildFileParser implements ProjectBuildFileParser {
     for (ProjectBuildFileParser parser : parsers.values()) {
       parser.reportProfile();
     }
+  }
+
+  @Override
+  public ImmutableList<String> getIncludedFiles(Path buildFile)
+      throws BuildFileParseException, InterruptedException, IOException {
+    return getParserForBuildFile(buildFile).getIncludedFiles(buildFile);
+  }
+
+  @Override
+  public boolean globResultsMatchCurrentState(
+      Path buildFile, ImmutableList<GlobSpecWithResult> existingGlobsWithResults)
+      throws IOException, InterruptedException {
+    return getParserForBuildFile(buildFile)
+        .globResultsMatchCurrentState(buildFile, existingGlobsWithResults);
   }
 
   @Override

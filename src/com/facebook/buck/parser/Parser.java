@@ -41,13 +41,14 @@ public interface Parser {
 
   DaemonicParserState getPermState();
 
-  ImmutableSet<TargetNode<?>> getAllTargetNodes(
-      Cell cell, boolean enableProfiling, ListeningExecutorService executor, Path buildFile)
-      throws BuildFileParseException;
+  PerBuildStateFactory getPerBuildStateFactory();
 
   TargetNode<?> getTargetNode(
       Cell cell, boolean enableProfiling, ListeningExecutorService executor, BuildTarget target)
       throws BuildFileParseException;
+
+  ImmutableSet<TargetNode<?>> getAllTargetNodes(
+      PerBuildState perBuildState, Cell cell, Path buildFile) throws BuildFileParseException;
 
   TargetNode<?> getTargetNode(PerBuildState perBuildState, BuildTarget target)
       throws BuildFileParseException;
@@ -80,7 +81,6 @@ public interface Parser {
       throws IOException, InterruptedException, BuildFileParseException;
 
   /**
-   * @param eventBus used to log events while parsing.
    * @param targetNodeSpecs the specs representing the build targets to generate a target graph for.
    * @return the target graph containing the build targets and their related targets.
    */
@@ -92,7 +92,6 @@ public interface Parser {
       throws BuildFileParseException, IOException, InterruptedException;
 
   /**
-   * @param eventBus used to log events while parsing.
    * @param targetNodeSpecs the specs representing the build targets to generate a target graph for.
    * @return the target graph containing the build targets and their related targets.
    */

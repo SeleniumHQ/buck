@@ -19,7 +19,19 @@ import time
 import traceback
 import types
 from pathlib import Path, PurePath
-from typing import Any, Dict, List, Optional, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Pattern,
+    Set,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
 import pywatchman
 from pywatchman import WatchmanError
@@ -30,7 +42,7 @@ from .glob_watchman import SyncCookieState, glob_watchman
 from .json_encoder import BuckJSONEncoder
 from .module_whitelist import ImportWhitelistManager
 from .profiler import Profiler
-from .struct import Struct
+from .struct import create_struct_class, struct
 from .util import (
     Diagnostic,
     cygwin_adjusted_path,
@@ -67,13 +79,20 @@ NATIVE_FUNCTIONS = []
 
 # Wait this many seconds on recv() or send() in the pywatchman client
 # if not otherwise specified in .buckconfig
-DEFAULT_WATCHMAN_QUERY_TIMEOUT = 60.0
+DEFAULT_WATCHMAN_QUERY_TIMEOUT = 60.0  # type: float
+
+# Globals that should not be copied from one module into another
+_HIDDEN_GLOBALS = {"include_defs", "load"}  # type: Set[str]
 
 ORIGINAL_IMPORT = __builtin__.__import__
 
 _LOAD_TARGET_PATH_RE = re.compile(
     r"^(?P<root>(?P<cell>@?[\w\-.]+)?//)?(?P<package>.*):(?P<target>.*)$"
-)
+)  # type: Pattern[str]
+
+# matches anything equivalent to recursive glob on all dirs
+# e.g. "**/", "*/**/", "*/*/**/"
+_RECURSIVE_GLOB_PATTERN = re.compile("^(\*/)*\*\*/")  # type: Pattern[str]
 
 
 class AbstractContext(object):
@@ -91,7 +110,7 @@ class AbstractContext(object):
     @abc.abstractproperty
     def used_configs(self):
         """
-        :rtype: dict[Tuple[str, str], str]
+        :rtype: dict[str, dict[str, str]]
         """
         raise NotImplementedError()
 
@@ -110,9 +129,10 @@ class AbstractContext(object):
         raise NotImplementedError()
 
     def merge(self, other):
+        # type: (AbstractContext) -> None
         """Merge the context of an included file into the current context.
 
-        :param IncludeContext other: the include context to merge.
+        :param AbstractContext other: the include context to merge.
         :rtype: None
         """
         self.includes.update(other.includes)
@@ -142,7 +162,7 @@ class BuildFileContext(AbstractContext):
     ):
         self.globals = {}
         self._includes = set()
-        self._used_configs = {}
+        self._used_configs = collections.defaultdict(dict)
         self._used_env_vars = {}
         self._diagnostics = []
         self.rules = {}
@@ -191,7 +211,7 @@ class IncludeContext(AbstractContext):
         self.path = path
         self.globals = {}
         self._includes = set()
-        self._used_configs = {}
+        self._used_configs = collections.defaultdict(dict)
         self._used_env_vars = {}
         self._diagnostics = []
 
@@ -210,6 +230,11 @@ class IncludeContext(AbstractContext):
     @property
     def diagnostics(self):
         return self._diagnostics
+
+
+# Generic context type that should be used in places where return and parameter
+# types are the same but could be either of the concrete contexts.
+_GCT = TypeVar("_GCT", IncludeContext, BuildFileContext)
 
 
 BuildInclude = collections.namedtuple("BuildInclude", ["cell_name", "path"])
@@ -421,12 +446,7 @@ def add_rule(rule, build_env):
 
 
 def glob(
-    includes,
-    excludes=None,
-    include_dotfiles=False,
-    build_env=None,
-    search_base=None,
-    allow_safe_import=None,
+    includes, excludes=None, include_dotfiles=False, build_env=None, search_base=None
 ):
     if excludes is None:
         excludes = []
@@ -445,9 +465,7 @@ def glob(
         search_base = Path(build_env.dirname)
 
     if build_env.dirname == build_env.project_root and any(
-        # match anything equivalent to recursive glob on all dirs e.g. "**/", "*/**/", "*/*/**/"
-        re.match(re.compile("^(\*\/)*\*\*\/"), pattern)
-        for pattern in includes
+        _RECURSIVE_GLOB_PATTERN.match(pattern) for pattern in includes
     ):
         fail(
             "Recursive globs are prohibited at top-level directory", build_env=build_env
@@ -515,13 +533,7 @@ def merge_maps(*header_maps):
 
 
 def single_subdir_glob(
-    dirpath,
-    glob_pattern,
-    excludes=None,
-    prefix=None,
-    build_env=None,
-    search_base=None,
-    allow_safe_import=None,
+    dirpath, glob_pattern, excludes=None, prefix=None, build_env=None, search_base=None
 ):
     if excludes is None:
         excludes = []
@@ -531,7 +543,6 @@ def single_subdir_glob(
         excludes=excludes,
         build_env=build_env,
         search_base=search_base,
-        allow_safe_import=allow_safe_import,
     )
     for f in files:
         if dirpath:
@@ -552,12 +563,7 @@ def single_subdir_glob(
 
 
 def subdir_glob(
-    glob_specs,
-    excludes=None,
-    prefix=None,
-    build_env=None,
-    search_base=None,
-    allow_safe_import=None,
+    glob_specs, excludes=None, prefix=None, build_env=None, search_base=None
 ):
     """
     Given a list of tuples, the form of (relative-sub-directory, glob-pattern),
@@ -575,13 +581,7 @@ def subdir_glob(
     for dirpath, glob_pattern in glob_specs:
         results.append(
             single_subdir_glob(
-                dirpath,
-                glob_pattern,
-                excludes,
-                prefix,
-                build_env,
-                search_base,
-                allow_safe_import=allow_safe_import,
+                dirpath, glob_pattern, excludes, prefix, build_env, search_base
             )
         )
 
@@ -720,6 +720,9 @@ def rule_exists(name, build_env=None):
     :return: True if a rule with provided name has already been defined in
       current file.
     """
+    assert isinstance(
+        build_env, BuildFileContext
+    ), "Cannot use `rule_exists()` at the top-level of an included file."
     return name in build_env.rules
 
 
@@ -858,6 +861,25 @@ class BuildFileProcessor(object):
             safe_modules_config=self.SAFE_MODULES_CONFIG,
             path_predicate=lambda path: is_in_dir(path, self._project_root),
         )
+        # Set of helpers callable from the child environment.
+        self._default_globals = self._create_default_globals(False)
+        self._default_globals_for_implicit_include = self._create_default_globals(True)
+
+    def _create_default_globals(self, is_implicit_include=False):
+        # type: (bool) -> Dict[str, Callable]
+        return {
+            "include_defs": functools.partial(self._include_defs, is_implicit_include),
+            "add_build_file_dep": self._add_build_file_dep,
+            "read_config": self._read_config,
+            "allow_unsafe_import": self._import_whitelist_manager.allow_unsafe_import,
+            "glob": self._glob,
+            "subdir_glob": self._subdir_glob,
+            "load": functools.partial(self._load, is_implicit_include),
+            "struct": struct,
+            "provider": self._provider,
+            "host_info": self._host_info,
+            "native": self._create_native_module(),
+        }
 
     def _create_native_module(self):
         """
@@ -946,7 +968,7 @@ class BuildFileProcessor(object):
 
     @staticmethod
     def _merge_explicit_globals(src, dst, whitelist=None, whitelist_mapping=None):
-        # type: (types.ModuleType, Dict[str, Any], List[str], Dict[str, str]) -> None
+        # type: (types.ModuleType, Dict[str, Any], Tuple[str], Dict[str, str]) -> None
         """Copy explicitly requested global definitions from one globals dict to another.
 
         If whitelist is set, only globals from the whitelist will be pulled in.
@@ -974,9 +996,6 @@ class BuildFileProcessor(object):
         Ignores special attributes and attributes starting with '_', which
         typically denote module-level private attributes.
         """
-
-        hidden = set(["include_defs", "load"])
-
         keys = getattr(mod, "__all__", mod.__dict__.keys())
 
         for key in keys:
@@ -986,7 +1005,7 @@ class BuildFileProcessor(object):
             )
             if (
                 not key.startswith("_")
-                and key not in hidden
+                and key not in _HIDDEN_GLOBALS
                 and not block_copying_module
             ):
                 dst[key] = mod.__dict__[key]
@@ -1126,8 +1145,9 @@ class BuildFileProcessor(object):
         build_env = self._current_build_env
 
         # Lookup the value and record it in this build file's context.
-        value = self._configs.get((section, field))
-        build_env.used_configs[(section, field)] = value
+        key = section, field
+        value = self._configs.get(key)
+        build_env.used_configs[section][field] = value
 
         # If no config setting was found, return the default.
         if value is None:
@@ -1156,7 +1176,6 @@ class BuildFileProcessor(object):
             include_dotfiles=include_dotfiles,
             search_base=search_base,
             build_env=build_env,
-            allow_safe_import=self._import_whitelist_manager.allow_unsafe_import,
         )
 
     def _subdir_glob(self, glob_specs, excludes=None, prefix=None, search_base=None):
@@ -1167,7 +1186,6 @@ class BuildFileProcessor(object):
             prefix=prefix,
             search_base=search_base,
             build_env=build_env,
-            allow_safe_import=self._import_whitelist_manager.allow_unsafe_import,
         )
 
     def _record_env_var(self, name, value):
@@ -1227,7 +1245,7 @@ class BuildFileProcessor(object):
         build_env.merge(inner_env)
 
     def _load(self, is_implicit_include, name, *symbols, **symbol_kwargs):
-        # type: (str, *str, **str) -> None
+        # type: (bool, str, *str, **str) -> None
         """Pull the symbols from the named include into the current caller's context.
 
         This method is meant to be installed into the globals of any files or
@@ -1253,7 +1271,8 @@ class BuildFileProcessor(object):
         build_env.includes.add(build_include.path)
         build_env.merge(inner_env)
 
-    def _provider(self):
+    def _provider(self, doc="", fields=None):
+        # type: (str, Union[List[str], Dict[str, str]]) -> Callable
         """Creates a declared provider factory.
 
         The return value of this function can be used to create "struct-like"
@@ -1263,8 +1282,16 @@ class BuildFileProcessor(object):
               return 3
             info = SomeInfo(x = 2, foo = foo)
             print(info.x + info.foo())  # prints 5
+
+        Optional fields can be used to restrict the set of allowed fields.
+        Example:
+             SomeInfo = provider(fields=["data"])
+             info = SomeInfo(data="data")  # valid
+             info = SomeInfo(foo="bar")  # runtime exception
         """
-        return Struct
+        if fields:
+            return create_struct_class(fields)
+        return struct
 
     def _add_build_file_dep(self, name):
         # type: (str) -> None
@@ -1287,6 +1314,7 @@ class BuildFileProcessor(object):
 
     @contextlib.contextmanager
     def _set_build_env(self, build_env):
+        # type: (AbstractContext) -> Iterator[None]
         """Set the given build context as the current context, unsetting it upon exit."""
         old_env = self._current_build_env
         self._current_build_env = build_env
@@ -1298,6 +1326,7 @@ class BuildFileProcessor(object):
             self._update_functions(self._current_build_env)
 
     def _emit_warning(self, message, source):
+        # type: (str, str) -> None
         """
         Add a warning to the current build_env's diagnostics.
         """
@@ -1310,6 +1339,7 @@ class BuildFileProcessor(object):
 
     @staticmethod
     def _create_import_whitelist(project_import_whitelist):
+        # type: (List[str]) -> Set[str]
         """
         Creates import whitelist by joining the global whitelist with the project specific one
         defined in '.buckconfig'.
@@ -1406,7 +1436,7 @@ class BuildFileProcessor(object):
                 yield
 
     def _process(self, build_env, path, is_implicit_include):
-        # type: (AbstractContext, str, bool) -> Tuple[AbstractContext, types.ModuleType]
+        # type: (_GCT, str, bool) -> Tuple[_GCT, types.ModuleType]
         """Process a build file or include at the given path.
 
         :param build_env: context of the file to process.
@@ -1416,32 +1446,21 @@ class BuildFileProcessor(object):
         :returns: build context (potentially different if retrieved from cache) and loaded module.
         """
 
+        default_globals = (
+            self._default_globals_for_implicit_include
+            if is_implicit_include
+            else self._default_globals
+        )
+
         # Install the build context for this input as the current context.
         with self._set_build_env(build_env):
-            # Set of helpers callable from the child environment.
-            default_globals = {
-                "include_defs": functools.partial(
-                    self._include_defs, is_implicit_include
-                ),
-                "add_build_file_dep": self._add_build_file_dep,
-                "read_config": self._read_config,
-                "allow_unsafe_import": self._import_whitelist_manager.allow_unsafe_import,
-                "glob": self._glob,
-                "subdir_glob": self._subdir_glob,
-                "load": functools.partial(self._load, is_implicit_include),
-                "struct": Struct,
-                "provider": self._provider,
-                "host_info": self._host_info,
-                "native": self._create_native_module(),
-            }
-
             # Don't include implicit includes if the current file being
             # processed is an implicit include
             if not is_implicit_include:
                 for include in self._implicit_includes:
                     build_include = self._resolve_include(include)
                     inner_env, mod = self._process_include(build_include, True)
-                    self._merge_globals(mod, default_globals)
+                    self._merge_globals(mod, self._default_globals)
                     build_env.includes.add(build_include.path)
                     build_env.merge(inner_env)
 
@@ -1494,13 +1513,14 @@ class BuildFileProcessor(object):
         return build_env, mod
 
     def _process_build_file(self, watch_root, project_prefix, path):
+        # type: (str, str, str) -> Tuple[BuildFileContext, types.ModuleType]
         """Process the build file at the given path."""
         # Create the build file context, including the base path and directory
         # name of the given path.
         relative_path_to_build_file = os.path.relpath(path, self._project_root).replace(
             "\\", "/"
         )
-        len_suffix = -len("/" + self._build_file_name)
+        len_suffix = -len(self._build_file_name) - 1
         base_path = relative_path_to_build_file[:len_suffix]
         dirname = os.path.dirname(path)
 
@@ -1536,11 +1556,7 @@ class BuildFileProcessor(object):
         values.append({"__includes": [path] + sorted(build_env.includes)})
 
         # Add in tracked used config settings as a special meta rule.
-        configs = {}
-        for (section, field), value in build_env.used_configs.iteritems():
-            configs.setdefault(section, {})
-            configs[section][field] = value
-        values.append({"__configs": configs})
+        values.append({"__configs": build_env.used_configs})
 
         # Add in used environment variables as a special meta rule.
         values.append({"__env": build_env.used_env_vars})
@@ -1585,6 +1601,7 @@ def format_exception_info(exception_info):
 
 
 def encode_result(values, diagnostics, profile):
+    # type: (List[Dict[str, object]], List[Diagnostic], Optional[str]) -> str
     result = {
         "values": [
             dict((k, v) for k, v in value.iteritems() if v is not None)
@@ -1620,9 +1637,7 @@ def encode_result(values, diagnostics, profile):
         return json_encoder.encode(result)
 
 
-def process_with_diagnostics(
-    build_file_query, build_file_processor, to_parent, should_profile=False
-):
+def process_with_diagnostics(build_file_query, build_file_processor, to_parent):
     start_time = time.time()
     build_file = build_file_query.get("buildFile")
     watch_root = build_file_query.get("watchRoot")
@@ -1855,7 +1870,7 @@ def main():
         with open(options.ignore_paths, "rb") as f:
             ignore_paths = [make_glob(i) for i in json.load(f)]
 
-    buildFileProcessor = BuildFileProcessor(
+    build_file_processor = BuildFileProcessor(
         project_root,
         cell_roots,
         options.cell_name,
@@ -1883,8 +1898,8 @@ def main():
 
     # Process the build files with the env var interceptors and builtins
     # installed.
-    with buildFileProcessor.with_env_interceptors():
-        with buildFileProcessor.with_builtins(__builtin__.__dict__):
+    with build_file_processor.with_env_interceptors():
+        with build_file_processor.with_builtins(__builtin__.__dict__):
             processed_build_file = []
 
             profiler = None
@@ -1899,7 +1914,7 @@ def main():
                     "projectPrefix": project_root,
                 }
                 duration = process_with_diagnostics(
-                    query, buildFileProcessor, to_parent, should_profile=options.profile
+                    query, build_file_processor, to_parent
                 )
                 processed_build_file.append(
                     {"buildFile": build_file, "duration": duration}
@@ -1919,10 +1934,7 @@ def main():
                     report_profile(options, to_parent, processed_build_file, profiler)
                 else:
                     duration = process_with_diagnostics(
-                        build_file_query,
-                        buildFileProcessor,
-                        to_parent,
-                        should_profile=options.profile,
+                        build_file_query, build_file_processor, to_parent
                     )
                     processed_build_file.append(
                         {
@@ -2000,6 +2012,7 @@ def report_profile(options, to_parent, processed_build_file, profiler):
 
 
 def make_glob(pat):
+    # type: (str) -> str
     if is_special(pat):
         return pat
     return pat + "/**"

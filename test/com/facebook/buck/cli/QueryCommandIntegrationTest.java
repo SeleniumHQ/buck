@@ -25,7 +25,6 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -42,7 +41,6 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
 import org.hamcrest.Matchers;
-import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -286,14 +284,12 @@ public class QueryCommandIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "query_command", tmp);
     workspace.setUp();
 
-    try {
-      workspace.runBuckCommand("query", "owner('example/1.txt')", "+", "owner('example/2.txt')");
-    } catch (HumanReadableException e) {
-      assertThat(e.getMessage(), containsString("format arguments"));
-      assertThat(e.getMessage(), containsString("%s"));
-      return;
-    }
-    Assert.fail("not reached");
+    ProcessResult processResult =
+        workspace.runBuckCommand("query", "owner('example/1.txt')", "+", "owner('example/2.txt')");
+    processResult.assertFailure();
+
+    assertThat(processResult.getStderr(), containsString("format arguments"));
+    assertThat(processResult.getStderr(), containsString("%s"));
   }
 
   @Test
@@ -890,6 +886,19 @@ public class QueryCommandIntegrationTest {
     assertThat(
         result.getStdout(),
         is(equalToIgnoringPlatformNewlines("example/4-test.txt\nexample/Test.plist\n")));
+  }
+
+  @Test
+  public void testInputsUsesPathsRelativeToRootCell() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "query_command_cross_cell", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand(workspace.resolve("cell1"), "query", "inputs(cell2//foo:test)");
+
+    result.assertSuccess();
+    assertThat(result.getStdout(), is(equalToIgnoringPlatformNewlines("../cell2/foo/foo.txt\n")));
   }
 
   @Test

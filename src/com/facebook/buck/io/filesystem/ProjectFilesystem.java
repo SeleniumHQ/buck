@@ -46,6 +46,12 @@ import java.util.jar.Manifest;
 /** An injectable service for interacting with the filesystem relative to the project root. */
 public interface ProjectFilesystem {
 
+  /**
+   * @return the default view over this project filesystem, where the view root is the project root,
+   *     and no ignored paths.
+   */
+  ProjectFilesystemView asView();
+
   Path getRootPath();
 
   /**
@@ -64,6 +70,9 @@ public interface ProjectFilesystem {
 
   /** Construct a relative path between the project root and a given path. */
   Path relativize(Path path);
+
+  /** @return a set of {@link PathOrGlobMatcher} objects ignored by {@link #isIgnored(Path)} */
+  ImmutableSet<PathOrGlobMatcher> getBlacklistedPaths();
 
   /** @return A {@link ImmutableSet} of {@link PathOrGlobMatcher} objects to have buck ignore. */
   ImmutableSet<PathOrGlobMatcher> getIgnorePaths();

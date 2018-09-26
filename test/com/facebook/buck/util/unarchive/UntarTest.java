@@ -22,6 +22,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.PatternsMatcher;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -33,6 +34,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.FileTime;
+import java.nio.file.attribute.PosixFilePermission;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -271,6 +273,7 @@ public class UntarTest {
               Paths.get("output_dir"),
               Optional.empty(),
               ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES,
+              PatternsMatcher.EMPTY,
               writeSymlinksLast.get());
     } else {
       unarchivedFiles =
@@ -307,6 +310,15 @@ public class UntarTest {
     // Make sure that we set modified time and execute bit properly
     assertModifiedTime(expectedPaths);
     assertExecutable(expectedPaths.get(0), true);
+    if (tmpFolder.getRoot().getFileSystem().supportedFileAttributeViews().contains("posix")) {
+      Path executablePath = tmpFolder.getRoot().resolve(expectedPaths.get(0));
+      Assert.assertThat(
+          Files.getPosixFilePermissions(executablePath),
+          Matchers.hasItems(
+              PosixFilePermission.OWNER_EXECUTE,
+              PosixFilePermission.OTHERS_EXECUTE,
+              PosixFilePermission.GROUP_EXECUTE));
+    }
     assertExecutable(expectedPaths.subList(1, expectedPaths.size()), false);
   }
 
@@ -694,5 +706,31 @@ public class UntarTest {
     Assert.assertTrue(filesystem.exists(junkDirs.get(2)));
     Assert.assertEquals("testing", filesystem.readLines(junkFiles.get(0)).get(0));
     Assert.assertEquals("testing", filesystem.readLines(junkFiles.get(1)).get(0));
+  }
+
+  @Test
+  public void testExcludedEntriesNotExtracted() throws IOException {
+    ArchiveFormat format = ArchiveFormat.TAR;
+
+    ImmutableList<Path> expectedPaths =
+        ImmutableList.of(
+            getDestPath("echo.sh"),
+            getDestPath("alternative", "Link.java"),
+            getDestPath("src", "com", "facebook", "buck", "Main.java"));
+
+    Path archivePath = getTestFilePath(format.getExtension());
+    ImmutableSet<Path> unarchivedFiles =
+        format
+            .getUnarchiver()
+            .extractArchive(
+                archivePath,
+                filesystem,
+                Paths.get("output_dir"),
+                Optional.of(Paths.get("root")),
+                new PatternsMatcher(ImmutableSet.of(".*alternative/Main.java")),
+                ExistingFileMode.OVERWRITE_AND_CLEAN_DIRECTORIES);
+
+    Assert.assertThat(unarchivedFiles, Matchers.containsInAnyOrder(expectedPaths.toArray()));
+    Assert.assertEquals(expectedPaths.size(), unarchivedFiles.size());
   }
 }

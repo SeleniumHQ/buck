@@ -16,6 +16,7 @@
 package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
 import com.facebook.buck.core.model.impl.ImmutableUnflavoredBuildTarget;
@@ -33,10 +34,10 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class RawNodeParsePipeline extends ParsePipeline<Map<String, Object>> {
 
+  private final BuckEventBus eventBus;
   private final PipelineNodeCache<Path, ImmutableSet<Map<String, Object>>> cache;
   private final ListeningExecutorService executorService;
   private final ProjectBuildFileParserPool projectBuildFileParserPool;
@@ -48,7 +49,7 @@ public class RawNodeParsePipeline extends ParsePipeline<Map<String, Object>> {
       ListeningExecutorService executorService,
       BuckEventBus eventBus,
       Watchman watchman) {
-    super(eventBus);
+    this.eventBus = eventBus;
     this.executorService = executorService;
     this.cache = new PipelineNodeCache<>(cache);
     this.projectBuildFileParserPool = projectBuildFileParserPool;
@@ -88,7 +89,7 @@ public class RawNodeParsePipeline extends ParsePipeline<Map<String, Object>> {
 
   @Override
   public ListenableFuture<ImmutableSet<Map<String, Object>>> getAllNodesJob(
-      Cell cell, Path buildFile, AtomicLong processedBytes) throws BuildTargetException {
+      Cell cell, Path buildFile) throws BuildTargetException {
 
     if (shuttingDown()) {
       return Futures.immediateCancelledFuture();
@@ -104,7 +105,7 @@ public class RawNodeParsePipeline extends ParsePipeline<Map<String, Object>> {
 
           return Futures.transform(
               projectBuildFileParserPool.getBuildFileManifest(
-                  eventBus, cell, watchman, buildFile, processedBytes, executorService),
+                  eventBus, cell, watchman, buildFile, executorService),
               buildFileManifest -> buildFileManifest.toRawNodes(),
               executorService);
         },
@@ -112,11 +113,18 @@ public class RawNodeParsePipeline extends ParsePipeline<Map<String, Object>> {
   }
 
   @Override
-  public ListenableFuture<Map<String, Object>> getNodeJob(
-      Cell cell, BuildTarget buildTarget, AtomicLong processedBytes) throws BuildTargetException {
+  public ListenableFuture<Map<String, Object>> getNodeJob(Cell cell, BuildTarget buildTarget)
+      throws BuildTargetException {
     return Futures.transformAsync(
-        getAllNodesJob(cell, cell.getAbsolutePathToBuildFile(buildTarget), processedBytes),
+        getAllNodesJob(cell, cell.getAbsolutePathToBuildFile(buildTarget)),
         input -> {
+          Path pathToCheck = buildTarget.getBasePath();
+          if (cell.getFilesystem().isIgnored(pathToCheck)) {
+            throw new HumanReadableException(
+                "Content of '%s' cannot be built because it is defined in an ignored directory.",
+                pathToCheck);
+          }
+
           for (Map<String, Object> rawNode : input) {
             Object shortName = rawNode.get("name");
             if (buildTarget.getShortName().equals(shortName)) {

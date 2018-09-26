@@ -34,6 +34,7 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.jvm.java.AnnotationProcessingParams;
 import com.facebook.buck.jvm.java.ClasspathChecker;
 import com.facebook.buck.jvm.java.CompilerOutputPaths;
@@ -44,7 +45,6 @@ import com.facebook.buck.jvm.java.JavacStep;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
 import com.facebook.buck.testutil.MoreAsserts;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -64,7 +64,7 @@ public class DummyRDotJavaTest {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
-    BuildRule resourceRule1 =
+    AndroidResource resourceRule1 =
         graphBuilder.addToIndex(
             AndroidResourceRuleBuilder.newBuilder()
                 .setRuleFinder(ruleFinder)
@@ -73,7 +73,7 @@ public class DummyRDotJavaTest {
                 .setRes(FakeSourcePath.of("android_res/com/example/res1"))
                 .build());
     setAndroidResourceBuildOutput(resourceRule1);
-    BuildRule resourceRule2 =
+    AndroidResource resourceRule2 =
         graphBuilder.addToIndex(
             AndroidResourceRuleBuilder.newBuilder()
                 .setRuleFinder(ruleFinder)
@@ -89,8 +89,7 @@ public class DummyRDotJavaTest {
             buildTarget,
             filesystem,
             ruleFinder,
-            ImmutableSet.of(
-                (HasAndroidResourceDeps) resourceRule1, (HasAndroidResourceDeps) resourceRule2),
+            ImmutableSet.of(resourceRule1, resourceRule2),
             new JavacToJarStepFactory(
                 DEFAULT_JAVAC, ANDROID_JAVAC_OPTIONS, ExtraClasspathProvider.EMPTY),
             /* forceFinalResourceIds */ false,
@@ -121,7 +120,7 @@ public class DummyRDotJavaTest {
     String genFolder = Paths.get("buck-out/gen/java/base/").toString();
 
     List<String> sortedSymbolsFiles =
-        Stream.of((AndroidResource) resourceRule1, (AndroidResource) resourceRule2)
+        Stream.of(resourceRule1, resourceRule2)
             .map(Object::toString)
             .collect(ImmutableList.toImmutableList());
     ImmutableSortedSet<Path> javaSourceFiles =

@@ -26,6 +26,7 @@ import com.facebook.buck.artifact_cache.CacheResult;
 import com.facebook.buck.artifact_cache.NoopArtifactCache;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.BuckEventBus;
@@ -205,7 +206,10 @@ public class CacheCommandTest {
             0L,
             1000L,
             false,
-            Optional.empty());
+            new BuildId("1234-5678"),
+            false,
+            Optional.empty(),
+            ImmutableList.of());
     eventBus.register(listener);
     return listener;
   }

@@ -112,9 +112,13 @@ public class BuckConfig {
             "chrome_trace_generation",
             "compress_traces",
             "max_traces",
-            "public_announcements"));
+            "public_announcements",
+            "log_build_id_to_console_enabled",
+            "build_details_template"));
     ignoreFieldsForDaemonRestartBuilder.put("project", ImmutableSet.of("ide_prompt"));
-    ignoreFieldsForDaemonRestartBuilder.put("ui", ImmutableSet.of("superconsole"));
+    ignoreFieldsForDaemonRestartBuilder.put(
+        "ui",
+        ImmutableSet.of("superconsole", "thread_line_limit", "thread_line_output_max_columns"));
     ignoreFieldsForDaemonRestartBuilder.put("color", ImmutableSet.of("ui"));
     IGNORE_FIELDS_FOR_DAEMON_RESTART = ignoreFieldsForDaemonRestartBuilder.build();
   }
@@ -472,10 +476,6 @@ public class BuckConfig {
 
   public boolean getMultiInstallMode() {
     return getBooleanValue("adb", "multi_install_mode", false);
-  }
-
-  public boolean getUseSynchronousTaskManager() {
-    return getBooleanValue("daemon", "use_synchronous_task_manager", true);
   }
 
   public boolean getFlushEventsBeforeExit() {
@@ -1000,5 +1000,13 @@ public class BuckConfig {
    */
   public boolean getShouldDeleteTemporaries() {
     return config.getBooleanValue("build", "delete_temporaries", false);
+  }
+
+  public Optional<String> getBuildDetailsTemplate() {
+    return config.get("log", "build_details_template");
+  }
+
+  public ProjectFilesystem getFilesystem() {
+    return projectFilesystem;
   }
 }

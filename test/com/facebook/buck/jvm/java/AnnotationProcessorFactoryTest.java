@@ -25,7 +25,7 @@ import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.testutil.FakeProjectFilesystem;
+import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.util.ClassLoaderCache;
 import java.io.IOException;
 import java.net.MalformedURLException;
@@ -65,15 +65,15 @@ public class AnnotationProcessorFactoryTest {
                 .setCanReuseClassLoader(canReuseClasspath)
                 .setDoesNotAffectAbi(false)
                 .setSupportsAbiGenerationFromSource(false)
-                .build(),
-            filesystem,
-            DefaultSourcePathResolver.from(null));
+                .build());
 
     try (AnnotationProcessorFactory factory1 =
             new AnnotationProcessorFactory(null, baseClassLoader, classLoaderCache, buildTarget);
         AnnotationProcessorFactory factory2 =
             new AnnotationProcessorFactory(null, baseClassLoader, classLoaderCache, buildTarget)) {
-      JavacPluginJsr199Fields fields = processorGroup.getJavacPluginJsr199Fields();
+      JavacPluginJsr199Fields fields =
+          processorGroup.getJavacPluginJsr199Fields(
+              DefaultSourcePathResolver.from(null), filesystem);
       ClassLoader classLoader1 = factory1.getClassLoaderForProcessorGroup(fields);
       ClassLoader classLoader2 = factory2.getClassLoaderForProcessorGroup(fields);
       return classLoader1 == classLoader2;

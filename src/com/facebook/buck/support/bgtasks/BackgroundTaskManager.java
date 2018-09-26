@@ -16,51 +16,32 @@
 
 package com.facebook.buck.support.bgtasks;
 
-import com.google.common.collect.ImmutableList;
+import com.facebook.buck.core.model.BuildId;
 import java.util.concurrent.TimeUnit;
 
 /**
- * BackgroundTaskManager schedules and runs background bgtasks like cleanup/logging. A manager
- * should be notified when a new command starts and when it finishes so that it can schedule bgtasks
- * appropriately.
+ * BackgroundTaskManager schedules and runs background tasks like cleanup and logging. A manager
+ * should be notified when a new command starts and when it finishes so that it can schedule tasks
+ * appropriately. Tasks should typically be scheduled through a {@link TaskManagerScope}.
  */
-public interface BackgroundTaskManager {
+public abstract class BackgroundTaskManager {
 
-  /**
-   * Code passed to notify(). COMMAND_START: when buck command is started COMMAND_END: when buck
-   * command has finished, used to trigger background task execution
-   */
+  /** Type of notification passed to {@link #notify}. */
   enum Notification {
+    /** Indicates that a command has started */
     COMMAND_START,
+    /**
+     * Indicates that a command has finished. This notification may trigger execution of background
+     * tasks.
+     */
     COMMAND_END
   }
 
-  /**
-   * Schedule a task to be run in the background.
-   *
-   * @param task {@link BackgroundTask} object to be run
-   * @return Full task ID used by task manager
-   */
-  String schedule(BackgroundTask<?> task);
-
-  /**
-   * Schedule a list of tasks to be run in the background.
-   *
-   * @param taskList List of {@link BackgroundTask} objects
-   * @return List of task IDs used by task manager
-   */
-  ImmutableList<String> schedule(ImmutableList<? extends BackgroundTask<?>> taskList);
-
-  /**
-   * Notify the manager of some event, e.g. command start/end. Exceptions should generally be caught
-   * and handled by the manager, except in test implementations.
-   *
-   * @param code Type of event to notify of
-   */
-  void notify(Notification code);
+  /** Returns a new {@link TaskManagerScope} for a build on this manager. */
+  public abstract TaskManagerScope getNewScope(BuildId buildId);
 
   /** Shut down manager, without waiting for tasks to finish. */
-  void shutdownNow();
+  public abstract void shutdownNow();
 
   /**
    * Shut down manager, waiting until given timeout for tasks to finish.
@@ -68,5 +49,18 @@ public interface BackgroundTaskManager {
    * @param timeout timeout for tasks to finish
    * @param units units of timeout
    */
-  void shutdown(long timeout, TimeUnit units) throws InterruptedException;
+  public abstract void shutdown(long timeout, TimeUnit units) throws InterruptedException;
+
+  /**
+   * Schedule a task to be run in the background. Should be accessed through a {@link
+   * TaskManagerScope} implementation.
+   */
+  protected abstract void schedule(ManagedBackgroundTask task);
+
+  /**
+   * Notify the manager of some event, e.g. command start or end. Exceptions should generally be
+   * caught and handled by the manager, except in test implementations. {@link Notification} should
+   * be handled through a {@link TaskManagerScope}.
+   */
+  protected abstract void notify(Notification code);
 }

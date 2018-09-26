@@ -16,8 +16,8 @@
 
 package com.facebook.buck.io.filesystem;
 
-import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.watchman.Capability;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.nio.file.Path;
@@ -30,11 +30,8 @@ public class RecursiveFileMatcher implements PathMatcher {
   private final Path basePath;
 
   private RecursiveFileMatcher(Path basePath) {
+    Preconditions.checkState(!basePath.isAbsolute());
     this.basePath = basePath;
-  }
-
-  private RecursiveFileMatcher(Path root, String basePath) {
-    this(root.getFileSystem().getPath(basePath));
   }
 
   @Override
@@ -69,11 +66,8 @@ public class RecursiveFileMatcher implements PathMatcher {
   }
 
   @Override
-  public ImmutableList<?> toWatchmanMatchQuery(Path projectRoot, Set<Capability> capabilities) {
+  public ImmutableList<?> toWatchmanMatchQuery(Set<Capability> capabilities) {
     Path ignorePath = basePath;
-    if (ignorePath.isAbsolute()) {
-      ignorePath = MorePaths.relativize(projectRoot, ignorePath);
-    }
     if (capabilities.contains(Capability.DIRNAME)) {
       return ImmutableList.of("dirname", ignorePath.toString());
     } else {
@@ -84,10 +78,5 @@ public class RecursiveFileMatcher implements PathMatcher {
   /** @return The matcher for paths that start with {@code basePath}. */
   public static RecursiveFileMatcher of(Path basePath) {
     return new RecursiveFileMatcher(basePath);
-  }
-
-  /** @return The matcher for {@code basePath} paths relative to {@code root}. */
-  public static RecursiveFileMatcher of(Path root, String basePath) {
-    return new RecursiveFileMatcher(root, basePath);
   }
 }

@@ -39,6 +39,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.ArtifactCompressionEvent;
 import com.facebook.buck.event.BuckEventBus;
@@ -57,11 +58,9 @@ import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.AnnotationProcessingEvent;
 import com.facebook.buck.jvm.java.tracing.JavacPhaseEvent;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.rules.FakeBuildRule;
 import com.facebook.buck.step.StepEvent;
 import com.facebook.buck.support.bgtasks.BackgroundTask;
-import com.facebook.buck.support.bgtasks.BackgroundTaskManager;
-import com.facebook.buck.support.bgtasks.BackgroundTaskManager.Notification;
+import com.facebook.buck.support.bgtasks.TaskManagerScope;
 import com.facebook.buck.support.bgtasks.TestBackgroundTaskManager;
 import com.facebook.buck.test.external.ExternalTestRunEvent;
 import com.facebook.buck.test.external.ExternalTestSpecCalculationEvent;
@@ -89,6 +88,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -113,6 +113,7 @@ public class ChromeTraceBuildListenerTest {
   private InvocationInfo invocationInfo;
   private BuildRuleDurationTracker durationTracker;
   private BuckEventBus eventBus;
+  private TaskManagerScope managerScope;
 
   @Before
   public void setUp() throws IOException {
@@ -129,6 +130,7 @@ public class ChromeTraceBuildListenerTest {
             .build();
     durationTracker = new BuildRuleDurationTracker();
     eventBus = new DefaultBuckEventBus(FAKE_CLOCK, BUILD_ID);
+    managerScope = new TestBackgroundTaskManager().getNewScope(invocationInfo.getBuildId());
   }
 
   @Test
@@ -136,22 +138,20 @@ public class ChromeTraceBuildListenerTest {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot().toPath());
 
-    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
-
     ChromeTraceBuildListener listener =
         new ChromeTraceBuildListener(
             projectFilesystem,
             invocationInfo,
             FAKE_CLOCK,
             chromeTraceConfig(1, false),
-            bgTaskManager);
+            managerScope);
     FakeBuckEvent event = new FakeBuckEvent();
     eventBus.post(event); // Populates it with a timestamp
 
     listener.writeChromeTraceEvent(
         "test", event.getEventName(), ChromeTraceEvent.Phase.BEGIN, ImmutableMap.of(), event);
     listener.close();
-    bgTaskManager.notify(Notification.COMMAND_END);
+    managerScope.close();
 
     List<ChromeTraceEvent> originalResultList =
         ObjectMappers.readValue(
@@ -176,18 +176,16 @@ public class ChromeTraceBuildListenerTest {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot().toPath());
 
-    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
-
     ChromeTraceBuildListener listener =
         new ChromeTraceBuildListener(
             projectFilesystem,
             invocationInfo,
             FAKE_CLOCK,
             chromeTraceConfig(1, false),
-            bgTaskManager);
+            managerScope);
     listener.writeChromeTraceMetadataEvent("test", ImmutableMap.of());
     listener.close();
-    bgTaskManager.notify(Notification.COMMAND_END);
+    managerScope.close();
 
     List<ChromeTraceEvent> originalResultList =
         ObjectMappers.readValue(
@@ -212,8 +210,6 @@ public class ChromeTraceBuildListenerTest {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot().toPath());
 
-    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
-
     ThreadMXBean threadMXBean = new FakeThreadMXBean();
 
     ChromeTraceBuildListener listener =
@@ -225,7 +221,7 @@ public class ChromeTraceBuildListenerTest {
             TimeZone.getTimeZone("America/Los_Angeles"),
             threadMXBean,
             chromeTraceConfig(3, false),
-            bgTaskManager);
+            managerScope);
 
     FakeBuckEvent event = new FakeBuckEvent();
     int threadId = 1;
@@ -233,7 +229,7 @@ public class ChromeTraceBuildListenerTest {
     listener.writeChromeTraceEvent("category", "name", Phase.METADATA, ImmutableMap.of(), event);
 
     listener.close();
-    bgTaskManager.notify(Notification.COMMAND_END);
+    managerScope.close();
 
     List<ChromeTraceEvent> originalResultList =
         ObjectMappers.readValue(
@@ -255,8 +251,6 @@ public class ChromeTraceBuildListenerTest {
   public void testDeleteFiles() throws IOException {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot().toPath());
-
-    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
 
     String tracePath = invocationInfo.getLogDirectoryPath().resolve("build.trace").toString();
 
@@ -281,10 +275,10 @@ public class ChromeTraceBuildListenerTest {
             TimeZone.getTimeZone("America/Los_Angeles"),
             ManagementFactory.getThreadMXBean(),
             chromeTraceConfig(3, false),
-            bgTaskManager);
+            managerScope);
 
     listener.close();
-    bgTaskManager.notify(Notification.COMMAND_END);
+    managerScope.close();
 
     ImmutableList<String> files =
         projectFilesystem
@@ -309,8 +303,6 @@ public class ChromeTraceBuildListenerTest {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot().toPath());
 
-    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
-
     BuildId buildId = new BuildId("ChromeTraceBuildListenerTestBuildId");
     ChromeTraceBuildListener listener =
         new ChromeTraceBuildListener(
@@ -321,7 +313,7 @@ public class ChromeTraceBuildListenerTest {
             TimeZone.getTimeZone("America/Los_Angeles"),
             ManagementFactory.getThreadMXBean(),
             chromeTraceConfig(42, false),
-            bgTaskManager);
+            managerScope);
 
     BuildTarget target = BuildTargetFactory.newInstance("//fake:rule");
 
@@ -338,7 +330,7 @@ public class ChromeTraceBuildListenerTest {
     eventBus.register(listener);
 
     CommandEvent.Started commandEventStarted =
-        CommandEvent.started("party", ImmutableList.of("arg1", "arg2"), true, 23L);
+        CommandEvent.started("party", ImmutableList.of("arg1", "arg2"), OptionalLong.of(100), 23L);
     eventBus.post(commandEventStarted);
     eventBus.post(
         new PerfStatsTracking.MemoryPerfStatsEvent(
@@ -452,7 +444,7 @@ public class ChromeTraceBuildListenerTest {
     eventBus.post(BuildEvent.finished(buildEventStarted, ExitCode.SUCCESS));
     eventBus.post(CommandEvent.finished(commandEventStarted, /* exitCode */ ExitCode.SUCCESS));
     listener.close();
-    bgTaskManager.notify(Notification.COMMAND_END);
+    managerScope.close();
 
     List<ChromeTraceEvent> originalResultList =
         ObjectMappers.readValue(
@@ -693,8 +685,6 @@ public class ChromeTraceBuildListenerTest {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(folder.toPath());
 
-    TestBackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
-
     // delete the folder after creating file system so write there would fail
     folder.delete();
     ChromeTraceBuildListener listener =
@@ -706,12 +696,13 @@ public class ChromeTraceBuildListenerTest {
             TimeZone.getTimeZone("America/Los_Angeles"),
             ManagementFactory.getThreadMXBean(),
             chromeTraceConfig(3, false),
-            bgTaskManager);
+            managerScope);
     listener.close();
-    BackgroundTask<?> closeTask = bgTaskManager.getScheduledTasksToTest().get(0);
-    bgTaskManager.notify(Notification.COMMAND_END);
+    TestBackgroundTaskManager manager = (TestBackgroundTaskManager) managerScope.getManager();
+    BackgroundTask<?> closeTask = manager.getScheduledTasksToTest().get(0);
+    managerScope.close();
 
-    Optional<Exception> exc = bgTaskManager.getTaskErrors().get(closeTask);
+    Optional<Exception> exc = manager.getTaskErrors().get(closeTask);
     assertTrue(exc.isPresent());
     assertTrue(exc.get() instanceof IOException);
   }
@@ -720,8 +711,6 @@ public class ChromeTraceBuildListenerTest {
   public void outputFileUsesCurrentTime() throws IOException {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot().toPath());
-
-    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
 
     ChromeTraceBuildListener listener =
         new ChromeTraceBuildListener(
@@ -732,9 +721,9 @@ public class ChromeTraceBuildListenerTest {
             TimeZone.getTimeZone("America/Los_Angeles"),
             ManagementFactory.getThreadMXBean(),
             chromeTraceConfig(1, false),
-            bgTaskManager);
+            managerScope);
     listener.close();
-    bgTaskManager.notify(Notification.COMMAND_END);
+    managerScope.close();
     assertTrue(
         projectFilesystem.exists(
             Paths.get(EXPECTED_DIR + "build.2014-09-02.16-55-51.BUILD_ID.trace")));
@@ -745,8 +734,6 @@ public class ChromeTraceBuildListenerTest {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(tmpDir.getRoot().toPath());
 
-    BackgroundTaskManager bgTaskManager = new TestBackgroundTaskManager();
-
     ChromeTraceBuildListener listener =
         new ChromeTraceBuildListener(
             projectFilesystem,
@@ -756,9 +743,9 @@ public class ChromeTraceBuildListenerTest {
             TimeZone.getTimeZone("America/Los_Angeles"),
             ManagementFactory.getThreadMXBean(),
             chromeTraceConfig(1, true),
-            bgTaskManager);
+            managerScope);
     listener.close();
-    bgTaskManager.notify(Notification.COMMAND_END);
+    managerScope.close();
 
     Path tracePath = Paths.get(EXPECTED_DIR + "build.2014-09-02.16-55-51.BUILD_ID.trace.gz");
 

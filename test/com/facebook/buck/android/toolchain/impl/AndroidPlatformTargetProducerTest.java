@@ -26,6 +26,8 @@ import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.file.MorePathsForTests;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -36,6 +38,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -43,6 +46,12 @@ import org.junit.rules.TemporaryFolder;
 public class AndroidPlatformTargetProducerTest {
   @Rule public TemporaryFolder tempDir = new TemporaryFolder();
   @Rule public TemporaryFolder projectRoot = new TemporaryFolder();
+  private ProjectFilesystem filesystem;
+
+  @Before
+  public void setUp() {
+    filesystem = TestProjectFilesystems.createProjectFilesystem(tempDir.getRoot().toPath());
+  }
 
   @Test
   public void testCreateFromDefaultDirectoryStructure() {
@@ -51,16 +60,19 @@ public class AndroidPlatformTargetProducerTest {
     String platformDirectoryPath = "platforms/android-16";
     Set<Path> additionalJarPaths = ImmutableSet.of();
 
+    AndroidBuildToolsLocation buildToolsLocation =
+        AndroidBuildToolsLocation.of(androidSdkDir.resolve("platform-tools"));
     AndroidPlatformTarget androidPlatformTarget =
         AndroidPlatformTargetProducer.createFromDefaultDirectoryStructure(
+            filesystem,
             name,
-            AndroidBuildToolsLocation.of(androidSdkDir.resolve("platform-tools")),
+            buildToolsLocation,
             AndroidSdkLocation.of(androidSdkDir),
             platformDirectoryPath,
             additionalJarPaths,
             /* aaptOverride */ Optional.empty(),
             /* aapt2Override */ Optional.empty());
-    assertEquals(name, androidPlatformTarget.getName());
+    assertEquals(name, androidPlatformTarget.getPlatformName());
     assertEquals(
         ImmutableList.of(
             MorePathsForTests.rootRelativePath("home/android/platforms/android-16/android.jar")),
@@ -83,7 +95,7 @@ public class AndroidPlatformTargetProducerTest {
         androidPlatformTarget.getOptimizedProguardConfig());
     assertEquals(
         androidSdkDir.resolve("platform-tools/aapt").toAbsolutePath(),
-        androidPlatformTarget.getAaptExecutable());
+        androidSdkDir.resolve(buildToolsLocation.getAaptPath()));
     assertEquals(
         androidSdkDir.resolve("platform-tools/aidl"), androidPlatformTarget.getAidlExecutable());
     assertEquals(
@@ -113,6 +125,7 @@ public class AndroidPlatformTargetProducerTest {
 
     AndroidPlatformTarget androidPlatformTarget =
         AndroidPlatformTargetProducer.getTargetForId(
+            filesystem,
             "Google Inc.:Google APIs:17",
             AndroidBuildToolsLocation.of(buildToolsDir.toPath()),
             AndroidSdkLocation.of(androidSdkDir.toPath()),
@@ -150,13 +163,14 @@ public class AndroidPlatformTargetProducerTest {
     String platformId = "Google Inc.:Google APIs:23";
     AndroidPlatformTarget androidPlatformTarget =
         AndroidPlatformTargetProducer.getTargetForId(
+            filesystem,
             platformId,
             AndroidBuildToolsLocation.of(buildToolsDir.toPath()),
             AndroidSdkLocation.of(androidSdkDir.toPath()),
             /* aaptOverride */ Optional.empty(),
             /* aapt2Override */ Optional.empty());
 
-    assertEquals(platformId, androidPlatformTarget.getName());
+    assertEquals(platformId, androidPlatformTarget.getPlatformName());
     assertEquals(
         ImmutableList.of(
             pathToAndroidSdkDir.resolve("platforms/android-23/android.jar"),
@@ -177,6 +191,7 @@ public class AndroidPlatformTargetProducerTest {
     String platformId = "Google Inc.:Google APIs:17";
     try {
       AndroidPlatformTargetProducer.getTargetForId(
+          filesystem,
           platformId,
           AndroidBuildToolsLocation.of(androidSdkDir.toPath().resolve("build-tools")),
           AndroidSdkLocation.of(androidSdkDir.toPath()),
@@ -213,6 +228,7 @@ public class AndroidPlatformTargetProducerTest {
     // This one should include the Google jars
     AndroidPlatformTarget androidPlatformTarget1 =
         AndroidPlatformTargetProducer.getTargetForId(
+            filesystem,
             "Google Inc.:Google APIs:17",
             AndroidBuildToolsLocation.of(buildToolsDir.toPath()),
             AndroidSdkLocation.of(androidSdkDir.toPath()),
@@ -229,6 +245,7 @@ public class AndroidPlatformTargetProducerTest {
     // This one should only include android.jar
     AndroidPlatformTarget androidPlatformTarget2 =
         AndroidPlatformTargetProducer.getTargetForId(
+            filesystem,
             "android-17",
             AndroidBuildToolsLocation.of(buildToolsDir.toPath()),
             AndroidSdkLocation.of(androidSdkDir.toPath()),
@@ -254,13 +271,14 @@ public class AndroidPlatformTargetProducerTest {
     String platformId = "Google Inc.:Google APIs:17";
     AndroidPlatformTarget androidPlatformTarget =
         AndroidPlatformTargetProducer.getTargetForId(
+            filesystem,
             platformId,
             AndroidBuildToolsLocation.of(buildToolsDirFromOldUpgradePath.toPath()),
             AndroidSdkLocation.of(androidSdkDir.toPath()),
             /* aaptOverride */ Optional.empty(),
             /* aapt2Override */ Optional.empty());
 
-    assertEquals(platformId, androidPlatformTarget.getName());
+    assertEquals(platformId, androidPlatformTarget.getPlatformName());
     assertEquals(
         pathToAndroidSdkDir.resolve("build-tools/17.0.0/zipalign"),
         androidPlatformTarget.getZipalignExecutable());
@@ -270,12 +288,13 @@ public class AndroidPlatformTargetProducerTest {
     Files.touch(new File(toolsDir, "zipalign"));
     androidPlatformTarget =
         AndroidPlatformTargetProducer.getTargetForId(
+            filesystem,
             platformId,
             AndroidBuildToolsLocation.of(buildToolsDirFromOldUpgradePath.toPath()),
             AndroidSdkLocation.of(androidSdkDir.toPath()),
             /* aaptOverride */ Optional.empty(),
             /* aapt2Override */ Optional.empty());
-    assertEquals(platformId, androidPlatformTarget.getName());
+    assertEquals(platformId, androidPlatformTarget.getPlatformName());
     assertEquals(
         pathToAndroidSdkDir.resolve("tools/zipalign"),
         androidPlatformTarget.getZipalignExecutable());
