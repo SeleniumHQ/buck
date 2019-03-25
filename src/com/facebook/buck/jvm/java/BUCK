@@ -331,11 +331,7 @@ java_library_with_plugins(
         "JavaLibraryDescription.java",
         "JavaLibraryRules.java",
         "JavaLibraryWithTests.java",
-<<<<<<< HEAD
-=======
         "JavaPluginDescription.java",
-        "JavaSourceJar.java",
->>>>>>> fb/master
         "JavaTest.java",
         "JavaTestDescription.java",
         "JavacFactory.java",
@@ -350,11 +346,8 @@ java_library_with_plugins(
         "MaybeRequiredForSourceOnlyAbiArg.java",
         "PrebuiltJar.java",
         "PrebuiltJarDescription.java",
-<<<<<<< HEAD
         "SourceJar.java",
-=======
         "StandardJavacPlugin.java",
->>>>>>> fb/master
         "UnusedDependenciesFinderFactory.java",
         "ZipArchiveDependencySupplier.java",
     ],

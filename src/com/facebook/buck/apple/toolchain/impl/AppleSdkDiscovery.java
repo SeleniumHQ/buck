@@ -251,7 +251,7 @@ public class AppleSdkDiscovery {
         sdkBuilder.addAllArchitectures(architectures);
         return true;
       }
-    } catch (NoSuchFileException e) {
+    } catch (NoSuchFileException | NullPointerException e) {
       LOG.warn(e, "Skipping SDK at path %s, no SDKSettings.plist found", sdkDir);
       return false;
     }
