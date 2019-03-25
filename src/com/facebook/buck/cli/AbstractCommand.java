@@ -16,6 +16,8 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
+import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellConfig;
 import com.facebook.buck.core.cell.CellName;
 import com.facebook.buck.core.cell.CellPathResolver;
@@ -23,6 +25,7 @@ import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.resources.ResourcesConfig;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.config.RuleKeyConfig;
@@ -30,23 +33,22 @@ import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.LogConfigSetup;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.parser.BuildTargetPatternTargetNodeParser;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.EventPostingRuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.TrackedRuleKeyCache;
-import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.support.cli.args.BuckCellArg;
 import com.facebook.buck.support.cli.args.GlobalCliOptions;
+import com.facebook.buck.test.config.TestBuckConfig;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.cache.InstrumentingCacheStatsTracker;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
+import com.facebook.buck.util.concurrent.ExecutorPool;
 import com.facebook.buck.util.config.Configs;
 import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.versions.VersionException;
@@ -59,7 +61,7 @@ import com.google.devtools.build.lib.clock.Clock;
 import com.google.devtools.build.lib.clock.JavaClock;
 import com.google.devtools.build.lib.profiler.Profiler;
 import com.google.devtools.build.lib.profiler.Profiler.Format;
-import com.google.devtools.build.lib.profiler.Profiler.ProfiledTaskKinds;
+import com.google.devtools.build.lib.profiler.ProfilerTask;
 import java.io.BufferedOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
@@ -159,12 +161,28 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
               + "log and trace.")
   private boolean enableParserProfiling = false;
 
+  @Option(
+      name = GlobalCliOptions.EXCLUDE_INCOMPATIBLE_TARGETS_LONG_ARG,
+      usage =
+          "Exclude targets that are not compatible with the given target platform. (experimental)")
+  private boolean excludeIncompatibleTargets = false;
+
   @Option(name = GlobalCliOptions.HELP_LONG_ARG, usage = "Prints the available options and exits.")
   private boolean help = false;
+
+  @Option(
+      name = GlobalCliOptions.REUSE_CURRENT_CONFIG_ARG,
+      usage = "Whether to re-use configuration of the currently running Buck daemon process.",
+      forbids = {GlobalCliOptions.CONFIG_LONG_ARG, GlobalCliOptions.CONFIG_FILE_LONG_ARG})
+  private boolean reuseCurrentConfig = false;
 
   /** @return {code true} if the {@code [cache]} in {@code .buckconfig} should be ignored. */
   public boolean isNoCache() {
     return noCache;
+  }
+
+  public boolean isReuseCurrentConfig() {
+    return reuseCurrentConfig;
   }
 
   public Optional<Path> getEventsOutputPath() {
@@ -219,103 +237,27 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
   }
 
   @Override
-  public final ExitCode run(CommandRunnerParams params) throws IOException, InterruptedException {
+  public final ExitCode run(CommandRunnerParams params) throws Exception {
     if (help) {
       printUsage(params.getConsole().getStdOut());
       return ExitCode.SUCCESS;
     }
     if (params.getConsole().getAnsi().isAnsiTerminal()) {
-      ImmutableList<String> motd = params.getBuckConfig().getMessageOfTheDay();
+      ImmutableList<String> motd =
+          params.getBuckConfig().getView(CliConfig.class).getMessageOfTheDay();
       if (!motd.isEmpty()) {
         for (String line : motd) {
           params.getBuckEventBus().post(ConsoleEvent.info(line));
         }
       }
     }
-    try (Closeable closeable = prepareExecutionContext(params)) {
+    try (Closeable closeable = prepareExecutionContext(params);
+        Closeable bazelProfiler = prepareBazelProfiler()) {
       return runWithoutHelp(params);
     }
   }
 
-  protected Closeable prepareExecutionContext(CommandRunnerParams params) {
-    executionContext = createExecutionContext(params);
-    return () -> {
-      ExecutionContext context = executionContext;
-      executionContext = null;
-      context.close();
-    };
-  }
-
-  public abstract ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException;
-
-  protected CommandLineBuildTargetNormalizer getCommandLineBuildTargetNormalizer(
-      BuckConfig buckConfig) {
-    return new CommandLineBuildTargetNormalizer(buckConfig);
-  }
-
-  public boolean getEnableParserProfiling() {
-    return enableParserProfiling;
-  }
-
-  public ImmutableList<TargetNodeSpec> parseArgumentsAsTargetNodeSpecs(
-      CellPathResolver cellPathResolver, BuckConfig config, Iterable<String> targetsAsArgs) {
-    ImmutableList.Builder<TargetNodeSpec> specs = ImmutableList.builder();
-    CommandLineTargetNodeSpecParser parser =
-        new CommandLineTargetNodeSpecParser(config, new BuildTargetPatternTargetNodeParser());
-    for (String arg : targetsAsArgs) {
-      specs.addAll(parser.parse(cellPathResolver, arg));
-    }
-    return specs.build();
-  }
-
-  /**
-   * @param cellNames
-   * @param buildTargetNames The build targets to parse, represented as strings.
-   * @return A set of {@link BuildTarget}s for the input buildTargetNames.
-   */
-  protected ImmutableSet<BuildTarget> getBuildTargets(
-      CellPathResolver cellNames, Iterable<String> buildTargetNames) {
-    ImmutableSet.Builder<BuildTarget> buildTargets = ImmutableSet.builder();
-
-    // Parse all of the build targets specified by the user.
-    for (String buildTargetName : buildTargetNames) {
-      buildTargets.add(
-          BuildTargetParser.INSTANCE.parse(
-              buildTargetName, BuildTargetPatternParser.fullyQualified(), cellNames));
-    }
-
-    return buildTargets.build();
-  }
-
-  protected ExecutionContext getExecutionContext() {
-    return executionContext;
-  }
-
-  private ExecutionContext createExecutionContext(CommandRunnerParams params) {
-    return getExecutionContextBuilder(params).build();
-  }
-
-  protected ExecutionContext.Builder getExecutionContextBuilder(CommandRunnerParams params) {
-    ExecutionContext.Builder builder =
-        ExecutionContext.builder()
-            .setConsole(params.getConsole())
-            .setBuckEventBus(params.getBuckEventBus())
-            .setPlatform(params.getPlatform())
-            .setEnvironment(params.getEnvironment())
-            .setJavaPackageFinder(params.getJavaPackageFinder())
-            .setExecutors(params.getExecutors())
-            .setCellPathResolver(params.getCell().getCellPathResolver())
-            .setBuildCellRootPath(params.getCell().getRoot())
-            .setProcessExecutor(new DefaultProcessExecutor(params.getConsole()))
-            .setDefaultTestTimeoutMillis(params.getBuckConfig().getDefaultTestTimeoutMillis())
-            .setInclNoLocationClassesEnabled(
-                params.getBuckConfig().getBooleanValue("test", "incl_no_location_classes", false))
-            .setRuleKeyDiagnosticsMode(
-                params.getBuckConfig().getView(RuleKeyConfig.class).getRuleKeyDiagnosticsMode())
-            .setConcurrencyLimit(getConcurrencyLimit(params.getBuckConfig()))
-            .setPersistentWorkerPools(params.getPersistentWorkerPools())
-            .setProjectFilesystemFactory(params.getProjectFilesystemFactory());
+  private Closeable prepareBazelProfiler() {
     if (skylarkProfile != null) {
       Clock clock = new JavaClock();
       try {
@@ -323,7 +265,7 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
             new BufferedOutputStream(Files.newOutputStream(Paths.get(skylarkProfile)));
         Profiler.instance()
             .start(
-                ProfiledTaskKinds.ALL,
+                ImmutableSet.copyOf(ProfilerTask.values()),
                 outputStream,
                 Format.JSON_TRACE_FILE_FORMAT,
                 "Buck profile for " + skylarkProfile + " at " + LocalDate.now(),
@@ -335,8 +277,69 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
         throw new HumanReadableException(
             "Cannot initialize Skylark profiler for " + skylarkProfile, e);
       }
-      builder.setProfiler(Optional.of(Profiler.instance()));
     }
+    return () -> Profiler.instance().stop();
+  }
+
+  protected Closeable prepareExecutionContext(CommandRunnerParams params) {
+    executionContext = createExecutionContext(params);
+    return () -> {
+      ExecutionContext context = executionContext;
+      executionContext = null;
+      context.close();
+    };
+  }
+
+  public abstract ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception;
+
+  protected CommandLineBuildTargetNormalizer getCommandLineBuildTargetNormalizer(
+      BuckConfig buckConfig) {
+    return new CommandLineBuildTargetNormalizer(buckConfig);
+  }
+
+  public boolean getEnableParserProfiling() {
+    return enableParserProfiling;
+  }
+
+  ImmutableList<TargetNodeSpec> parseArgumentsAsTargetNodeSpecs(
+      CellPathResolver cellPathResolver, BuckConfig config, Iterable<String> targetsAsArgs) {
+    ImmutableList.Builder<TargetNodeSpec> specs = ImmutableList.builder();
+    CommandLineTargetNodeSpecParser parser =
+        new CommandLineTargetNodeSpecParser(config, new BuildTargetPatternTargetNodeParser());
+    for (String arg : targetsAsArgs) {
+      specs.addAll(parser.parse(cellPathResolver, arg));
+    }
+    return specs.build();
+  }
+
+  protected ExecutionContext getExecutionContext() {
+    return executionContext;
+  }
+
+  private ExecutionContext createExecutionContext(CommandRunnerParams params) {
+    return getExecutionContextBuilder(params).build();
+  }
+
+  protected ExecutionContext.Builder getExecutionContextBuilder(CommandRunnerParams params) {
+    TestBuckConfig testBuckConfig = params.getBuckConfig().getView(TestBuckConfig.class);
+    ExecutionContext.Builder builder =
+        ExecutionContext.builder()
+            .setConsole(params.getConsole())
+            .setBuckEventBus(params.getBuckEventBus())
+            .setPlatform(params.getPlatform())
+            .setEnvironment(params.getEnvironment())
+            .setJavaPackageFinder(params.getJavaPackageFinder())
+            .setExecutors(params.getExecutors())
+            .setCellPathResolver(params.getCell().getCellPathResolver())
+            .setBuildCellRootPath(params.getCell().getRoot())
+            .setProcessExecutor(new DefaultProcessExecutor(params.getConsole()))
+            .setDefaultTestTimeoutMillis(testBuckConfig.getDefaultTestTimeoutMillis())
+            .setInclNoLocationClassesEnabled(testBuckConfig.isInclNoLocationClassesEnabled())
+            .setRuleKeyDiagnosticsMode(
+                params.getBuckConfig().getView(RuleKeyConfig.class).getRuleKeyDiagnosticsMode())
+            .setConcurrencyLimit(getConcurrencyLimit(params.getBuckConfig()))
+            .setPersistentWorkerPools(params.getPersistentWorkerPools())
+            .setProjectFilesystemFactory(params.getProjectFilesystemFactory());
     return builder;
   }
 
@@ -358,6 +361,7 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
             params.getBuckEventBus(),
             params.getBuckConfig(),
             params.getTypeCoercerFactory(),
+            params.getUnconfiguredBuildTargetFactory(),
             targetGraphAndBuildTargets);
   }
 
@@ -393,21 +397,28 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
     return ImmutableList.copyOf(targetPlatforms);
   }
 
+  public boolean getExcludeIncompatibleTargets() {
+    return excludeIncompatibleTargets;
+  }
+
   /**
    * Converts target arguments to fully qualified form (including resolving aliases, resolving the
    * implicit package target, etc).
    */
   protected ImmutableSet<BuildTarget> convertArgumentsToBuildTargets(
       CommandRunnerParams params, List<String> arguments) {
+    UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory =
+        params.getUnconfiguredBuildTargetFactory();
     return getCommandLineBuildTargetNormalizer(params.getBuckConfig())
         .normalizeAll(arguments)
         .stream()
         .map(
             input ->
-                BuildTargetParser.INSTANCE.parse(
-                    input,
-                    BuildTargetPatternParser.fullyQualified(),
-                    params.getCell().getCellPathResolver()))
+                unconfiguredBuildTargetFactory.create(
+                    params.getCell().getCellPathResolver(), input))
+        .map(
+            unconfiguredBuildTarget ->
+                unconfiguredBuildTarget.configure(params.getTargetConfiguration()))
         .collect(ImmutableSet.toImmutableSet());
   }
 
@@ -545,5 +556,13 @@ public abstract class AbstractCommand extends CommandWithPluginManager {
     }
 
     return builder.build();
+  }
+
+  @Override
+  public ParsingContext createParsingContext(Cell cell, ListeningExecutorService executor) {
+    return ParsingContext.builder(cell, executor)
+        .setProfilingEnabled(getEnableParserProfiling())
+        .setExcludeUnsupportedTargets(getExcludeIncompatibleTargets())
+        .build();
   }
 }

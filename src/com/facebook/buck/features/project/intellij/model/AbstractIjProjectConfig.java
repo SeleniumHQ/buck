@@ -99,11 +99,17 @@ abstract class AbstractIjProjectConfig {
 
   public abstract boolean isGeneratingAndroidManifestEnabled();
 
-  public abstract boolean isGeneratingTargetModuleMapEnabled();
+  public abstract boolean isGeneratingTargetInfoMapEnabled();
 
   public abstract Optional<String> getOutputUrl();
 
   public abstract Optional<Path> getExtraCompilerOutputModulesPath();
 
   public abstract Optional<String> getMinAndroidSdkVersion();
+
+  public abstract ImmutableSet<String> getIncludeTestPatterns();
+
+  public abstract ImmutableSet<String> getExcludeTestPatterns();
+
+  public abstract boolean isMultiCellModuleSupportEnabled();
 }

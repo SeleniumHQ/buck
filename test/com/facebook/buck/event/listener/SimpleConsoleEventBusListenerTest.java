@@ -47,16 +47,17 @@ import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.CommandEvent;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.event.InstallEvent;
+import com.facebook.buck.event.listener.interfaces.AdditionalConsoleLineProvider;
 import com.facebook.buck.parser.ParseEvent;
-import com.facebook.buck.test.TestResultSummaryVerbosity;
+import com.facebook.buck.test.config.TestResultSummaryVerbosity;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.IncrementingFakeClock;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
@@ -81,9 +82,10 @@ public class SimpleConsoleEventBusListenerTest {
   private static final StampedeId STAMPEDE_ID_ONE = new StampedeId().setId("stampedeIdOne");
   private static final String STAMPEDE_ID_ONE_MESSAGE =
       "StampedeId=[stampedeIdOne]" + System.lineSeparator();
-  private static final String TARGET_ONE = "TARGET_ONE";
-  private static final String TARGET_TWO = "TARGET_TWO";
+  private static final String TARGET_ONE = "//target:one";
+  private static final String TARGET_TWO = "//target:two";
   private static final String SEVERE_MESSAGE = "This is a sample severe message.";
+  private static final String ADDITIONAL_LINE_PROVIDER_TEXT = "[additional line from the provider]";
 
   private static final String FINISHED_DOWNLOAD_STRING = "DOWNLOADED 0 ARTIFACTS, 0.00 BYTES";
 
@@ -109,18 +111,36 @@ public class SimpleConsoleEventBusListenerTest {
   public static Collection<Object[]> data() {
     return Arrays.asList(
         new Object[][] {
-          {false, Optional.empty(), "no_build_id_and_no_build_url"},
-          {true, Optional.empty(), "build_id_and_no_build_url"},
+          {false, Optional.empty(), "no_build_id_and_no_build_url", Optional.empty(), false},
+          {true, Optional.empty(), "build_id_and_no_build_url", Optional.empty(), false},
           {
             true,
             Optional.of("View details at https://example.com/build/{build_id}"),
-            "build_id_and_build_url"
+            "build_id_and_build_url",
+            Optional.empty(),
+            false
           },
           {
             false,
             Optional.of("View details at https://example.com/build/{build_id}"),
-            "no_build_id_and_build_url"
-          }
+            "no_build_id_and_build_url",
+            Optional.empty(),
+            false
+          },
+          {
+            false,
+            Optional.empty(),
+            "with_re_session_id",
+            Optional.of("super cool remote execution session id."),
+            false
+          },
+          {
+            false,
+            Optional.empty(),
+            "with_additional_line_provider",
+            Optional.of("super cool remote execution session id."),
+            true
+          },
         });
   }
 
@@ -135,12 +155,22 @@ public class SimpleConsoleEventBusListenerTest {
   @Parameterized.Parameter(2)
   public String _ignoredName;
 
+  @Parameterized.Parameter(3)
+  public Optional<String> reSessionIdDetails;
+
+  @Parameterized.Parameter(4)
+  public boolean enableAdditionalLineProviders;
+
   @Test
   public void testSimpleBuild() {
-    setupSimpleConsole(false, printBuildId, buildDetailsTemplate);
+    setupSimpleConsole(false, printBuildId, buildDetailsTemplate, reSessionIdDetails);
     String expectedOutput = "";
     if (printBuildId) {
       expectedOutput = "Build UUID: 1234-5678" + System.lineSeparator();
+    }
+    if (reSessionIdDetails.isPresent()) {
+      expectedOutput +=
+          "[RE] SessionInfo: [super cool remote execution session id.]." + System.lineSeparator();
     }
     assertOutput(expectedOutput, console);
 
@@ -175,10 +205,12 @@ public class SimpleConsoleEventBusListenerTest {
         configureTestEventAtTime(started, 600L, TimeUnit.MILLISECONDS, threadId));
 
     HttpArtifactCacheEvent.Scheduled storeScheduledOne =
-        ArtifactCacheTestUtils.postStoreScheduled(eventBus, threadId, TARGET_ONE, 700L);
+        ArtifactCacheTestUtils.postStoreScheduled(
+            eventBus, threadId, BuildTargetFactory.newInstance(TARGET_ONE), 700L);
 
     HttpArtifactCacheEvent.Scheduled storeScheduledTwo =
-        ArtifactCacheTestUtils.postStoreScheduled(eventBus, threadId, TARGET_TWO, 700L);
+        ArtifactCacheTestUtils.postStoreScheduled(
+            eventBus, threadId, BuildTargetFactory.newInstance(TARGET_TWO), 700L);
 
     HttpArtifactCacheEvent.Started storeStartedOne =
         ArtifactCacheTestUtils.postStoreStarted(eventBus, threadId, 710L, storeScheduledOne);
@@ -213,6 +245,8 @@ public class SimpleConsoleEventBusListenerTest {
             threadId));
 
     expectedOutput += "BUILT  0.4s //banana:stand" + System.lineSeparator();
+
+    expectedOutput += getAdditionalLineProviderText();
 
     expectedOutput +=
         linesToText(
@@ -303,12 +337,12 @@ public class SimpleConsoleEventBusListenerTest {
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
 
+    expectedOutput += getAdditionalLineProviderText();
+    expectedOutput += FINISHED_DOWNLOAD_STRING + ", 0.0% CACHE MISS" + System.lineSeparator();
     expectedOutput +=
         linesToText("BUILDING: FINISHED IN 1.0s 0/10 JOBS, 0 UPDATED", "BUILD SUCCEEDED", "");
 
-    assertOutput(
-        FINISHED_DOWNLOAD_STRING + ", 0.0% CACHE MISS" + System.lineSeparator() + expectedOutput,
-        console);
+    assertOutput(expectedOutput, console);
   }
 
   @Test
@@ -357,9 +391,10 @@ public class SimpleConsoleEventBusListenerTest {
             600L,
             TimeUnit.MILLISECONDS,
             /* threadId */ 0L));
+    expectedOutput += "CREATING ACTION GRAPH: FINISHED IN 0.2s" + System.lineSeparator();
+    expectedOutput += getAdditionalLineProviderText();
     expectedOutput +=
         linesToText(
-            "CREATING ACTION GRAPH: FINISHED IN 0.2s",
             FINISHED_DOWNLOAD_STRING + ", 0.0% CACHE MISS",
             "BUILDING: FINISHED IN 0.1s",
             "BUILD SUCCEEDED",
@@ -519,6 +554,8 @@ public class SimpleConsoleEventBusListenerTest {
             TimeUnit.MILLISECONDS,
             threadId));
 
+    expectedOutput += getAdditionalLineProviderText();
+
     expectedOutput +=
         linesToText(
             FINISHED_DOWNLOAD_STRING + ", 100.0% CACHE MISS",
@@ -546,14 +583,17 @@ public class SimpleConsoleEventBusListenerTest {
   }
 
   private void setupSimpleConsole(boolean hideSucceededRules) {
-    setupSimpleConsole(hideSucceededRules, false, Optional.empty());
+    setupSimpleConsole(hideSucceededRules, false, Optional.empty(), Optional.empty());
   }
 
   private void setupSimpleConsole(
-      boolean hideSucceededRules, boolean printBuildId, Optional<String> buildDetailsTemplate) {
+      boolean hideSucceededRules,
+      boolean printBuildId,
+      Optional<String> buildDetailsTemplate,
+      Optional<String> reSessionIdInfo) {
     SimpleConsoleEventBusListener listener =
         new SimpleConsoleEventBusListener(
-            console,
+            new RenderingConsole(fakeClock, console),
             fakeClock,
             TestResultSummaryVerbosity.of(false, false),
             hideSucceededRules,
@@ -562,11 +602,27 @@ public class SimpleConsoleEventBusListenerTest {
             Locale.US,
             logPath,
             new DefaultExecutionEnvironment(
-                ImmutableMap.copyOf(System.getenv()), System.getProperties()),
+                EnvVariablesProvider.getSystemEnv(), System.getProperties()),
             buildId,
             printBuildId,
-            buildDetailsTemplate);
+            buildDetailsTemplate,
+            reSessionIdInfo,
+            enableAdditionalLineProviders ? createAdditionalLineProvider() : ImmutableList.of());
 
-    eventBus.register(listener);
+    listener.register(eventBus);
+  }
+
+  private ImmutableList<AdditionalConsoleLineProvider> createAdditionalLineProvider() {
+    AdditionalConsoleLineProvider provider =
+        currentTimeMillis -> ImmutableList.of(ADDITIONAL_LINE_PROVIDER_TEXT);
+    return ImmutableList.of(provider);
+  }
+
+  private String getAdditionalLineProviderText() {
+    if (enableAdditionalLineProviders) {
+      return ADDITIONAL_LINE_PROVIDER_TEXT + System.lineSeparator();
+    } else {
+      return "";
+    }
   }
 }

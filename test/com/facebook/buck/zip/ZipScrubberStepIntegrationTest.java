@@ -19,7 +19,7 @@ package com.facebook.buck.zip;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
-import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.zip.ZipConstants;
@@ -60,64 +60,6 @@ public class ZipScrubberStepIntegrationTest {
       out.putNextEntry(entry);
       out.write(data);
       out.closeEntry();
-    }
-
-    // Execute the zip scrubber step.
-    ExecutionContext executionContext = TestExecutionContext.newInstance();
-    ZipScrubberStep step = ZipScrubberStep.of(tmp.getRoot().resolve(Paths.get("output.zip")));
-    assertEquals(0, step.execute(executionContext).getExitCode());
-
-    // Iterate over each of the entries, expecting to see all zeros in the time fields.
-    Date dosEpoch = new Date(ZipUtil.dosToJavaTime(ZipConstants.DOS_FAKE_TIME));
-    try (ZipInputStream is = new ZipInputStream(new FileInputStream(zip.toFile()))) {
-      for (ZipEntry entry = is.getNextEntry(); entry != null; entry = is.getNextEntry()) {
-        assertThat(entry.getName(), new Date(entry.getTime()), Matchers.equalTo(dosEpoch));
-      }
-    }
-  }
-
-  @Test
-  public void modificationTimesExceedShort() throws Exception {
-    // Create a dummy ZIP file.
-    Path zip = tmp.newFile("output.zip");
-    byte[] data = "data1".getBytes(Charsets.UTF_8);
-    try (ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zip))) {
-      for (long i = 0; i < Short.MAX_VALUE + 1; i++) {
-        ZipEntry entry = new ZipEntry("file" + i);
-        entry.setSize(data.length);
-        out.putNextEntry(entry);
-        out.write(data);
-        out.closeEntry();
-      }
-    }
-
-    // Execute the zip scrubber step.
-    ExecutionContext executionContext = TestExecutionContext.newInstance();
-    ZipScrubberStep step = ZipScrubberStep.of(tmp.getRoot().resolve(Paths.get("output.zip")));
-    assertEquals(0, step.execute(executionContext).getExitCode());
-
-    // Iterate over each of the entries, expecting to see all zeros in the time fields.
-    Date dosEpoch = new Date(ZipUtil.dosToJavaTime(ZipConstants.DOS_FAKE_TIME));
-    try (ZipInputStream is = new ZipInputStream(new FileInputStream(zip.toFile()))) {
-      for (ZipEntry entry = is.getNextEntry(); entry != null; entry = is.getNextEntry()) {
-        assertThat(entry.getName(), new Date(entry.getTime()), Matchers.equalTo(dosEpoch));
-      }
-    }
-  }
-
-  @Test
-  public void modificationZip64Times() throws Exception {
-    // Create a dummy ZIP file.
-    Path zip = tmp.newFile("output.zip");
-    byte[] data = "data1".getBytes(Charsets.UTF_8);
-    try (ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(zip))) {
-      for (long i = 0; i < 2 * Short.MAX_VALUE + 1; i++) {
-        ZipEntry entry = new ZipEntry("file" + i);
-        entry.setSize(data.length);
-        out.putNextEntry(entry);
-        out.write(data);
-        out.closeEntry();
-      }
     }
 
     // Execute the zip scrubber step.

@@ -16,8 +16,8 @@
 
 package com.facebook.buck.step.fs;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.google.common.base.Charsets;
@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
 import org.stringtemplate.v4.ST;
 
 /**
@@ -66,7 +67,7 @@ public class StringTemplateStep implements Step {
     }
 
     return new WriteFileStep(
-            filesystem, Preconditions.checkNotNull(st.render()), outputPath, /* executable */ false)
+            filesystem, Objects.requireNonNull(st.render()), outputPath, /* executable */ false)
         .execute(context);
   }
 

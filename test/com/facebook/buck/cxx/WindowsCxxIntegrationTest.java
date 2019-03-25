@@ -76,6 +76,12 @@ public class WindowsCxxIntegrationTest {
   }
 
   @Test
+  public void simpleBinary64WithDebugFull() throws IOException {
+    ProcessResult runResult = workspace.runBuckCommand("build", "//app:pdb");
+    runResult.assertSuccess();
+  }
+
+  @Test
   public void simpleBinaryWithLib() throws IOException {
     ProcessResult runResult = workspace.runBuckCommand("run", "//app_lib:app_lib#windows-x86_64");
     runResult.assertSuccess();
@@ -158,7 +164,9 @@ public class WindowsCxxIntegrationTest {
     Assert.assertThat(
         result.getStderr(),
         Matchers.containsString(
-            "header_check\\untracked_header.cpp: included an untracked header \"header_check\\untracked_header.h\""));
+            String.format(
+                "header_check\\untracked_header.cpp: included an untracked header: %n"
+                    + "header_check\\untracked_header.h")));
   }
 
   @Test
@@ -170,13 +178,50 @@ public class WindowsCxxIntegrationTest {
             "cxx.untracked_headers=error",
             "-c",
             "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
+            "-c",
+            "cxx.detailed_untracked_header_messages=true",
             "//header_check:nested_untracked_header#windows-x86_64");
     result.assertFailure();
     Assert.assertThat(
         result.getStderr(),
         Matchers.containsString(
-            "header_check\\nested_untracked_header.cpp: included an untracked header \"header_check\\untracked_header.h\", which is included by:\n"
-                + "\t\"header_check\\untracked_header_includer.h\", which is included by:\n"
-                + "\t\"header_check\\parent_header.h\""));
+            String.format(
+                "header_check\\nested_untracked_header.cpp: included an untracked header: %n"
+                    + "header_check\\untracked_header.h, which is included by: %n"
+                    + "header_check\\untracked_header_includer.h, which is included by: %n"
+                    + "header_check\\parent_header.h")));
+  }
+
+  @Test
+  public void errorVerifyNestedHeadersWithCycle() throws IOException {
+    ProcessResult result;
+    result =
+        workspace.runBuckBuild(
+            "-c",
+            "cxx.untracked_headers=error",
+            "-c",
+            "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
+            "-c",
+            "cxx.detailed_untracked_header_messages=true",
+            "//header_check:nested_untracked_header_with_cycle#windows-x86_64");
+    result.assertFailure();
+    Assert.assertThat(
+        result.getStderr(),
+        Matchers.containsString(
+            String.format(
+                "header_check\\nested_untracked_header_with_cycle.cpp: included an untracked header: %n"
+                    + "header_check\\untracked_header.h, which is included by: %n"
+                    + "header_check\\untracked_header_includer.h, which is included by: %n"
+                    + "header_check\\parent_header.h")));
+  }
+
+  @Test
+  public void compilationDatabaseCanBeBuilt() throws IOException {
+    workspace.runBuckBuild("//app:hello#compilation-database,windows-x86_64").assertSuccess();
+    workspace.runBuckBuild("//app_asm:app_asm#compilation-database,windows-x86_64").assertSuccess();
+    workspace.runBuckBuild("//app_lib:app_lib#compilation-database,windows-x86_64").assertSuccess();
+    workspace.runBuckBuild("//lib:lib#compilation-database,windows-x86_64,static").assertSuccess();
+    workspace.runBuckBuild("//lib:lib#compilation-database,windows-x86_64,shared").assertSuccess();
+    workspace.runBuckBuild("//lib:lib#compilation-database,windows-x86_64").assertSuccess();
   }
 }

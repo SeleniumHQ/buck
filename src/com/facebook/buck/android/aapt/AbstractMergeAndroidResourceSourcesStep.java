@@ -23,17 +23,16 @@ import com.android.ide.common.res2.ResourceMerger;
 import com.android.ide.common.res2.ResourceSet;
 import com.android.utils.ILogger;
 import com.facebook.buck.android.BuckEventAndroidLogger;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import java.io.IOException;
 import java.nio.file.Path;
 import org.immutables.value.Value;
 
@@ -70,8 +69,7 @@ abstract class AbstractMergeAndroidResourceSourcesStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context)
-      throws IOException, InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) {
     ResourceMerger merger = new ResourceMerger(1);
     try {
       for (Path resPath : getResPaths()) {

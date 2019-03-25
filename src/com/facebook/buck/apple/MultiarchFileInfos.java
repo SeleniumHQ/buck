@@ -27,17 +27,22 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
+import com.facebook.buck.core.rules.impl.NoopBuildRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
+import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.CxxCompilationDatabase;
 import com.facebook.buck.cxx.CxxInferEnhancer;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.google.common.base.Preconditions;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SortedSet;
@@ -67,7 +72,7 @@ public class MultiarchFileInfos {
     AppleSdk sdk = null;
     for (SortedSet<Flavor> flavorSet : thinFlavorSets) {
       AppleCxxPlatform platform =
-          Preconditions.checkNotNull(appleCxxPlatforms.getValue(flavorSet).orElse(null));
+          Objects.requireNonNull(appleCxxPlatforms.getValue(flavorSet).orElse(null));
       if (sdk == null) {
         sdk = platform.getAppleSdk();
         representativePlatform = platform;
@@ -81,7 +86,7 @@ public class MultiarchFileInfos {
     MultiarchFileInfo.Builder builder =
         MultiarchFileInfo.builder()
             .setFatTarget(target)
-            .setRepresentativePlatform(Preconditions.checkNotNull(representativePlatform));
+            .setRepresentativePlatform(Objects.requireNonNull(representativePlatform));
 
     BuildTarget platformFreeTarget = target.withoutFlavors(appleCxxPlatforms.getFlavors());
     for (SortedSet<Flavor> flavorSet : thinFlavorSets) {
@@ -143,34 +148,73 @@ public class MultiarchFileInfos {
       BuildRuleParams params,
       ActionGraphBuilder graphBuilder,
       MultiarchFileInfo info,
-      ImmutableSortedSet<BuildRule> thinRules) {
+      ImmutableSortedSet<BuildRule> thinRules,
+      CxxBuckConfig cxxBuckConfig) {
     Optional<BuildRule> existingRule = graphBuilder.getRuleOptional(info.getFatTarget());
     if (existingRule.isPresent()) {
       return existingRule.get();
     }
 
-    for (BuildRule rule : thinRules) {
-      if (rule.getSourcePathToOutput() == null) {
-        throw new HumanReadableException("%s: no output so it cannot be a multiarch input", rule);
-      }
-    }
-
+    // Thin rules filtered to remove those with null output
     ImmutableSortedSet<SourcePath> inputs =
         FluentIterable.from(thinRules)
             .transform(BuildRule::getSourcePathToOutput)
+            .filter(SourcePath.class)
             .toSortedSet(Ordering.natural());
-    SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
-    MultiarchFile multiarchFile =
-        new MultiarchFile(
-            buildTarget,
-            projectFilesystem,
-            params.withoutDeclaredDeps().withExtraDeps(thinRules),
-            ruleFinder,
-            info.getRepresentativePlatform().getLipo(),
-            inputs,
-            BuildTargetPaths.getGenPath(projectFilesystem, buildTarget, "%s"));
-    graphBuilder.addToIndex(multiarchFile);
-    return multiarchFile;
+
+    // If any thin rule exists with output, use `MultiarchFile` to generate binary. Otherwise,
+    // use a `NoopBuildRule` to handle inputs like those without any sources.
+    if (!inputs.isEmpty()) {
+      SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
+      SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
+      String multiarchOutputPathFormat = getMultiarchOutputFormatString(pathResolver, inputs);
+
+      MultiarchFile multiarchFile =
+          new MultiarchFile(
+              buildTarget,
+              projectFilesystem,
+              params.withoutDeclaredDeps().withExtraDeps(thinRules),
+              ruleFinder,
+              info.getRepresentativePlatform().getLipo(),
+              inputs,
+              cxxBuckConfig.shouldCacheLinks(),
+              BuildTargetPaths.getGenPath(
+                  projectFilesystem, buildTarget, multiarchOutputPathFormat));
+      graphBuilder.addToIndex(multiarchFile);
+      return multiarchFile;
+    } else {
+      return new NoopBuildRule(buildTarget, projectFilesystem);
+    }
+  }
+
+  private static final String BASE_OUTPUT_FORMAT_STRING = "%s";
+  private static final String NESTED_OUTPUT_FORMAT_STRING = "%s/";
+
+  /**
+   * Generate the format string for the fat rule output. If all the thin rules have the same output
+   * file name, use this as the file name for the fat rule output. Otherwise, default to simple
+   * string substitution.
+   */
+  @VisibleForTesting
+  static String getMultiarchOutputFormatString(
+      SourcePathResolver pathResolver, ImmutableSortedSet<SourcePath> inputs) {
+    if (inputs.isEmpty()) {
+      return BASE_OUTPUT_FORMAT_STRING;
+    }
+
+    String outputFileName = pathResolver.getAbsolutePath(inputs.first()).getFileName().toString();
+
+    for (SourcePath input : inputs) {
+      String inputFileName = pathResolver.getAbsolutePath(input).getFileName().toString();
+
+      if (!outputFileName.equals(inputFileName)) {
+        // not all input files have the same name, so don't try to match them
+        return BASE_OUTPUT_FORMAT_STRING;
+      }
+    }
+
+    // all input files have same output file name, match it for the output
+    return NESTED_OUTPUT_FORMAT_STRING + outputFileName;
   }
 
   private static final ImmutableSet<Flavor> FORBIDDEN_BUILD_ACTIONS =

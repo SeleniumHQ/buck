@@ -20,6 +20,7 @@ import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -103,7 +104,7 @@ public class ParserBenchmark {
 
     cell = new TestCellBuilder().setFilesystem(filesystem).setBuckConfig(config).build();
     executorService = MoreExecutors.listeningDecorator(Executors.newFixedThreadPool(threadCount));
-    parser = TestParserFactory.create(config);
+    parser = TestParserFactory.create(cell);
   }
 
   @After
@@ -120,12 +121,13 @@ public class ParserBenchmark {
 
   @Benchmark
   public void parseMultipleTargets() throws Exception {
-    parser.buildTargetGraphForTargetNodeSpecs(
-        cell,
-        /* enableProfiling */ false,
-        executorService,
+    parser.buildTargetGraphWithConfigurationTargets(
+        ParsingContext.builder(cell, executorService)
+            .setSpeculativeParsing(SpeculativeParsing.ENABLED)
+            .build(),
         ImmutableList.of(
-            TargetNodePredicateSpec.of(
-                BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))));
+            ImmutableTargetNodePredicateSpec.of(
+                BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))),
+        EmptyTargetConfiguration.INSTANCE);
   }
 }

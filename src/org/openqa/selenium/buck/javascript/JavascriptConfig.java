@@ -18,6 +18,7 @@ package org.openqa.selenium.buck.javascript;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
@@ -51,7 +52,10 @@ public class JavascriptConfig {
   }
 
   public SourcePath getClosureCompilerSourcePath(Optional<SourcePath> compilerPath) {
-    Optional<SourcePath> path = delegate.getSourcePath("tools", "closure_compiler");
+    Optional<SourcePath> path = delegate.getSourcePath(
+        "tools",
+        "closure_compiler",
+        EmptyTargetConfiguration.INSTANCE);
     if (!path.isPresent()) {
       throw new HumanReadableException("Unable to determine closure compiler to use");
     }

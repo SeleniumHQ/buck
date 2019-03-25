@@ -16,16 +16,17 @@
 package com.facebook.buck.parser;
 
 import static com.facebook.buck.util.concurrent.MoreFutures.propagateCauseIfInstanceOf;
-import static com.google.common.base.Throwables.propagateIfInstanceOf;
+import static com.google.common.base.Throwables.throwIfInstanceOf;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import java.nio.file.Path;
@@ -51,17 +52,19 @@ public abstract class ParsePipeline<T> implements AutoCloseable {
    *
    * @param cell the {@link Cell} that the build file belongs to.
    * @param buildFile absolute path to the file to process.
+   * @param targetConfiguration the configuration of targets.
    * @return all targets from the file
    * @throws BuildFileParseException for syntax errors.
    */
-  public final ImmutableSet<T> getAllNodes(Cell cell, Path buildFile)
+  public final ImmutableList<T> getAllNodes(
+      Cell cell, Path buildFile, TargetConfiguration targetConfiguration)
       throws BuildFileParseException {
     Preconditions.checkState(!shuttingDown.get());
 
     try {
-      return getAllNodesJob(cell, buildFile).get();
+      return getAllNodesJob(cell, buildFile, targetConfiguration).get();
     } catch (Exception e) {
-      propagateIfInstanceOf(e.getCause(), BuildFileParseException.class);
+      propagateCauseIfInstanceOf(e, BuildFileParseException.class);
       propagateCauseIfInstanceOf(e, ExecutionException.class);
       propagateCauseIfInstanceOf(e, UncheckedExecutionException.class);
       throw new RuntimeException(e);
@@ -85,11 +88,11 @@ public abstract class ParsePipeline<T> implements AutoCloseable {
       return getNodeJob(cell, buildTarget).get();
     } catch (Exception e) {
       if (e.getCause() != null) {
-        propagateIfInstanceOf(e.getCause(), BuildFileParseException.class);
-        propagateIfInstanceOf(e.getCause(), BuildTargetException.class);
+        throwIfInstanceOf(e.getCause(), BuildFileParseException.class);
+        throwIfInstanceOf(e.getCause(), BuildTargetException.class);
       }
-      propagateIfInstanceOf(e, BuildFileParseException.class);
-      propagateIfInstanceOf(e, BuildTargetException.class);
+      throwIfInstanceOf(e, BuildFileParseException.class);
+      throwIfInstanceOf(e, BuildTargetException.class);
       propagateCauseIfInstanceOf(e, ExecutionException.class);
       propagateCauseIfInstanceOf(e, UncheckedExecutionException.class);
       throw new RuntimeException(e);
@@ -106,9 +109,10 @@ public abstract class ParsePipeline<T> implements AutoCloseable {
    *
    * @param cell the {@link Cell} that the build file belongs to.
    * @param buildFile absolute path to the file to process.
-   * @return future.
+   * @param targetConfiguration the configuration of targets.
    */
-  public abstract ListenableFuture<ImmutableSet<T>> getAllNodesJob(Cell cell, Path buildFile)
+  public abstract ListenableFuture<ImmutableList<T>> getAllNodesJob(
+      Cell cell, Path buildFile, TargetConfiguration targetConfiguration)
       throws BuildTargetException;
 
   /**

@@ -38,16 +38,17 @@ import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.rules.query.QueryUtils;
+import com.facebook.buck.test.config.TestBuckConfig;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.base.Preconditions;
@@ -118,13 +119,14 @@ public class CxxTestDescription
     return deps.build();
   }
 
-  private CxxPlatform getCxxPlatform(
+  private UnresolvedCxxPlatform getCxxPlatform(
       BuildTarget target, CxxBinaryDescription.CommonArg constructorArg) {
     CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
-    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
+    FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms =
+        cxxPlatformsProvider.getUnresolvedCxxPlatforms();
 
     // First check if the build target is setting a particular target.
-    Optional<CxxPlatform> targetPlatform = cxxPlatforms.getValue(target.getFlavors());
+    Optional<UnresolvedCxxPlatform> targetPlatform = cxxPlatforms.getValue(target.getFlavors());
     if (targetPlatform.isPresent()) {
       return targetPlatform.get();
     }
@@ -135,7 +137,8 @@ public class CxxTestDescription
     }
 
     // Otherwise, fallback to the description-level default platform.
-    return cxxPlatforms.getValue(cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor());
+    return cxxPlatforms.getValue(
+        cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform().getFlavor());
   }
 
   @Override
@@ -159,8 +162,8 @@ public class CxxTestDescription
         LinkerMapMode.removeLinkerMapModeFlavorInTarget(inputBuildTarget, flavoredLinkerMapMode);
     BuildTarget buildTarget = inputBuildTarget;
 
-    CxxPlatform cxxPlatform = getCxxPlatform(buildTarget, args);
     ActionGraphBuilder graphBuilder = context.getActionGraphBuilder();
+    CxxPlatform cxxPlatform = getCxxPlatform(buildTarget, args).resolve(graphBuilder);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     CellPathResolver cellRoots = context.getCellPathResolver();
@@ -184,7 +187,7 @@ public class CxxTestDescription
 
     if (buildTarget.getFlavors().contains(CxxCompilationDatabase.UBER_COMPILATION_DATABASE)) {
       return CxxDescriptionEnhancer.createUberCompilationDatabase(
-          getCxxPlatformsProvider().getCxxPlatforms().getValue(buildTarget).isPresent()
+          getCxxPlatformsProvider().getUnresolvedCxxPlatforms().getValue(buildTarget).isPresent()
               ? buildTarget
               : buildTarget.withAppendedFlavors(cxxPlatform.getFlavor()),
           projectFilesystem,
@@ -278,7 +281,11 @@ public class CxxTestDescription
                   args.getRunTestSeparately().orElse(false),
                   args.getTestRuleTimeoutMs()
                       .map(Optional::of)
-                      .orElse(cxxBuckConfig.getDelegate().getDefaultTestRuleTimeoutMs()),
+                      .orElse(
+                          cxxBuckConfig
+                              .getDelegate()
+                              .getView(TestBuckConfig.class)
+                              .getDefaultTestRuleTimeoutMs()),
                   cxxBuckConfig.getMaximumTestOutputSize());
           break;
         }
@@ -303,7 +310,11 @@ public class CxxTestDescription
                   args.getRunTestSeparately().orElse(false),
                   args.getTestRuleTimeoutMs()
                       .map(Optional::of)
-                      .orElse(cxxBuckConfig.getDelegate().getDefaultTestRuleTimeoutMs()));
+                      .orElse(
+                          cxxBuckConfig
+                              .getDelegate()
+                              .getView(TestBuckConfig.class)
+                              .getDefaultTestRuleTimeoutMs()));
           break;
         }
       default:
@@ -326,7 +337,7 @@ public class CxxTestDescription
 
     // Get any parse time deps from the C/C++ platforms.
     targetGraphOnlyDepsBuilder.addAll(
-        CxxPlatforms.getParseTimeDeps(getCxxPlatform(buildTarget, constructorArg)));
+        getCxxPlatform(buildTarget, constructorArg).getParseTimeDeps());
 
     // Add in any implicit framework deps.
     extraDepsBuilder.addAll(getImplicitFrameworkDeps(constructorArg));
@@ -366,7 +377,7 @@ public class CxxTestDescription
       return true;
     }
 
-    return getCxxPlatformsProvider().getCxxPlatforms().containsAnyOf(flavors)
+    return getCxxPlatformsProvider().getUnresolvedCxxPlatforms().containsAnyOf(flavors)
         || !Sets.intersection(declaredPlatforms, flavors).isEmpty();
   }
 

@@ -16,12 +16,13 @@
 
 package com.facebook.buck.cxx;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.CompositeArg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -48,8 +49,10 @@ class CxxWriteArgsToFileStep implements Step {
       ImmutableList<Arg> args,
       Optional<Function<String, String>> escaper,
       Path currentCellPath,
-      SourcePathResolver pathResolver) {
-    ImmutableList<String> argFileContents = stringify(args, currentCellPath, pathResolver);
+      SourcePathResolver pathResolver,
+      boolean useUnixPathSeparator) {
+    ImmutableList<String> argFileContents =
+        stringify(args, currentCellPath, pathResolver, useUnixPathSeparator);
     if (escaper.isPresent()) {
       argFileContents =
           argFileContents.stream().map(escaper.get()).collect(ImmutableList.toImmutableList());
@@ -68,14 +71,24 @@ class CxxWriteArgsToFileStep implements Step {
   }
 
   static ImmutableList<String> stringify(
-      ImmutableCollection<Arg> args, Path currentCellPath, SourcePathResolver pathResolver) {
+      ImmutableCollection<Arg> args,
+      Path currentCellPath,
+      SourcePathResolver pathResolver,
+      boolean useUnixPathSeparator) {
     ImmutableList.Builder<String> builder = ImmutableList.builder();
     for (Arg arg : args) {
       if (arg instanceof FileListableLinkerInputArg) {
         ((FileListableLinkerInputArg) arg)
-            .appendToCommandLineRel(builder::add, currentCellPath, pathResolver);
+            .appendToCommandLineRel(
+                builder::add, currentCellPath, pathResolver, useUnixPathSeparator);
       } else if (arg instanceof SourcePathArg) {
-        ((SourcePathArg) arg).appendToCommandLineRel(builder::add, currentCellPath, pathResolver);
+        ((SourcePathArg) arg)
+            .appendToCommandLineRel(
+                builder::add, currentCellPath, pathResolver, useUnixPathSeparator);
+      } else if (arg instanceof CompositeArg) {
+        ((CompositeArg) arg)
+            .appendToCommandLineRel(
+                builder::add, currentCellPath, pathResolver, useUnixPathSeparator);
       } else {
         arg.appendToCommandLine(builder::add, pathResolver);
       }
@@ -84,8 +97,7 @@ class CxxWriteArgsToFileStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context)
-      throws IOException, InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) throws IOException {
     if (Files.notExists(argFilePath.getParent())) {
       Files.createDirectories(argFilePath.getParent());
     }

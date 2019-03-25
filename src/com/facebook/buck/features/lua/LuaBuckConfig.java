@@ -17,15 +17,16 @@
 package com.facebook.buck.features.lua;
 
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ErrorToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.SystemToolProvider;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.DefaultCxxPlatforms;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkStrategy;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.rules.tool.config.ToolConfig;
-import com.facebook.buck.util.RichStream;
-import com.google.common.collect.ImmutableList;
 import java.nio.file.Paths;
 
 public class LuaBuckConfig {
@@ -54,11 +55,14 @@ public class LuaBuckConfig {
                             .setName(Paths.get("lua"))
                             .setEnvironment(delegate.getEnvironment())
                             .build()))
-        .setLuaCxxLibraryTarget(delegate.getBuildTarget(section, "cxx_library"))
+        .setLuaCxxLibraryTarget(
+            delegate.getBuildTarget(section, "cxx_library", EmptyTargetConfiguration.INSTANCE))
         .setStarterType(
             delegate.getEnum(section, "starter_type", LuaBinaryDescription.StarterType.class))
         .setExtension(delegate.getValue(section, "extension").orElse(".lex"))
-        .setNativeStarterLibrary(delegate.getBuildTarget(section, "native_starter_library"))
+        .setNativeStarterLibrary(
+            delegate.getBuildTarget(
+                section, "native_starter_library", EmptyTargetConfiguration.INSTANCE))
         .setPackageStyle(
             delegate
                 .getEnum(section, "package_style", LuaPlatform.PackageStyle.class)
@@ -79,20 +83,24 @@ public class LuaBuckConfig {
   }
 
   /**
+   * @return the {@link CxxPlatform} wrapped in a {@link LuaPlatform} defined in
+   *     `lua#<cxx-platform-flavor>` config section.
+   */
+  public LuaPlatform getPlatform(CxxPlatform cxxPlatform) {
+    // We special case the "default" C/C++ platform to just use the "lua" section,
+    // otherwise we load the `LuaPlatform` from the `lua#<cxx-platform-flavor>` section.
+    return cxxPlatform.getFlavor().equals(DefaultCxxPlatforms.FLAVOR)
+        ? getPlatform(SECTION_PREFIX, cxxPlatform)
+        : getPlatform(String.format("%s#%s", SECTION_PREFIX, cxxPlatform.getFlavor()), cxxPlatform);
+  }
+
+  /**
    * @return for each passed in {@link CxxPlatform}, build and wrap it in a {@link LuaPlatform}
    *     defined in the `lua#<cxx-platform-flavor>` config section.
    */
-  public ImmutableList<LuaPlatform> getPlatforms(Iterable<CxxPlatform> cxxPlatforms) {
-    return RichStream.from(cxxPlatforms)
-        .map(
-            cxxPlatform ->
-                // We special case the "default" C/C++ platform to just use the "lua" section,
-                // otherwise we load the `LuaPlatform` from the `lua#<cxx-platform-flavor>` section.
-                cxxPlatform.getFlavor().equals(DefaultCxxPlatforms.FLAVOR)
-                    ? getPlatform(SECTION_PREFIX, cxxPlatform)
-                    : getPlatform(
-                        String.format("%s#%s", SECTION_PREFIX, cxxPlatform.getFlavor()),
-                        cxxPlatform))
-        .toImmutableList();
+  FlavorDomain<LuaPlatform> getPlatforms(FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms) {
+    return cxxPlatforms.convert(
+        LuaPlatform.FLAVOR_DOMAIN_NAME,
+        platformProvider -> getPlatform(platformProvider.getLegacyTotallyUnsafe()));
   }
 }

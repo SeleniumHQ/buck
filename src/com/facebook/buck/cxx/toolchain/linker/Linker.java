@@ -117,11 +117,11 @@ public interface Linker extends Tool {
 
   Iterable<String> outputArgs(String path);
 
-  boolean hasFilePathSizeLimitations();
-
   SharedLibraryLoadingType getSharedLibraryLoadingType();
 
   Optional<ExtraOutputsDeriver> getExtraOutputsDeriver();
+
+  boolean getUseUnixPathSeparator();
 
   /** Derives extra outputs from linker args */
   interface ExtraOutputsDeriver {

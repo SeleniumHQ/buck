@@ -16,10 +16,10 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.Escaper;
@@ -39,13 +39,13 @@ import java.util.stream.Collectors;
 
 public class WorkerShellStep implements Step {
 
-  private Optional<WorkerJobParams> cmdParams;
-  private Optional<WorkerJobParams> bashParams;
-  private Optional<WorkerJobParams> cmdExeParams;
-  private WorkerProcessPoolFactory factory;
+  private final Optional<WorkerJobParams> cmdParams;
+  private final Optional<WorkerJobParams> bashParams;
+  private final Optional<WorkerJobParams> cmdExeParams;
+  private final WorkerProcessPoolFactory factory;
 
   /** Target using this worker shell step. */
-  BuildTarget buildTarget;
+  private final BuildTarget buildTarget;
 
   /**
    * Creates new shell step that uses worker process to delegate work. If platform-specific params
@@ -95,7 +95,7 @@ public class WorkerShellStep implements Step {
     if (showStdout) {
       context.postEvent(ConsoleEvent.info("%s", result.getStdout().get()));
     }
-    if (showStderr) {
+    if (showStderr || result.getExitCode() != 0) {
       if (result.getExitCode() == 0) {
         context.postEvent(ConsoleEvent.warning("%s", result.getStderr().get()));
       } else {

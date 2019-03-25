@@ -18,28 +18,32 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.parser.api.BuildFileManifest;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.nio.file.Path;
-import java.util.Map;
 
 public class PerBuildState implements AutoCloseable {
 
   private final CellManager cellManager;
-  private final RawNodeParsePipeline rawNodeParsePipeline;
+  private final BuildFileRawNodeParsePipeline buildFileRawNodeParsePipeline;
   private final ParsePipeline<TargetNode<?>> targetNodeParsePipeline;
+  private final ParsingContext parsingContext;
 
   PerBuildState(
       CellManager cellManager,
-      RawNodeParsePipeline rawNodeParsePipeline,
-      ParsePipeline<TargetNode<?>> targetNodeParsePipeline) {
+      BuildFileRawNodeParsePipeline buildFileRawNodeParsePipeline,
+      ParsePipeline<TargetNode<?>> targetNodeParsePipeline,
+      ParsingContext parsingContext) {
     this.cellManager = cellManager;
-    this.rawNodeParsePipeline = rawNodeParsePipeline;
+    this.buildFileRawNodeParsePipeline = buildFileRawNodeParsePipeline;
     this.targetNodeParsePipeline = targetNodeParsePipeline;
+    this.parsingContext = parsingContext;
   }
 
   TargetNode<?> getTargetNode(BuildTarget target) throws BuildFileParseException {
@@ -54,32 +58,41 @@ public class PerBuildState implements AutoCloseable {
     return targetNodeParsePipeline.getNodeJob(owningCell, target);
   }
 
-  ImmutableSet<TargetNode<?>> getAllTargetNodes(Cell cell, Path buildFile)
+  ImmutableList<TargetNode<?>> getAllTargetNodes(
+      Cell cell, Path buildFile, TargetConfiguration targetConfiguration)
       throws BuildFileParseException {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
 
-    return targetNodeParsePipeline.getAllNodes(cell, buildFile);
+    return targetNodeParsePipeline.getAllNodes(cell, buildFile, targetConfiguration);
   }
 
-  ListenableFuture<ImmutableSet<TargetNode<?>>> getAllTargetNodesJob(Cell cell, Path buildFile)
+  ListenableFuture<ImmutableList<TargetNode<?>>> getAllTargetNodesJob(
+      Cell cell, Path buildFile, TargetConfiguration targetConfiguration)
       throws BuildTargetException {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
 
-    return targetNodeParsePipeline.getAllNodesJob(cell, buildFile);
+    return targetNodeParsePipeline.getAllNodesJob(cell, buildFile, targetConfiguration);
   }
 
-  ImmutableSet<Map<String, Object>> getAllRawNodes(Cell cell, Path buildFile)
+  BuildFileManifest getBuildFileManifest(Cell cell, Path buildFile) throws BuildFileParseException {
+    Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
+    return buildFileRawNodeParsePipeline.getAllNodes(cell, buildFile);
+  }
+
+  ListenableFuture<BuildFileManifest> getBuildFileManifestJob(Cell cell, Path buildFile)
       throws BuildFileParseException {
     Preconditions.checkState(buildFile.startsWith(cell.getRoot()));
+    return buildFileRawNodeParsePipeline.getAllNodesJob(cell, buildFile);
+  }
 
-    // The raw nodes are just plain JSON blobs, and so we don't need to check for symlinks
-    return rawNodeParsePipeline.getAllNodes(cell, buildFile);
+  ParsingContext getParsingContext() {
+    return parsingContext;
   }
 
   @Override
   public void close() {
     targetNodeParsePipeline.close();
-    rawNodeParsePipeline.close();
+    buildFileRawNodeParsePipeline.close();
     cellManager.close();
   }
 }

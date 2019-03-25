@@ -31,6 +31,7 @@ import com.facebook.buck.jvm.java.toolchain.JavaCxxPlatformProvider;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.jvm.java.toolchain.JavaToolchain;
 import com.facebook.buck.jvm.java.toolchain.JavacOptionsProvider;
+import com.facebook.buck.rules.macros.StringWithMacros;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.util.Optional;
@@ -46,7 +47,7 @@ public class JavaTestBuilder
                 .withToolchain(TestCxxPlatformsProviderFactory.createDefaultCxxPlatformsProvider())
                 .withToolchain(
                     JavaCxxPlatformProvider.DEFAULT_NAME,
-                    JavaCxxPlatformProvider.of(CxxPlatformUtils.DEFAULT_PLATFORM))
+                    JavaCxxPlatformProvider.of(CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM))
                 .withToolchain(
                     JavacOptionsProvider.DEFAULT_NAME,
                     JavacOptionsProvider.of(DEFAULT_JAVAC_OPTIONS))
@@ -83,7 +84,7 @@ public class JavaTestBuilder
     return this;
   }
 
-  public JavaTestBuilder setVmArgs(@Nullable ImmutableList<String> vmArgs) {
+  public JavaTestBuilder setVmArgs(@Nullable ImmutableList<StringWithMacros> vmArgs) {
     getArgForPopulating().setVmArgs(Optional.ofNullable(vmArgs).orElse(ImmutableList.of()));
     return this;
   }

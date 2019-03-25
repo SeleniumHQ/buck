@@ -19,6 +19,7 @@ package com.facebook.buck.features.go;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -45,6 +46,7 @@ import com.facebook.buck.file.WriteFile;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
+import com.facebook.buck.rules.args.HasSourcePath;
 import com.facebook.buck.rules.args.SanitizedArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.google.common.annotations.VisibleForTesting;
@@ -180,6 +182,7 @@ abstract class GoDescriptors {
         ImmutableList.copyOf(compilerFlags),
         ImmutableList.copyOf(assemblerFlags),
         platform,
+        goBuckConfig.getGensymabis(),
         extraAsmOutputsBuilder.build(),
         goListTypes);
   }
@@ -209,6 +212,33 @@ abstract class GoDescriptors {
     }
 
     return ImmutableMap.copyOf(importMapBuilder);
+  }
+
+  static GoPlatform getPlatformForRule(
+      GoToolchain toolchain, GoBuckConfig buckConfig, BuildTarget target, HasGoLinkable arg) {
+    FlavorDomain<GoPlatform> platforms = toolchain.getPlatformFlavorDomain();
+
+    // Check target-defined platform first.
+    Optional<GoPlatform> platform = platforms.getValue(target);
+    if (platform.isPresent()) {
+      return platform.get();
+    }
+
+    // Now try the default Go toolchain platform. This shouldn't be defined
+    // normally.
+    platform = buckConfig.getDefaultPlatform().map(InternalFlavor::of).map(platforms::getValue);
+    if (platform.isPresent()) {
+      return platform.get();
+    }
+
+    // Next is the platform from the arg.
+    platform = arg.getPlatform().map(platforms::getValue);
+    if (platform.isPresent()) {
+      return platform.get();
+    }
+
+    // Finally, the default overall toolchain platform.
+    return toolchain.getDefaultPlatform();
   }
 
   static Iterable<BuildRule> getCgoLinkableDeps(Iterable<BuildRule> deps) {
@@ -244,7 +274,7 @@ abstract class GoDescriptors {
             cxxPlatform, graphBuilder, linkables, linkStyle, r -> Optional.empty());
 
     // skip setting any arg if no linkable inputs are present
-    if (linkableInput.getArgs().size() == 0 && Iterables.size(externalLinkerFlags) == 0) {
+    if (linkableInput.getArgs().isEmpty() && Iterables.size(externalLinkerFlags) == 0) {
       return argsBuilder.build();
     }
 
@@ -269,6 +299,7 @@ abstract class GoDescriptors {
       ActionGraphBuilder graphBuilder,
       GoBuckConfig goBuckConfig,
       Linker.LinkableDepType linkStyle,
+      Optional<GoLinkStep.LinkMode> linkMode,
       ImmutableSet<SourcePath> srcs,
       ImmutableSortedSet<SourcePath> resources,
       List<String> compilerFlags,
@@ -362,6 +393,33 @@ abstract class GoDescriptors {
                   absBinaryDir.relativize(sharedLibraries.getRoot()).toString())));
     }
 
+    ImmutableList<Arg> cxxLinkerArgs =
+        getCxxLinkerArgs(
+            graphBuilder,
+            platform.getCxxPlatform(),
+            cgoLinkables,
+            linkStyle,
+            StringArg.from(
+                Iterables.concat(
+                    platform.getExternalLinkerFlags(), extraFlags.build(), externalLinkerFlags)));
+
+    // collect build rules from args (required otherwise referenced sources
+    // won't build before linking)
+    for (Arg arg : cxxLinkerArgs) {
+      if (HasSourcePath.class.isInstance(arg)) {
+        SourcePath pth = ((HasSourcePath) arg).getPath();
+        extraDeps.addAll(ruleFinder.filterBuildRuleInputs(pth));
+      }
+    }
+
+    if (!linkMode.isPresent()) {
+      linkMode =
+          Optional.of(
+              (cxxLinkerArgs.size() > 0)
+                  ? GoLinkStep.LinkMode.EXTERNAL
+                  : GoLinkStep.LinkMode.INTERNAL);
+    }
+
     Linker cxxLinker = platform.getCxxPlatform().getLd().resolve(graphBuilder);
     return new GoBinary(
         buildTarget,
@@ -379,15 +437,9 @@ abstract class GoDescriptors {
         library,
         platform.getLinker(),
         cxxLinker,
+        linkMode.get(),
         ImmutableList.copyOf(linkerFlags),
-        getCxxLinkerArgs(
-            graphBuilder,
-            platform.getCxxPlatform(),
-            cgoLinkables,
-            linkStyle,
-            StringArg.from(
-                Iterables.concat(
-                    platform.getExternalLinkerFlags(), extraFlags.build(), externalLinkerFlags))),
+        cxxLinkerArgs,
         platform);
   }
 
@@ -399,7 +451,7 @@ abstract class GoDescriptors {
       BuildRuleParams sourceParams,
       ActionGraphBuilder graphBuilder) {
 
-    Optional<Tool> configTool = goBuckConfig.getGoTestMainGenerator(graphBuilder);
+    Optional<Tool> configTool = platform.getTestMainGen();
     if (configTool.isPresent()) {
       return configTool.get();
     }
@@ -433,6 +485,7 @@ abstract class GoDescriptors {
                   graphBuilder,
                   goBuckConfig,
                   Linker.LinkableDepType.STATIC_PIC,
+                  Optional.empty(),
                   ImmutableSet.of(writeFile.getSourcePathToOutput()),
                   ImmutableSortedSet.of(),
                   ImmutableList.of(),

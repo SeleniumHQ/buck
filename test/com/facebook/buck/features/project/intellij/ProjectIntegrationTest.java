@@ -49,7 +49,7 @@ public class ProjectIntegrationTest {
   @Rule public TemporaryPaths temporaryFolder2 = new TemporaryPaths();
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     // These tests consistently fail on Windows due to path separator issues.
     Assume.assumeFalse(Platform.detect() == Platform.WINDOWS);
   }
@@ -150,6 +150,7 @@ public class ProjectIntegrationTest {
     runBuckProjectAndVerify("project_with_java_resources");
   }
 
+  @Test
   public void testVersion2BuckProjectWithExtraOutputModules()
       throws InterruptedException, IOException {
     runBuckProjectAndVerify("project_with_extra_output_modules");
@@ -169,6 +170,11 @@ public class ProjectIntegrationTest {
   @Test
   public void testRobolectricTestRule() throws InterruptedException, IOException {
     runBuckProjectAndVerify("robolectric_test");
+  }
+
+  @Test
+  public void testJavaTestRule() throws InterruptedException, IOException {
+    runBuckProjectAndVerify("java_test");
   }
 
   @Test
@@ -418,7 +424,8 @@ public class ProjectIntegrationTest {
     for (File file : recursePath(projPath)) {
       if (!(file.isDirectory()
           || file.getPath().contains("log")
-          || file.getName().equals(".progressestimations.json"))) {
+          || file.getName().equals(".progressestimations.json")
+          || file.getName().equals(".currentversion"))) {
         assertTrue(file.lastModified() <= lastModifiedProject);
       }
     }
@@ -586,6 +593,43 @@ public class ProjectIntegrationTest {
     Node doc2 = XmlDomParser.parse(primary.getFileContents(libImlPath));
     // Assert that the library URL is outside the project root
     assertThat(doc2, Matchers.hasXPath(urlXpath, Matchers.startsWith("jar://$PROJECT_DIR$/..")));
+  }
+
+  @Test
+  public void testGeneratingModulesInMultiCells() throws Exception {
+    AssumeAndroidPlatform.assumeSdkIsAvailable();
+
+    ProjectWorkspace primary =
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
+            this, "modules_in_multi_cells/primary", temporaryFolder.newFolder("primary"));
+    primary.setUp();
+
+    ProjectWorkspace secondary =
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
+            this, "modules_in_multi_cells/secondary", temporaryFolder.newFolder("secondary"));
+    secondary.setUp();
+
+    TestDataHelper.overrideBuckconfig(
+        primary,
+        ImmutableMap.of(
+            "repositories",
+            ImmutableMap.of("secondary", secondary.getPath(".").normalize().toString())));
+
+    String target = "//java/com/sample/app:app";
+    ProcessResult result =
+        primary.runBuckCommand(
+            "project",
+            "--config",
+            "intellij.multi_cell_module_support=true",
+            "--config",
+            "intellij.keep_module_files_in_module_dirs=true",
+            "--intellij-aggregation-mode=None",
+            "--ide",
+            "intellij",
+            target);
+    result.assertSuccess();
+    primary.verify();
+    secondary.verify();
   }
 
   private ProcessResult runBuckProjectAndVerify(String folderWithTestData, String... commandArgs)

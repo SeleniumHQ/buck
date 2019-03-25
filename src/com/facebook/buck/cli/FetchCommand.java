@@ -17,6 +17,7 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.command.Build;
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.core.build.engine.config.CachingBuildEngineBuckConfig;
 import com.facebook.buck.core.build.engine.delegate.LocalCachingBuildEngineDelegate;
@@ -42,6 +43,7 @@ import com.facebook.buck.file.downloader.Downloader;
 import com.facebook.buck.file.downloader.impl.StackedDownloader;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.keys.RuleKeyCacheRecycler;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
@@ -51,16 +53,14 @@ import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.versions.VersionException;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
-import java.io.IOException;
+import java.util.Objects;
 import java.util.Optional;
 
 public class FetchCommand extends BuildCommand {
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
 
     if (getArguments().isEmpty()) {
       throw new CommandLineException("must specify at least one build target");
@@ -73,7 +73,7 @@ public class FetchCommand extends BuildCommand {
     ExitCode exitCode;
 
     try (CommandThreadManager pool =
-        new CommandThreadManager("Fetch", getConcurrencyLimit(params.getBuckConfig())); ) {
+        new CommandThreadManager("Fetch", getConcurrencyLimit(params.getBuckConfig()))) {
       ActionGraphAndBuilder actionGraphAndBuilder;
       ImmutableSet<BuildTarget> buildTargets;
       try {
@@ -81,20 +81,20 @@ public class FetchCommand extends BuildCommand {
         TargetGraphAndBuildTargets result =
             params
                 .getParser()
-                .buildTargetGraphForTargetNodeSpecs(
-                    params.getCell(),
-                    getEnableParserProfiling(),
-                    pool.getListeningExecutorService(),
+                .buildTargetGraphWithoutConfigurationTargets(
+                    createParsingContext(params.getCell(), pool.getListeningExecutorService())
+                        .withApplyDefaultFlavorsMode(parserConfig.getDefaultFlavorsMode())
+                        .withSpeculativeParsing(SpeculativeParsing.ENABLED),
                     parseArgumentsAsTargetNodeSpecs(
                         params.getCell().getCellPathResolver(),
                         params.getBuckConfig(),
                         getArguments()),
-                    parserConfig.getDefaultFlavorsMode());
-        if (params.getBuckConfig().getBuildVersions()) {
+                    params.getTargetConfiguration());
+        if (params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()) {
           result = toVersionedTargetGraph(params, result);
         }
         actionGraphAndBuilder =
-            Preconditions.checkNotNull(
+            Objects.requireNonNull(
                 new ActionGraphProvider(
                         params.getBuckEventBus(),
                         ActionGraphFactory.create(
@@ -103,7 +103,10 @@ public class FetchCommand extends BuildCommand {
                             params.getPoolSupplier(),
                             params.getBuckConfig()),
                         new ActionGraphCache(
-                            params.getBuckConfig().getMaxActionGraphCacheEntries()),
+                            params
+                                .getBuckConfig()
+                                .getView(BuildBuckConfig.class)
+                                .getMaxActionGraphCacheEntries()),
                         params.getRuleKeyConfiguration(),
                         params.getBuckConfig())
                     .getFreshActionGraph(ruleGenerator, result.getTargetGraph()));
@@ -126,7 +129,7 @@ public class FetchCommand extends BuildCommand {
               getDefaultRuleKeyCacheScope(
                   params,
                   new RuleKeyCacheRecycler.SettingsAffectingCache(
-                      params.getBuckConfig().getKeySeed(),
+                      params.getBuckConfig().getView(BuildBuckConfig.class).getKeySeed(),
                       actionGraphAndBuilder.getActionGraph()));
           CachingBuildEngine buildEngine =
               new CachingBuildEngine(
@@ -142,6 +145,7 @@ public class FetchCommand extends BuildCommand {
                   actionGraphAndBuilder.getActionGraphBuilder(),
                   sourcePathRuleFinder,
                   DefaultSourcePathResolver.from(sourcePathRuleFinder),
+                  params.getTargetConfigurationSerializer(),
                   params.getBuildInfoStoreManager(),
                   cachingBuildEngineBuckConfig.getResourceAwareSchedulingInfo(),
                   cachingBuildEngineBuckConfig.getConsoleLogBuildRuleFailuresInline(),
@@ -149,9 +153,14 @@ public class FetchCommand extends BuildCommand {
                       params.getRuleKeyConfiguration(),
                       localCachingBuildEngineDelegate.getFileHashCache(),
                       actionGraphAndBuilder.getActionGraphBuilder(),
-                      params.getBuckConfig().getBuildInputRuleKeyFileSizeLimit(),
+                      params
+                          .getBuckConfig()
+                          .getView(BuildBuckConfig.class)
+                          .getBuildInputRuleKeyFileSizeLimit(),
                       ruleKeyCacheScope.getCache()),
-                  new NoOpRemoteBuildRuleCompletionWaiter());
+                  new NoOpRemoteBuildRuleCompletionWaiter(),
+                  cachingBuildEngineBuckConfig.getManifestServiceIfEnabled(
+                      params.getManifestServiceSupplier()));
           Build build =
               new Build(
                   actionGraphAndBuilder.getActionGraphBuilder(),

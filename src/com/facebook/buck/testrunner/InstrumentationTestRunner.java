@@ -25,8 +25,14 @@ import com.android.ddmlib.testrunner.RemoteAndroidTestRunner;
 import com.android.ddmlib.testrunner.TestIdentifier;
 import java.io.File;
 import java.lang.reflect.Field;
+import java.nio.file.FileVisitOption;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class InstrumentationTestRunner {
   private static final long ADB_CONNECT_TIMEOUT_MS = 5000;
@@ -37,10 +43,15 @@ public class InstrumentationTestRunner {
   private final String packageName;
   private final String testRunner;
   private final File outputDirectory;
+  private final String exopackageLocalPath;
   private final boolean attemptUninstall;
   private final Map<String, String> extraInstrumentationArguments;
+  private final boolean debug;
+  private final boolean codeCoverage;
   @Nullable private final String instrumentationApkPath;
   @Nullable private final String apkUnderTestPath;
+  @Nullable private final String codeCoverageOutputFile;
+  @Nullable private final String apkUnderTestExopackageLocalPath;
 
   public InstrumentationTestRunner(
       String adbExecutablePath,
@@ -50,7 +61,12 @@ public class InstrumentationTestRunner {
       File outputDirectory,
       String instrumentationApkPath,
       String apkUnderTestPath,
+      String exopackageLocalPath,
+      String apkUnderTestExopackageLocalPath,
       boolean attemptUninstall,
+      boolean debug,
+      boolean codeCoverage,
+      String codeCoverageOutputFile,
       Map<String, String> extraInstrumentationArguments) {
     this.adbExecutablePath = adbExecutablePath;
     this.deviceSerial = deviceSerial;
@@ -59,8 +75,13 @@ public class InstrumentationTestRunner {
     this.outputDirectory = outputDirectory;
     this.instrumentationApkPath = instrumentationApkPath;
     this.apkUnderTestPath = apkUnderTestPath;
+    this.exopackageLocalPath = exopackageLocalPath;
+    this.apkUnderTestExopackageLocalPath = apkUnderTestExopackageLocalPath;
     this.attemptUninstall = attemptUninstall;
+    this.codeCoverageOutputFile = codeCoverageOutputFile;
     this.extraInstrumentationArguments = extraInstrumentationArguments;
+    this.debug = debug;
+    this.codeCoverage = codeCoverage;
   }
 
   public static InstrumentationTestRunner fromArgs(String... args) {
@@ -70,7 +91,12 @@ public class InstrumentationTestRunner {
     String packageName = null;
     String testRunner = null;
     String instrumentationApkPath = null;
+    String codeCoverageOutputFile = null;
+    String exopackageLocalPath = null;
+    String apkUnderTestExopackageLocalPath = null;
     boolean attemptUninstall = false;
+    boolean debug = false;
+    boolean codeCoverage = false;
     Map<String, String> extraInstrumentationArguments = new HashMap<String, String>();
 
     for (int i = 0; i < args.length; i++) {
@@ -97,8 +123,23 @@ public class InstrumentationTestRunner {
         case "--instrumentation-apk-path":
           instrumentationApkPath = args[++i];
           break;
+        case "--exopackage-local-dir":
+          exopackageLocalPath = args[++i];
+          break;
+        case "--apk-under-test-exopackage-local-dir":
+          apkUnderTestExopackageLocalPath = args[++i];
+          break;
         case "--attempt-uninstall":
           attemptUninstall = true;
+          break;
+        case "--debug":
+          debug = true;
+          break;
+        case "--code-coverage":
+          codeCoverage = true;
+          break;
+        case "--code-coverage-output-file":
+          codeCoverageOutputFile = args[++i];
           break;
         case "--extra-instrumentation-argument":
           String rawArg = args[++i];
@@ -146,7 +187,12 @@ public class InstrumentationTestRunner {
         outputDirectory,
         instrumentationApkPath,
         apkUnderTestPath,
+        exopackageLocalPath,
+        apkUnderTestExopackageLocalPath,
         attemptUninstall,
+        debug,
+        codeCoverage,
+        codeCoverageOutputFile,
         extraInstrumentationArguments);
   }
 
@@ -166,12 +212,28 @@ public class InstrumentationTestRunner {
       }
     }
 
+    if (this.exopackageLocalPath != null) {
+      Path localBase = Paths.get(exopackageLocalPath);
+      syncExopackageDir(localBase, device);
+    }
+
+    if (this.apkUnderTestExopackageLocalPath != null) {
+      Path localBase = Paths.get(apkUnderTestExopackageLocalPath);
+      syncExopackageDir(localBase, device);
+    }
+
     try {
       RemoteAndroidTestRunner runner =
           new RemoteAndroidTestRunner(this.packageName, this.testRunner, getDevice(deviceSerial));
 
       for (Map.Entry<String, String> entry : this.extraInstrumentationArguments.entrySet()) {
         runner.addInstrumentationArg(entry.getKey(), entry.getValue());
+      }
+      if (debug) {
+        runner.setDebug(true);
+      }
+      if (codeCoverage) {
+        runner.setCoverage(true);
       }
       BuckXmlTestRunListener listener = new BuckXmlTestRunListener();
       ITestRunListener trimLineListener =
@@ -213,6 +275,10 @@ public class InstrumentationTestRunner {
 
       listener.setReportDir(this.outputDirectory);
       runner.run(trimLineListener, listener);
+      if (this.codeCoverageOutputFile != null) {
+        device.pullFile(
+            "/data/data/" + this.packageName + "/files/coverage.ec", this.codeCoverageOutputFile);
+      }
     } finally {
       if (this.attemptUninstall) {
         // Best effort uninstall from the emulator/device.
@@ -237,6 +303,24 @@ public class InstrumentationTestRunner {
       }
     }
     return null;
+  }
+
+  /** Copy all local files to the remote device location */
+  protected static void syncExopackageDir(Path localBase, IDevice device) throws Exception {
+    String metadataContents = new String(Files.readAllBytes(localBase.resolve("metadata.txt")));
+    Path remoteBase = Paths.get(metadataContents.trim());
+    // TODO: speed this up by checking for already installed items
+    // TODO: speed this up by only installing ABI-compatible shared-objects
+    List<Path> localFiles =
+        Files.walk(localBase, FileVisitOption.FOLLOW_LINKS)
+            .filter(p -> !Files.isDirectory(p))
+            .collect(Collectors.toList());
+    for (Path p : localFiles) {
+      Path localSuffix = localBase.relativize(p);
+      Path fullRemotePath = remoteBase.resolve(localSuffix);
+      // Remote path is always a unix path
+      device.pushFile(p.toString(), fullRemotePath.toString().replace('\\', '/'));
+    }
   }
 
   private boolean isAdbInitialized(AndroidDebugBridge adb) {

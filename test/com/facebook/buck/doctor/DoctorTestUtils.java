@@ -36,10 +36,10 @@ import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.facebook.buck.util.versioncontrol.NoOpCmdLineInterface;
 import com.facebook.buck.util.versioncontrol.VersionControlStatsGenerator;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
+import java.util.Objects;
 import java.util.Optional;
 
 final class DoctorTestUtils {
@@ -104,22 +104,23 @@ final class DoctorTestUtils {
 
   static DoctorConfig createDoctorConfig(
       int port, String extraInfo, DoctorProtocolVersion version) {
+    return createDoctorConfig(port, extraInfo, version, "");
+  }
+
+  static DoctorConfig createDoctorConfig(
+      int port, String extraInfo, DoctorProtocolVersion version, String extraHeaders) {
+    ImmutableMap<String, String> options =
+        new ImmutableMap.Builder<String, String>()
+            .put(DoctorConfig.REPORT_UPLOAD_PATH_FIELD, DEFAULT_REPORT_UPLOAD_PATH)
+            .put(DoctorConfig.PROTOCOL_VERSION_FIELD, version.name())
+            .put(DoctorConfig.ENDPOINT_URL_FIELD, "http://localhost:" + port)
+            .put("slb_server_pool", "http://localhost:" + port)
+            .put(DoctorConfig.REPORT_EXTRA_INFO_COMMAND_FIELD, extraInfo)
+            .put(DoctorConfig.ENDPOINT_EXTRA_HEADERS_FIELD, extraHeaders)
+            .build();
     BuckConfig buckConfig =
         FakeBuckConfig.builder()
-            .setSections(
-                ImmutableMap.of(
-                    DoctorConfig.DOCTOR_SECTION,
-                    ImmutableMap.of(
-                        DoctorConfig.REPORT_UPLOAD_PATH_FIELD,
-                        DEFAULT_REPORT_UPLOAD_PATH,
-                        DoctorConfig.PROTOCOL_VERSION_FIELD,
-                        version.name(),
-                        DoctorConfig.ENDPOINT_URL_FIELD,
-                        "http://localhost:" + port,
-                        "slb_server_pool",
-                        "http://localhost:" + port,
-                        DoctorConfig.REPORT_EXTRA_INFO_COMMAND_FIELD,
-                        extraInfo)))
+            .setSections(ImmutableMap.of(DoctorConfig.DOCTOR_SECTION, options))
             .build();
     return DoctorConfig.of(buckConfig);
   }
@@ -128,7 +129,7 @@ final class DoctorTestUtils {
     private DefectReport defectReport = null;
 
     DefectReport getDefectReport() {
-      return Preconditions.checkNotNull(defectReport);
+      return Objects.requireNonNull(defectReport);
     }
 
     @Override

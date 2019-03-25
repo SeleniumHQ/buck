@@ -19,14 +19,20 @@ package com.facebook.buck.rules.coercer;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.BuildTargetParseException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import java.nio.file.Path;
 
 public class BuildTargetTypeCoercer extends LeafTypeCoercer<BuildTarget> {
+
+  private final UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory;
+
+  public BuildTargetTypeCoercer(UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory) {
+    this.unconfiguredBuildTargetFactory = unconfiguredBuildTargetFactory;
+  }
 
   @Override
   public Class<BuildTarget> getOutputClass() {
@@ -38,6 +44,7 @@ public class BuildTargetTypeCoercer extends LeafTypeCoercer<BuildTarget> {
       CellPathResolver cellRoots,
       ProjectFilesystem alsoUnused,
       Path pathRelativeToProjectRoot,
+      TargetConfiguration targetConfiguration,
       Object object)
       throws CoerceFailedException {
     if (!(object instanceof String)) {
@@ -50,8 +57,9 @@ public class BuildTargetTypeCoercer extends LeafTypeCoercer<BuildTarget> {
           UnflavoredBuildTarget.BUILD_TARGET_PREFIX
               + MorePaths.pathWithUnixSeparators(pathRelativeToProjectRoot);
 
-      return BuildTargetParser.INSTANCE.parse(
-          param, BuildTargetPatternParser.forBaseName(baseName), cellRoots);
+      return unconfiguredBuildTargetFactory
+          .createForBaseName(cellRoots, baseName, param)
+          .configure(targetConfiguration);
     } catch (BuildTargetParseException e) {
       throw new CoerceFailedException(
           String.format(

@@ -39,11 +39,13 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
+import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.DefaultJavaLibrary;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
 import com.facebook.buck.jvm.java.JavaConfiguredCompilerFactory;
+import com.facebook.buck.jvm.java.JavaLibraryClasspathProvider;
 import com.facebook.buck.jvm.java.JavaLibraryDeps;
 import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacFactory;
@@ -77,6 +79,7 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.SortedSet;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
@@ -122,6 +125,10 @@ public class AndroidBinaryGraphEnhancer {
   private final DexSplitMode dexSplitMode;
   private final ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex;
   private final ImmutableSet<BuildTarget> resourcesToExclude;
+  private final ImmutableCollection<SourcePath> nativeLibsToExclude;
+  private final ImmutableCollection<NativeLinkable> nativeLinkablesToExclude;
+  private final ImmutableCollection<SourcePath> nativeLibAssetsToExclude;
+  private final ImmutableCollection<NativeLinkable> nativeLinkablesAssetsToExclude;
   private final JavaBuckConfig javaBuckConfig;
   private final Javac javac;
   private final JavacFactory javacFactory;
@@ -166,6 +173,10 @@ public class AndroidBinaryGraphEnhancer {
       DexSplitMode dexSplitMode,
       ImmutableSet<BuildTarget> buildTargetsToExcludeFromDex,
       ImmutableSet<BuildTarget> resourcesToExclude,
+      ImmutableCollection<SourcePath> nativeLibsToExclude,
+      ImmutableCollection<NativeLinkable> nativeLinkablesToExclude,
+      ImmutableCollection<SourcePath> nativeLibAssetsToExclude,
+      ImmutableCollection<NativeLinkable> nativeLinkableAssetsToExclude,
       boolean skipCrunchPngs,
       boolean includesVectorDrawables,
       boolean noAutoVersionResources,
@@ -214,6 +225,10 @@ public class AndroidBinaryGraphEnhancer {
     this.dexSplitMode = dexSplitMode;
     this.buildTargetsToExcludeFromDex = buildTargetsToExcludeFromDex;
     this.resourcesToExclude = resourcesToExclude;
+    this.nativeLibsToExclude = nativeLibsToExclude;
+    this.nativeLinkablesToExclude = nativeLinkablesToExclude;
+    this.nativeLibAssetsToExclude = nativeLibAssetsToExclude;
+    this.nativeLinkablesAssetsToExclude = nativeLinkableAssetsToExclude;
     this.javaBuckConfig = javaBuckConfig;
     this.javacOptions = javacOptions;
     this.exopackageModes = exopackageModes;
@@ -285,7 +300,14 @@ public class AndroidBinaryGraphEnhancer {
 
     AndroidPackageableCollector collector =
         new AndroidPackageableCollector(
-            originalBuildTarget, buildTargetsToExcludeFromDex, resourcesToExclude, apkModuleGraph);
+            originalBuildTarget,
+            buildTargetsToExcludeFromDex,
+            resourcesToExclude,
+            nativeLibsToExclude,
+            nativeLinkablesToExclude,
+            nativeLibAssetsToExclude,
+            nativeLinkablesAssetsToExclude,
+            apkModuleGraph);
     collector.addPackageables(
         AndroidPackageableCollector.getPackageableRules(originalDeps), graphBuilder);
     AndroidPackageableCollection packageableCollection = collector.build();
@@ -447,7 +469,8 @@ public class AndroidBinaryGraphEnhancer {
                   proguardConfigs,
                   packageableCollection,
                   classpathEntriesToDex,
-                  compileUberRDotJava));
+                  compileUberRDotJava,
+                  javaBuckConfig.shouldDesugarInterfaceMethods()));
     }
 
     return AndroidGraphEnhancementResult.builder()
@@ -727,20 +750,49 @@ public class AndroidBinaryGraphEnhancer {
           graphBuilder.computeIfAbsent(
               javaLibrary.getBuildTarget().withAppendedFlavors(getDexFlavor(dexTool)),
               preDexTarget -> {
+                ImmutableSortedSet<BuildRule> desugarDeps =
+                    dexTool.equals(DxStep.D8)
+                            && javaLibrary.isDesugarEnabled()
+                            && javaLibrary.isInterfaceMethodsDesugarEnabled()
+                        ? getDesugarDeps(javaLibrary, graphBuilder::getRule)
+                        : null;
                 BuildRuleParams paramsForPreDex =
                     buildRuleParams.withDeclaredDeps(ImmutableSortedSet.of(javaLibrary));
+
                 return new DexProducedFromJavaLibrary(
                     preDexTarget,
                     javaLibrary.getProjectFilesystem(),
                     androidPlatformTarget,
                     paramsForPreDex,
                     javaLibrary,
-                    dexTool);
+                    dexTool,
+                    1,
+                    desugarDeps);
               });
       preDexDeps.put(
           apkModuleGraph.findModuleForTarget(buildTarget), (DexProducedFromJavaLibrary) preDexRule);
     }
     return preDexDeps.build();
+  }
+
+  /**
+   * Provides {@see BuildRule} set of abi dependencies that have desugar enabled on them.
+   *
+   * <p>These are the deps that are required for full desugaring of default and static interface
+   * methods
+   */
+  private static ImmutableSortedSet<BuildRule> getDesugarDeps(
+      JavaLibrary javaLibrary, Function<BuildTarget, BuildRule> targetToRule) {
+    ImmutableSortedSet.Builder<BuildRule> resultBuilder = ImmutableSortedSet.naturalOrder();
+    for (JavaLibrary library :
+        JavaLibraryClasspathProvider.getTransitiveClasspathDeps(javaLibrary)) {
+      if (javaLibrary != library && library.isDesugarEnabled()) {
+        library
+            .getAbiJar()
+            .ifPresent(buildTarget -> resultBuilder.add(targetToRule.apply(buildTarget)));
+      }
+    }
+    return resultBuilder.build();
   }
 
   private NonPreDexedDexBuildable createNonPredexedDexBuildable(
@@ -750,12 +802,13 @@ public class AndroidBinaryGraphEnhancer {
       ImmutableList<SourcePath> proguardConfigs,
       AndroidPackageableCollection packageableCollection,
       ImmutableSet<SourcePath> classpathEntriesToDex,
-      JavaLibrary compiledUberRDotJava) {
+      JavaLibrary compiledUberRDotJava,
+      boolean desugarInterfaceMethods) {
     ImmutableSortedMap<APKModule, ImmutableSortedSet<APKModule>> apkModuleMap =
         apkModuleGraph.toOutgoingEdgesMap();
     APKModule rootAPKModule = apkModuleGraph.getRootAPKModule();
 
-    ImmutableSortedSet<SourcePath> additionalJarsForProguard =
+    ImmutableSortedSet<SourcePath> additionalJarsForProguardandDesugar =
         rulesToExcludeFromDex
             .stream()
             .flatMap((javaLibrary) -> javaLibrary.getImmediateClasspaths().stream())
@@ -775,7 +828,7 @@ public class AndroidBinaryGraphEnhancer {
         new NonPreDexedDexBuildable(
             androidPlatformTarget,
             ruleFinder,
-            additionalJarsForProguard,
+            additionalJarsForProguardandDesugar,
             apkModuleMap,
             classpathEntriesToDexSourcePaths,
             dexSplitMode,
@@ -787,7 +840,8 @@ public class AndroidBinaryGraphEnhancer {
             nonPreDexedDexBuildableArgs,
             projectFilesystem,
             originalBuildTarget.withFlavors(NON_PREDEXED_DEX_BUILDABLE_FLAVOR),
-            dexTool);
+            dexTool,
+            desugarInterfaceMethods);
     graphBuilder.addToIndex(nonPreDexedDexBuildable);
 
     if (nonPreDexedDexBuildableArgs.getShouldProguard()) {

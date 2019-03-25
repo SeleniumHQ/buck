@@ -37,7 +37,6 @@ import com.facebook.buck.cxx.Archive;
 import com.facebook.buck.cxx.CxxDescriptionEnhancer;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.PicType;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.coercer.SourceSortedSet;
@@ -124,7 +123,8 @@ public class DLibraryDescription
       DIncludes dIncludes,
       PicType pic) {
 
-    CxxPlatform cxxPlatform = DDescriptionUtils.getCxxPlatform(toolchainProvider, dBuckConfig);
+    CxxPlatform cxxPlatform =
+        DDescriptionUtils.getCxxPlatform(graphBuilder, toolchainProvider, dBuckConfig);
 
     ImmutableList<SourcePath> compiledSources =
         DDescriptionUtils.sourcePathsForCompiledSources(
@@ -161,7 +161,6 @@ public class DLibraryDescription
         graphBuilder,
         ruleFinder,
         cxxPlatform,
-        cxxBuckConfig.getArchiveContents(),
         staticLibraryPath,
         compiledSources,
         /* cacheable */ true);
@@ -175,8 +174,8 @@ public class DLibraryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     extraDepsBuilder.addAll(
-        CxxPlatforms.getParseTimeDeps(
-            DDescriptionUtils.getCxxPlatform(toolchainProvider, dBuckConfig)));
+        DDescriptionUtils.getUnresolvedCxxPlatform(toolchainProvider, dBuckConfig)
+            .getParseTimeDeps());
   }
 
   @BuckStyleImmutable

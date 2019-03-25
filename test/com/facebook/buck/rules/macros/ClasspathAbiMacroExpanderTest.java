@@ -19,7 +19,6 @@ package com.facebook.buck.rules.macros;
 import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
-import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.macros.MacroException;
@@ -43,7 +42,6 @@ import com.facebook.buck.shell.ExportFileBuilder;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.nio.file.Paths;
-import java.util.Optional;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Test;
@@ -138,13 +136,9 @@ public class ClasspathAbiMacroExpanderTest {
 
     BuildTarget forTarget = BuildTargetFactory.newInstance("//:rule");
     CellPathResolver cellRoots = createCellRoots(filesystem);
+    ClasspathAbiMacro classpathAbiMacro = ClasspathAbiMacro.of(rule.getBuildTarget());
     Arg ruleKeyAppendables =
-        expander.expandFrom(
-            forTarget,
-            cellRoots,
-            graphBuilder,
-            expander.parse(
-                forTarget, cellRoots, ImmutableList.of(rule.getBuildTarget().toString())));
+        expander.expandFrom(forTarget, cellRoots, graphBuilder, classpathAbiMacro);
 
     ImmutableList<String> deps =
         BuildableSupport.deriveDeps(ruleKeyAppendables, new SourcePathRuleFinder(graphBuilder))
@@ -160,30 +154,10 @@ public class ClasspathAbiMacroExpanderTest {
   private void assertExpandsTo(
       BuildRule rule, ActionGraphBuilder graphBuilder, String expectedClasspath)
       throws MacroException {
-
     DefaultSourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
-
     String classpath = Arg.stringify(expander.expand(graphBuilder, rule), pathResolver);
 
     assertEquals(expectedClasspath, classpath);
-
-    String expandedFile =
-        Arg.stringify(
-            expander.expandForFile(
-                rule.getBuildTarget(),
-                createCellRoots(filesystem),
-                graphBuilder,
-                ImmutableList.of(':' + rule.getBuildTarget().getShortName()),
-                new Object()),
-            pathResolver);
-
-    assertTrue(expandedFile.startsWith("@"));
-
-    Optional<String> fileContents =
-        rule.getProjectFilesystem().readFileIfItExists(Paths.get(expandedFile.substring(1)));
-
-    assertTrue(fileContents.isPresent());
-    assertEquals(String.format("'%s'", expectedClasspath), fileContents.get());
   }
 }

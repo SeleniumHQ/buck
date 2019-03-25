@@ -25,6 +25,7 @@ import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -39,7 +40,7 @@ public class GoTestIntegrationTest {
   public ProjectWorkspace workspace;
 
   @Before
-  public void ensureGoIsAvailable() throws IOException, InterruptedException {
+  public void ensureGoIsAvailable() throws IOException {
     GoAssumptions.assumeGoCompilerAvailable();
   }
 
@@ -183,6 +184,35 @@ public class GoTestIntegrationTest {
   public void testFuncWithPrefixTest() throws IOException {
     ProcessResult result = workspace.runBuckCommand("test", "//:test-scores");
     result.assertSuccess();
+  }
+
+  @Test
+  public void testNonprintableCharacterInResult() throws IOException {
+    ProcessResult result = workspace.runBuckCommand("test", "//testOutput:all_tests");
+    assertThat(
+        "`buck test` should print out the error message",
+        result.getStderr(),
+        containsString("is not printable"));
+    assertFalse(result.getStderr().contains("MalformedInputException"));
+  }
+
+  @Test
+  public void testGoTestWithEnv() throws IOException {
+    ProcessResult result = workspace.runBuckCommand("test", "//:test-with-env");
+    result.assertSuccess();
+  }
+
+  @Test
+  public void testGoTestWithSystemEnv() throws IOException {
+    workspace
+        .runBuckdCommand(ImmutableMap.of(), "test", "//:test-with-system-env")
+        .assertTestFailure();
+    workspace
+        .runBuckdCommand(ImmutableMap.of("FOO", "BAR"), "test", "//:test-with-system-env")
+        .assertSuccess();
+    workspace
+        .runBuckdCommand(ImmutableMap.of(), "test", "//:test-with-system-env")
+        .assertTestFailure();
   }
 
   private static void assertIsSymbolicLink(Path link, Path target) throws IOException {

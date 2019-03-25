@@ -22,7 +22,8 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.io.filesystem.PathOrGlobMatcher;
+import com.facebook.buck.io.filesystem.ExactPathMatcher;
+import com.facebook.buck.io.filesystem.RecursiveFileMatcher;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.collect.ImmutableList;
@@ -31,6 +32,7 @@ import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
@@ -51,7 +53,7 @@ public class DefaultProjectFilesystemViewTest {
   private DefaultProjectFilesystemView filesystemView;
 
   @Before
-  public void setUp() throws InterruptedException {
+  public void setUp() {
     filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     filesystemView =
         new DefaultProjectFilesystemView(
@@ -110,7 +112,7 @@ public class DefaultProjectFilesystemViewTest {
     assertFalse(filesystemView.isIgnored(Paths.get("foo")));
     filesystemView =
         filesystemView.withView(
-            Paths.get(""), ImmutableSet.of(new PathOrGlobMatcher(Paths.get("foo"))));
+            Paths.get(""), ImmutableSet.of(RecursiveFileMatcher.of(Paths.get("foo"))));
 
     // matcher was declared in view relative to ".", so should only match "foo", but not any
     // "bar/foo" etc
@@ -124,7 +126,7 @@ public class DefaultProjectFilesystemViewTest {
 
     filesystemView =
         filesystemView.withView(
-            Paths.get(""), ImmutableSet.of(new PathOrGlobMatcher(Paths.get("a", "path"))));
+            Paths.get(""), ImmutableSet.of(RecursiveFileMatcher.of(Paths.get("a", "path"))));
     filesystemView = filesystemView.withView(Paths.get("a"), ImmutableSet.of());
     assertTrue(filesystemView.isIgnored(Paths.get("path")));
     assertFalse(filesystemView.isIgnored(Paths.get("a", "path")));
@@ -182,7 +184,7 @@ public class DefaultProjectFilesystemViewTest {
 
     filesystemView =
         filesystemView.withView(
-            Paths.get(""), ImmutableSet.of(new PathOrGlobMatcher(Paths.get("dir", "dir2"))));
+            Paths.get(""), ImmutableSet.of(RecursiveFileMatcher.of(Paths.get("dir", "dir2"))));
     filesystemView.walkRelativeFileTree(
         Paths.get("dir"),
         EnumSet.noneOf(FileVisitOption.class),
@@ -213,7 +215,7 @@ public class DefaultProjectFilesystemViewTest {
     ImmutableList.Builder<Path> fileNames3 = ImmutableList.builder();
     filesystemView =
         filesystemView.withView(
-            Paths.get(""), ImmutableSet.of(new PathOrGlobMatcher(Paths.get("dir"))));
+            Paths.get(""), ImmutableSet.of(RecursiveFileMatcher.of(Paths.get("dir"))));
     filesystemView.walkRelativeFileTree(
         Paths.get(""),
         EnumSet.noneOf(FileVisitOption.class),
@@ -230,7 +232,7 @@ public class DefaultProjectFilesystemViewTest {
     ImmutableList.Builder<Path> fileNames4 = ImmutableList.builder();
     filesystemView =
         filesystemView.withView(
-            Paths.get(""), ImmutableSet.of(new PathOrGlobMatcher(Paths.get("file.txt"))));
+            Paths.get(""), ImmutableSet.of(RecursiveFileMatcher.of(Paths.get("file.txt"))));
     filesystemView.walkRelativeFileTree(
         Paths.get(""),
         EnumSet.noneOf(FileVisitOption.class),
@@ -301,7 +303,7 @@ public class DefaultProjectFilesystemViewTest {
         containsInAnyOrder(Paths.get("dir1/file2"), Paths.get("dir1/dir2/file3")));
 
     filesystemView =
-        filesystemView.withView(Paths.get("dir1"), ImmutableSet.of(new PathOrGlobMatcher("file2")));
+        filesystemView.withView(Paths.get("dir1"), ImmutableSet.of(ExactPathMatcher.of("file2")));
     assertThat(
         filesystemView.getFilesUnderPath(Paths.get(""), EnumSet.noneOf(FileVisitOption.class)),
         containsInAnyOrder(Paths.get("dir2/file3")));
@@ -312,5 +314,51 @@ public class DefaultProjectFilesystemViewTest {
             Paths.get("dir1/file2")::equals,
             EnumSet.of(FileVisitOption.FOLLOW_LINKS)),
         containsInAnyOrder());
+  }
+
+  @Test
+  public void getDirectoryContentsWithEmptyRoot() throws IOException {
+    tmp.newFolder("dir1");
+    tmp.newFile("dir1/file1");
+    tmp.newFile("dir1/file2");
+
+    assertThat(
+        filesystemView.getDirectoryContents(Paths.get("dir1")),
+        containsInAnyOrder(Paths.get("dir1/file1"), Paths.get("dir1/file2")));
+  }
+
+  @Test
+  public void isFile() throws IOException {
+    tmp.newFolder("dir1");
+    tmp.newFile("dir1/file1");
+
+    assertTrue(filesystemView.isFile(Paths.get("dir1/file1")));
+    assertTrue(filesystemView.isFile(Paths.get("dir1/file1"), LinkOption.NOFOLLOW_LINKS));
+    assertFalse(filesystemView.isFile(Paths.get("dir1/file2")));
+  }
+
+  @Test
+  public void isDirectory() throws IOException {
+    tmp.newFolder("dir1");
+    tmp.newFolder("dir1/dir2");
+
+    assertTrue(filesystemView.isDirectory(Paths.get("dir1/dir2")));
+    assertFalse(filesystemView.isDirectory(Paths.get("dir2")));
+    assertFalse(filesystemView.isDirectory(Paths.get("dir1/dir3")));
+  }
+
+  @Test
+  public void canReadAttributes() throws IOException {
+    tmp.newFolder("dir1");
+    tmp.newFile("dir1/file1");
+
+    BasicFileAttributes attributes =
+        filesystemView.readAttributes(Paths.get("dir1/file1"), BasicFileAttributes.class);
+    assertTrue(attributes.isRegularFile());
+    assertFalse(attributes.isDirectory());
+
+    attributes = filesystemView.readAttributes(Paths.get("dir1"), BasicFileAttributes.class);
+    assertFalse(attributes.isRegularFile());
+    assertTrue(attributes.isDirectory());
   }
 }

@@ -19,6 +19,7 @@ package com.facebook.buck.cxx.toolchain;
 import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.config.BuckConfig;
@@ -30,11 +31,13 @@ import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
+import com.facebook.buck.cxx.toolchain.CxxToolProvider.Type;
 import com.facebook.buck.cxx.toolchain.linker.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.util.environment.Platform;
+import com.google.common.base.CaseFormat;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -55,12 +58,23 @@ public class CxxPlatformsTest {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     CompilerProvider compiler =
         new CompilerProvider(
-            Suppliers.ofInstance(PathSourcePath.of(filesystem, Paths.get("borland"))),
-            Optional.of(CxxToolProvider.Type.GCC));
+            new ConstantToolProvider(
+                new HashedFileTool(
+                    Suppliers.ofInstance(PathSourcePath.of(filesystem, Paths.get("borland"))))),
+            () -> Optional.of(Type.GCC).get(),
+            false);
     PreprocessorProvider preprocessor =
         new PreprocessorProvider(
-            Suppliers.ofInstance(PathSourcePath.of(filesystem, Paths.get("borland"))),
-            Optional.of(CxxToolProvider.Type.GCC));
+            new ConstantToolProvider(
+                new HashedFileTool(
+                    Suppliers.ofInstance(PathSourcePath.of(filesystem, Paths.get("borland"))))),
+            Optional.of(Type.GCC)
+                .orElseGet(
+                    () ->
+                        CxxToolTypeInferer.getTypeFromPath(
+                            Suppliers.ofInstance(
+                                    PathSourcePath.of(filesystem, Paths.get("borland")))
+                                .get())));
     HashedFileTool borland =
         new HashedFileTool(PathSourcePath.of(filesystem, Paths.get("borland")));
     CxxPlatform borlandCxx452Platform =
@@ -74,7 +88,7 @@ public class CxxPlatformsTest {
             .setCxxpp(preprocessor)
             .setLd(
                 new DefaultLinkerProvider(
-                    LinkerProvider.Type.GNU, new ConstantToolProvider(borland)))
+                    LinkerProvider.Type.GNU, new ConstantToolProvider(borland), true))
             .setStrip(borland)
             .setSymbolNameTool(new PosixNmSymbolNameTool(borland))
             .setAr(ArchiverProvider.from(new GnuArchiver(borland)))
@@ -88,14 +102,18 @@ public class CxxPlatformsTest {
             .setHeaderVerification(CxxPlatformUtils.DEFAULT_PLATFORM.getHeaderVerification())
             .setPublicHeadersSymlinksEnabled(true)
             .setPrivateHeadersSymlinksEnabled(true)
+            .setArchiveContents(ArchiveContents.NORMAL)
             .build();
 
     BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
     assertThat(
         CxxPlatforms.getConfigDefaultCxxPlatform(
-            new CxxBuckConfig(buckConfig),
-            ImmutableMap.of(borlandCxx452Platform.getFlavor(), borlandCxx452Platform),
-            CxxPlatformUtils.DEFAULT_PLATFORM),
+                new CxxBuckConfig(buckConfig),
+                ImmutableMap.of(
+                    borlandCxx452Platform.getFlavor(),
+                    new StaticUnresolvedCxxPlatform(borlandCxx452Platform)),
+                CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM)
+            .resolve(new TestActionGraphBuilder()),
         equalTo(borlandCxx452Platform));
   }
 
@@ -106,8 +124,10 @@ public class CxxPlatformsTest {
     BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
     assertThat(
         CxxPlatforms.getConfigDefaultCxxPlatform(
-            new CxxBuckConfig(buckConfig), ImmutableMap.of(), CxxPlatformUtils.DEFAULT_PLATFORM),
-        equalTo(CxxPlatformUtils.DEFAULT_PLATFORM));
+            new CxxBuckConfig(buckConfig),
+            ImmutableMap.of(),
+            CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM),
+        equalTo(CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM));
   }
 
   public LinkerProvider getPlatformLinker(LinkerProvider.Type linkerType) {
@@ -213,5 +233,27 @@ public class CxxPlatformsTest {
                 InternalFlavor.of("custom"))
             .getSharedLibraryExtension(),
         equalTo(extension));
+  }
+
+  @Test
+  public void archiveContentsPlatformOverride() {
+    Flavor flavor = InternalFlavor.of("custom");
+    ArchiveContents archiveContents = ArchiveContents.THIN;
+    ImmutableMap<String, ImmutableMap<String, String>> sections =
+        ImmutableMap.of(
+            "cxx#" + flavor,
+            ImmutableMap.of(
+                "archive_contents",
+                CaseFormat.UPPER_UNDERSCORE.to(
+                    CaseFormat.LOWER_UNDERSCORE, archiveContents.name())));
+    BuckConfig buckConfig = FakeBuckConfig.builder().setSections(sections).build();
+    assertEquals(
+        CxxPlatforms.copyPlatformWithFlavorAndConfig(
+                CxxPlatformUtils.DEFAULT_PLATFORM,
+                Platform.UNKNOWN,
+                new CxxBuckConfig(buckConfig, flavor),
+                InternalFlavor.of("custom"))
+            .getArchiveContents(),
+        archiveContents);
   }
 }

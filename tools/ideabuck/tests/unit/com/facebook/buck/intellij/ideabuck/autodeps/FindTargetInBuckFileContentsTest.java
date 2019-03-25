@@ -16,19 +16,25 @@
 
 package com.facebook.buck.intellij.ideabuck.autodeps;
 
-import static com.facebook.buck.intellij.ideabuck.test.TestUtil.buckFile;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertNull;
 
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.Test;
 
 public class FindTargetInBuckFileContentsTest {
+
+  private static String buckFile(String... lines) {
+    return Stream.of(lines).collect(Collectors.joining("\n", "", "\n"));
+  }
+
   @Test
   public void canFindTarget() {
     String buckInput =
         buckFile("# Comment", "rule(", "\tname = 'foo',", "\tdeps = [", "\t\t'/this',", "\t]", ")");
     int expected[] = {14, 56};
-    int actual[] = BuckDeps.findTargetInBuckFileContents(buckInput, "foo");
+    int actual[] = BuckDeps.findRuleInBuckFileContents(buckInput, "foo");
     assertArrayEquals(expected, actual);
   }
 
@@ -56,10 +62,10 @@ public class FindTargetInBuckFileContentsTest {
             "\t]",
             ")");
     int expected[] = {61, 103};
-    int actual[] = BuckDeps.findTargetInBuckFileContents(buckInputSingleQuotes, "bar");
+    int actual[] = BuckDeps.findRuleInBuckFileContents(buckInputSingleQuotes, "bar");
     assertArrayEquals(expected, actual);
     String buckInputDoubleQuotes = buckInputSingleQuotes.replace('\'', '\"');
-    actual = BuckDeps.findTargetInBuckFileContents(buckInputDoubleQuotes, "bar");
+    actual = BuckDeps.findRuleInBuckFileContents(buckInputDoubleQuotes, "bar");
     assertArrayEquals(expected, actual);
   }
 
@@ -86,6 +92,6 @@ public class FindTargetInBuckFileContentsTest {
             "\t\t'/other',",
             "\t]",
             ")");
-    assertNull(BuckDeps.findTargetInBuckFileContents(buckInput, "qux"));
+    assertNull(BuckDeps.findRuleInBuckFileContents(buckInput, "qux"));
   }
 }

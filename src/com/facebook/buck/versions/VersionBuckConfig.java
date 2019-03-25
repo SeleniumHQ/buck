@@ -17,15 +17,18 @@ package com.facebook.buck.versions;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.util.List;
+import java.util.Map;
 
 public class VersionBuckConfig {
 
   private static final String UNIVERSES_SECTION = "version_universes";
+  private static final long DEFAULT_TIMEOUT = 20;
 
   private final BuckConfig delegate;
 
@@ -45,7 +48,9 @@ public class VersionBuckConfig {
             UNIVERSES_SECTION, name, val);
       }
       universe.putVersions(
-          delegate.getBuildTargetForFullyQualifiedTarget(parts.get(0)), Version.of(parts.get(1)));
+          delegate.getBuildTargetForFullyQualifiedTarget(
+              parts.get(0), EmptyTargetConfiguration.INSTANCE),
+          Version.of(parts.get(1)));
     }
     return universe.build();
   }
@@ -58,5 +63,20 @@ public class VersionBuckConfig {
       universes.put(name, getVersionUniverse(name));
     }
     return universes.build();
+  }
+
+  public VersionTargetGraphMode getVersionTargetGraphMode() {
+    return delegate
+        .getEnum("build", "async_version_tg_builder", VersionTargetGraphMode.class)
+        .orElse(VersionTargetGraphMode.DEFAULT);
+  }
+
+  public Map<VersionTargetGraphMode, Double> getVersionTargetGraphModeGroups() {
+    return delegate.getExperimentGroups(
+        "build", "version_tg_mode_probabilities", VersionTargetGraphMode.class);
+  }
+
+  public long getVersionTargetGraphTimeoutSeconds() {
+    return delegate.getLong("build", "version_tg_timeout").orElse(DEFAULT_TIMEOUT);
   }
 }

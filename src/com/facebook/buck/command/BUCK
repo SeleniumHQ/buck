@@ -3,6 +3,9 @@ load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
 java_immutables_library(
     name = "command",
     srcs = glob(["*.java"]),
+    exported_deps = [
+        "//src/com/facebook/buck/core/parser/buildtargetparser:buildtargetparser",
+    ],
     tests = [
         "//test/com/facebook/buck/cli:cli",
     ],
@@ -18,6 +21,7 @@ java_immutables_library(
         "//src/com/facebook/buck/android:helpers",
         "//src/com/facebook/buck/android:utils",
         "//src/com/facebook/buck/artifact_cache:artifact_cache",
+        "//src/com/facebook/buck/command/config:config",
         "//src/com/facebook/buck/core/build/distributed/synchronization:synchronization",
         "//src/com/facebook/buck/core/build/engine/cache/manager:manager",
         "//src/com/facebook/buck/core/build/engine/delegate:delegate",
@@ -38,9 +42,10 @@ java_immutables_library(
         "//src/com/facebook/buck/jvm/core:core",
         "//src/com/facebook/buck/jvm/java:config",
         "//src/com/facebook/buck/jvm/java:packagefinder",
+        "//src/com/facebook/buck/log:log",
         "//src/com/facebook/buck/log/thrift:thrift",
-        "//src/com/facebook/buck/parser:rule_pattern",
         "//src/com/facebook/buck/remoteexecution/config:config",
+        "//src/com/facebook/buck/remoteexecution/interfaces:interfaces",
         "//src/com/facebook/buck/rules/keys:keys",
         "//src/com/facebook/buck/rules/keys/config:config",
         "//src/com/facebook/buck/rules/modern/builders:builders",

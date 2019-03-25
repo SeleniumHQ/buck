@@ -27,7 +27,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.eventbus.EventBus;
 import com.google.common.util.concurrent.MoreExecutors;
-import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -60,14 +59,23 @@ public class DefaultBuckEventBus implements com.facebook.buck.event.BuckEventBus
   @VisibleForTesting
   public DefaultBuckEventBus(
       Clock clock, boolean async, BuildId buildId, int shutdownTimeoutMillis) {
-    this.clock = clock;
-    this.executorService =
+    this(
+        clock,
+        buildId,
+        shutdownTimeoutMillis,
         async
             ? MostExecutors.newSingleThreadExecutor(
                 new CommandThreadFactory(
                     BuckEventBus.class.getSimpleName(),
                     GlobalStateManager.singleton().getThreadToCommandRegister()))
-            : MoreExecutors.newDirectExecutorService();
+            : MoreExecutors.newDirectExecutorService());
+  }
+
+  @VisibleForTesting
+  public DefaultBuckEventBus(
+      Clock clock, BuildId buildId, int shutdownTimeoutMillis, ExecutorService executorService) {
+    this.clock = clock;
+    this.executorService = executorService;
     this.eventBus = new EventBus("buck-build-events");
     this.threadIdSupplier = DEFAULT_THREAD_ID_SUPPLIER;
     this.buildId = buildId;
@@ -80,7 +88,7 @@ public class DefaultBuckEventBus implements com.facebook.buck.event.BuckEventBus
       activeTasks++;
     }
 
-    executorService.submit(
+    executorService.execute(
         () -> {
           try {
             eventBus.post(event);
@@ -105,7 +113,7 @@ public class DefaultBuckEventBus implements com.facebook.buck.event.BuckEventBus
   @Override
   public void post(BuckEvent event, BuckEvent atTime) {
     event.configure(
-        atTime.getTimestamp(),
+        atTime.getTimestampMillis(),
         atTime.getNanoTime(),
         atTime.getThreadUserNanoTime(),
         threadIdSupplier.get(),
@@ -153,7 +161,7 @@ public class DefaultBuckEventBus implements com.facebook.buck.event.BuckEventBus
    * debugging when close is called during exception processing.
    */
   @Override
-  public void close() throws IOException {
+  public void close() {
     long timeoutTime = System.currentTimeMillis() + shutdownTimeoutMillis;
 
     // it might have happened that executor service is still processing a task which in turn may

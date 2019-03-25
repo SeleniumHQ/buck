@@ -16,6 +16,7 @@
 
 package com.facebook.buck.artifact_cache;
 
+import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.AbstractBuckEvent;
 import com.facebook.buck.event.EventKey;
@@ -24,12 +25,10 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.util.Optional;
 
 public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements LeafEvent {
-  private static final String TARGET_KEY = "TARGET";
 
   public enum Operation {
     FETCH,
@@ -70,7 +69,7 @@ public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements Le
 
   @JsonIgnore private final ArtifactCacheEvent.InvocationType invocationType;
 
-  @JsonIgnore private final Optional<String> target;
+  @JsonIgnore private final Optional<BuildTarget> target;
 
   @JsonIgnore private final ImmutableSet<RuleKey> ruleKeys;
 
@@ -80,7 +79,7 @@ public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements Le
       EventKey eventKey,
       CacheMode cacheMode,
       Operation operation,
-      Optional<String> target,
+      Optional<BuildTarget> target,
       ImmutableSet<RuleKey> ruleKeys,
       ArtifactCacheEvent.InvocationType invocationType,
       StoreType storeType) {
@@ -111,7 +110,7 @@ public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements Le
     return ruleKeys;
   }
 
-  public Optional<String> getTarget() {
+  public Optional<BuildTarget> getTarget() {
     return target;
   }
 
@@ -126,19 +125,13 @@ public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements Le
   @Override
   public abstract String getEventName();
 
-  public static final Optional<String> getTarget(ImmutableMap<String, String> metadata) {
-    return metadata.containsKey(TARGET_KEY)
-        ? Optional.of(metadata.get(TARGET_KEY))
-        : Optional.empty();
-  }
-
   public abstract static class Started extends ArtifactCacheEvent {
 
     protected Started(
         EventKey eventKey,
         CacheMode cacheMode,
         Operation operation,
-        Optional<String> target,
+        Optional<BuildTarget> target,
         ImmutableSet<RuleKey> ruleKeys,
         ArtifactCacheEvent.InvocationType invocationType) {
       super(
@@ -155,7 +148,7 @@ public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements Le
         EventKey eventKey,
         CacheMode cacheMode,
         Operation operation,
-        Optional<String> target,
+        Optional<BuildTarget> target,
         ImmutableSet<RuleKey> ruleKeys,
         ArtifactCacheEvent.InvocationType invocationType,
         StoreType storeType) {
@@ -171,7 +164,7 @@ public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements Le
         EventKey eventKey,
         CacheMode cacheMode,
         Operation operation,
-        Optional<String> target,
+        Optional<BuildTarget> target,
         ImmutableSet<RuleKey> ruleKeys,
         ArtifactCacheEvent.InvocationType invocationType,
         Optional<CacheResult> cacheResult) {
@@ -194,7 +187,7 @@ public abstract class ArtifactCacheEvent extends AbstractBuckEvent implements Le
         EventKey eventKey,
         CacheMode cacheMode,
         Operation operation,
-        Optional<String> target,
+        Optional<BuildTarget> target,
         ImmutableSet<RuleKey> ruleKeys,
         ArtifactCacheEvent.InvocationType invocationType,
         Optional<CacheResult> cacheResult,

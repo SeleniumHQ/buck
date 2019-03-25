@@ -28,19 +28,28 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaAbiInfo;
 import com.facebook.buck.jvm.core.JavaLibrary;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.hash.HashCode;
-import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
 public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, AndroidPackageable {
 
   private ImmutableSortedSet<SourcePath> srcs = ImmutableSortedSet.of();
+  private ImmutableSortedSet<SourcePath> resources = ImmutableSortedSet.of();
   private Optional<String> mavenCoords = Optional.empty();
+
+  public FakeJavaLibrary(
+      BuildTarget target,
+      ProjectFilesystem filesystem,
+      ImmutableSortedSet<BuildRule> deps,
+      ImmutableSortedSet<SourcePath> resources) {
+    super(target, filesystem, deps.toArray(new BuildRule[0]));
+    this.resources = resources;
+  }
 
   public FakeJavaLibrary(
       BuildTarget target, ProjectFilesystem filesystem, ImmutableSortedSet<BuildRule> deps) {
@@ -49,6 +58,14 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
 
   public FakeJavaLibrary(BuildTarget target, ImmutableSortedSet<BuildRule> deps) {
     super(target, deps);
+  }
+
+  public FakeJavaLibrary(
+      BuildTarget target,
+      ImmutableSortedSet<BuildRule> deps,
+      ImmutableSortedSet<SourcePath> resources) {
+    super(target, deps);
+    this.resources = resources;
   }
 
   public FakeJavaLibrary(BuildTarget target) {
@@ -105,18 +122,28 @@ public class FakeJavaLibrary extends FakeBuildRule implements JavaLibrary, Andro
 
   @Override
   public ImmutableSortedSet<SourcePath> getResources() {
-    return ImmutableSortedSet.of();
+    return resources;
+  }
+
+  @Override
+  public Optional<String> getResourcesRoot() {
+    return Optional.empty();
   }
 
   public FakeJavaLibrary setJavaSrcs(ImmutableSortedSet<SourcePath> srcs) {
-    Preconditions.checkNotNull(srcs);
+    Objects.requireNonNull(srcs);
     this.srcs = srcs;
     return this;
   }
 
   @Override
-  public Optional<Path> getGeneratedSourcePath() {
+  public Optional<SourcePath> getGeneratedAnnotationSourcePath() {
     return Optional.empty();
+  }
+
+  @Override
+  public boolean hasAnnotationProcessing() {
+    return false;
   }
 
   @Override

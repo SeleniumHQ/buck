@@ -32,6 +32,7 @@ import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
@@ -108,6 +109,7 @@ public class CxxLibraryTest {
                     .setIncludeRoot(
                         Either.ofRight(
                             DefaultBuildTargetSourcePath.of(publicHeaderSymlinkTreeTarget)))
+                    .setSymlinkTreeClass(HeaderSymlinkTree.class.getName())
                     .build())
             .build();
     assertEquals(
@@ -127,6 +129,7 @@ public class CxxLibraryTest {
                         ImmutableSortedMap.of(
                             Paths.get("header.h"),
                             DefaultBuildTargetSourcePath.of(privateHeaderTarget)))
+                    .setSymlinkTreeClass(HeaderSymlinkTree.class.getName())
                     .build())
             .build();
     assertEquals(
@@ -163,7 +166,7 @@ public class CxxLibraryTest {
   }
 
   @Test
-  public void headerOnlyExports() throws Exception {
+  public void headerOnlyExports() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
@@ -187,7 +190,6 @@ public class CxxLibraryTest {
             target,
             projectFilesystem,
             params,
-            graphBuilder.getParallelizer(),
             CxxDeps.of(),
             CxxDeps.of(),
             /* headerOnly */ x -> true,
@@ -202,6 +204,7 @@ public class CxxLibraryTest {
             Optional.empty(),
             ImmutableSortedSet.of(),
             /* isAsset */ false,
+            true,
             true,
             true,
             Optional.empty());
@@ -219,7 +222,7 @@ public class CxxLibraryTest {
   }
 
   @Test
-  public void postLinkerArgumentsExistWhenPassed() throws Exception {
+  public void postLinkerArgumentsExistWhenPassed() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     BuildTarget target = BuildTargetFactory.newInstance("//foo:bar");
     ProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
@@ -243,7 +246,6 @@ public class CxxLibraryTest {
             target,
             projectFilesystem,
             params,
-            graphBuilder.getParallelizer(),
             CxxDeps.of(),
             CxxDeps.of(),
             /* headerOnly */ x -> true,
@@ -258,6 +260,7 @@ public class CxxLibraryTest {
             Optional.empty(),
             ImmutableSortedSet.of(),
             /* isAsset */ false,
+            true,
             true,
             true,
             Optional.empty());

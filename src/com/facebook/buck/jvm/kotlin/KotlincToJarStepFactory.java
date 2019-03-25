@@ -16,7 +16,7 @@
 
 package com.facebook.buck.jvm.kotlin;
 
-import static com.facebook.buck.jvm.java.Javac.SRC_ZIP;
+import static com.facebook.buck.jvm.java.JavaPaths.SRC_ZIP;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
@@ -24,16 +24,20 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
+import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
+import com.facebook.buck.io.filesystem.FileExtensionMatcher;
+import com.facebook.buck.io.filesystem.GlobPatternMatcher;
+import com.facebook.buck.io.filesystem.PathMatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.java.AnnotationProcessingParams;
 import com.facebook.buck.jvm.java.CompileToJarStepFactory;
 import com.facebook.buck.jvm.java.CompilerParameters;
 import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.JavacPluginJsr199Fields;
+import com.facebook.buck.jvm.java.JavacPluginParams;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.jvm.kotlin.KotlinLibraryDescription.AnnotationProcessingTool;
 import com.facebook.buck.step.Step;
@@ -43,7 +47,6 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.zip.ZipCompressionLevel;
 import com.facebook.buck.zip.ZipStep;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
@@ -56,6 +59,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -63,10 +67,12 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
 
   @AddToRuleKey private final Kotlinc kotlinc;
   @AddToRuleKey private final ImmutableList<String> extraKotlincArguments;
+  @AddToRuleKey private final ImmutableList<SourcePath> friendPaths;
   @AddToRuleKey private final AnnotationProcessingTool annotationProcessingTool;
   @AddToRuleKey private final ExtraClasspathProvider extraClassPath;
   @AddToRuleKey private final Javac javac;
   @AddToRuleKey private final JavacOptions javacOptions;
+  private final ImmutableSortedSet<Path> kotlinHomeLibraries;
 
   private static final String COMPILER_BUILTINS = "-Xadd-compiler-builtins";
   private static final String LOAD_BUILTINS_FROM = "-Xload-builtins-from-dependencies";
@@ -92,12 +98,14 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
   private static final String NO_REFLECT = "-no-reflect";
   private static final String VERBOSE = "-verbose";
 
-  private final ImmutableSortedSet<Path> kotlinHomeLibraries;
+  private static final PathMatcher KOTLIN_PATH_MATCHER = FileExtensionMatcher.of("kt");
+  private static final PathMatcher SRC_ZIP_MATCHER = GlobPatternMatcher.of("**.src.zip");
 
   KotlincToJarStepFactory(
       Kotlinc kotlinc,
       ImmutableSortedSet<Path> kotlinHomeLibraries,
       ImmutableList<String> extraKotlincArguments,
+      ImmutableList<SourcePath> friendPaths,
       AnnotationProcessingTool annotationProcessingTool,
       ExtraClasspathProvider extraClassPath,
       Javac javac,
@@ -105,10 +113,11 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
     this.kotlinc = kotlinc;
     this.kotlinHomeLibraries = kotlinHomeLibraries;
     this.extraKotlincArguments = extraKotlincArguments;
+    this.friendPaths = friendPaths;
     this.annotationProcessingTool = annotationProcessingTool;
     this.extraClassPath = extraClassPath;
     this.javac = javac;
-    this.javacOptions = Preconditions.checkNotNull(javacOptions);
+    this.javacOptions = Objects.requireNonNull(javacOptions);
   }
 
   @Override
@@ -145,13 +154,14 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
     Path genOutput =
         BuildTargetPaths.getGenPath(
             projectFilesystem, invokingRule, "__%s_gen_sources__/generated" + SRC_ZIP);
-    boolean generatingCode = !javacOptions.getAnnotationProcessingParams().isEmpty();
+    boolean generatingCode = !javacOptions.getJavaAnnotationProcessorParams().isEmpty();
 
     ImmutableSortedSet.Builder<Path> sourceBuilder =
         ImmutableSortedSet.<Path>naturalOrder().addAll(sourceFilePaths);
 
-    // Only invoke kotlinc if we have kotlin files.
-    if (sourceFilePaths.stream().anyMatch(PathMatchers.KOTLIN_PATH_MATCHER::matches)) {
+    // Only invoke kotlinc if we have kotlin or src zip files.
+    if (sourceFilePaths.stream().anyMatch(KOTLIN_PATH_MATCHER::matches)
+        || sourceFilePaths.stream().anyMatch(SRC_ZIP_MATCHER::matches)) {
       ImmutableSortedSet<Path> sourcePaths =
           ImmutableSortedSet.<Path>naturalOrder().add(genOutput).addAll(sourceFilePaths).build();
 
@@ -173,6 +183,8 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
               .addAll(kotlinHomeLibraries)
               .build();
 
+      String friendPathsArg = getFriendsPath(buildContext.getSourcePathResolver(), friendPaths);
+
       if (generatingCode && annotationProcessingTool.equals(AnnotationProcessingTool.KAPT)) {
         addKaptGenFolderStep(
             invokingRule,
@@ -183,6 +195,7 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
             pathToSrcsList,
             allClasspaths,
             extraKotlincArguments,
+            friendPathsArg,
             kaptGeneratedOutput,
             stubsOutput,
             incrementalDataOutput,
@@ -223,6 +236,7 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
               kotlinc,
               ImmutableList.<String>builder()
                   .addAll(extraKotlincArguments)
+                  .add(friendPathsArg)
                   .add(NO_STDLIB)
                   .add(NO_REFLECT)
                   .add(COMPILER_BUILTINS)
@@ -232,14 +246,19 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
                   .build(),
               projectFilesystem,
               Optional.of(parameters.getOutputPaths().getWorkingDirectory())));
+
+      // Generated classes should be part of the output. This way generated files
+      // such as META-INF dirs will also be added to the final jar.
+      steps.add(
+          CopyStep.forDirectory(
+              projectFilesystem, classesOutput, outputDirectory, DirectoryMode.CONTENTS_ONLY));
     }
 
     final JavacOptions finalJavacOptions;
 
     switch (annotationProcessingTool) {
       case KAPT:
-        finalJavacOptions =
-            javacOptions.withAnnotationProcessingParams(AnnotationProcessingParams.EMPTY);
+        finalJavacOptions = javacOptions.withJavaAnnotationProcessorParams(JavacPluginParams.EMPTY);
         break;
 
       case JAVAC:
@@ -253,11 +272,12 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
 
     ImmutableSortedSet<Path> sources = sourceBuilder.build();
 
+    // Note that this filters out only .kt files, so this keeps both .java and .src.zip files.
     ImmutableSortedSet<Path> javaSourceFiles =
         ImmutableSortedSet.copyOf(
             sources
                 .stream()
-                .filter(input -> !PathMatchers.KOTLIN_PATH_MATCHER.matches(input))
+                .filter(input -> !KOTLIN_PATH_MATCHER.matches(input))
                 .collect(Collectors.toSet()));
 
     CompilerParameters javacParameters =
@@ -292,7 +312,8 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
       ImmutableSortedSet<Path> sourceFilePaths,
       Path pathToSrcsList,
       Iterable<? extends Path> declaredClasspathEntries,
-      ImmutableList<String> extraArguments,
+      ImmutableList<String> extraKotlincArguments,
+      String friendPathsArg,
       Path kaptGenerated,
       Path stubsOutput,
       Path incrementalData,
@@ -301,11 +322,11 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
       Path workingDirectory,
       SourcePathResolver resolver) {
 
-    ImmutableList<String> pluginFields =
+    ImmutableList<String> annotationProcessors =
         ImmutableList.copyOf(
             javacOptions
-                .getAnnotationProcessingParams()
-                .getModernProcessors()
+                .getJavaAnnotationProcessorParams()
+                .getPluginProperties()
                 .stream()
                 .map(
                     resolvedJavacPluginProperties ->
@@ -318,9 +339,9 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
 
     ImmutableList<String> kaptPluginOptions =
         ImmutableList.<String>builder()
-            .add(AP_CLASSPATH_ARG + kotlinc.getAnnotationProcessorPath())
-            .add(AP_CLASSPATH_ARG + kotlinc.getStdlibPath())
-            .addAll(pluginFields)
+            .add(AP_CLASSPATH_ARG + kotlinc.getAnnotationProcessorPath(resolver))
+            .add(AP_CLASSPATH_ARG + kotlinc.getStdlibPath(resolver))
+            .addAll(annotationProcessors)
             .add(SOURCES_ARG + filesystem.resolve(sourcesOutput))
             .add(CLASSES_ARG + filesystem.resolve(classesOutput))
             .add(INCREMENTAL_ARG + filesystem.resolve(incrementalData))
@@ -345,7 +366,7 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
             sourceFilePaths,
             pathToSrcsList,
             ImmutableSortedSet.<Path>naturalOrder()
-                .add(kotlinc.getStdlibPath())
+                .add(kotlinc.getStdlibPath(resolver))
                 .addAll(
                     Optional.ofNullable(extraClassPath.getExtraClasspath())
                         .orElse(ImmutableList.of()))
@@ -353,14 +374,15 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
                 .build(),
             kotlinc,
             ImmutableList.<String>builder()
-                .addAll(extraArguments)
+                .addAll(extraKotlincArguments)
+                .add(friendPathsArg)
                 .add(MODULE_NAME)
                 .add(invokingRule.getShortNameAndFlavorPostfix())
                 .add(COMPILER_BUILTINS)
                 .add(LOAD_BUILTINS_FROM)
                 .add(PLUGIN)
                 .add(KAPT3_PLUGIN + APT_MODE + "stubs," + join)
-                .add(X_PLUGIN_ARG + kotlinc.getAnnotationProcessorPath())
+                .add(X_PLUGIN_ARG + kotlinc.getAnnotationProcessorPath(resolver))
                 .build(),
             filesystem,
             Optional.of(workingDirectory)));
@@ -373,7 +395,7 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
             sourceFilePaths,
             pathToSrcsList,
             ImmutableSortedSet.<Path>naturalOrder()
-                .add(kotlinc.getStdlibPath())
+                .add(kotlinc.getStdlibPath(resolver))
                 .addAll(
                     Optional.ofNullable(extraClassPath.getExtraClasspath())
                         .orElse(ImmutableList.of()))
@@ -381,14 +403,15 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
                 .build(),
             kotlinc,
             ImmutableList.<String>builder()
-                .addAll(extraArguments)
+                .addAll(extraKotlincArguments)
+                .add(friendPathsArg)
                 .add(MODULE_NAME)
                 .add(invokingRule.getShortNameAndFlavorPostfix())
                 .add(COMPILER_BUILTINS)
                 .add(LOAD_BUILTINS_FROM)
                 .add(PLUGIN)
                 .add(KAPT3_PLUGIN + APT_MODE + "apt," + join)
-                .add(X_PLUGIN_ARG + kotlinc.getAnnotationProcessorPath())
+                .add(X_PLUGIN_ARG + kotlinc.getAnnotationProcessorPath(resolver))
                 .build(),
             filesystem,
             Optional.of(workingDirectory)));
@@ -425,5 +448,28 @@ public class KotlincToJarStepFactory extends CompileToJarStepFactory implements 
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  private String getFriendsPath(
+      SourcePathResolver sourcePathResolver, ImmutableList<SourcePath> friendPathsSourcePaths) {
+    if (friendPathsSourcePaths.isEmpty()) {
+      return "";
+    }
+
+    // https://youtrack.jetbrains.com/issue/KT-29933
+    ImmutableSortedSet<String> absoluteFriendPaths =
+        ImmutableSortedSet.copyOf(
+            friendPathsSourcePaths
+                .stream()
+                .map(path -> sourcePathResolver.getAbsolutePath(path).toString())
+                .collect(Collectors.toSet()));
+
+    return "-Xfriend-paths="
+        + absoluteFriendPaths.stream().reduce("", (path1, path2) -> path1 + "," + path2);
+  }
+
+  @Override
+  public boolean hasAnnotationProcessing() {
+    return !javacOptions.getJavaAnnotationProcessorParams().isEmpty();
   }
 }

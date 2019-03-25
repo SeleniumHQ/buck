@@ -17,6 +17,7 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -37,12 +38,6 @@ public class PathTypeCoercer extends LeafTypeCoercer<Path> {
                                 path -> pathRelativeToProjectRoot.resolve(path).normalize()));
                   }));
 
-  private final PathExistenceVerificationMode pathExistenceVerificationMode;
-
-  public PathTypeCoercer(PathExistenceVerificationMode pathExistenceVerificationMode) {
-    this.pathExistenceVerificationMode = pathExistenceVerificationMode;
-  }
-
   @Override
   public Class<Path> getOutputClass() {
     return Path.class;
@@ -53,6 +48,7 @@ public class PathTypeCoercer extends LeafTypeCoercer<Path> {
       CellPathResolver cellRoots,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
+      TargetConfiguration targetConfiguration,
       Object object)
       throws CoerceFailedException {
     if (object instanceof String) {
@@ -60,20 +56,7 @@ public class PathTypeCoercer extends LeafTypeCoercer<Path> {
       if (pathString.isEmpty()) {
         throw new CoerceFailedException("invalid path");
       }
-      Path normalizedPath =
-          pathCache.getUnchecked(pathRelativeToProjectRoot).getUnchecked(pathString);
-
-      if (pathExistenceVerificationMode.equals(PathExistenceVerificationMode.VERIFY)) {
-        // Verify that the path exists
-        try {
-          filesystem.getPathForRelativeExistingPath(normalizedPath);
-        } catch (RuntimeException e) {
-          throw new CoerceFailedException(
-              String.format("no such file or directory '%s'", normalizedPath), e);
-        }
-      }
-
-      return normalizedPath;
+      return pathCache.getUnchecked(pathRelativeToProjectRoot).getUnchecked(pathString);
     } else {
       throw CoerceFailedException.simple(object, getOutputClass());
     }

@@ -26,6 +26,7 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
+import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -43,7 +44,7 @@ import org.junit.Test;
 public class ShTestDescriptionTest {
 
   @Test
-  public void argsWithLocationMacro() throws Exception {
+  public void argsWithLocationMacro() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -66,7 +67,7 @@ public class ShTestDescriptionTest {
   }
 
   @Test
-  public void envWithLocationMacro() throws Exception {
+  public void envWithLocationMacro() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -100,7 +101,7 @@ public class ShTestDescriptionTest {
     TargetNode<?> shTestWithResources =
         new ShTestBuilder(target)
             .setTest(FakeSourcePath.of(filesystem, "some_test"))
-            .setResources(ImmutableSortedSet.of(resource))
+            .setResources(ImmutableSortedSet.of(PathSourcePath.of(filesystem, resource)))
             .build();
     assertThat(shTestWithResources.getInputs(), Matchers.hasItem(resource));
   }

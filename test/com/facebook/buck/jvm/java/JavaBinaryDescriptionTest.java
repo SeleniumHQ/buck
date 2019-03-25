@@ -35,8 +35,8 @@ import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.cxx.PrebuiltCxxLibraryBuilder;
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.coercer.PatternMatchedCollection;
 import com.google.common.collect.ImmutableSet;
@@ -50,7 +50,7 @@ import org.junit.Test;
 public class JavaBinaryDescriptionTest {
 
   @Test
-  public void rulesExportedFromDepsBecomeFirstOrderDeps() throws Exception {
+  public void rulesExportedFromDepsBecomeFirstOrderDeps() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
     FakeJavaLibrary transitiveLibrary =
@@ -75,8 +75,8 @@ public class JavaBinaryDescriptionTest {
 
   @Test
   public void defaultCxxPlatform() {
-    CxxPlatform cxxPlatform =
-        CxxPlatformUtils.DEFAULT_PLATFORM.withFlavor(InternalFlavor.of("newplatform"));
+    UnresolvedCxxPlatform cxxPlatform =
+        CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM.withFlavor(InternalFlavor.of("newplatform"));
     SourcePath lib = FakeSourcePath.of("lib");
 
     PrebuiltCxxLibraryBuilder cxxLibBuilder =
@@ -88,7 +88,7 @@ public class JavaBinaryDescriptionTest {
     JavaBinaryRuleBuilder javaBinBuilder =
         new JavaBinaryRuleBuilder(
                 BuildTargetFactory.newInstance("//:bin"),
-                CxxPlatformUtils.DEFAULT_PLATFORM,
+                CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM,
                 FlavorDomain.of("C/C++ Platform", cxxPlatform))
             .setDefaultCxxPlatform(cxxPlatform.getFlavor())
             .setDeps(ImmutableSortedSet.of(cxxLibBuilder.getTarget()));
@@ -104,7 +104,7 @@ public class JavaBinaryDescriptionTest {
 
   @Test
   public void fatJarClasspath() {
-    CxxPlatform cxxPlatform = CxxPlatformUtils.DEFAULT_PLATFORM;
+    UnresolvedCxxPlatform cxxPlatform = CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM;
     SourcePath lib = FakeSourcePath.of("lib");
 
     PrebuiltCxxLibraryBuilder cxxLibBuilder =
@@ -112,13 +112,13 @@ public class JavaBinaryDescriptionTest {
             .setSharedLib(lib);
     JavaLibraryBuilder javaLibBuilder =
         new JavaLibraryBuilder(
-                BuildTargetFactory.newInstance("//:lib"), new FakeProjectFilesystem(), null)
+                BuildTargetFactory.newInstance("//:lib"), new FakeProjectFilesystem())
             .addDep(cxxLibBuilder.getTarget())
             .addSrc(Paths.get("test/source.java"));
     JavaBinaryRuleBuilder javaBinBuilder =
         new JavaBinaryRuleBuilder(
                 BuildTargetFactory.newInstance("//:bin"),
-                CxxPlatformUtils.DEFAULT_PLATFORM,
+                CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM,
                 FlavorDomain.of("C/C++ Platform", cxxPlatform))
             .setDefaultCxxPlatform(cxxPlatform.getFlavor())
             .setDeps(ImmutableSortedSet.of(javaLibBuilder.getTarget()));

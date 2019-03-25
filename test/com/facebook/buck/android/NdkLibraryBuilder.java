@@ -19,10 +19,12 @@ import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
-import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntimeType;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
+import com.facebook.buck.android.toolchain.ndk.UnresolvedNdkCxxPlatform;
+import com.facebook.buck.android.toolchain.ndk.impl.StaticUnresolvedNdkCxxPlatform;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.AbstractNodeBuilder;
+import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
@@ -32,9 +34,12 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.util.types.Either;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Iterables;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -45,17 +50,17 @@ public class NdkLibraryBuilder
         NdkLibraryDescription,
         NdkLibrary> {
 
-  private static final NdkCxxPlatform DEFAULT_NDK_PLATFORM =
-      NdkCxxPlatform.builder()
-          .setCxxPlatform(CxxPlatformUtils.DEFAULT_PLATFORM)
-          .setCxxRuntime(NdkCxxRuntime.GNUSTL)
-          .setCxxRuntimeType(NdkCxxRuntimeType.DYNAMIC)
-          .setCxxSharedRuntimePath(Paths.get("runtime"))
-          .setObjdump(new CommandTool.Builder().addArg("objdump").build())
-          .build();
+  private static final UnresolvedNdkCxxPlatform DEFAULT_NDK_PLATFORM =
+      StaticUnresolvedNdkCxxPlatform.of(
+          NdkCxxPlatform.builder()
+              .setCxxPlatform(CxxPlatformUtils.DEFAULT_PLATFORM)
+              .setCxxRuntime(NdkCxxRuntime.GNUSTL)
+              .setCxxSharedRuntimePath(FakeSourcePath.of("runtime"))
+              .setObjdump(new CommandTool.Builder().addArg("objdump").build())
+              .build());
 
-  public static final ImmutableMap<TargetCpuType, NdkCxxPlatform> NDK_PLATFORMS =
-      ImmutableMap.<TargetCpuType, NdkCxxPlatform>builder()
+  public static final ImmutableMap<TargetCpuType, UnresolvedNdkCxxPlatform> NDK_PLATFORMS =
+      ImmutableMap.<TargetCpuType, UnresolvedNdkCxxPlatform>builder()
           .put(TargetCpuType.ARM, DEFAULT_NDK_PLATFORM)
           .put(TargetCpuType.ARMV7, DEFAULT_NDK_PLATFORM)
           .put(TargetCpuType.X86, DEFAULT_NDK_PLATFORM)
@@ -76,7 +81,7 @@ public class NdkLibraryBuilder
   public NdkLibraryBuilder(
       BuildTarget target, ProjectFilesystem filesystem, ToolchainProvider toolchainProvider) {
     super(
-        new NdkLibraryDescription() {
+        new NdkLibraryDescription(toolchainProvider) {
           @Override
           protected ImmutableSortedSet<SourcePath> findSources(
               ProjectFilesystem filesystem, Path buildRulePath) {
@@ -86,8 +91,7 @@ public class NdkLibraryBuilder
         },
         target,
         filesystem,
-        toolchainProvider,
-        null);
+        toolchainProvider);
   }
 
   public static ToolchainProvider createToolchainProviderForNdkLibrary() {
@@ -106,7 +110,10 @@ public class NdkLibraryBuilder
   }
 
   public NdkLibraryBuilder setFlags(Iterable<String> flags) {
-    getArgForPopulating().setFlags(ImmutableList.copyOf(flags));
+    getArgForPopulating()
+        .setFlags(
+            Iterables.transform(
+                flags, flag -> StringWithMacros.of(ImmutableList.of(Either.ofLeft(flag)))));
     return this;
   }
 

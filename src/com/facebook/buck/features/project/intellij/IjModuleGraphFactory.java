@@ -78,11 +78,11 @@ public final class IjModuleGraphFactory {
                   CommonDescriptionArg arg = (CommonDescriptionArg) targetNode.getConstructorArg();
                   return !arg.labelsContainsAnyOf(ignoredTargetLabels);
                 })
-            // IntelliJ doesn't support referring to source files which aren't below the root of the
-            // project. Filter out those cases proactively, so that we don't try to resolve files
-            // relative to the wrong ProjectFilesystem.
-            // Maybe one day someone will fix this.
-            .filter(targetNode -> isInRootCell(projectFilesystem, targetNode));
+            // Experimental support for generating modules outside the project root
+            .filter(
+                targetNode ->
+                    projectConfig.isMultiCellModuleSupportEnabled()
+                        || isInRootCell(projectFilesystem, targetNode));
 
     ImmutableListMultimap<Path, TargetNode<?>> baseTargetPathMultimap =
         (projectConfig.getProjectRoot().isEmpty()
@@ -92,7 +92,11 @@ public final class IjModuleGraphFactory {
                         shouldConvertToIjModule(projectConfig.getProjectRoot(), targetNode)))
             .collect(
                 ImmutableListMultimap.toImmutableListMultimap(
-                    targetNode -> targetNode.getBuildTarget().getBasePath(),
+                    targetNode ->
+                        projectFilesystem.relativize(
+                            targetNode
+                                .getFilesystem()
+                                .resolve(targetNode.getBuildTarget().getBasePath())),
                     targetNode -> targetNode));
 
     AggregationTree aggregationTree =
@@ -104,7 +108,7 @@ public final class IjModuleGraphFactory {
 
     aggregationTree
         .getModules()
-        .stream()
+        .parallelStream()
         .filter(aggregationModule -> !aggregationModule.getTargets().isEmpty())
         .forEach(
             aggregationModule -> {
@@ -113,9 +117,11 @@ public final class IjModuleGraphFactory {
                       aggregationModule.getModuleBasePath(),
                       aggregationModule.getTargets(),
                       aggregationModule.getExcludes());
-              module
-                  .getTargets()
-                  .forEach(buildTarget -> moduleByBuildTarget.put(buildTarget, module));
+              synchronized (moduleByBuildTarget) {
+                module
+                    .getTargets()
+                    .forEach(buildTarget -> moduleByBuildTarget.put(buildTarget, module));
+              }
             });
 
     return moduleByBuildTarget.build();
@@ -233,6 +239,24 @@ public final class IjModuleGraphFactory {
     for (IjModule module : ImmutableSet.copyOf(rulesToModules.values())) {
       Map<IjProjectElement, DependencyType> moduleDeps = new LinkedHashMap<>();
 
+      if (!module.getExtraClassPathDependencies().isEmpty()) {
+        IjLibrary extraClassPathLibrary =
+            IjLibrary.builder()
+                .setBinaryJars(module.getExtraClassPathDependencies())
+                .setTargets(ImmutableSet.of())
+                .setName("library_" + module.getName() + "_extra_classpath")
+                .build();
+        moduleDeps.put(extraClassPathLibrary, DependencyType.PROD);
+      }
+
+      if (extraCompileOutputRootPath.isPresent()
+          && !module.getExtraModuleDependencies().isEmpty()) {
+        IjModule extraModule =
+            createExtraModuleForCompilerOutput(module, extraCompileOutputRootPath.get());
+        moduleDeps.put(extraModule, DependencyType.PROD);
+        depsBuilder.put(extraModule, ImmutableMap.of());
+      }
+
       for (Map.Entry<BuildTarget, DependencyType> entry : module.getDependencies().entrySet()) {
         BuildTarget depBuildTarget = entry.getKey();
         TargetNode<?> depTargetNode = targetGraph.get(depBuildTarget);
@@ -286,24 +310,6 @@ public final class IjModuleGraphFactory {
           Preconditions.checkState(!depElement.equals(module));
           DependencyType.putWithMerge(moduleDeps, depElement, depType);
         }
-      }
-
-      if (!module.getExtraClassPathDependencies().isEmpty()) {
-        IjLibrary extraClassPathLibrary =
-            IjLibrary.builder()
-                .setClassPaths(module.getExtraClassPathDependencies())
-                .setTargets(ImmutableSet.of())
-                .setName("library_" + module.getName() + "_extra_classpath")
-                .build();
-        moduleDeps.put(extraClassPathLibrary, DependencyType.PROD);
-      }
-
-      if (extraCompileOutputRootPath.isPresent()
-          && !module.getExtraModuleDependencies().isEmpty()) {
-        IjModule extraModule =
-            createExtraModuleForCompilerOutput(module, extraCompileOutputRootPath.get());
-        moduleDeps.put(extraModule, DependencyType.PROD);
-        depsBuilder.put(extraModule, ImmutableMap.of());
       }
 
       moduleDeps

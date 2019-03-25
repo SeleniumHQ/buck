@@ -26,6 +26,7 @@ import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.TestProcessExecutorFactory;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.facebook.buck.util.unarchive.ArchiveFormat;
 import com.facebook.buck.util.unarchive.ExistingFileMode;
 import com.google.common.base.Charsets;
@@ -88,9 +89,7 @@ public class HgCmdLineInterfaceIntegrationTest {
    * <p>hg_repo_two: above, current tip @branch_from_master2, and no local changes. hg_repo_three:
    * above, current tip @branch_from_master3, and with local changes.
    */
-  @SuppressWarnings("javadoc")
-  @ClassRule
-  public static TemporaryFolder tempFolder = new TemporaryFolder();
+  @ClassRule public static TemporaryFolder tempFolder = new TemporaryFolder();
 
   private static VersionControlCmdLineInterface repoTwoCmdLine;
   private static VersionControlCmdLineInterface repoThreeCmdLine;
@@ -200,6 +199,6 @@ public class HgCmdLineInterfaceIntegrationTest {
         repoRootDir,
         new TestProcessExecutorFactory(),
         new VersionControlBuckConfig(FakeBuckConfig.builder().build()).getHgCmd(),
-        ImmutableMap.of("PATH", System.getenv("PATH")));
+        ImmutableMap.of("PATH", EnvVariablesProvider.getSystemEnv().get("PATH")));
   }
 }

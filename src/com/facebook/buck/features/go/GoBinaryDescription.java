@@ -23,23 +23,18 @@ import com.facebook.buck.core.description.arg.HasSrcs;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
-import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
-import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.collect.ImmutableCollection;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
-import java.util.Optional;
 import org.immutables.value.Value;
 
 public class GoBinaryDescription
@@ -72,7 +67,8 @@ public class GoBinaryDescription
       BuildTarget buildTarget,
       BuildRuleParams params,
       GoBinaryDescriptionArg args) {
-    GoPlatform platform = getGoPlatform(buildTarget, args);
+    GoPlatform platform =
+        GoDescriptors.getPlatformForRule(getGoToolchain(), this.goBuckConfig, buildTarget, args);
     return GoDescriptors.createGoBinaryRule(
         buildTarget,
         context.getProjectFilesystem(),
@@ -80,6 +76,7 @@ public class GoBinaryDescription
         context.getActionGraphBuilder(),
         goBuckConfig,
         args.getLinkStyle().orElse(Linker.LinkableDepType.STATIC_PIC),
+        args.getLinkMode(),
         args.getSrcs(),
         args.getResources(),
         args.getCompilerFlags(),
@@ -97,42 +94,18 @@ public class GoBinaryDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // Add the C/C++ linker parse time deps.
-    targetGraphOnlyDepsBuilder.addAll(
-        CxxPlatforms.getParseTimeDeps(getGoPlatform(buildTarget, constructorArg).getCxxPlatform()));
+    GoPlatform platform =
+        GoDescriptors.getPlatformForRule(
+            getGoToolchain(), this.goBuckConfig, buildTarget, constructorArg);
+    targetGraphOnlyDepsBuilder.addAll(CxxPlatforms.getParseTimeDeps(platform.getCxxPlatform()));
   }
 
   private GoToolchain getGoToolchain() {
     return toolchainProvider.getByName(GoToolchain.DEFAULT_NAME, GoToolchain.class);
   }
 
-  private GoPlatform getGoPlatform(BuildTarget target, AbstractGoBinaryDescriptionArg arg) {
-    GoToolchain toolchain = getGoToolchain();
-    FlavorDomain<GoPlatform> platforms = toolchain.getPlatformFlavorDomain();
-    return platforms
-        .getValue(target)
-        .orElseGet(
-            () ->
-                arg.getPlatform()
-                    .map(platforms::getValue)
-                    .orElseGet(toolchain::getDefaultPlatform));
-  }
-
   @BuckStyleImmutable
   @Value.Immutable
-  interface AbstractGoBinaryDescriptionArg extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs {
-    Optional<Flavor> getPlatform();
-
-    Optional<Linker.LinkableDepType> getLinkStyle();
-
-    ImmutableList<String> getCompilerFlags();
-
-    ImmutableList<String> getAssemblerFlags();
-
-    ImmutableList<String> getLinkerFlags();
-
-    ImmutableList<String> getExternalLinkerFlags();
-
-    @Value.NaturalOrder
-    ImmutableSortedSet<SourcePath> getResources();
-  }
+  interface AbstractGoBinaryDescriptionArg
+      extends CommonDescriptionArg, HasDeclaredDeps, HasSrcs, HasGoLinkable {}
 }

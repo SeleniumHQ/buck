@@ -39,7 +39,6 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
-import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.TestDefaultRuleKeyFactory;
 import com.facebook.buck.sandbox.NoSandboxExecutionStrategy;
@@ -48,11 +47,11 @@ import com.facebook.buck.shell.ShellStep;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.testutil.FakeFileHashCache;
 import com.facebook.buck.util.environment.Platform;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.hash.HashCode;
 import java.nio.file.Paths;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
 import org.junit.Before;
@@ -78,7 +77,6 @@ public class ExternallyBuiltApplePackageTest {
     config =
         ApplePackageConfigAndPlatformInfo.of(
             ApplePackageConfig.of("echo $SDKROOT $OUT", "api"),
-            StringArg::of,
             FakeAppleRuleDescriptions.DEFAULT_IPHONEOS_I386_PLATFORM);
   }
 
@@ -139,7 +137,7 @@ public class ExternallyBuiltApplePackageTest {
     graphBuilder.addToIndex(rule);
     assertThat(
         pathResolver
-            .getRelativePath(Preconditions.checkNotNull(rule.getSourcePathToOutput()))
+            .getRelativePath(Objects.requireNonNull(rule.getSourcePathToOutput()))
             .toString(),
         endsWith(".api"));
   }

@@ -18,7 +18,6 @@ package com.facebook.buck.jvm.java.plugin.adapter;
 
 import com.facebook.buck.jvm.java.lang.model.ElementsExtended;
 import com.facebook.buck.util.liteinfersupport.Nullable;
-import com.facebook.buck.util.liteinfersupport.Preconditions;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.util.JavacTask;
 import com.sun.source.util.TaskEvent;
@@ -32,11 +31,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
 import java.util.function.Consumer;
 import javax.lang.model.element.Element;
-import javax.lang.model.element.TypeElement;
 import javax.lang.model.util.Elements;
 import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
@@ -90,11 +89,11 @@ public class BuckJavacTask extends JavacTaskWrapper {
     return result;
   }
 
-  public Iterable<? extends TypeElement> enter() throws IOException {
+  public Iterable<? extends Element> enter() throws IOException {
     try {
       @SuppressWarnings("unchecked")
-      Iterable<? extends TypeElement> result =
-          (Iterable<? extends TypeElement>) inner.getClass().getMethod("enter").invoke(inner);
+      Iterable<? extends Element> result =
+          (Iterable<? extends Element>) inner.getClass().getMethod("enter").invoke(inner);
       return result;
     } catch (IllegalAccessException | NoSuchMethodException e) {
       throw new RuntimeException(e);
@@ -250,7 +249,7 @@ public class BuckJavacTask extends JavacTaskWrapper {
         }
       }
 
-      return Preconditions.checkNotNull(compilerField.get(inner));
+      return Objects.requireNonNull(compilerField.get(inner));
     }
 
     private static Class<? extends JavacTask> getJavacTaskClass(JavacTask task) {
@@ -300,7 +299,7 @@ public class BuckJavacTask extends JavacTaskWrapper {
       @SuppressWarnings("unchecked")
       Queue<Diagnostic<JavaFileObject>> result =
           (Queue<Diagnostic<JavaFileObject>>)
-              Preconditions.checkNotNull(getDiagnosticsMethod.invoke(deferredDiagnosticHandler));
+              Objects.requireNonNull(getDiagnosticsMethod.invoke(deferredDiagnosticHandler));
       return result;
     }
 

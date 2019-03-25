@@ -29,7 +29,6 @@ import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
@@ -236,7 +235,7 @@ public class ActionGraphBuilderTest {
             targetGraph,
             new TargetNodeToBuildRuleTransformer() {
               @Override
-              public <T, U extends DescriptionWithTargetGraph<T>> BuildRule transform(
+              public <T> BuildRule transform(
                   ToolchainProvider toolchainProvider,
                   TargetGraph targetGraph,
                   ActionGraphBuilder graphBuilder,
@@ -269,7 +268,7 @@ public class ActionGraphBuilderTest {
             targetGraph,
             new TargetNodeToBuildRuleTransformer() {
               @Override
-              public <T, U extends DescriptionWithTargetGraph<T>> BuildRule transform(
+              public <T> BuildRule transform(
                   ToolchainProvider toolchainProvider,
                   TargetGraph targetGraph,
                   ActionGraphBuilder graphBuilder,
@@ -306,7 +305,7 @@ public class ActionGraphBuilderTest {
     assertEquals("transform() should be called exactly twice", 2, transformCalls.size());
   }
 
-  @Test(timeout = 5000)
+  @Test(timeout = 10000)
   public void deadLockOnDependencyTest() throws ExecutionException, InterruptedException {
     Assume.assumeTrue(classUnderTest == MultiThreadedActionGraphBuilder.class);
 
@@ -358,7 +357,7 @@ public class ActionGraphBuilderTest {
               targetGraph,
               new TargetNodeToBuildRuleTransformer() {
                 @Override
-                public <T, U extends DescriptionWithTargetGraph<T>> BuildRule transform(
+                public <T> BuildRule transform(
                     ToolchainProvider toolchainProvider,
                     TargetGraph targetGraph,
                     ActionGraphBuilder graphBuilder,

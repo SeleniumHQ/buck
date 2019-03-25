@@ -24,6 +24,7 @@ import static java.nio.file.StandardOpenOption.WRITE;
 
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rules.modern.annotations.CustomFieldBehavior;
+import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.rules.modern.PathSerialization;
 import com.facebook.buck.util.ByteBufferReplacer;
 import com.google.common.base.Charsets;
@@ -67,6 +68,7 @@ public class MungingDebugPathSanitizer extends DebugPathSanitizer {
    */
   public MungingDebugPathSanitizer(
       int pathSize, char separator, Path compilationDirectory, ImmutableBiMap<Path, String> other) {
+    super(separator == '/');
     Preconditions.checkState(!compilationDirectory.isAbsolute());
     this.compilationDirectory = compilationDirectory;
     this.pathSize = pathSize;
@@ -76,11 +78,18 @@ public class MungingDebugPathSanitizer extends DebugPathSanitizer {
 
   @Override
   public String getCompilationDirectory() {
+    if (useUnixPathSeparator) {
+      return MorePaths.pathWithUnixSeparators(getExpandedPath(compilationDirectory));
+    }
+
     return getExpandedPath(compilationDirectory);
   }
 
   private String getExpandedPath(Path path) {
-    return getPaddedDir(path.toString(), pathSize, separator);
+    return getPaddedDir(
+        useUnixPathSeparator ? MorePaths.pathWithUnixSeparators(path) : path.toString(),
+        pathSize,
+        separator);
   }
 
   @Override
@@ -97,8 +106,12 @@ public class MungingDebugPathSanitizer extends DebugPathSanitizer {
     //
     //   2) in the case where we're using post-linkd debug path replacement, we reserve room
     //      to expand the path later.
-    return ImmutableMap.of(
-        "PWD", shouldSanitize ? getExpandedPath(workingDir) : workingDir.toString());
+    String pwdPath =
+        useUnixPathSeparator ? MorePaths.pathWithUnixSeparators(workingDir) : workingDir.toString();
+    if (shouldSanitize) {
+      pwdPath = getExpandedPath(workingDir);
+    }
+    return ImmutableMap.of("PWD", pwdPath);
   }
 
   // Construct the replacer, giving the expanded current directory and the desired directory.
@@ -157,6 +170,10 @@ public class MungingDebugPathSanitizer extends DebugPathSanitizer {
     return Iterables.concat(
         other.entrySet(),
         ImmutableList.of(
-            new AbstractMap.SimpleEntry<>(workingDir.get(), compilationDirectory.toString())));
+            new AbstractMap.SimpleEntry<>(
+                workingDir.get(),
+                useUnixPathSeparator
+                    ? MorePaths.pathWithUnixSeparators(compilationDirectory)
+                    : compilationDirectory.toString())));
   }
 }

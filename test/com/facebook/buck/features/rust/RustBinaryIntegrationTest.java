@@ -28,6 +28,8 @@ import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ProcessExecutor;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.hamcrest.Matchers;
 import org.junit.Before;
 import org.junit.Rule;
@@ -40,7 +42,7 @@ public class RustBinaryIntegrationTest {
   @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Before
-  public void ensureRustIsAvailable() throws IOException, InterruptedException {
+  public void ensureRustIsAvailable() {
     RustAssumptions.assumeRustIsConfigured();
   }
 
@@ -235,6 +237,73 @@ public class RustBinaryIntegrationTest {
                 .toString());
     assertThat(result.getExitCode(), Matchers.equalTo(0));
     assertThat(result.getStdout().get(), containsString("Another top-level source"));
+    assertThat(result.getStderr().get(), Matchers.blankString());
+  }
+
+  @Test
+  public void simpleBinaryIncremental() throws IOException, InterruptedException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "simple_binary", tmp);
+    workspace.setUp();
+    BuckBuildLog buildLog;
+
+    workspace
+        .runBuckCommand("build", "-c", "rust#default.incremental=opt", "//:xyzzy#check")
+        .assertSuccess();
+    buildLog = workspace.getBuildLog();
+    buildLog.assertTargetBuiltLocally("//:xyzzy#check");
+
+    workspace
+        .runBuckCommand("build", "-c", "rust#default.incremental=dev", "//:xyzzy")
+        .assertSuccess();
+    buildLog = workspace.getBuildLog();
+    buildLog.assertTargetBuiltLocally("//:xyzzy");
+
+    assertTrue(
+        Files.isDirectory(workspace.resolve("buck-out/tmp/rust-incremental/dev/binary/default")));
+    assertTrue(
+        Files.isDirectory(workspace.resolve("buck-out/tmp/rust-incremental/opt/check/default")));
+  }
+
+  @Test
+  public void simpleBinaryEdition2015() throws IOException, InterruptedException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "editions", tmp);
+    workspace.setUp();
+
+    RustAssumptions.assumeVersion(workspace, "1.31");
+
+    workspace.runBuckBuild("//:bin2015").assertSuccess();
+    BuckBuildLog buildLog = workspace.getBuildLog();
+    buildLog.assertTargetBuiltLocally("//:bin2015");
+    workspace.resetBuildLogFile();
+
+    ProcessExecutor.Result result =
+        workspace.runCommand(
+            workspace.resolve("buck-out/gen/bin2015#binary,default/bin2015").toString());
+    assertThat(result.getExitCode(), Matchers.equalTo(0));
+    assertThat(result.getStdout().get(), containsString("Common called"));
+    assertThat(result.getStderr().get(), Matchers.blankString());
+  }
+
+  @Test
+  public void simpleBinaryEdition2018() throws IOException, InterruptedException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "editions", tmp);
+    workspace.setUp();
+
+    RustAssumptions.assumeVersion(workspace, "1.31");
+
+    workspace.runBuckBuild("//:bin2018").assertSuccess();
+    BuckBuildLog buildLog = workspace.getBuildLog();
+    buildLog.assertTargetBuiltLocally("//:bin2018");
+    workspace.resetBuildLogFile();
+
+    ProcessExecutor.Result result =
+        workspace.runCommand(
+            workspace.resolve("buck-out/gen/bin2018#binary,default/bin2018").toString());
+    assertThat(result.getExitCode(), Matchers.equalTo(0));
+    assertThat(result.getStdout().get(), containsString("Common called"));
     assertThat(result.getStderr().get(), Matchers.blankString());
   }
 
@@ -603,6 +672,21 @@ public class RustBinaryIntegrationTest {
             containsString("Calling helloer"),
             containsString("I'm printing hello!"),
             containsString("Helloer called")));
+  }
+
+  @Test
+  public void cxxBinaryWithSharedRustDependencyExecutesOutsideProjectDirectory()
+      throws IOException, java.lang.InterruptedException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "cxx_with_rust_dep", tmp);
+    workspace.setUp();
+
+    Path programPath = workspace.buildAndReturnOutput("//:hello-shared");
+    java.lang.Process process =
+        new java.lang.ProcessBuilder(new String[] {programPath.toString()})
+            .directory(programPath.getRoot().toFile())
+            .start();
+    assertThat(process.waitFor(), Matchers.equalTo(0));
   }
 
   @Test

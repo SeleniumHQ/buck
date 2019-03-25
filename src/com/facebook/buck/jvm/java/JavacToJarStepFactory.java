@@ -233,7 +233,7 @@ public class JavacToJarStepFactory extends CompileToJarStepFactory implements Ad
       JavacPipelineState pipeline,
       BuildTarget invokingRule,
       Builder<Step> steps) {
-    boolean generatingCode = !javacOptions.getAnnotationProcessingParams().isEmpty();
+    boolean generatingCode = !javacOptions.getJavaAnnotationProcessorParams().isEmpty();
     if (generatingCode && pipeline.isRunning()) {
       steps.add(
           SymlinkFileStep.of(
@@ -251,5 +251,10 @@ public class JavacToJarStepFactory extends CompileToJarStepFactory implements Ad
   @VisibleForTesting
   public JavacOptions getJavacOptions() {
     return javacOptions;
+  }
+
+  @Override
+  public boolean hasAnnotationProcessing() {
+    return !javacOptions.getJavaAnnotationProcessorParams().isEmpty();
   }
 }

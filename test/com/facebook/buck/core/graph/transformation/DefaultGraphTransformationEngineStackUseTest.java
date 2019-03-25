@@ -18,6 +18,9 @@ package com.facebook.buck.core.graph.transformation;
 
 import static org.junit.Assert.assertEquals;
 
+import com.facebook.buck.core.graph.transformation.ChildrenAdder.LongNode;
+import com.facebook.buck.core.graph.transformation.executor.impl.DefaultDepsAwareExecutor;
+import com.google.common.collect.ImmutableList;
 import com.google.common.graph.GraphBuilder;
 import com.google.common.graph.MutableGraph;
 import org.junit.Test;
@@ -26,20 +29,23 @@ public class DefaultGraphTransformationEngineStackUseTest {
 
   @Test
   public void largeGraphShouldNotStackOverflow() {
-    MutableGraph<Long> graph = GraphBuilder.directed().build();
+    MutableGraph<LongNode> graph = GraphBuilder.directed().build();
     // We set -Xss500k for the JVM for this test, so our stack is very small.
     for (long i = 1L; i <= 6000L; i++) {
-      graph.addNode(i);
+      graph.addNode(ImmutableLongNode.of(i));
       if (i > 1) {
-        graph.putEdge(i - 1, i);
+        graph.putEdge(ImmutableLongNode.of(i - 1), ImmutableLongNode.of(i));
       }
     }
 
     ChildrenAdder transformer = new ChildrenAdder(graph);
     assertEquals(
-        (Long) 18003000L, // arithmetic series from 1 to 6000
+        ImmutableLongNode.of(18003000), // arithmetic series from 1 to 6000
         // https://www.wolframalpha.com/input/?i=sum+from+1+to+6000
-        new DefaultGraphTransformationEngine<>(transformer, graph.nodes().size())
-            .computeUnchecked(1L));
+        new DefaultGraphTransformationEngine(
+                ImmutableList.of(new GraphTransformationStage<>(transformer)),
+                graph.nodes().size(),
+                DefaultDepsAwareExecutor.of(1))
+            .computeUnchecked(ImmutableLongNode.of(1)));
   }
 }

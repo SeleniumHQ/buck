@@ -16,26 +16,31 @@
 
 package com.facebook.buck.artifact_cache;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig;
+import com.facebook.buck.artifact_cache.config.ArtifactCacheBuckConfig.Executor;
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
 import com.facebook.buck.artifact_cache.config.DirCacheEntry;
 import com.facebook.buck.artifact_cache.config.HttpCacheEntry;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.BuckConfigTestUtils;
+import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.environment.Architecture;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Joiner;
-import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.io.StringReader;
 import java.net.URI;
@@ -59,7 +64,7 @@ public class ArtifactCacheBuckConfigTest {
         createFromText("[cache]", "mode = http", "blacklisted_wifi_ssids = yolocoaster");
     ImmutableSet<HttpCacheEntry> httpCaches = config.getCacheEntries().getHttpCacheEntries();
     assertThat(httpCaches, Matchers.hasSize(1));
-    HttpCacheEntry cacheEntry = FluentIterable.from(httpCaches).get(0);
+    HttpCacheEntry cacheEntry = Iterables.getOnlyElement(httpCaches);
 
     assertThat(
         cacheEntry.isWifiUsableForDistributedCache(Optional.of("yolocoaster")), Matchers.is(false));
@@ -69,7 +74,7 @@ public class ArtifactCacheBuckConfigTest {
     config = createFromText("[cache]", "mode = http");
     httpCaches = config.getCacheEntries().getHttpCacheEntries();
     assertThat(httpCaches, Matchers.hasSize(1));
-    cacheEntry = FluentIterable.from(httpCaches).get(0);
+    cacheEntry = Iterables.getOnlyElement(httpCaches);
 
     assertThat(
         cacheEntry.isWifiUsableForDistributedCache(Optional.of("yolocoaster")), Matchers.is(true));
@@ -106,7 +111,7 @@ public class ArtifactCacheBuckConfigTest {
             "http_mode = readwrite");
     ImmutableSet<HttpCacheEntry> httpCaches = config.getCacheEntries().getHttpCacheEntries();
     assertThat(httpCaches, Matchers.hasSize(1));
-    HttpCacheEntry cacheEntry = FluentIterable.from(httpCaches).get(0);
+    HttpCacheEntry cacheEntry = Iterables.getOnlyElement(httpCaches);
 
     ImmutableMap.Builder<String, String> readBuilder = ImmutableMap.builder();
     ImmutableMap<String, String> expectedReadHeaders =
@@ -136,7 +141,7 @@ public class ArtifactCacheBuckConfigTest {
             "http_write_timeout_seconds = 4242");
     ImmutableSet<HttpCacheEntry> httpCaches = config.getCacheEntries().getHttpCacheEntries();
     assertThat(httpCaches, Matchers.hasSize(1));
-    HttpCacheEntry cacheEntry = FluentIterable.from(httpCaches).get(0);
+    HttpCacheEntry cacheEntry = Iterables.getOnlyElement(httpCaches);
 
     assertThat(cacheEntry.getConnectTimeoutSeconds(), Matchers.is(42));
     assertThat(cacheEntry.getReadTimeoutSeconds(), Matchers.is(242));
@@ -149,7 +154,7 @@ public class ArtifactCacheBuckConfigTest {
         createFromText("[cache]", "http_timeout_seconds = 42", "http_read_timeout_seconds = 242");
     ImmutableSet<HttpCacheEntry> httpCaches = config.getCacheEntries().getHttpCacheEntries();
     assertThat(httpCaches, Matchers.hasSize(1));
-    HttpCacheEntry cacheEntry = FluentIterable.from(httpCaches).get(0);
+    HttpCacheEntry cacheEntry = Iterables.getOnlyElement(httpCaches);
 
     assertThat(cacheEntry.getConnectTimeoutSeconds(), Matchers.is(42));
     assertThat(cacheEntry.getReadTimeoutSeconds(), Matchers.is(242));
@@ -161,7 +166,7 @@ public class ArtifactCacheBuckConfigTest {
     ArtifactCacheBuckConfig config = createFromText("[cache]", "http_timeout_seconds = 42");
     ImmutableSet<HttpCacheEntry> httpCaches = config.getCacheEntries().getHttpCacheEntries();
     assertThat(httpCaches, Matchers.hasSize(1));
-    HttpCacheEntry cacheEntry = FluentIterable.from(httpCaches).get(0);
+    HttpCacheEntry cacheEntry = Iterables.getOnlyElement(httpCaches);
 
     // If the headers are not set we shouldn't get any by default.
     ImmutableMap.Builder<String, String> readBuilder = ImmutableMap.builder();
@@ -216,18 +221,19 @@ public class ArtifactCacheBuckConfigTest {
     assertThat(othernameDirCche.getMaxSizeBytes(), Matchers.equalTo(Optional.of(800L)));
   }
 
-  @Test(expected = HumanReadableException.class)
+  @Test
   public void testMalformedHttpUrl() throws IOException {
     ArtifactCacheBuckConfig config = createFromText("[cache]", "http_url = notaurl");
-
-    config.getCacheEntries().getHttpCacheEntries();
+    expectedException.expect(HumanReadableException.class);
+    config.getCacheEntries();
   }
 
-  @Test(expected = HumanReadableException.class)
+  @Test
   public void testMalformedMode() throws IOException {
     ArtifactCacheBuckConfig config = createFromText("[cache]", "dir_mode = notamode");
 
-    config.getCacheEntries().getDirCacheEntries();
+    expectedException.expect(HumanReadableException.class);
+    config.getCacheEntries();
   }
 
   @Test
@@ -294,7 +300,7 @@ public class ArtifactCacheBuckConfigTest {
     ArtifactCacheBuckConfig config = createFromText("[cache]", "dir = ~/cache_dir");
     assertThat(
         "User home cache directory must be expanded.",
-        config.getCacheEntries().getDirCacheEntries().stream().findFirst().get().getCacheDir(),
+        Iterables.getOnlyElement(config.getCacheEntries().getDirCacheEntries()).getCacheDir(),
         Matchers.equalTo(MorePaths.expandHomeDir(Paths.get("~/cache_dir"))));
   }
 
@@ -325,8 +331,27 @@ public class ArtifactCacheBuckConfigTest {
         createFromText("[cache]", "http_error_message_format = " + testText);
 
     ImmutableSet<HttpCacheEntry> httpCacheEntries = config.getCacheEntries().getHttpCacheEntries();
-    HttpCacheEntry cache = FluentIterable.from(httpCacheEntries).get(0);
+    HttpCacheEntry cache = Iterables.getOnlyElement(httpCacheEntries);
     assertThat(cache.getErrorMessageFormat(), Matchers.equalTo(testText));
+  }
+
+  @Test
+  public void directExecutorIsUsedByDefaultForDirCacheStores() throws Exception {
+    ArtifactCacheBuckConfig config = createFromText();
+    assertEquals(Executor.DIRECT, config.getDirCacheStoreExecutor());
+  }
+
+  @Test
+  public void directExecutorIsUsedForDirCacheStoresWhenRequested() throws Exception {
+    ArtifactCacheBuckConfig config = createFromText("[cache]", "dir_cache_store_executor = direct");
+    assertEquals(Executor.DIRECT, config.getDirCacheStoreExecutor());
+  }
+
+  @Test
+  public void diskIOExecutorIsUsedForDirCacheStoresWhenRequested() throws Exception {
+    ArtifactCacheBuckConfig config =
+        createFromText("[cache]", "dir_cache_store_executor = disk_io");
+    assertEquals(Executor.DISK_IO, config.getDirCacheStoreExecutor());
   }
 
   public static ArtifactCacheBuckConfig createFromText(String... lines) throws IOException {
@@ -338,6 +363,53 @@ public class ArtifactCacheBuckConfigTest {
             projectFilesystem,
             Architecture.detect(),
             Platform.detect(),
-            ImmutableMap.copyOf(System.getenv())));
+            EnvVariablesProvider.getSystemEnv()));
+  }
+
+  @Test
+  public void testGetStringOrEnvironmentVariable() throws IOException {
+    BuckConfig config = FakeBuckConfig.builder().setSections("[section]", "field = value").build();
+    assertEquals(
+        Optional.of("value"),
+        ArtifactCacheBuckConfig.getStringOrEnvironmentVariable(config, "section", "field"));
+
+    config =
+        FakeBuckConfig.builder()
+            .setSections("[section]", "field = value", "field_env_var = env_var")
+            .setEnvironment(ImmutableMap.of("env_var", "other_value"))
+            .build();
+    assertEquals(
+        "env_var content overrides field value",
+        Optional.of("other_value"),
+        ArtifactCacheBuckConfig.getStringOrEnvironmentVariable(config, "section", "field"));
+
+    config =
+        FakeBuckConfig.builder()
+            .setSections("[section]", "field_env_var = env_var")
+            .setEnvironment(ImmutableMap.of("env_var", "other_value"))
+            .build();
+    assertEquals(
+        "set field_env_var works without set field",
+        Optional.of("other_value"),
+        ArtifactCacheBuckConfig.getStringOrEnvironmentVariable(config, "section", "field"));
+
+    config =
+        FakeBuckConfig.builder()
+            .setSections("[section]", "field = value", "field_env_var = env_var")
+            .build();
+    assertEquals(
+        "use field value if env var does not exist",
+        Optional.of("value"),
+        ArtifactCacheBuckConfig.getStringOrEnvironmentVariable(config, "section", "field"));
+
+    config =
+        FakeBuckConfig.builder()
+            .setSections("[section]", "field = value", "field_env_var = env_var")
+            .setEnvironment(ImmutableMap.of("env_var", " \t\r\n "))
+            .build();
+    assertEquals(
+        "use field value if env var holds just whitespace",
+        Optional.of("value"),
+        ArtifactCacheBuckConfig.getStringOrEnvironmentVariable(config, "section", "field"));
   }
 }

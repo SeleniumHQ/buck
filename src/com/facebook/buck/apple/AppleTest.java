@@ -19,6 +19,7 @@ package com.facebook.buck.apple;
 import com.facebook.buck.apple.toolchain.AppleDeveloperDirectoryForTestsProvider;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
@@ -37,7 +38,6 @@ import com.facebook.buck.core.test.rule.TestRule;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.test.TestCaseSummary;
@@ -48,7 +48,6 @@ import com.facebook.buck.util.types.Either;
 import com.facebook.buck.util.types.Pair;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -64,6 +63,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
@@ -245,7 +245,7 @@ public class AppleTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     Path resolvedTestBundleDirectory =
         buildContext
             .getSourcePathResolver()
-            .getAbsolutePath(Preconditions.checkNotNull(testBundle.getSourcePathToOutput()));
+            .getAbsolutePath(Objects.requireNonNull(testBundle.getSourcePathToOutput()));
 
     Path pathToTestOutput = getProjectFilesystem().resolve(getPathToTestOutputDirectory());
 
@@ -399,7 +399,7 @@ public class AppleTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     Path resolvedBundleDirectory =
         buildContext
             .getSourcePathResolver()
-            .getAbsolutePath(Preconditions.checkNotNull(bundle.get().getSourcePathToOutput()));
+            .getAbsolutePath(Objects.requireNonNull(bundle.get().getSourcePathToOutput()));
     return Optional.of(
         resolvedBundleDirectory.resolve(bundle.get().getUnzippedOutputFilePathToBinary()));
   }

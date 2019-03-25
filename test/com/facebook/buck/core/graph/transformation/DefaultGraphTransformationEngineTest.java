@@ -17,43 +17,51 @@
 package com.facebook.buck.core.graph.transformation;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.fail;
 
-import com.facebook.buck.core.graph.transformation.TransformationEnvironment.AsyncSink;
+import com.facebook.buck.core.graph.transformation.ChildrenAdder.LongNode;
+import com.facebook.buck.core.graph.transformation.executor.DepsAwareExecutor;
+import com.facebook.buck.core.graph.transformation.executor.DepsAwareTask;
+import com.facebook.buck.core.graph.transformation.executor.impl.DefaultDepsAwareExecutor;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 import com.google.common.graph.GraphBuilder;
 import com.google.common.graph.MutableGraph;
 import com.google.common.util.concurrent.Futures;
-import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.LongAdder;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import org.junit.Assert;
+import org.hamcrest.Matchers;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 import org.junit.rules.Timeout;
 
 /** Test and demonstration of {@link DefaultGraphTransformationEngine} */
 public class DefaultGraphTransformationEngineTest {
 
-  @Rule public Timeout timeout = Timeout.seconds(10);
+  private static final int NUMBER_OF_THREADS = 4;
+  @Rule public Timeout timeout = Timeout.seconds(10000);
+  @Rule public ExpectedException expectedException = ExpectedException.none();
 
-  private MutableGraph<Long> graph;
+  private MutableGraph<LongNode> graph;
   private TrackingCache cache;
+  private DepsAwareExecutor executor;
 
   @Before
   public void setUp() {
+    executor = DefaultDepsAwareExecutor.of(NUMBER_OF_THREADS);
+
     graph = GraphBuilder.directed().build();
 
     /**
@@ -69,44 +77,49 @@ public class DefaultGraphTransformationEngineTest {
      *      3
      * </pre>
      */
-    graph.addNode(1L);
-    graph.addNode(2L);
-    graph.addNode(3L);
-    graph.addNode(4L);
-    graph.addNode(5L);
+    graph.addNode(ImmutableLongNode.of(1));
+    graph.addNode(ImmutableLongNode.of(2));
+    graph.addNode(ImmutableLongNode.of(3));
+    graph.addNode(ImmutableLongNode.of(4));
+    graph.addNode(ImmutableLongNode.of(5));
 
-    graph.putEdge(1L, 2L);
-    graph.putEdge(1L, 4L);
-    graph.putEdge(1L, 5L);
-    graph.putEdge(5L, 4L);
-    graph.putEdge(2L, 3L);
+    graph.putEdge(ImmutableLongNode.of(1), ImmutableLongNode.of(2));
+    graph.putEdge(ImmutableLongNode.of(1), ImmutableLongNode.of(4));
+    graph.putEdge(ImmutableLongNode.of(1), ImmutableLongNode.of(5));
+    graph.putEdge(ImmutableLongNode.of(5), ImmutableLongNode.of(4));
+    graph.putEdge(ImmutableLongNode.of(2), ImmutableLongNode.of(3));
 
     cache = new TrackingCache();
+  }
+
+  @After
+  public void cleanUp() {
+    executor.close();
   }
 
   /**
    * Demonstration of usage of {@link GraphEngineCache} with stats tracking used to verify behaviour
    * of the {@link DefaultGraphTransformationEngine}.
    */
-  private final class TrackingCache implements GraphEngineCache<Long, Long> {
+  private final class TrackingCache implements GraphEngineCache<LongNode, LongNode> {
 
-    private final ConcurrentHashMap<Long, Long> cache = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<Long, LongAdder> hitStats = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<LongNode, LongNode> cache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<LongNode, LongAdder> hitStats = new ConcurrentHashMap<>();
 
     @Override
-    public Optional<Long> get(Long k) {
-      Optional<Long> result = Optional.ofNullable(cache.get(k));
+    public Optional<LongNode> get(LongNode k) {
+      Optional<LongNode> result = Optional.ofNullable(cache.get(k));
       result.ifPresent(r -> hitStats.get(k).increment());
       return result;
     }
 
     @Override
-    public void put(Long k, Long v) {
+    public void put(LongNode k, LongNode v) {
       cache.put(k, v);
       hitStats.put(k, new LongAdder());
     }
 
-    public ImmutableMap<Long, LongAdder> getStats() {
+    public ImmutableMap<LongNode, LongAdder> getStats() {
       return ImmutableMap.copyOf(hitStats);
     }
 
@@ -118,42 +131,152 @@ public class DefaultGraphTransformationEngineTest {
   @Test
   public void requestOnLeafResultsSameValue() {
     ChildrenAdder transformer = new ChildrenAdder(graph);
-    DefaultGraphTransformationEngine<Long, Long> engine =
-        new DefaultGraphTransformationEngine<>(
-            transformer, graph.nodes().size(), ForkJoinPool.commonPool());
-    assertEquals((Long) 3L, engine.computeUnchecked(3L));
+    DefaultGraphTransformationEngine engine =
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer)),
+            graph.nodes().size(),
+            executor);
+    assertEquals(ImmutableLongNode.of(3), engine.computeUnchecked(ImmutableLongNode.of(3)));
 
-    assertComputationIndexBecomesEmpty(engine.computationIndex);
+    assertComputationIndexBecomesEmpty(engine.impl.computationIndex);
+  }
+
+  @Test
+  public void computeAllForMultipleNodesReturnsCorrectResults() {
+    ChildrenAdder transformer = new ChildrenAdder(graph);
+    DefaultGraphTransformationEngine engine =
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer)),
+            graph.nodes().size(),
+            executor);
+
+    ImmutableLongNode node3 = ImmutableLongNode.of(3);
+    ImmutableLongNode node5 = ImmutableLongNode.of(5);
+    ImmutableLongNode node2 = ImmutableLongNode.of(2);
+    ImmutableLongNode node1 = ImmutableLongNode.of(1);
+    ImmutableMap<ImmutableLongNode, Future<LongNode>> resultMap =
+        engine.computeAll(ImmutableSet.of(node3, node5, node2, node1));
+
+    assertEquals(ImmutableLongNode.of(3), Futures.getUnchecked(resultMap.get(node3)));
+    assertEquals(ImmutableLongNode.of(5 + 4), Futures.getUnchecked(resultMap.get(node5)));
+    assertEquals(ImmutableLongNode.of(2 + 3), Futures.getUnchecked(resultMap.get(node2)));
+    assertEquals(
+        ImmutableLongNode.of(1 + (2 + 3) + 4 + (5 + 4)),
+        Futures.getUnchecked(resultMap.get(node1)));
+
+    assertComputationIndexBecomesEmpty(engine.impl.computationIndex);
+  }
+
+  @Test
+  public void computeAllUncheckedForMultipleNodesReturnsCorrectResults() {
+    ChildrenAdder transformer = new ChildrenAdder(graph);
+    DefaultGraphTransformationEngine engine =
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer)),
+            graph.nodes().size(),
+            executor);
+
+    ImmutableLongNode node3 = ImmutableLongNode.of(3);
+    ImmutableLongNode node5 = ImmutableLongNode.of(5);
+    ImmutableLongNode node2 = ImmutableLongNode.of(2);
+    ImmutableLongNode node1 = ImmutableLongNode.of(1);
+
+    ImmutableMap<ImmutableLongNode, LongNode> resultMap =
+        engine.computeAllUnchecked(ImmutableSet.of(node3, node5, node2, node1));
+
+    assertEquals(ImmutableLongNode.of(3), resultMap.get(node3));
+    assertEquals(ImmutableLongNode.of(5 + 4), resultMap.get(node5));
+    assertEquals(ImmutableLongNode.of(2 + 3), resultMap.get(node2));
+    assertEquals(ImmutableLongNode.of(1 + (2 + 3) + 4 + (5 + 4)), resultMap.get(node1));
+
+    assertComputationIndexBecomesEmpty(engine.impl.computationIndex);
+  }
+
+  @Test
+  public void computeAllUncheckedForMultipleNodesRunsInParallel() {
+
+    CountDownLatch countDownLatch = new CountDownLatch(NUMBER_OF_THREADS);
+
+    GraphTransformer<LongNode, LongNode> transformer =
+        new GraphTransformer<LongNode, LongNode>() {
+
+          @Override
+          public Class<LongNode> getKeyClass() {
+            return LongNode.class;
+          }
+
+          @Override
+          public LongNode transform(LongNode aLong, TransformationEnvironment env) {
+            countDownLatch.countDown();
+            try {
+              countDownLatch.await();
+            } catch (InterruptedException e) {
+              throw new RuntimeException(e);
+            }
+            return aLong;
+          }
+
+          @Override
+          public ImmutableSet<LongNode> discoverDeps(LongNode key, TransformationEnvironment env) {
+            return ImmutableSet.of();
+          }
+
+          @Override
+          public ImmutableSet<LongNode> discoverPreliminaryDeps(LongNode aLong) {
+            return ImmutableSet.of();
+          }
+        };
+
+    DefaultGraphTransformationEngine engine =
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer, cache)),
+            graph.nodes().size(),
+            executor);
+
+    ImmutableSet<ImmutableLongNode> nodes =
+        IntStream.range(0, NUMBER_OF_THREADS)
+            .mapToObj(ImmutableLongNode::of)
+            .collect(ImmutableSet.toImmutableSet());
+
+    ImmutableMap<ImmutableLongNode, LongNode> resultMap = engine.computeAllUnchecked(nodes);
+    assertFalse(resultMap.isEmpty());
   }
 
   @Test
   public void requestOnRootCorrectValue() {
     ChildrenAdder transformer = new ChildrenAdder(graph);
-    DefaultGraphTransformationEngine<Long, Long> engine =
-        new DefaultGraphTransformationEngine<>(
-            transformer, graph.nodes().size(), ForkJoinPool.commonPool());
-    assertEquals((Long) 19L, engine.computeUnchecked(1L));
+    DefaultGraphTransformationEngine engine =
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer)),
+            graph.nodes().size(),
+            executor);
+    assertEquals(ImmutableLongNode.of(19), engine.computeUnchecked(ImmutableLongNode.of(1)));
 
-    assertComputationIndexBecomesEmpty(engine.computationIndex);
+    assertComputationIndexBecomesEmpty(engine.impl.computationIndex);
   }
 
   @SuppressWarnings("PMD.EmptyCatchBlock")
   @Test
   public void requestOnRootCorrectValueWithCustomExecutor() {
     ChildrenAdder transformer = new ChildrenAdder(graph);
-    ExecutorService executor = Executors.newFixedThreadPool(3);
-    DefaultGraphTransformationEngine<Long, Long> engine =
-        new DefaultGraphTransformationEngine<>(transformer, graph.nodes().size(), executor);
-    assertEquals((Long) 19L, engine.computeUnchecked(1L));
-    assertComputationIndexBecomesEmpty(engine.computationIndex);
+    DefaultGraphTransformationEngine engine =
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer)),
+            graph.nodes().size(),
+            executor);
+    assertEquals(ImmutableLongNode.of(19), engine.computeUnchecked(ImmutableLongNode.of(1)));
+    assertComputationIndexBecomesEmpty(engine.impl.computationIndex);
 
-    executor.shutdown();
+    executor.close();
 
-    DefaultGraphTransformationEngine<Long, Long> engine2 =
-        new DefaultGraphTransformationEngine<>(transformer, graph.nodes().size(), executor);
+    DefaultGraphTransformationEngine engine2 =
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer)),
+            graph.nodes().size(),
+            executor);
     try {
-      engine2.computeUnchecked(1L);
-      Assert.fail(
+      engine2.computeUnchecked(ImmutableLongNode.of(1));
+      fail(
           "Did not expect DefaultAsyncTransformationEngine to compute with an executor that has been shut down");
     } catch (RejectedExecutionException e) {
       // this is expected because the custom executor has been shut down
@@ -164,45 +287,50 @@ public class DefaultGraphTransformationEngineTest {
   public void canReuseCachedResult() {
     ChildrenAdder transformer = new ChildrenAdder(graph);
 
-    DefaultGraphTransformationEngine<Long, Long> engine =
-        new DefaultGraphTransformationEngine<>(
-            transformer, graph.nodes().size(), cache, ForkJoinPool.commonPool());
-    Long result = engine.computeUnchecked(3L);
+    DefaultGraphTransformationEngine engine =
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer, cache)),
+            graph.nodes().size(),
+            executor);
+    LongNode result = engine.computeUnchecked(ImmutableLongNode.of(3));
 
-    assertEquals((Long) 3L, result);
+    assertEquals(ImmutableLongNode.of(3), result);
 
     transformer =
         new ChildrenAdder(graph) {
           @Override
-          public CompletionStage<Long> transform(
-              Long node, TransformationEnvironment<Long, Long> env) {
-            Assert.fail("Did not expect call as cache should be used");
+          public LongNode transform(LongNode node, TransformationEnvironment env) {
+            fail("Did not expect call as cache should be used");
             return super.transform(node, env);
           }
         };
 
     engine =
-        new DefaultGraphTransformationEngine<>(
-            transformer, graph.nodes().size(), cache, ForkJoinPool.commonPool());
-    Long newResult = engine.computeUnchecked(3L);
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer, cache)),
+            graph.nodes().size(),
+            executor);
+    LongNode newResult = engine.computeUnchecked(ImmutableLongNode.of(3));
 
     assertEquals(result, newResult);
 
     // all Futures should be removed
-    assertComputationIndexBecomesEmpty(engine.computationIndex);
+    assertComputationIndexBecomesEmpty(engine.impl.computationIndex);
     assertEquals(1, cache.getSize());
-    assertEquals(1, cache.hitStats.get(3L).intValue());
+    assertEquals(1, cache.hitStats.get(ImmutableLongNode.of(3)).intValue());
   }
 
   @Test
   public void canReusePartiallyCachedResult() {
     ChildrenAdder transformer = new ChildrenAdder(graph);
-    DefaultGraphTransformationEngine<Long, Long> engine =
-        new DefaultGraphTransformationEngine<>(
-            transformer, graph.nodes().size(), cache, ForkJoinPool.commonPool());
+    DefaultGraphTransformationEngine engine =
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer, cache)),
+            graph.nodes().size(),
+            executor);
 
-    assertEquals((Long) 9L, engine.computeUnchecked(5L));
-    assertEquals((Long) 3L, engine.computeUnchecked(3L));
+    assertEquals(ImmutableLongNode.of(9), engine.computeUnchecked(ImmutableLongNode.of(5)));
+    assertEquals(ImmutableLongNode.of(3), engine.computeUnchecked(ImmutableLongNode.of(3)));
 
     /**
      *
@@ -220,74 +348,212 @@ public class DefaultGraphTransformationEngineTest {
     transformer =
         new ChildrenAdder(graph) {
           @Override
-          public CompletionStage<Long> transform(
-              Long node, TransformationEnvironment<Long, Long> env) {
-            if (node == 5L || node == 4L || node == 3L) {
-              Assert.fail("Did not expect call as cache should be used");
+          public LongNode transform(LongNode node, TransformationEnvironment env) {
+            if (node.get() == 5L || node.get() == 4L || node.get() == 3L) {
+              fail("Did not expect call as cache should be used");
             }
             return super.transform(node, env);
           }
         };
     engine =
-        new DefaultGraphTransformationEngine<>(
-            transformer, graph.nodes().size(), cache, ForkJoinPool.commonPool());
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer, cache)),
+            graph.nodes().size(),
+            executor);
 
     // reuse the cache
-    assertEquals((Long) 19L, engine.computeUnchecked(1L));
+    assertEquals(ImmutableLongNode.of(19), engine.computeUnchecked(ImmutableLongNode.of(1)));
 
     // all Futures should be removed
-    assertComputationIndexBecomesEmpty(engine.computationIndex);
+    assertComputationIndexBecomesEmpty(engine.impl.computationIndex);
     assertEquals(5, cache.getSize());
-    assertEquals(0, cache.hitStats.get(1L).intValue());
-    assertEquals(0, cache.hitStats.get(2L).intValue());
-    assertEquals(1, cache.hitStats.get(5L).intValue());
-    assertEquals(1, cache.hitStats.get(3L).intValue());
-    assertEquals(1, cache.hitStats.get(4L).intValue());
+    assertEquals(0, cache.hitStats.get(ImmutableLongNode.of(1)).intValue());
+    assertEquals(0, cache.hitStats.get(ImmutableLongNode.of(2)).intValue());
+    assertEquals(1, cache.hitStats.get(ImmutableLongNode.of(5)).intValue());
+    assertEquals(1, cache.hitStats.get(ImmutableLongNode.of(3)).intValue());
+    assertEquals(1, cache.hitStats.get(ImmutableLongNode.of(4)).intValue());
   }
 
   @Test
-  public void environmentCanEvaluateAllAndCollect() {
-    final int maxValue = 20;
-    GraphTransformer<Integer, ConcurrentHashMap<Integer, Set<Integer>>> transformer =
-        (integer, env) -> {
-          if (integer < maxValue) {
-            return env.evaluateAllAndCollectAsync(
-                IntStream.rangeClosed(integer + 1, Math.min(integer + integer + 1, maxValue))
-                    .boxed()
-                    .collect(Collectors.toList()),
-                new AsyncSink<Integer, ConcurrentHashMap<Integer, Set<Integer>>>() {
-                  private final ConcurrentHashMap<Integer, Set<Integer>> collect =
-                      new ConcurrentHashMap<>();
+  public void handlesTransformerThatThrowsInTransform()
+      throws ExecutionException, InterruptedException {
 
-                  @Override
-                  public void sink(Integer key, ConcurrentHashMap<Integer, Set<Integer>> result) {
-                    Set<Integer> set =
-                        result.values().stream().flatMap(Set::stream).collect(Collectors.toSet());
-                    set.add(key);
-                    collect.put(key, set);
-                    collect.putAll(result);
-                  }
+    Exception exception = new Exception();
+    expectedException.expectCause(Matchers.sameInstance(exception));
 
-                  @Override
-                  public ConcurrentHashMap<Integer, Set<Integer>> collect() {
-                    return collect;
-                  }
-                });
+    GraphTransformer<LongNode, LongNode> transformer =
+        new GraphTransformer<LongNode, LongNode>() {
+
+          @Override
+          public Class<LongNode> getKeyClass() {
+            return LongNode.class;
           }
-          return CompletableFuture.completedFuture(
-              new ConcurrentHashMap<>(ImmutableMap.of(maxValue, ImmutableSet.of(maxValue))));
-        };
-    DefaultGraphTransformationEngine<Integer, ConcurrentHashMap<Integer, Set<Integer>>> engine =
-        new DefaultGraphTransformationEngine<>(transformer, maxValue);
 
-    Map<Integer, Set<Integer>> result = engine.computeUnchecked(0);
+          @Override
+          public LongNode transform(LongNode aLong, TransformationEnvironment env)
+              throws Exception {
+            throw exception;
+          }
+
+          @Override
+          public ImmutableSet<LongNode> discoverDeps(LongNode key, TransformationEnvironment env) {
+            return ImmutableSet.of();
+          }
+
+          @Override
+          public ImmutableSet<LongNode> discoverPreliminaryDeps(LongNode aLong) {
+            return ImmutableSet.of();
+          }
+        };
+
+    DefaultGraphTransformationEngine engine =
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer, cache)),
+            graph.nodes().size(),
+            executor);
+
+    engine.compute(ImmutableLongNode.of(1)).get();
+  }
+
+  @Test
+  public void handlesTransformerThatThrowsInDiscoverPreliminaryDeps()
+      throws ExecutionException, InterruptedException {
+
+    Exception exception = new Exception();
+    expectedException.expectCause(Matchers.sameInstance(exception));
+
+    GraphTransformer<LongNode, LongNode> transformer =
+        new GraphTransformer<LongNode, LongNode>() {
+
+          @Override
+          public Class<LongNode> getKeyClass() {
+            return LongNode.class;
+          }
+
+          @Override
+          public LongNode transform(LongNode aLong, TransformationEnvironment env) {
+            return ImmutableLongNode.of(1);
+          }
+
+          @Override
+          public ImmutableSet<LongNode> discoverDeps(LongNode key, TransformationEnvironment env) {
+            fail("Should not have gotten to discoverDeps since preliminary deps discovery failed");
+            return ImmutableSet.of();
+          }
+
+          @Override
+          public ImmutableSet<LongNode> discoverPreliminaryDeps(LongNode aLong) throws Exception {
+            throw exception;
+          }
+        };
+
+    DefaultGraphTransformationEngine engine =
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer, cache)),
+            graph.nodes().size(),
+            executor);
+
+    engine.compute(ImmutableLongNode.of(1)).get();
+  }
+
+  @Test
+  public void handlesTransformerThatThrowsInDiscoverDeps()
+      throws ExecutionException, InterruptedException {
+
+    Exception exception = new Exception();
+    expectedException.expectCause(Matchers.sameInstance(exception));
+
+    GraphTransformer<LongNode, LongNode> transformer =
+        new GraphTransformer<LongNode, LongNode>() {
+
+          @Override
+          public Class<LongNode> getKeyClass() {
+            return LongNode.class;
+          }
+
+          @Override
+          public LongNode transform(LongNode aLong, TransformationEnvironment env) {
+            return ImmutableLongNode.of(1);
+          }
+
+          @Override
+          public ImmutableSet<LongNode> discoverDeps(LongNode key, TransformationEnvironment env)
+              throws Exception {
+            throw exception;
+          }
+
+          @Override
+          public ImmutableSet<LongNode> discoverPreliminaryDeps(LongNode aLong) throws Exception {
+            return ImmutableSet.of();
+          }
+        };
+
+    DefaultGraphTransformationEngine engine =
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer, cache)),
+            graph.nodes().size(),
+            executor);
+
+    engine.compute(ImmutableLongNode.of(1)).get();
+  }
+
+  @Test
+  public void requestOnRootWithTwoStageDepsCorrectValue() {
+    ChildrenAdder transformer =
+        new ChildrenAdder(graph) {
+          @Override
+          public ImmutableSet<LongNode> discoverDeps(LongNode key, TransformationEnvironment env) {
+            return ImmutableSet.copyOf(
+                Sets.difference(super.discoverPreliminaryDeps(key), env.getDeps().keySet()));
+          }
+
+          @Override
+          public ImmutableSet<LongNode> discoverPreliminaryDeps(LongNode key) {
+            return ImmutableSet.copyOf(
+                Sets.filter(super.discoverPreliminaryDeps(key), node -> node.get() % 2 == 0));
+          }
+        };
+    DefaultGraphTransformationEngine engine =
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(new GraphTransformationStage<>(transformer)),
+            graph.nodes().size(),
+            executor);
+    assertEquals(ImmutableLongNode.of(19), engine.computeUnchecked(ImmutableLongNode.of(1)));
+
+    assertComputationIndexBecomesEmpty(engine.impl.computationIndex);
+  }
+
+  @Test
+  public void requestOnRootWithTwoStageTransformationCorrectValue() {
+    ChildrenAdder addTransformer =
+        new ChildrenAdder(graph) {
+          @Override
+          public ImmutableSet<LongNode> discoverDeps(LongNode key, TransformationEnvironment env) {
+            return ImmutableSet.copyOf(
+                Sets.difference(super.discoverPreliminaryDeps(key), env.getDeps().keySet()));
+          }
+
+          @Override
+          public ImmutableSet<LongNode> discoverPreliminaryDeps(LongNode key) {
+            return ImmutableSet.copyOf(
+                Sets.filter(super.discoverPreliminaryDeps(key), node -> node.get() % 2 == 0));
+          }
+        };
+
+    ChildrenSumMultiplier multiplier = new ChildrenSumMultiplier(graph);
+    DefaultGraphTransformationEngine engine =
+        new DefaultGraphTransformationEngine(
+            ImmutableList.of(
+                new GraphTransformationStage<>(addTransformer),
+                new GraphTransformationStage<>(multiplier)),
+            graph.nodes().size(),
+            executor);
+    assertEquals(ImmutableLongNode.of(19), engine.computeUnchecked(ImmutableLongNode.of(1)));
     assertEquals(
-        IntStream.range(1, maxValue + 1).boxed().collect(Collectors.toSet()), result.keySet());
-    for (Entry<Integer, Set<Integer>> entry : result.entrySet()) {
-      assertEquals(
-          IntStream.range(entry.getKey(), maxValue + 1).boxed().collect(Collectors.toSet()),
-          entry.getValue());
-    }
+        ImmutableLongMultNode.of(1 * 2 * 3 * 3 * 4 * 5 * 4 * 4 * 5 * 4 * 9),
+        engine.computeUnchecked(ImmutableLongMultNode.of(1)));
+
+    assertComputationIndexBecomesEmpty(engine.impl.computationIndex);
   }
 
   /**
@@ -297,11 +563,13 @@ public class DefaultGraphTransformationEngineTest {
    * @param computationIndex the computationIndex of the engine
    */
   private static void assertComputationIndexBecomesEmpty(
-      ConcurrentHashMap<Long, CompletableFuture<Long>> computationIndex) {
-    // wait for all futures to complete in the computation.
+      ConcurrentHashMap<ComputeKey<? extends ComputeResult>, ? extends DepsAwareTask<?, ?>>
+          computationIndex) {
+    // wait for all tasks to complete in the computation.
     // we can have situation where the computation was completed by using the cache.
-    Futures.getUnchecked(
-        CompletableFuture.allOf(computationIndex.values().toArray(new CompletableFuture[] {})));
+    for (DepsAwareTask<?, ?> task : computationIndex.values()) {
+      Futures.getUnchecked(task.getResultFuture());
+    }
 
     assertEquals(0, computationIndex.size());
   }

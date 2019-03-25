@@ -16,8 +16,8 @@
 
 package com.facebook.buck.step.fs;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -45,8 +45,7 @@ public class FindAndReplaceStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context)
-      throws IOException, InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) throws IOException {
     try (BufferedReader reader =
             new BufferedReader(new InputStreamReader(filesystem.newFileInputStream(input)));
         BufferedWriter writer =

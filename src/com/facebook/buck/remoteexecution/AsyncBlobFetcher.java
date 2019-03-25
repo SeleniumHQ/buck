@@ -16,6 +16,8 @@
 
 package com.facebook.buck.remoteexecution;
 
+import com.facebook.buck.remoteexecution.interfaces.Protocol;
+import com.facebook.buck.remoteexecution.interfaces.Protocol.Digest;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
@@ -24,6 +26,5 @@ import java.nio.ByteBuffer;
 public interface AsyncBlobFetcher {
   ListenableFuture<ByteBuffer> fetch(Protocol.Digest digest);
 
-  @SuppressWarnings("unused")
-  void fetchToStream(Protocol.Digest digest, OutputStream outputStream);
+  ListenableFuture<Void> fetchToStream(Digest digest, OutputStream outputStream);
 }

@@ -47,6 +47,7 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkStrategy;
 import com.facebook.buck.features.python.CxxPythonExtensionBuilder;
 import com.facebook.buck.features.python.PythonBinaryDescription;
+import com.facebook.buck.features.python.PythonBuckConfig;
 import com.facebook.buck.features.python.PythonLibraryBuilder;
 import com.facebook.buck.features.python.TestPythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonEnvironment;
@@ -78,7 +79,8 @@ public class LuaBinaryDescriptionTest {
   private static final PythonPlatform PY2 =
       new TestPythonPlatform(
           InternalFlavor.of("py2"),
-          new PythonEnvironment(Paths.get("python2"), PythonVersion.of("CPython", "2.6")),
+          new PythonEnvironment(
+              Paths.get("python2"), PythonVersion.of("CPython", "2.6"), PythonBuckConfig.SECTION),
           Optional.of(PYTHON2_DEP_TARGET));
 
   private static final BuildTarget PYTHON3_DEP_TARGET =
@@ -86,13 +88,14 @@ public class LuaBinaryDescriptionTest {
   private static final PythonPlatform PY3 =
       new TestPythonPlatform(
           InternalFlavor.of("py3"),
-          new PythonEnvironment(Paths.get("python3"), PythonVersion.of("CPython", "3.5")),
+          new PythonEnvironment(
+              Paths.get("python3"), PythonVersion.of("CPython", "3.5"), PythonBuckConfig.SECTION),
           Optional.of(PYTHON3_DEP_TARGET));
 
   @Rule public ExpectedException expectedException = ExpectedException.none();
 
   @Test
-  public void mainModule() throws Exception {
+  public void mainModule() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     LuaBinary binary =
         new LuaBinaryBuilder(BuildTargetFactory.newInstance("//:rule"))
@@ -102,7 +105,7 @@ public class LuaBinaryDescriptionTest {
   }
 
   @Test
-  public void extensionOverride() throws Exception {
+  public void extensionOverride() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -118,7 +121,7 @@ public class LuaBinaryDescriptionTest {
   }
 
   @Test
-  public void toolOverride() throws Exception {
+  public void toolOverride() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     Tool override = new CommandTool.Builder().addArg("override").build();
     LuaBinary binary =
@@ -503,8 +506,7 @@ public class LuaBinaryDescriptionTest {
                 PatternMatchedCollection.<ImmutableSortedSet<BuildTarget>>builder()
                     .add(
                         Pattern.compile(
-                            CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor().toString(),
-                            Pattern.LITERAL),
+                            CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR.toString(), Pattern.LITERAL),
                         ImmutableSortedSet.of(libraryABuilder.getTarget()))
                     .add(
                         Pattern.compile("matches nothing", Pattern.LITERAL),

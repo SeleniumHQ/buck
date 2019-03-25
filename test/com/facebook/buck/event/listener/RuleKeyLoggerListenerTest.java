@@ -23,7 +23,7 @@ import com.facebook.buck.core.build.engine.type.UploadToCacheResultType;
 import com.facebook.buck.core.build.event.BuildRuleEvent;
 import com.facebook.buck.core.build.stats.BuildRuleDurationTracker;
 import com.facebook.buck.core.model.BuildId;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
+import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.rulekey.BuildRuleKeys;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rules.BuildRule;
@@ -56,7 +56,7 @@ public class RuleKeyLoggerListenerTest {
   private TaskManagerScope managerScope;
 
   @Before
-  public void setUp() throws InterruptedException, IOException {
+  public void setUp() throws IOException {
     TemporaryFolder tempDirectory = new TemporaryFolder();
     tempDirectory.create();
     projectFilesystem =
@@ -73,13 +73,14 @@ public class RuleKeyLoggerListenerTest {
             "topspin",
             ImmutableList.of(),
             ImmutableList.of(),
-            tempDirectory.getRoot().toPath());
+            tempDirectory.getRoot().toPath(),
+            false);
     durationTracker = new BuildRuleDurationTracker();
     managerScope = new TestBackgroundTaskManager().getNewScope(info.getBuildId());
   }
 
   @Test
-  public void testFileIsNotCreatedWithoutEvents() throws InterruptedException {
+  public void testFileIsNotCreatedWithoutEvents() {
     RuleKeyLoggerListener listener = newInstance(managerScope, 1);
     listener.close();
     managerScope.close();
@@ -87,7 +88,7 @@ public class RuleKeyLoggerListenerTest {
   }
 
   @Test
-  public void testSendingHttpCacheEvent() throws InterruptedException, IOException {
+  public void testSendingHttpCacheEvent() throws IOException {
     RuleKeyLoggerListener listener = newInstance(managerScope, 1);
     listener.onArtifactCacheEvent(createArtifactCacheEvent(CacheResultType.MISS));
     listener.close();
@@ -97,7 +98,7 @@ public class RuleKeyLoggerListenerTest {
   }
 
   @Test
-  public void testSendingInvalidHttpCacheEvent() throws InterruptedException {
+  public void testSendingInvalidHttpCacheEvent() {
     RuleKeyLoggerListener listener = newInstance(managerScope, 1);
     listener.onArtifactCacheEvent(createArtifactCacheEvent(CacheResultType.HIT));
     listener.close();
@@ -106,7 +107,7 @@ public class RuleKeyLoggerListenerTest {
   }
 
   @Test
-  public void testSendingBuildEvent() throws InterruptedException, IOException {
+  public void testSendingBuildEvent() throws IOException {
     RuleKeyLoggerListener listener = newInstance(managerScope, 1);
     listener.onBuildRuleEvent(createBuildEvent());
     listener.close();
@@ -118,7 +119,7 @@ public class RuleKeyLoggerListenerTest {
   private BuildRuleEvent.Finished createBuildEvent() {
     BuildRule rule =
         new FakeBuildRule(
-            ImmutableBuildTarget.of(projectFilesystem.getRootPath(), "//topspin", "//downtheline"));
+            BuildTargetFactory.newInstance(projectFilesystem, "//topspin:downtheline"));
     BuildRuleKeys keys = BuildRuleKeys.of(new RuleKey("1a1a1a"));
     BuildRuleEvent.Started started =
         TestEventConfigurator.configureTestEvent(BuildRuleEvent.started(rule, durationTracker));

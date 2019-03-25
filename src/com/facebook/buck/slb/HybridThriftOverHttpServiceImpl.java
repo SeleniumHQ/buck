@@ -26,6 +26,7 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import okhttp3.MediaType;
 import okhttp3.Request.Builder;
@@ -43,7 +44,7 @@ public class HybridThriftOverHttpServiceImpl<
     implements HybridThriftOverHttpService<ThriftRequest, ThriftResponse> {
 
   public static final MediaType HYBRID_THRIFT_STREAM_CONTENT_TYPE =
-      Preconditions.checkNotNull(MediaType.parse("application/x-hybrid-thrift-binary"));
+      Objects.requireNonNull(MediaType.parse("application/x-hybrid-thrift-binary"));
   public static final String PROTOCOL_HEADER = "X-Thrift-Protocol";
 
   private static final Logger LOG = Logger.get(HybridThriftOverHttpServiceImpl.class);
@@ -158,7 +159,7 @@ public class HybridThriftOverHttpServiceImpl<
   private static InputStream nonCloseableStream(InputStream streamToWrap) {
     return new FilterInputStream(streamToWrap) {
       @Override
-      public void close() throws IOException {
+      public void close() {
         // Do not close the underlying stream.
       }
     };
@@ -173,7 +174,7 @@ public class HybridThriftOverHttpServiceImpl<
   }
 
   @Override
-  public void close() throws IOException {
+  public void close() {
     args.getExecutor().shutdown();
     try {
       args.getExecutor().awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);

@@ -16,12 +16,17 @@
 
 package com.facebook.buck.intellij.ideabuck.autodeps;
 
-import static com.facebook.buck.intellij.ideabuck.test.TestUtil.buckFile;
 import static org.junit.Assert.assertEquals;
 
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.Test;
 
 public class MaybeAddVisibilityToTargetTest {
+
+  private static String buckFile(String... lines) {
+    return Stream.of(lines).collect(Collectors.joining("\n", "", "\n"));
+  }
 
   @Test
   public void doesNothingWhenTargetIsIncluded() {
@@ -31,11 +36,11 @@ public class MaybeAddVisibilityToTargetTest {
             "rule(",
             "\tname = \"foo\",",
             "\tvisibility = [",
-            "\t\t\"/this\",",
+            "\t\t\"//this:this\",",
             "\t]",
             ")");
     String expected = buckInput;
-    String actual = BuckDeps.maybeAddVisibilityToTarget(buckInput, "/this", "foo");
+    String actual = BuckDeps.maybeAddVisibilityToTarget(buckInput, "//this:this", "//src:foo");
     assertEquals(expected, actual);
   }
 
@@ -51,7 +56,33 @@ public class MaybeAddVisibilityToTargetTest {
             "\t]",
             ")");
     String expected = buckInput;
-    String actual = BuckDeps.maybeAddVisibilityToTarget(buckInput, "/this", "foo");
+    String actual = BuckDeps.maybeAddVisibilityToTarget(buckInput, "//this:this", "//src:foo");
+    assertEquals(expected, actual);
+  }
+
+  @Test
+  public void addsSameCellVisibilityWhenTargetIsAbsent() {
+    String buckInput =
+        buckFile(
+            "# Comment",
+            "rule(",
+            "\tname = \"foo\",",
+            "\tvisibility = [",
+            "\t\t\"//this:this\",",
+            "\t]",
+            ")");
+    String expected =
+        buckFile(
+            "# Comment",
+            "rule(",
+            "\tname = \"foo\",",
+            "\tvisibility = [",
+            "\t\t\"//other:thing\",",
+            "\t\t\"//this:this\",",
+            "\t]",
+            ")");
+    String actual =
+        BuckDeps.maybeAddVisibilityToTarget(buckInput, "cell//other:thing", "cell//src:foo");
     assertEquals(expected, actual);
   }
 
@@ -63,7 +94,7 @@ public class MaybeAddVisibilityToTargetTest {
             "rule(",
             "\tname = \"foo\",",
             "\tvisibility = [",
-            "\t\t\"/this\",",
+            "\t\t\"//this:this\",",
             "\t]",
             ")");
     String expected =
@@ -72,11 +103,12 @@ public class MaybeAddVisibilityToTargetTest {
             "rule(",
             "\tname = \"foo\",",
             "\tvisibility = [",
-            "\t\t\"/other:thing\",",
-            "\t\t\"/this\",",
+            "\t\t\"to//other:thing\",",
+            "\t\t\"//this:this\",",
             "\t]",
             ")");
-    String actual = BuckDeps.maybeAddVisibilityToTarget(buckInput, "/other:thing", "foo");
+    String actual =
+        BuckDeps.maybeAddVisibilityToTarget(buckInput, "to//other:thing", "from//src:foo");
     assertEquals(expected, actual);
   }
 }

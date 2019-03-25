@@ -18,8 +18,6 @@ package com.facebook.buck.rules.macros;
 
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
-import com.facebook.buck.parser.BuildTargetPattern;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.versions.TargetNodeTranslator;
@@ -78,9 +76,7 @@ abstract class AbstractStringWithMacros implements TargetTranslatable<StringWith
 
   @Override
   public Optional<StringWithMacros> translateTargets(
-      CellPathResolver cellPathResolver,
-      BuildTargetPatternParser<BuildTargetPattern> pattern,
-      TargetNodeTranslator translator) {
+      CellPathResolver cellPathResolver, String targetBaseName, TargetNodeTranslator translator) {
     boolean modified = false;
     ImmutableList.Builder<Either<String, MacroContainer>> parts = ImmutableList.builder();
     for (Either<String, MacroContainer> part : getParts()) {
@@ -88,7 +84,7 @@ abstract class AbstractStringWithMacros implements TargetTranslatable<StringWith
         parts.add(part);
       } else {
         Optional<Macro> translated =
-            translator.translate(cellPathResolver, pattern, part.getRight().getMacro());
+            translator.translate(cellPathResolver, targetBaseName, part.getRight().getMacro());
         if (translated.isPresent()) {
           parts.add(Either.ofRight(part.getRight().withMacro(translated.get())));
           modified = true;

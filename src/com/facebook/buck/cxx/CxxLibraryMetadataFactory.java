@@ -28,12 +28,12 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
 import com.facebook.buck.cxx.toolchain.HeaderSymlinkTree;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.google.common.base.Function;
 import com.google.common.collect.Multimaps;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 
 public class CxxLibraryMetadataFactory {
@@ -80,9 +80,9 @@ public class CxxLibraryMetadataFactory {
 
       case CXX_PREPROCESSOR_INPUT:
         {
-          Map.Entry<Flavor, CxxPlatform> platform =
+          Map.Entry<Flavor, UnresolvedCxxPlatform> platform =
               getCxxPlatformsProvider()
-                  .getCxxPlatforms()
+                  .getUnresolvedCxxPlatforms()
                   .getFlavorAndValue(buildTarget)
                   .orElseThrow(
                       () ->
@@ -90,7 +90,9 @@ public class CxxLibraryMetadataFactory {
                               String.format(
                                   "%s: cannot extract platform from target flavors (available platforms: %s)",
                                   buildTarget,
-                                  getCxxPlatformsProvider().getCxxPlatforms().getFlavors())));
+                                  getCxxPlatformsProvider()
+                                      .getUnresolvedCxxPlatforms()
+                                      .getFlavors())));
           Map.Entry<Flavor, HeaderVisibility> visibility =
               CxxLibraryDescription.HEADER_VISIBILITY
                   .getFlavorAndValue(buildTarget)
@@ -107,13 +109,14 @@ public class CxxLibraryMetadataFactory {
 
           // TODO(agallagher): We currently always add exported flags and frameworks to the
           // preprocessor input to mimic existing behavior, but this should likely be fixed.
+          CxxPlatform cxxPlatform = platform.getValue().resolve(graphBuilder);
           addCxxPreprocessorInputFromArgs(
               cxxPreprocessorInputBuilder,
               args,
-              platform,
+              cxxPlatform,
               f ->
                   CxxDescriptionEnhancer.toStringWithMacrosArgs(
-                      buildTarget, cellRoots, graphBuilder, platform.getValue(), f));
+                      buildTarget, cellRoots, graphBuilder, cxxPlatform, f));
 
           if (visibility.getValue() == HeaderVisibility.PRIVATE && !args.getHeaders().isEmpty()) {
             HeaderSymlinkTree symlinkTree =
@@ -133,9 +136,9 @@ public class CxxLibraryMetadataFactory {
                     baseTarget,
                     CxxDescriptionEnhancer.getHeaderModeForPlatform(
                         graphBuilder,
-                        platform.getValue(),
+                        cxxPlatform,
                         args.getXcodePublicHeadersSymlinks()
-                            .orElse(platform.getValue().getPublicHeadersSymlinksEnabled())))
+                            .orElse(cxxPlatform.getPublicHeadersSymlinksEnabled())))
                 .ifPresent(cxxPreprocessorInputBuilder::addIncludes);
 
             // Add platform-specific headers.
@@ -170,7 +173,7 @@ public class CxxLibraryMetadataFactory {
   public static void addCxxPreprocessorInputFromArgs(
       Builder cxxPreprocessorInputBuilder,
       CommonArg args,
-      Entry<Flavor, CxxPlatform> platform,
+      CxxPlatform platform,
       Function<StringWithMacros, Arg> stringWithMacrosArgFunction) {
     cxxPreprocessorInputBuilder.putAllPreprocessorFlags(
         Multimaps.transformValues(
@@ -179,7 +182,7 @@ public class CxxLibraryMetadataFactory {
                 args.getExportedPlatformPreprocessorFlags(),
                 args.getExportedLangPreprocessorFlags(),
                 args.getExportedLangPlatformPreprocessorFlags(),
-                platform.getValue()),
+                platform),
             stringWithMacrosArgFunction));
     cxxPreprocessorInputBuilder.addAllFrameworks(args.getFrameworks());
   }

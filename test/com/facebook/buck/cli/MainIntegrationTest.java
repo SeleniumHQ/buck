@@ -16,9 +16,13 @@
 
 package com.facebook.buck.cli;
 
+import static com.facebook.buck.testutil.MoreAsserts.assertJsonMatches;
+import static com.facebook.buck.testutil.MoreAsserts.assertJsonNotMatches;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.support.cli.args.GlobalCliOptions;
 import com.facebook.buck.testutil.ProcessResult;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -33,6 +37,7 @@ public class MainIntegrationTest {
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
   @Rule public ExpectedException thrown = ExpectedException.none();
+  @Rule public TestWithBuckd testWithBuckd = new TestWithBuckd(tmp);
 
   @Test
   public void testBuckNoArgs() throws IOException {
@@ -90,7 +95,6 @@ public class MainIntegrationTest {
         "  install        builds and installs an application",
         "  kill           kill buckd for the current project",
         "  killall        kill all buckd processes",
-        "  parser-cache   Load and save state of the parser cache",
         "  project        generates project configuration files for an IDE",
         "  publish        builds and publishes a library to a central repository",
         "  query          "
@@ -99,7 +103,6 @@ public class MainIntegrationTest {
         "  root           prints the absolute path to the root of the current buck project",
         "  run            runs a target as a command",
         "  server         query and control the http server",
-        "  suggest        suggests a refactoring for the specified build target",
         "  targets        prints the list of buildable targets",
         "  test           builds and runs the tests for the specified target",
         "  uninstall      uninstalls an APK",
@@ -111,5 +114,57 @@ public class MainIntegrationTest {
         " --version (-V)  : Show version number.",
         "",
         "");
+  }
+
+  @Test
+  public void handleReusingCurrentConfigProperty() throws IOException {
+    String warningMessage =
+        String.format(
+            "`%s` parameter provided. Reusing previously defined config.",
+            GlobalCliOptions.REUSE_CURRENT_CONFIG_ARG);
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenarioWithoutDefaultCell(
+            this, "output_path", tmp);
+    workspace.setUp();
+
+    // the first execution with specific configuration params for ui.json_attribute_format
+    ProcessResult result =
+        workspace.runBuckdCommand(
+            "targets",
+            "--json",
+            "-c",
+            "ui.json_attribute_format=snake_case",
+            "--show-output",
+            "...");
+    result.assertSuccess();
+    String expectedJson = workspace.getFileContents("output_path_json_all_snake_case.js");
+    assertJsonMatches(expectedJson, result.getStdout());
+    assertThat(
+        GlobalCliOptions.REUSE_CURRENT_CONFIG_ARG + " not provided",
+        result.getStderr(),
+        not(containsString(warningMessage)));
+
+    // the second execution without specific configuration params for ui.json_attribute_format but
+    // with --reuse-current-config" param
+    result =
+        workspace.runBuckdCommand(
+            "targets", "--json", GlobalCliOptions.REUSE_CURRENT_CONFIG_ARG, "--show-output", "...");
+    result.assertSuccess();
+    assertJsonMatches(expectedJson, result.getStdout());
+    assertThat(
+        GlobalCliOptions.REUSE_CURRENT_CONFIG_ARG + " provided",
+        result.getStderr(),
+        containsString(warningMessage));
+
+    // the third execution without specific configuration params for ui.json_attribute_format and
+    // without --reuse-current-config param
+    result = workspace.runBuckdCommand("targets", "--json", "--show-output", "...");
+    result.assertSuccess();
+    assertJsonNotMatches(expectedJson, result.getStdout());
+    assertThat(
+        GlobalCliOptions.REUSE_CURRENT_CONFIG_ARG + " not provided",
+        result.getStderr(),
+        not(containsString(warningMessage)));
   }
 }

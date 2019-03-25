@@ -28,7 +28,6 @@ import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDe
 import com.facebook.buck.core.rules.tool.BinaryBuildRule;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.io.BuildCellRelativePath;
@@ -69,8 +68,7 @@ public class JarFattener extends AbstractBuildRuleWithDeclaredAndExtraDeps
   public static final ImmutableList<String> FAT_JAR_SRC_RESOURCES =
       ImmutableList.of(
           "com/facebook/buck/jvm/java/FatJar.java",
-          "com/facebook/buck/util/liteinfersupport/Nullable.java",
-          "com/facebook/buck/util/liteinfersupport/Preconditions.java");
+          "com/facebook/buck/util/liteinfersupport/Nullable.java");
   public static final String FAT_JAR_MAIN_SRC_RESOURCE =
       "com/facebook/buck/jvm/java/FatJarMain.java";
 
@@ -278,9 +276,7 @@ public class JarFattener extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver) {}
+      BuildRuleResolver ruleResolver, SourcePathRuleFinder ruleFinder) {}
 
   @Override
   public ImmutableSet<SourcePath> getTransitiveClasspaths() {

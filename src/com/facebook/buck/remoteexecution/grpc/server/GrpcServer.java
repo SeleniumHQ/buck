@@ -17,13 +17,13 @@
 package com.facebook.buck.remoteexecution.grpc.server;
 
 import com.facebook.buck.remoteexecution.grpc.GrpcRemoteExecutionClients;
-import com.facebook.buck.rules.modern.builders.GrpcRemoteExecutionServiceImpl;
-import com.facebook.buck.rules.modern.builders.LocalContentAddressedStorage;
+import com.facebook.buck.remoteexecution.grpc.GrpcRemoteExecutionServiceServer;
+import com.facebook.buck.remoteexecution.util.LocalContentAddressedStorage;
 import com.facebook.buck.util.NamedTemporaryDirectory;
 import com.google.common.io.Closer;
 import io.grpc.Server;
-import io.grpc.netty.NettyServerBuilder;
-import io.netty.channel.ChannelOption;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
+import io.grpc.netty.shaded.io.netty.channel.ChannelOption;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
@@ -35,8 +35,8 @@ public class GrpcServer implements Closeable {
 
   public GrpcServer(int port) throws IOException {
     workDir = new NamedTemporaryDirectory("__remote__");
-    GrpcRemoteExecutionServiceImpl remoteExecution =
-        new GrpcRemoteExecutionServiceImpl(
+    GrpcRemoteExecutionServiceServer remoteExecution =
+        new GrpcRemoteExecutionServiceServer(
             new LocalContentAddressedStorage(
                 workDir.getPath().resolve("__cache__"), GrpcRemoteExecutionClients.PROTOCOL),
             workDir.getPath().resolve("__work__"));

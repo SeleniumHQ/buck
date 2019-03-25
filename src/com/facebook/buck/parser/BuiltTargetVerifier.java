@@ -23,6 +23,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.Flavored;
 import com.facebook.buck.core.model.RuleType;
+import com.facebook.buck.core.model.UnconfiguredBuildTarget;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
 import com.facebook.buck.core.util.log.Logger;
 import com.google.common.base.Joiner;
@@ -39,15 +40,14 @@ class BuiltTargetVerifier {
       Cell cell,
       RuleType buildRuleType,
       Path buildFile,
-      BuildTarget target,
+      UnconfiguredBuildTarget target,
       BaseDescription<?> description,
       Map<String, Object> rawNode) {
     UnflavoredBuildTarget unflavoredBuildTarget = target.getUnflavoredBuildTarget();
     if (target.isFlavored()) {
       if (description instanceof Flavored) {
         if (!((Flavored) description).hasFlavors(ImmutableSet.copyOf(target.getFlavors()))) {
-          throw UnexpectedFlavorException.createWithSuggestions(
-              (Flavored) description, cell, target);
+          throw UnexpectedFlavorException.createWithSuggestions((Flavored) description, target);
         }
       } else {
         LOG.warn(
@@ -70,7 +70,7 @@ class BuiltTargetVerifier {
     }
 
     UnflavoredBuildTarget unflavoredBuildTargetFromRawData =
-        RawNodeParsePipeline.parseBuildTargetFromRawRule(
+        UnflavoredBuildTargetFactory.createFromRawNode(
             cell.getRoot(), cell.getCanonicalName(), rawNode, buildFile);
     if (!unflavoredBuildTarget.equals(unflavoredBuildTargetFromRawData)) {
       throw new IllegalStateException(

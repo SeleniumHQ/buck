@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cli;
 
+import static com.facebook.buck.testutil.MoreAsserts.assertJsonMatches;
 import static com.facebook.buck.util.string.MoreStrings.linesToText;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hamcrest.Matchers.allOf;
@@ -45,7 +46,6 @@ import com.facebook.buck.util.ThriftRuleKeyDeserializer;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
@@ -56,6 +56,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.thrift.TException;
@@ -128,8 +129,58 @@ public class TargetsCommandIntegrationTest {
         linesToText(
             "//:A " + MorePaths.pathWithPlatformSeparators("buck-out/gen/A/A.txt"),
             "//:B " + MorePaths.pathWithPlatformSeparators("buck-out/gen/B/B.txt"),
-            "//:test-library "
-                + MorePaths.pathWithPlatformSeparators("buck-out/annotation/__test-library_gen__")),
+            "//:test-library"),
+        result.getStdout().trim());
+  }
+
+  @Test
+  public void testConfigurationRulesWithAnnotationProcessor() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "targets_command_annotation_processor", tmp);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("targets", "--show-output", "//:");
+    result.assertSuccess();
+
+    verifyTestConfigurationRulesWithAnnotationProcessorOutput(
+        result, MorePaths::pathWithPlatformSeparators);
+  }
+
+  @Test
+  public void testConfigurationRulesWithAnnotationProcessorFullOutput() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "targets_command_annotation_processor", tmp);
+    workspace.setUp();
+
+    ProcessResult result = workspace.runBuckCommand("targets", "--show-full-output", "//:");
+    result.assertSuccess();
+
+    verifyTestConfigurationRulesWithAnnotationProcessorOutput(
+        result, s -> MorePaths.pathWithPlatformSeparators(tmp.getRoot().resolve(s)));
+  }
+
+  private static void verifyTestConfigurationRulesWithAnnotationProcessorOutput(
+      ProcessResult result, Function<String, String> resolvePath) {
+    assertEquals(
+        linesToText(
+            "//:annotation_processor",
+            "//:annotation_processor_lib "
+                + resolvePath.apply(
+                    "buck-out/gen/lib__annotation_processor_lib__output/annotation_processor_lib.jar"),
+            "//:test-library",
+            "//:test-library-with-processing "
+                + resolvePath.apply("buck-out/annotation/__test-library-with-processing_gen__"),
+            "//:test-library-with-processing-with-srcs "
+                + resolvePath.apply(
+                    "buck-out/gen/lib__test-library-with-processing-with-srcs__output/test-library-with-processing-with-srcs.jar")
+                + " "
+                + resolvePath.apply(
+                    "buck-out/annotation/__test-library-with-processing-with-srcs_gen__"),
+            "//:test-library-with-srcs "
+                + resolvePath.apply(
+                    "buck-out/gen/lib__test-library-with-srcs__output/test-library-with-srcs.jar")),
         result.getStdout().trim());
   }
 
@@ -667,7 +718,7 @@ public class TargetsCommandIntegrationTest {
     ProcessResult result =
         workspace.runBuckCommand("targets", "--json", "--show-output", "//:test");
 
-    assertJsonMatches(workspace, result.getStdout(), "output_path_json.js");
+    assertJsonMatches(workspace.getFileContents("output_path_json.js"), result.getStdout());
   }
 
   @Test
@@ -681,7 +732,7 @@ public class TargetsCommandIntegrationTest {
             "targets", "-c", "parser.enable_configurable_attributes=true", "--json", "//:");
     result.assertSuccess();
 
-    assertJsonMatches(workspace, result.getStdout(), "output_path_json.js");
+    assertJsonMatches(workspace.getFileContents("output_path_json.js"), result.getStdout());
   }
 
   @Test
@@ -827,7 +878,34 @@ public class TargetsCommandIntegrationTest {
     ProcessResult result = workspace.runBuckCommand("targets", "--json", "--show-output", "...");
     result.assertSuccess();
 
-    assertJsonMatches(workspace, result.getStdout(), "output_path_json_all.js");
+    assertJsonMatches(workspace.getFileContents("output_path_json_all.js"), result.getStdout());
+  }
+
+  @Test
+  public void testShowAllTargetsWithJsonRespectsConfig() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "output_path", tmp);
+    workspace.setUp();
+
+    ProcessResult result =
+        workspace.runBuckCommand(
+            "targets",
+            "--json",
+            "-c",
+            "ui.json_attribute_format=snake_case",
+            "--show-output",
+            "...");
+    result.assertSuccess();
+
+    assertJsonMatches(
+        workspace.getFileContents("output_path_json_all_snake_case.js"), result.getStdout());
+
+    result =
+        workspace.runBuckCommand(
+            "targets", "--json", "-c", "ui.json_attribute_format=legacy", "--show-output", "...");
+    result.assertSuccess();
+
+    assertJsonMatches(workspace.getFileContents("output_path_json_all.js"), result.getStdout());
   }
 
   @Test
@@ -847,7 +925,8 @@ public class TargetsCommandIntegrationTest {
             "name");
     result.assertSuccess();
 
-    assertJsonMatches(workspace, result.getStdout(), "output_path_json_all_filtered.js");
+    assertJsonMatches(
+        workspace.getFileContents("output_path_json_all_filtered.js"), result.getStdout());
   }
 
   @Test
@@ -987,24 +1066,14 @@ public class TargetsCommandIntegrationTest {
     transitiveResult.assertSuccess();
 
     ImmutableList<String> foundNonTransitiveTargets =
-        Arrays.stream(nontransitiveResult.getStdout().split(System.lineSeparator()))
-            .map(line -> line.split("\\s+")[0])
-            .collect(ImmutableList.toImmutableList());
+        extractTargetsFromOutput(nontransitiveResult.getStdout());
     ImmutableList<String> foundTransitiveTargets =
-        Arrays.stream(transitiveResult.getStdout().split(System.lineSeparator()))
-            .map(line -> line.split("\\s+")[0])
-            .collect(ImmutableList.toImmutableList());
+        extractTargetsFromOutput(transitiveResult.getStdout());
 
     ImmutableMap<String, String> foundNonTransitiveTargetsAndHashes =
-        Arrays.stream(nontransitiveResult.getStdout().split(System.lineSeparator()))
-            .collect(
-                ImmutableMap.toImmutableMap(
-                    line -> line.split("\\s+")[0], line -> line.split("\\s+")[1]));
+        extractTargetsAndHashesFromOutput(nontransitiveResult.getStdout());
     ImmutableMap<String, String> foundTransitiveTargetsAndHashes =
-        Arrays.stream(transitiveResult.getStdout().split(System.lineSeparator()))
-            .collect(
-                ImmutableMap.toImmutableMap(
-                    line -> line.split("\\s+")[0], line -> line.split("\\s+")[1]));
+        extractTargetsAndHashesFromOutput(transitiveResult.getStdout());
 
     assertThat(foundNonTransitiveTargets, Matchers.containsInAnyOrder("//foo:main", "//bar:main"));
     assertThat(
@@ -1055,17 +1124,80 @@ public class TargetsCommandIntegrationTest {
             "Must specify at least one build target pattern. See https://buckbuild.com/concept/build_target_pattern.html"));
   }
 
-  private void assertJsonMatches(
-      ProjectWorkspace workspace, String actualJson, String expectedJsonFileName)
-      throws IOException {
-    ObjectMapper mapper = new ObjectMapper();
-    Object observedValue = mapper.readValue(actualJson, Object.class);
-    String observed = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(observedValue);
+  @Test
+  public void testTargetHashesAreTheSameWithTheSameConfiguration() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "targets_command_with_configurable_attributes", tmp);
+    workspace.setUp();
 
-    String expectedJson = workspace.getFileContents(expectedJsonFileName);
-    Object expectedValue = mapper.readValue(expectedJson, Object.class);
-    String expected = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(expectedValue);
+    ProcessResult resultWithConfigA1 =
+        workspace.runBuckCommand("targets", "-c", "a.b=a", "--show-target-hash", "//:echo");
+    ProcessResult resultWithConfigA2 =
+        workspace.runBuckCommand("targets", "-c", "a.b=a", "--show-target-hash", "//:echo");
 
-    assertEquals("Output from targets command should match expected JSON.", expected, observed);
+    resultWithConfigA1.assertSuccess();
+    resultWithConfigA2.assertSuccess();
+
+    ImmutableList<String> foundTargetsWithConfigA1 =
+        extractTargetsFromOutput(resultWithConfigA1.getStdout());
+    ImmutableList<String> foundTargetsWithConfigA2 =
+        extractTargetsFromOutput(resultWithConfigA2.getStdout());
+
+    ImmutableMap<String, String> foundTargetsAndHashesWithConfigA1 =
+        extractTargetsAndHashesFromOutput(resultWithConfigA1.getStdout());
+    ImmutableMap<String, String> foundTargetsAndHashesWithConfigA2 =
+        extractTargetsAndHashesFromOutput(resultWithConfigA2.getStdout());
+
+    assertThat(foundTargetsWithConfigA1, Matchers.containsInAnyOrder("//:echo"));
+    assertThat(foundTargetsWithConfigA2, Matchers.containsInAnyOrder("//:echo"));
+    assertEquals(
+        foundTargetsAndHashesWithConfigA1.get("//:echo"),
+        foundTargetsAndHashesWithConfigA2.get("//:echo"));
+  }
+
+  @Test
+  public void testTargetHashesAreDifferentWithDistinctConfiguration() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "targets_command_with_configurable_attributes", tmp);
+    workspace.setUp();
+
+    ProcessResult resultWithConfigA =
+        workspace.runBuckCommand("targets", "-c", "a.b=a", "--show-target-hash", "//:echo");
+    ProcessResult resultWithConfigB =
+        workspace.runBuckCommand("targets", "-c", "a.b=b", "--show-target-hash", "//:echo");
+
+    resultWithConfigA.assertSuccess();
+    resultWithConfigB.assertSuccess();
+
+    ImmutableList<String> foundTargetsWithConfigA =
+        extractTargetsFromOutput(resultWithConfigA.getStdout());
+    ImmutableList<String> foundTargetsWithConfigB =
+        extractTargetsFromOutput(resultWithConfigB.getStdout());
+
+    ImmutableMap<String, String> foundTargetsAndHashesWithConfigA =
+        extractTargetsAndHashesFromOutput(resultWithConfigA.getStdout());
+    ImmutableMap<String, String> foundTargetsAndHashesWithConfigB =
+        extractTargetsAndHashesFromOutput(resultWithConfigB.getStdout());
+
+    assertThat(foundTargetsWithConfigA, Matchers.containsInAnyOrder("//:echo"));
+    assertThat(foundTargetsWithConfigB, Matchers.containsInAnyOrder("//:echo"));
+    assertNotEquals(
+        foundTargetsAndHashesWithConfigA.get("//:echo"),
+        foundTargetsAndHashesWithConfigB.get("//:echo"));
+  }
+
+  private static ImmutableList<String> extractTargetsFromOutput(String output) {
+    return Arrays.stream(output.split(System.lineSeparator()))
+        .map(line -> line.split("\\s+")[0])
+        .collect(ImmutableList.toImmutableList());
+  }
+
+  private static ImmutableMap<String, String> extractTargetsAndHashesFromOutput(String output) {
+    return Arrays.stream(output.split(System.lineSeparator()))
+        .collect(
+            ImmutableMap.toImmutableMap(
+                line -> line.split("\\s+")[0], line -> line.split("\\s+")[1]));
   }
 }

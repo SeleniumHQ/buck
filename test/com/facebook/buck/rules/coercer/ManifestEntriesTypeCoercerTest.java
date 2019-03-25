@@ -20,6 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.google.common.collect.ImmutableMap;
@@ -37,7 +38,7 @@ public class ManifestEntriesTypeCoercerTest {
   private Path basePath = Paths.get("java/com/facebook/buck/example");
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     DefaultTypeCoercerFactory factory = new DefaultTypeCoercerFactory();
     TypeCoercer<?> typeCoercer = factory.typeCoercerForType(ManifestEntries.class);
     assertTrue(typeCoercer instanceof ManifestEntriesTypeCoercer);
@@ -57,7 +58,11 @@ public class ManifestEntriesTypeCoercerTest {
 
     ManifestEntries result =
         manifestEntriesTypeCoercer.coerce(
-            createCellRoots(filesystem), filesystem, basePath, /* object */ inputMap);
+            createCellRoots(filesystem),
+            filesystem,
+            basePath,
+            EmptyTargetConfiguration.INSTANCE,
+            inputMap);
 
     assertTrue(result.getDebugMode().get());
     assertEquals(3, result.getMinSdkVersion().getAsInt());
@@ -72,7 +77,11 @@ public class ManifestEntriesTypeCoercerTest {
         ImmutableMap.<String, Object>builder().put("bad_param_name", 3).build();
 
     manifestEntriesTypeCoercer.coerce(
-        createCellRoots(filesystem), filesystem, basePath, /* object */ inputMap);
+        createCellRoots(filesystem),
+        filesystem,
+        basePath,
+        EmptyTargetConfiguration.INSTANCE,
+        inputMap);
   }
 
   @Test
@@ -86,7 +95,11 @@ public class ManifestEntriesTypeCoercerTest {
 
     ManifestEntries result =
         manifestEntriesTypeCoercer.coerce(
-            createCellRoots(filesystem), filesystem, basePath, /* object */ inputMap);
+            createCellRoots(filesystem),
+            filesystem,
+            basePath,
+            EmptyTargetConfiguration.INSTANCE,
+            inputMap);
 
     assertTrue(result.getDebugMode().get());
     assertEquals(3, result.getMinSdkVersion().getAsInt());

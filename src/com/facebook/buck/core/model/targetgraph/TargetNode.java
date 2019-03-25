@@ -18,6 +18,7 @@ package com.facebook.buck.core.model.targetgraph;
 
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.description.BaseDescription;
+import com.facebook.buck.core.graph.transformation.ComputeResult;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.HasBuildTarget;
@@ -29,7 +30,6 @@ import com.facebook.buck.versions.Version;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.hash.HashCode;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
@@ -40,15 +40,13 @@ import java.util.Set;
  * responsible for processing the raw (python) inputs of a build rule, and gathering any build
  * targets and paths referenced from those inputs.
  */
-public interface TargetNode<T> extends Comparable<TargetNode<?>>, ObeysVisibility, HasBuildTarget {
+public interface TargetNode<T>
+    extends Comparable<TargetNode<?>>, ObeysVisibility, HasBuildTarget, ComputeResult {
 
   @Override
   BuildTarget getBuildTarget();
 
   NodeCopier getNodeCopier();
-
-  /** @return A hash of the raw input from the build file used to construct the node. */
-  HashCode getRawInputsHashCode();
 
   BaseDescription<T> getDescription();
 

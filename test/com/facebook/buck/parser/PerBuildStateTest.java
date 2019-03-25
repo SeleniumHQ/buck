@@ -26,6 +26,7 @@ import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
@@ -37,7 +38,6 @@ import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -84,7 +84,7 @@ public class PerBuildStateTest {
   }
 
   @Before
-  public void setUp() throws IOException, InterruptedException {
+  public void setUp() {
     // Create a temp directory with some build files.
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(tempDir.getRoot());
@@ -111,8 +111,7 @@ public class PerBuildStateTest {
     KnownRuleTypesProvider knownRuleTypesProvider =
         TestKnownRuleTypesProvider.create(pluginManager);
     Parser parser =
-        TestParserFactory.create(
-            cell.getBuckConfig(), knownRuleTypesProvider, BuckEventBusForTests.newInstance());
+        TestParserFactory.create(cell, knownRuleTypesProvider, BuckEventBusForTests.newInstance());
 
     perBuildState = TestPerBuildStateFactory.create(parser, cell);
   }
@@ -135,8 +134,8 @@ public class PerBuildStateTest {
     assertThat(targetNode.getBuildTarget(), equalTo(fooLib1Target));
 
     // Now, try to load the entire build file and get all TargetNodes.
-    ImmutableSet<TargetNode<?>> targetNodes =
-        perBuildState.getAllTargetNodes(cell, testFooBuckFile);
+    ImmutableList<TargetNode<?>> targetNodes =
+        perBuildState.getAllTargetNodes(cell, testFooBuckFile, EmptyTargetConfiguration.INSTANCE);
     assertThat(targetNodes.size(), equalTo(2));
     assertThat(
         targetNodes

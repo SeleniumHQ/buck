@@ -29,16 +29,20 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Sets;
+import com.google.common.collect.ImmutableSortedMap;
+import com.google.common.hash.HashCode;
+import com.google.common.hash.Hasher;
+import com.google.common.hash.Hashing;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.AbstractMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Stack;
@@ -59,6 +63,11 @@ public class Config {
 
   // rawConfig is the flattened configuration relevant to the current cell
   private final RawConfig rawConfig;
+
+  // The order-independent {@link HashCode} of the flattened configuration relevant to the current
+  // cell.
+  private final Supplier<HashCode> orderIndependentHashCode =
+      MoreSuppliers.memoize(this::computeOrderIndependentHashCode);
 
   private final Supplier<Integer> hashCodeSupplier =
       MoreSuppliers.memoize(
@@ -163,6 +172,34 @@ public class Config {
     return expanded.build();
   }
 
+  private HashCode computeOrderIndependentHashCode() {
+    ImmutableMap<String, ImmutableMap<String, String>> rawValues = rawConfig.getValues();
+    ImmutableSortedMap.Builder<String, ImmutableSortedMap<String, String>> expanded =
+        ImmutableSortedMap.naturalOrder();
+    for (String section : rawValues.keySet()) {
+      expanded.put(section, ImmutableSortedMap.copyOf(get(section)));
+    }
+
+    ImmutableSortedMap<String, ImmutableSortedMap<String, String>> sortedConfigMap =
+        expanded.build();
+
+    Hasher hasher = Hashing.sha256().newHasher();
+    for (Entry<String, ImmutableSortedMap<String, String>> entry : sortedConfigMap.entrySet()) {
+      hasher.putString(entry.getKey(), StandardCharsets.UTF_8);
+      for (Entry<String, String> nestedEntry : entry.getValue().entrySet()) {
+        hasher.putString(nestedEntry.getKey(), StandardCharsets.UTF_8);
+        hasher.putString(nestedEntry.getValue(), StandardCharsets.UTF_8);
+      }
+    }
+
+    return hasher.hash();
+  }
+
+  /** gets an order-independent {@link HashCode} of this {@link Config}'s raw data. */
+  public HashCode getOrderIndependentHashCode() {
+    return orderIndependentHashCode.get();
+  }
+
   public ImmutableMap<String, ImmutableMap<String, String>> getSectionToEntries() {
     ImmutableMap.Builder<String, ImmutableMap<String, String>> expanded = ImmutableMap.builder();
     for (String section : this.rawConfig.getValues().keySet()) {
@@ -241,12 +278,12 @@ public class Config {
 
   public Optional<Long> getLong(String sectionName, String propertyName) {
     Optional<String> value = getValue(sectionName, propertyName);
-    return value.isPresent() ? Optional.of(Long.valueOf(value.get())) : Optional.empty();
+    return value.map(Long::valueOf);
   }
 
   public OptionalInt getInteger(String sectionName, String propertyName) {
     Optional<String> value = getValue(sectionName, propertyName);
-    return value.isPresent() ? OptionalInt.of(Integer.parseInt(value.get())) : OptionalInt.empty();
+    return value.map(str -> OptionalInt.of(Integer.parseInt(str))).orElseGet(OptionalInt::empty);
   }
 
   public Optional<Float> getFloat(String sectionName, String propertyName) {
@@ -369,32 +406,6 @@ public class Config {
     return Objects.equal(this.rawConfig, that.rawConfig);
   }
 
-  public boolean equalsIgnoring(
-      Config other, ImmutableMap<String, ImmutableSet<String>> ignoredFields) {
-    if (this == other) {
-      return true;
-    }
-    ImmutableMap<String, ImmutableMap<String, String>> left = this.getSectionToEntries();
-    ImmutableMap<String, ImmutableMap<String, String>> right = other.getSectionToEntries();
-    Sets.SetView<String> sections = Sets.union(left.keySet(), right.keySet());
-    for (String section : sections) {
-      ImmutableMap<String, String> leftFields = left.getOrDefault(section, ImmutableMap.of());
-      ImmutableMap<String, String> rightFields = right.getOrDefault(section, ImmutableMap.of());
-      Sets.SetView<String> fields =
-          Sets.difference(
-              Sets.union(leftFields.keySet(), rightFields.keySet()),
-              Optional.ofNullable(ignoredFields.get(section)).orElse(ImmutableSet.of()));
-      for (String field : fields) {
-        String leftValue = leftFields.get(field);
-        String rightValue = rightFields.get(field);
-        if (leftValue == null || !leftValue.equals(rightValue)) {
-          return false;
-        }
-      }
-    }
-    return true;
-  }
-
   @Override
   public int hashCode() {
     return hashCodeSupplier.get();
@@ -430,6 +441,7 @@ public class Config {
     StringBuilder stringBuilder = new StringBuilder();
     boolean inQuotes = false;
     int quoteIndex = 0;
+    boolean seenChar = false;
     for (int i = 0; i < input.length(); i++) {
       char c = input.charAt(i);
       if (inQuotes) {
@@ -480,9 +492,11 @@ public class Config {
       } else if (c == '"') {
         quoteIndex = i;
         inQuotes = true;
+        seenChar = true;
         continue;
       } else if (splitChar.isPresent() && c == splitChar.get()) {
-        listBuilder.add(stringBuilder.toString());
+        if (seenChar) listBuilder.add(stringBuilder.toString());
+        seenChar = false;
         stringBuilder = new StringBuilder();
         continue;
       } else if (stringBuilder.length() == 0 && c == ' ' || c == '\t') {
@@ -490,6 +504,7 @@ public class Config {
         continue;
       }
       // default case: add the actual character
+      seenChar = true;
       stringBuilder.append(c);
     }
 
@@ -559,6 +574,11 @@ public class Config {
       result = (result << 4) | c;
     }
     return result;
+  }
+
+  @Override
+  public String toString() {
+    return rawConfig.toString();
   }
 
   public RawConfig getRawConfig() {

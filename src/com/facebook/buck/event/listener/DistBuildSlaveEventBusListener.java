@@ -42,8 +42,8 @@ import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventListener;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.event.listener.cachestats.CacheRateStatsKeeper;
-import com.facebook.buck.event.listener.cachestats.RemoteCacheUploadStats;
+import com.facebook.buck.event.listener.stats.cache.CacheRateStatsKeeper;
+import com.facebook.buck.event.listener.stats.cache.RemoteCacheUploadStats;
 import com.facebook.buck.log.TimedLogger;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.facebook.buck.util.timing.Clock;
@@ -175,7 +175,7 @@ public class DistBuildSlaveEventBusListener
   }
 
   @Override
-  public void close() throws IOException {
+  public void close() {
     stopScheduledUpdates();
   }
 
@@ -285,7 +285,7 @@ public class DistBuildSlaveEventBusListener
         slaveEvents = new ArrayList<>(pendingSlaveEvents);
       }
       createCoordinatorBuildProgressEvent().ifPresent(slaveEvents::add);
-      if (slaveEvents.size() == 0) {
+      if (slaveEvents.isEmpty()) {
         return;
       }
 
@@ -431,7 +431,7 @@ public class DistBuildSlaveEventBusListener
 
   @Override
   public void createBuildRuleStartedEvents(ImmutableList<String> startedTargets) {
-    if (startedTargets.size() == 0) {
+    if (startedTargets.isEmpty()) {
       return;
     }
     List<BuildSlaveEvent> ruleStartedEvents = new LinkedList<>();
@@ -454,7 +454,7 @@ public class DistBuildSlaveEventBusListener
 
   @Override
   public void createBuildRuleCompletionEvents(ImmutableList<String> finishedTargets) {
-    if (finishedTargets.size() == 0) {
+    if (finishedTargets.isEmpty()) {
       return;
     }
     List<BuildSlaveEvent> ruleCompletionEvents = new LinkedList<>();
@@ -477,7 +477,7 @@ public class DistBuildSlaveEventBusListener
 
   @Override
   public void createBuildRuleUnlockedEvents(ImmutableList<String> unlockedTargets) {
-    if (unlockedTargets.size() == 0) {
+    if (unlockedTargets.isEmpty()) {
       return;
     }
     List<BuildSlaveEvent> ruleUnlockedEvents = new LinkedList<>();

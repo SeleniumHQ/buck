@@ -28,12 +28,12 @@ import com.facebook.buck.slb.PerServerData;
 import com.facebook.buck.slb.PerServerPingData;
 import com.facebook.buck.slb.ServerHealthManagerEvent;
 import com.facebook.buck.slb.ServerHealthManagerEventData;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.eventbus.Subscribe;
 import java.net.SocketTimeoutException;
 import java.net.URI;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentMap;
 
 public class LoadBalancerEventsListener implements BuckEventListener {
@@ -100,6 +100,9 @@ public class LoadBalancerEventsListener implements BuckEventListener {
     if (data.getRequestSizeBytes().isPresent()) {
       counters.getRequestSizeBytes().addSample(data.getRequestSizeBytes().get());
     }
+    if (data.getLatencyMicros().isPresent()) {
+      counters.getLatencyMicros().addSample(data.getLatencyMicros().get());
+    }
     if (data.getResponseSizeBytes().isPresent()) {
       counters.getResponseSizeBytes().addSample(data.getResponseSizeBytes().get());
     }
@@ -118,7 +121,7 @@ public class LoadBalancerEventsListener implements BuckEventListener {
       if (!allServerCounters.containsKey(server)) {
         allServerCounters.put(server, new ServerCounters(registry, server));
       }
-      return Preconditions.checkNotNull(allServerCounters.get(server));
+      return Objects.requireNonNull(allServerCounters.get(server));
     }
   }
 
@@ -132,7 +135,7 @@ public class LoadBalancerEventsListener implements BuckEventListener {
                 ImmutableMap.of(POOL_NAME_TAG, poolName));
         noHealthyServersCounters.put(poolName, counter);
       }
-      return Preconditions.checkNotNull(noHealthyServersCounters.get(poolName));
+      return Objects.requireNonNull(noHealthyServersCounters.get(poolName));
     }
   }
 
@@ -149,6 +152,7 @@ public class LoadBalancerEventsListener implements BuckEventListener {
     private final IntegerCounter isBestServerCount;
 
     private final SamplingCounter requestSizeBytes;
+    private final SamplingCounter latencyMicros;
     private final SamplingCounter responseSizeBytes;
     private final IntegerCounter requestCount;
     private final IntegerCounter requestErrorCount;
@@ -177,6 +181,8 @@ public class LoadBalancerEventsListener implements BuckEventListener {
       this.requestSizeBytes =
           registry.newSamplingCounter(
               PER_SERVER_CATEGORY, "request_size_bytes", getTagsForServer(server));
+      this.latencyMicros =
+          registry.newSamplingCounter(PER_SERVER_CATEGORY, "latency_us", getTagsForServer(server));
       this.responseSizeBytes =
           registry.newSamplingCounter(
               PER_SERVER_CATEGORY, "response_size_bytes", getTagsForServer(server));
@@ -217,6 +223,10 @@ public class LoadBalancerEventsListener implements BuckEventListener {
 
     public SamplingCounter getRequestSizeBytes() {
       return requestSizeBytes;
+    }
+
+    public SamplingCounter getLatencyMicros() {
+      return latencyMicros;
     }
 
     public SamplingCounter getResponseSizeBytes() {

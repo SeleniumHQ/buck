@@ -20,8 +20,11 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.lessThanOrEqualTo;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.util.concurrent.MostExecutors;
+import com.facebook.buck.util.concurrent.MostExecutors.NamedThreadFactory;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.facebook.buck.util.timing.SettableFakeClock;
 import com.google.common.eventbus.Subscribe;
@@ -98,7 +101,7 @@ public class DefaultBuckEventBusTest {
     eb.timestamp(timestamp);
     eb.post(event, timestamp);
     eb.close();
-    assertEquals(timestamp.getTimestamp(), event.getTimestamp());
+    assertEquals(timestamp.getTimestampMillis(), event.getTimestampMillis());
     assertEquals(timestamp.getNanoTime(), event.getNanoTime());
   }
 
@@ -111,8 +114,59 @@ public class DefaultBuckEventBusTest {
     TestEvent event = new TestEvent();
     eb.post(event);
     eb.close();
-    assertEquals(event.getTimestamp(), 49152);
+    assertEquals(event.getTimestampMillis(), 49152);
     assertEquals(event.getNanoTime(), 64738);
+  }
+
+  @Test
+  public void testErrorThrownByListener() throws InterruptedException {
+    SingleErrorCatchingThreadFactory threadFactory = new SingleErrorCatchingThreadFactory();
+    DefaultBuckEventBus buckEventBus =
+        new DefaultBuckEventBus(
+            new DefaultClock(),
+            BuckEventBusForTests.BUILD_ID_FOR_TEST,
+            timeoutMillis,
+            MostExecutors.newSingleThreadExecutor(threadFactory));
+
+    buckEventBus.register(
+        new Object() {
+          @Subscribe
+          public void errorThrower(TestEvent event) {
+            throw new TestError();
+          }
+        });
+
+    try {
+      buckEventBus.post(new TestEvent());
+    } finally {
+      buckEventBus.close();
+    }
+
+    threadFactory.thread.join();
+    assertTrue(threadFactory.caught);
+  }
+
+  static class TestError extends Error {}
+
+  static class SingleErrorCatchingThreadFactory extends NamedThreadFactory {
+    public Thread thread;
+    public boolean caught = false;
+
+    public SingleErrorCatchingThreadFactory() {
+      super("test-thread");
+    }
+
+    @Override
+    public Thread newThread(Runnable r) {
+      thread = super.newThread(r);
+      thread.setUncaughtExceptionHandler(
+          (t, e) -> {
+            if (e instanceof TestError) {
+              caught = true;
+            }
+          });
+      return thread;
+    }
   }
 
   private static class SleepEvent extends AbstractBuckEvent {

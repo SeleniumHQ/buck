@@ -155,7 +155,7 @@ public class ErrorLoggerTest {
     assertEquals(
         linesToText(
             "Buck ran out of memory, you may consider increasing heap size with java args "
-                + "(see https://buckbuild.com/concept/buckjavaargs.html)",
+                + "(see https://buckbuild.com/files-and-dirs/buckjavaargs.html)",
             "java.lang.OutOfMemoryError: No more memory!"),
         errors.userVisibleInternal);
   }
@@ -181,6 +181,12 @@ public class ErrorLoggerTest {
 
     assertEquals("No space left on device xyzzy.", errors.userVisible);
     assertNull(errors.userVisibleInternal);
+  }
+
+  @Test
+  public void handlesIOExceptionWithNoMessage() {
+    LoggedErrors errors = logException(new BuckUncheckedExecutionException(new IOException()));
+    assertNull(errors.userVisible);
   }
 
   @Test

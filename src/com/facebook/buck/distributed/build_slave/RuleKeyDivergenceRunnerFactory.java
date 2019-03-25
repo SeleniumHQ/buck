@@ -19,6 +19,8 @@ package com.facebook.buck.distributed.build_slave;
 import com.facebook.buck.core.build.engine.impl.DefaultRuleDepsCache;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
@@ -37,7 +39,6 @@ import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.RuleKeyCalculatedEvent;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
@@ -76,7 +77,8 @@ public class RuleKeyDivergenceRunnerFactory {
       WeightedListeningExecutorService executorService,
       BuckEventBus eventBus,
       DistBuildState state,
-      Cell rootCell) {
+      Cell rootCell,
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory) {
     return new AbstractDistBuildModeRunner() {
       @Override
       public ListenableFuture<?> getAsyncPrepFuture() {
@@ -95,7 +97,7 @@ public class RuleKeyDivergenceRunnerFactory {
           try {
             List<Pair<BuildRule, RuleKey>> rulesAndKeys =
                 calculateDefaultRuleKeys(
-                    getTopLevelTargetsToBuild(state, rootCell),
+                    getTopLevelTargetsToBuild(state, rootCell, unconfiguredBuildTargetFactory),
                     initializer,
                     ruleKeyConfiguration,
                     ruleKeyCacheScope,
@@ -187,15 +189,19 @@ public class RuleKeyDivergenceRunnerFactory {
         .get();
   }
 
-  private static List<BuildTarget> getTopLevelTargetsToBuild(DistBuildState state, Cell rootCell) {
+  private static List<BuildTarget> getTopLevelTargetsToBuild(
+      DistBuildState state,
+      Cell rootCell,
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory) {
     return state
         .getRemoteState()
         .getTopLevelTargets()
         .stream()
         .map(
             target ->
-                BuildTargetParser.fullyQualifiedNameToBuildTarget(
-                    rootCell.getCellPathResolver(), target))
+                unconfiguredBuildTargetFactory
+                    .create(rootCell.getCellPathResolver(), target)
+                    .configure(EmptyTargetConfiguration.INSTANCE))
         .collect(Collectors.toList());
   }
 }

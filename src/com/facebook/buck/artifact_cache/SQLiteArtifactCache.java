@@ -42,6 +42,7 @@ import com.google.common.hash.HashCode;
 import com.google.common.io.ByteStreams;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -251,7 +252,9 @@ public class SQLiteArtifactCache implements ArtifactCache {
     }
 
     return Futures.transform(
-        Futures.allAsList(metadataResult, contentResult), Functions.constant(null));
+        Futures.allAsList(metadataResult, contentResult),
+        Functions.constant(null),
+        MoreExecutors.directExecutor());
   }
 
   @Override
@@ -289,7 +292,7 @@ public class SQLiteArtifactCache implements ArtifactCache {
       ImmutableSet<RuleKey> contentHashes, BorrowablePath content) {
     try {
       ImmutableSet<RuleKey> toStore = notPreexisting(contentHashes);
-      if (toStore.size() == 0) {
+      if (toStore.isEmpty()) {
         return Futures.immediateFuture(null);
       }
 

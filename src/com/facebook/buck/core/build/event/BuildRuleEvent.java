@@ -45,6 +45,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonView;
 import com.google.common.base.Preconditions;
 import com.google.common.hash.HashCode;
+import java.util.Objects;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
@@ -69,7 +70,7 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
   @JsonView(JsonViews.MachineReadableLog.class)
   public ClockDuration getDuration() {
     Preconditions.checkState(isConfigured(), "Event was not configured yet.");
-    return Preconditions.checkNotNull(duration);
+    return Objects.requireNonNull(duration);
   }
 
   @Override
@@ -168,9 +169,13 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
 
     @Override
     public void configure(
-        long timestamp, long nanoTime, long threadUserNanoTime, long threadId, BuildId buildId) {
-      super.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
-      this.duration = tracker.doBeginning(getBuildRule(), timestamp, nanoTime);
+        long timestampMillis,
+        long nanoTime,
+        long threadUserNanoTime,
+        long threadId,
+        BuildId buildId) {
+      super.configure(timestampMillis, nanoTime, threadUserNanoTime, threadId, buildId);
+      this.duration = tracker.doBeginning(getBuildRule(), timestampMillis, nanoTime);
     }
 
     @Override
@@ -198,11 +203,16 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
 
     @Override
     public void configure(
-        long timestamp, long nanoTime, long threadUserNanoTime, long threadId, BuildId buildId) {
-      super.configure(timestamp, nanoTime, threadUserNanoTime, threadId, buildId);
+        long timestampMillis,
+        long nanoTime,
+        long threadUserNanoTime,
+        long threadId,
+        BuildId buildId) {
+      super.configure(timestampMillis, nanoTime, threadUserNanoTime, threadId, buildId);
       long threadUserNanoDuration = threadUserNanoTime - beginning.getThreadUserNanoTime();
       this.duration =
-          beginning.tracker.doEnding(getBuildRule(), timestamp, nanoTime, threadUserNanoDuration);
+          beginning.tracker.doEnding(
+              getBuildRule(), timestampMillis, nanoTime, threadUserNanoDuration);
     }
 
     @Override
@@ -298,7 +308,7 @@ public abstract class BuildRuleEvent extends AbstractBuckEvent implements WorkAd
 
     @JsonView(JsonViews.MachineReadableLog.class)
     public Optional<String> getSuccessTypeName() {
-      return successType.isPresent() ? Optional.of(successType.get().name()) : Optional.empty();
+      return successType.map(Enum::name);
     }
 
     @JsonIgnore

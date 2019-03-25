@@ -16,10 +16,11 @@
 
 package com.facebook.buck.intellij.ideabuck.format;
 
+import com.facebook.buck.intellij.ideabuck.api.BuckTargetLocator;
 import com.facebook.buck.intellij.ideabuck.build.BuckBuildUtil;
 import com.facebook.buck.intellij.ideabuck.lang.BuckFile;
-import com.facebook.buck.intellij.ideabuck.lang.psi.BuckPsiUtils;
 import com.facebook.buck.intellij.ideabuck.lang.psi.BuckTypes;
+import com.facebook.buck.intellij.ideabuck.util.BuckPsiUtils;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.intellij.codeInsight.editorActions.CopyPastePreProcessor;
@@ -105,7 +106,7 @@ public class BuckCopyPasteProcessor implements CopyPastePreProcessor {
         }
       }
 
-      PsiElement property = BuckPsiUtils.findAncestorWithType(element, BuckTypes.PROPERTY);
+      PsiElement property = BuckPsiUtils.findAncestorWithType(element, BuckTypes.ARGUMENT);
       if (checkPropertyName(property)) {
         return formatPasteText(text, element, project, inQuotedString);
       }
@@ -125,10 +126,7 @@ public class BuckCopyPasteProcessor implements CopyPastePreProcessor {
     if (leftValue == null || leftValue.getNode().getElementType() != BuckTypes.IDENTIFIER) {
       return false;
     }
-    if (leftValue.getText().equals("deps") || leftValue.getText().equals("visibility")) {
-      return true;
-    }
-    return false;
+    return leftValue.getText().equals("deps") || leftValue.getText().equals("visibility");
   }
 
   /**
@@ -243,7 +241,9 @@ public class BuckCopyPasteProcessor implements CopyPastePreProcessor {
         file = virtualFileManager.findFileByUrl("temp://" + reference);
       }
       if (file != null) {
-        return getBuckFileFromDirectory(file.getParent());
+        return BuckTargetLocator.getInstance(project)
+            .findBuckFileForVirtualFile(file.getParent())
+            .orElse(null);
       }
     }
 
@@ -266,7 +266,9 @@ public class BuckCopyPasteProcessor implements CopyPastePreProcessor {
       }
       if (foundClass != null) {
         VirtualFile file = PsiUtilCore.getVirtualFile(foundClass);
-        return getBuckFileFromDirectory(file.getParent());
+        return BuckTargetLocator.getInstance(project)
+            .findBuckFileForVirtualFile(file.getParent())
+            .orElse(null);
       }
     }
 
@@ -274,7 +276,9 @@ public class BuckCopyPasteProcessor implements CopyPastePreProcessor {
     PsiPackage packageElement = JavaPsiFacade.getInstance(project).findPackage(reference);
     if (packageElement != null) {
       PsiDirectory directory = packageElement.getDirectories()[0];
-      return getBuckFileFromDirectory(directory.getVirtualFile());
+      return BuckTargetLocator.getInstance(project)
+          .findBuckFileForVirtualFile(directory.getVirtualFile())
+          .orElse(null);
     }
 
     // Extract the package from the reference.
@@ -288,23 +292,10 @@ public class BuckCopyPasteProcessor implements CopyPastePreProcessor {
     packageElement = JavaPsiFacade.getInstance(project).findPackage(reference);
     if (packageElement != null) {
       PsiDirectory directory = packageElement.getDirectories()[0];
-      return getBuckFileFromDirectory(directory.getVirtualFile());
+      return BuckTargetLocator.getInstance(project)
+          .findBuckFileForVirtualFile(directory.getVirtualFile())
+          .orElse(null);
     }
     return null;
-  }
-
-  /**
-   * Find the buck file from a directory. TODO(#7908675): We should use Buck's own classes for it.
-   */
-  private VirtualFile getBuckFileFromDirectory(VirtualFile file) {
-    if (file == null) {
-      return null;
-    }
-    VirtualFile buckFile = file.findChild(BuckBuildUtil.BUCK_FILE_NAME);
-    while (buckFile == null && file != null) {
-      buckFile = file.findChild(BuckBuildUtil.BUCK_FILE_NAME);
-      file = file.getParent();
-    }
-    return buckFile;
   }
 }

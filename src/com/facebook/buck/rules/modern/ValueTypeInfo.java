@@ -16,13 +16,12 @@
 
 package com.facebook.buck.rules.modern;
 
-import com.google.common.base.Preconditions;
+import java.util.Objects;
 import javax.annotation.Nullable;
 
 /**
  * ValueTypeInfo&lt;T&gt; provides methods to extract deps, outputs, rulekeys from values of type T.
  */
-@SuppressWarnings("unused")
 public interface ValueTypeInfo<T> {
   <E extends Exception> void visit(T value, ValueVisitor<E> visitor) throws E;
 
@@ -30,6 +29,6 @@ public interface ValueTypeInfo<T> {
   <E extends Exception> T create(ValueCreator<E> creator) throws E;
 
   default <E extends Exception> T createNotNull(ValueCreator<E> creator) throws E {
-    return Preconditions.checkNotNull(create(creator));
+    return Objects.requireNonNull(create(creator));
   }
 }

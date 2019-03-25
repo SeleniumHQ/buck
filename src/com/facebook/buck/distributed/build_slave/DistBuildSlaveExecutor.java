@@ -21,8 +21,11 @@ import com.facebook.buck.command.BuildExecutorArgs;
 import com.facebook.buck.command.LocalBuildExecutor;
 import com.facebook.buck.core.build.distributed.synchronization.impl.NoOpRemoteBuildRuleCompletionWaiter;
 import com.facebook.buck.core.build.engine.impl.DefaultRuleDepsCache;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.calculator.ParallelRuleKeyCalculator;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -36,10 +39,8 @@ import com.facebook.buck.distributed.thrift.BuildJob;
 import com.facebook.buck.distributed.thrift.BuildStatus;
 import com.facebook.buck.distributed.thrift.RemoteCommand;
 import com.facebook.buck.distributed.thrift.SchedulingEnvironmentType;
-import com.facebook.buck.parser.BuildTargetParser;
 import com.facebook.buck.rules.keys.DefaultRuleKeyFactory;
 import com.facebook.buck.rules.keys.RuleKeyFieldLoader;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.network.hostname.HostnameFetching;
 import com.google.common.util.concurrent.Futures;
@@ -87,7 +88,7 @@ public class DistBuildSlaveExecutor {
     }
   }
 
-  public ExitCode buildAndReturnExitCode() throws IOException, InterruptedException {
+  public ExitCode buildAndReturnExitCode() throws Exception {
     if (args.getRemoteCommand() == RemoteCommand.RULE_KEY_DIVERGENCE_CHECK) {
       return setPreparationCallbackAndRun(
           RuleKeyDivergenceRunnerFactory.createRunner(
@@ -101,7 +102,8 @@ public class DistBuildSlaveExecutor {
               args.getExecutorService(),
               args.getBuckEventBus(),
               args.getState(),
-              args.getRootCell()));
+              args.getRootCell(),
+              args.getUnconfiguredBuildTargetFactory()));
     }
 
     Optional<BuildId> clientBuildId = fetchClientBuildId();
@@ -241,8 +243,7 @@ public class DistBuildSlaveExecutor {
     }
   }
 
-  private ExitCode setPreparationCallbackAndRun(DistBuildModeRunner runner)
-      throws IOException, InterruptedException {
+  private ExitCode setPreparationCallbackAndRun(DistBuildModeRunner runner) throws Exception {
     runner
         .getAsyncPrepFuture()
         .addListener(
@@ -292,19 +293,28 @@ public class DistBuildSlaveExecutor {
                 Optional.empty(),
                 // Only the client side build needs to synchronize, not the slave.
                 // (as the co-ordinator synchronizes artifacts between slaves).
-                new NoOpRemoteBuildRuleCompletionWaiter()),
+                new NoOpRemoteBuildRuleCompletionWaiter(),
+                args.getMetadataProvider(),
+                args.getUnconfiguredBuildTargetFactory(),
+                EmptyTargetConfiguration.INSTANCE,
+                args.getTargetConfigurationSerializer()),
         args.getExecutorService());
   }
 
   private List<BuildTarget> getTopLevelTargetsToBuild() {
+    UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory =
+        args.getUnconfiguredBuildTargetFactory();
     return args.getState()
         .getRemoteState()
         .getTopLevelTargets()
         .stream()
         .map(
             target ->
-                BuildTargetParser.fullyQualifiedNameToBuildTarget(
+                unconfiguredBuildTargetFactory.create(
                     args.getRootCell().getCellPathResolver(), target))
+        .map(
+            unconfiguredBuildTarget ->
+                unconfiguredBuildTarget.configure(EmptyTargetConfiguration.INSTANCE))
         .collect(Collectors.toList());
   }
 }

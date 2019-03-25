@@ -190,7 +190,6 @@ public class HaskellLibraryDescription
         graphBuilder,
         ruleFinder,
         platform.getCxxPlatform(),
-        cxxBuckConfig.getArchiveContents(),
         CxxDescriptionEnhancer.getStaticLibraryPath(
             projectFilesystem,
             target.withoutFlavors(HaskellDescriptionUtils.PROF),
@@ -210,7 +209,7 @@ public class HaskellLibraryDescription
         // affect on build efficiency, and since this issue appears to only manifest by a size
         // mismatch with what is embedded in thin archives, just disable caching when using thin
         // archives.
-        /* cacheable */ cxxBuckConfig.getArchiveContents() != ArchiveContents.THIN);
+        /* cacheable */ platform.getCxxPlatform().getArchiveContents() != ArchiveContents.THIN);
   }
 
   private Archive requireStaticLibrary(
@@ -501,7 +500,7 @@ public class HaskellLibraryDescription
       @Override
       public Iterable<BuildRule> visit(BuildRule rule) {
         ImmutableSet.Builder<BuildRule> traverse = ImmutableSet.builder();
-        if (rule instanceof HaskellCompileDep || rule instanceof PrebuiltHaskellLibrary) {
+        if (rule instanceof HaskellCompileDep) {
           HaskellCompileDep haskellCompileDep = (HaskellCompileDep) rule;
 
           // Get haddock-interfaces
@@ -779,7 +778,8 @@ public class HaskellLibraryDescription
               args.getCompilerFlags(),
               Optional.empty(),
               Optional.empty(),
-              ImmutableList.of());
+              ImmutableList.of(),
+              args.isEnableProfiling());
       }
 
       throw new IllegalStateException(
@@ -822,7 +822,7 @@ public class HaskellLibraryDescription
         HaskellHaddockLibRule rule = (HaskellHaddockLibRule) graphBuilder.requireRule(target);
         return HaskellHaddockInput.builder()
             .addAllInterfaces(rule.getInterfaces())
-            .addAllOutputDirs(rule.getOutputDirs())
+            .addAllHaddockOutputDirs(rule.getHaddockOutputDirs())
             .build();
       }
 

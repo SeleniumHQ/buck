@@ -64,8 +64,8 @@ public class AndroidBundleBuilder
     super(
         new AndroidBundleDescription(
             DEFAULT_JAVA_CONFIG,
-            new AndroidBuckConfig(buckConfig, Platform.detect()),
             new ProGuardConfig(buckConfig),
+            new AndroidBuckConfig(buckConfig, Platform.detect()),
             buckConfig,
             CxxPlatformUtils.DEFAULT_CONFIG,
             new DxConfig(buckConfig),
@@ -74,8 +74,7 @@ public class AndroidBundleBuilder
             new AndroidBundleFactory(new AndroidBuckConfig(buckConfig, Platform.detect()))),
         target,
         new FakeProjectFilesystem(),
-        createToolchainProviderForAndroidBundle(),
-        null);
+        createToolchainProviderForAndroidBundle());
   }
 
   public static ToolchainProvider createToolchainProviderForAndroidBundle() {

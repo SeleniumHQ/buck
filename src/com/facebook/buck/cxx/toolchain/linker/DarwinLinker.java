@@ -48,15 +48,24 @@ import java.util.function.Consumer;
 /**
  * A specialization of {@link Linker} containing information specific to the Darwin implementation.
  */
-public class DarwinLinker extends DelegatingTool implements Linker, HasLinkerMap, HasThinLTO {
-  public DarwinLinker(Tool tool) {
+public class DarwinLinker extends DelegatingTool implements Linker, HasLinkerMap, HasLTO {
+
+  private final boolean cacheLinks;
+
+  public DarwinLinker(Tool tool, boolean cacheLinks) {
     super(tool);
+    this.cacheLinks = cacheLinks;
   }
 
   @Override
   public ImmutableList<FileScrubber> getScrubbers(ImmutableMap<Path, Path> cellRootMap) {
-    return ImmutableList.of(
-        new OsoSymbolsContentsScrubber(cellRootMap), new LcUuidContentsScrubber());
+    if (cacheLinks) {
+      return ImmutableList.of(
+          new OsoSymbolsContentsScrubber(cellRootMap), new LcUuidContentsScrubber());
+    } else {
+      // there's no point scrubbing the debug info if the linked objects are never getting cached
+      return ImmutableList.of();
+    }
   }
 
   @Override
@@ -79,14 +88,19 @@ public class DarwinLinker extends DelegatingTool implements Linker, HasLinkerMap
   @Override
   public Iterable<Arg> thinLTO(Path output) {
     return StringArg.from(
-        "-flto=thin", "-Xlinker", "-object_path_lto", "-Xlinker", thinLTOPath(output).toString());
+        "-flto=thin", "-Xlinker", "-object_path_lto", "-Xlinker", ltoPath(output).toString());
   }
 
   @Override
-  public Path thinLTOPath(Path output) {
-    return Paths.get(output + "-lto");
+  public Iterable<Arg> fatLTO(Path output) {
+    return StringArg.from(
+        "-flto", "-Xlinker", "-object_path_lto", "-Xlinker", ltoPath(output).toString());
   }
 
+  @Override
+  public Path ltoPath(Path output) {
+    return Paths.get(output + "-lto");
+  }
 
   @Override
   public Iterable<String> soname(String arg) {
@@ -154,11 +168,6 @@ public class DarwinLinker extends DelegatingTool implements Linker, HasLinkerMap
   }
 
   @Override
-  public boolean hasFilePathSizeLimitations() {
-    return false;
-  }
-
-  @Override
   public SharedLibraryLoadingType getSharedLibraryLoadingType() {
     return SharedLibraryLoadingType.RPATH;
   }
@@ -166,6 +175,11 @@ public class DarwinLinker extends DelegatingTool implements Linker, HasLinkerMap
   @Override
   public Optional<ExtraOutputsDeriver> getExtraOutputsDeriver() {
     return Optional.empty();
+  }
+
+  @Override
+  public boolean getUseUnixPathSeparator() {
+    return true;
   }
 
   /**

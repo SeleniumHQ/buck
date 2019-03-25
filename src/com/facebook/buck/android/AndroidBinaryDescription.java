@@ -21,6 +21,7 @@ import static com.facebook.buck.android.AndroidBinaryResourcesGraphEnhancer.PACK
 import com.facebook.buck.android.FilterResourcesSteps.ResourceFilter;
 import com.facebook.buck.android.dalvik.ZipSplitter.DexSplitStrategy;
 import com.facebook.buck.android.exopackage.ExopackageMode;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
@@ -47,6 +48,7 @@ import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavacFactory;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
 import com.facebook.buck.rules.macros.StringWithMacros;
+import com.facebook.buck.util.Optionals;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -237,13 +239,23 @@ public class AndroidBinaryDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, null);
     javaOptions.get().addParseTimeDeps(targetGraphOnlyDepsBuilder);
+
+    Optionals.addIfPresent(proGuardConfig.getProguardTarget(), extraDepsBuilder);
+
     if (constructorArg.getRedex()) {
       // If specified, this option may point to either a BuildTarget or a file.
       Optional<BuildTarget> redexTarget = androidBuckConfig.getRedexTarget();
-      if (redexTarget.isPresent()) {
-        extraDepsBuilder.add(redexTarget.get());
-      }
+      redexTarget.ifPresent(extraDepsBuilder::add);
     }
+    // TODO(cjhopman): we could filter this by the abis that this binary supports.
+    toolchainProvider
+        .getByNameIfPresent(NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.class)
+        .ifPresent(
+            ndkCxxPlatformsProvider ->
+                ndkCxxPlatformsProvider
+                    .getNdkCxxPlatforms()
+                    .values()
+                    .forEach(platform -> extraDepsBuilder.addAll(platform.getParseTimeDeps())));
   }
 
   @BuckStyleImmutable
@@ -306,6 +318,8 @@ public class AndroidBinaryDescription
     boolean isCompressAssetLibraries() {
       return false;
     }
+
+    abstract Optional<CompressionAlgorithm> getAssetCompressionAlgorithm();
 
     @Value.Default
     boolean getRedex() {

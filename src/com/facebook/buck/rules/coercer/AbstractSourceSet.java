@@ -23,8 +23,6 @@ import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.parser.BuildTargetPattern;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.versions.TargetNodeTranslator;
 import com.facebook.buck.versions.TargetTranslatable;
 import com.google.common.base.Preconditions;
@@ -147,13 +145,11 @@ abstract class AbstractSourceSet implements TargetTranslatable<SourceSet>, AddsT
 
   @Override
   public Optional<SourceSet> translateTargets(
-      CellPathResolver cellPathResolver,
-      BuildTargetPatternParser<BuildTargetPattern> pattern,
-      TargetNodeTranslator translator) {
+      CellPathResolver cellPathResolver, String targetBaseName, TargetNodeTranslator translator) {
     Optional<Optional<ImmutableMap<String, SourcePath>>> namedSources =
-        translator.translate(cellPathResolver, pattern, getNamedSources());
+        translator.translate(cellPathResolver, targetBaseName, getNamedSources());
     Optional<Optional<ImmutableSet<SourcePath>>> unNamedSources =
-        translator.translate(cellPathResolver, pattern, getUnnamedSources());
+        translator.translate(cellPathResolver, targetBaseName, getUnnamedSources());
     if (!namedSources.isPresent() && !unNamedSources.isPresent()) {
       return Optional.empty();
     }

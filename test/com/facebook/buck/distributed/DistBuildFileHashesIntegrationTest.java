@@ -19,6 +19,7 @@ package com.facebook.buck.distributed;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.BuckConfig;
@@ -40,6 +41,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.parser.Parser;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.TemporaryPaths;
@@ -88,12 +90,12 @@ public class DistBuildFileHashesIntegrationTest {
     Cell rootCell =
         new TestCellBuilder().setBuckConfig(rootCellConfig).setFilesystem(rootFs).build();
 
-    Parser parser = TestParserFactory.create(rootCellConfig);
+    Parser parser = TestParserFactory.create(rootCell);
     TargetGraph targetGraph =
         parser.buildTargetGraph(
-            rootCell,
-            /* enableProfiling */ false,
-            MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
+            ParsingContext.builder(
+                    rootCell, MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()))
+                .build(),
             ImmutableSet.of(BuildTargetFactory.newInstance(rootFs.getRootPath(), "//:libA")));
 
     DistBuildTargetGraphCodec targetGraphCodec =
@@ -147,12 +149,12 @@ public class DistBuildFileHashesIntegrationTest {
     Cell rootCell =
         new TestCellBuilder().setBuckConfig(rootCellConfig).setFilesystem(rootFs).build();
 
-    Parser parser = TestParserFactory.create(rootCellConfig);
+    Parser parser = TestParserFactory.create(rootCell);
     TargetGraph targetGraph =
         parser.buildTargetGraph(
-            rootCell,
-            /* enableProfiling */ false,
-            MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
+            ParsingContext.builder(
+                    rootCell, MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()))
+                .build(),
             ImmutableSet.of(BuildTargetFactory.newInstance(rootFs.getRootPath(), "//:libA")));
 
     DistBuildTargetGraphCodec targetGraphCodec =
@@ -186,7 +188,11 @@ public class DistBuildFileHashesIntegrationTest {
       throws InterruptedException {
     ActionGraphProvider cache =
         new ActionGraphProviderBuilder()
-            .withMaxEntries(rootCell.getBuckConfig().getMaxActionGraphCacheEntries())
+            .withMaxEntries(
+                rootCell
+                    .getBuckConfig()
+                    .getView(BuildBuckConfig.class)
+                    .getMaxActionGraphCacheEntries())
             .withCellProvider(rootCell.getCellProvider())
             .withCheckActionGraphs()
             .build();

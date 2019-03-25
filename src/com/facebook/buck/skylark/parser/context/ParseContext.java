@@ -17,8 +17,6 @@
 package com.facebook.buck.skylark.parser.context;
 
 import com.facebook.buck.skylark.packages.PackageContext;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.devtools.build.lib.syntax.Environment;
 import com.google.devtools.build.lib.syntax.EvalException;
@@ -26,6 +24,7 @@ import com.google.devtools.build.lib.syntax.FuncallExpression;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
@@ -57,7 +56,7 @@ public class ParseContext {
   public void recordRule(ImmutableMap<String, Object> rawRule, FuncallExpression ast)
       throws EvalException {
     String name =
-        Preconditions.checkNotNull((String) rawRule.get("name"), "Every target must have a name.");
+        Objects.requireNonNull((String) rawRule.get("name"), "Every target must have a name.");
     if (rawRules.containsKey(name)) {
       throw new EvalException(
           ast.getLocation(),
@@ -82,8 +81,8 @@ public class ParseContext {
    * @return The list of raw build rules discovered in parsed build file. Raw rule is presented as a
    *     map with attributes as keys and parameters as values.
    */
-  public ImmutableList<ImmutableMap<String, Object>> getRecordedRules() {
-    return ImmutableList.copyOf(rawRules.values());
+  public ImmutableMap<String, ImmutableMap<String, Object>> getRecordedRules() {
+    return ImmutableMap.copyOf(rawRules);
   }
 
   /** @return {@code true} if the rule with provided name exists, {@code false} otherwise. */

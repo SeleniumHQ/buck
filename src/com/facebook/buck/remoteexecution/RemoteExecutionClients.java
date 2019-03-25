@@ -16,6 +16,7 @@
 
 package com.facebook.buck.remoteexecution;
 
+import com.facebook.buck.remoteexecution.interfaces.Protocol;
 import java.io.Closeable;
 
 /**
@@ -24,9 +25,9 @@ import java.io.Closeable;
  * provided by the Protocol.
  */
 public interface RemoteExecutionClients extends Closeable {
-  RemoteExecutionService getRemoteExecutionService();
+  RemoteExecutionServiceClient getRemoteExecutionService();
 
-  ContentAddressedStorage getContentAddressedStorage();
+  ContentAddressedStorageClient getContentAddressedStorage();
 
   Protocol getProtocol();
 }

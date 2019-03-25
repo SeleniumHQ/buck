@@ -27,15 +27,16 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.select.SelectorList;
 import com.facebook.buck.core.select.impl.SelectorFactory;
 import com.facebook.buck.core.select.impl.SelectorListFactory;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.parser.syntax.ImmutableSelectorValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
-import com.google.devtools.build.lib.syntax.SelectorValue;
 import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
@@ -47,11 +48,13 @@ public class SelectorListCoercerTest {
   private SelectorListFactory selectorListFactory;
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     projectFilesystem = new FakeProjectFilesystem();
     cellPathResolver = TestCellPathResolver.get(projectFilesystem);
     selectorListFactory =
-        new SelectorListFactory(new SelectorFactory(new BuildTargetTypeCoercer()::coerce));
+        new SelectorListFactory(
+            new SelectorFactory(
+                new BuildTargetTypeCoercer(new ParsingUnconfiguredBuildTargetFactory())::coerce));
   }
 
   @Test
@@ -74,9 +77,12 @@ public class SelectorListCoercerTest {
   public void testTraverseEncountersKeysAndValues() throws CoerceFailedException {
     ListTypeCoercer<Flavor> elementTypeCoercer = new ListTypeCoercer<>(new FlavorTypeCoercer());
     SelectorListCoercer<ImmutableList<Flavor>> coercer =
-        new SelectorListCoercer<>(new BuildTargetTypeCoercer(), elementTypeCoercer, null);
-    SelectorValue selectorValue =
-        new SelectorValue(
+        new SelectorListCoercer<>(
+            new BuildTargetTypeCoercer(new ParsingUnconfiguredBuildTargetFactory()),
+            elementTypeCoercer,
+            null);
+    ImmutableSelectorValue selectorValue =
+        ImmutableSelectorValue.of(
             ImmutableMap.of(
                 "DEFAULT", Lists.newArrayList("test1"), "//a:b", Lists.newArrayList("test2")),
             "");

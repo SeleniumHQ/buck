@@ -28,24 +28,19 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.jvm.core.HasClasspathEntries;
 import com.facebook.buck.jvm.core.HasMavenCoordinates;
 import com.facebook.buck.jvm.core.JavaLibrary;
+import com.facebook.buck.jvm.java.JarShape.Summary;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.util.RichStream;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.ImmutableSortedSet.Builder;
 import com.google.common.collect.Ordering;
-import com.google.common.collect.Sets;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * A {@link BuildRule} used to have the provided {@link JavaLibrary} published to a maven repository
@@ -57,27 +52,27 @@ public class MavenUberJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   private final Optional<String> mavenCoords;
   private final Optional<SourcePath> mavenPomTemplate;
-  private final TraversedDeps traversedDeps;
+  private final JarShape.Summary shapeSummary;
 
   private MavenUberJar(
-      TraversedDeps traversedDeps,
+      JarShape.Summary shapeSummary,
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
       Optional<String> mavenCoords,
       Optional<SourcePath> mavenPomTemplate) {
     super(buildTarget, projectFilesystem, params);
-    this.traversedDeps = traversedDeps;
+    this.shapeSummary = shapeSummary;
     this.mavenCoords = mavenCoords;
     this.mavenPomTemplate = mavenPomTemplate;
   }
 
   private static BuildRuleParams adjustParams(
       BuildRuleParams params,
-      TraversedDeps traversedDeps,
+      JarShape.Summary shapeSummary,
       ImmutableSortedSet<BuildRule> extras) {
     return params
-        .withDeclaredDeps(ImmutableSortedSet.copyOf(Ordering.natural(), traversedDeps.packagedDeps))
+        .withDeclaredDeps(ImmutableSortedSet.copyOf(Ordering.natural(), shapeSummary.getPackagedRules()))
         .withExtraDeps(extras);
   }
 
@@ -96,16 +91,16 @@ public class MavenUberJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
       BuildRuleParams params,
       Optional<String> mavenCoords,
       Optional<SourcePath> mavenPomTemplate) {
-    TraversedDeps traversedDeps = TraversedDeps.traverse(ImmutableSet.of(rootRule));
+    Summary summary = JarShape.MAVEN.gatherDeps(rootRule);
 
     Builder<BuildRule> templateRule = ImmutableSortedSet.naturalOrder();
     mavenPomTemplate.ifPresent(path -> resolver.getRule(path).ifPresent(templateRule::add));
 
     return new MavenUberJar(
-        traversedDeps,
+        summary,
         buildTarget,
         projectFilesystem,
-        adjustParams(params, traversedDeps, templateRule.build()),
+        adjustParams(params, summary, templateRule.build()),
         mavenCoords,
         mavenPomTemplate);
   }
@@ -124,7 +119,7 @@ public class MavenUberJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
             JarParameters.builder()
                 .setJarPath(pathToOutput)
                 .setEntriesToJar(
-                    toOutputPaths(context.getSourcePathResolver(), traversedDeps.packagedDeps))
+                    toOutputPaths(context.getSourcePathResolver(), shapeSummary.getPackagedRules()))
                 .setMergeManifests(true)
                 .build());
     return ImmutableList.of(mkOutputDirStep, mergeOutputsStep);
@@ -158,57 +153,11 @@ public class MavenUberJar extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public Iterable<HasMavenCoordinates> getMavenDeps() {
-    return traversedDeps.mavenDeps;
+    return shapeSummary.getMavenDeps();
   }
 
   @Override
   public Iterable<BuildRule> getPackagedDependencies() {
-    return traversedDeps.packagedDeps;
-  }
-
-  private static class TraversedDeps {
-    public final Iterable<HasMavenCoordinates> mavenDeps;
-    public final Iterable<BuildRule> packagedDeps;
-
-    private TraversedDeps(
-        Iterable<HasMavenCoordinates> mavenDeps, Iterable<BuildRule> packagedDeps) {
-      this.mavenDeps = mavenDeps;
-      this.packagedDeps = packagedDeps;
-    }
-
-    private static TraversedDeps traverse(Set<? extends BuildRule> roots) {
-      return traverse(roots, true);
-    }
-
-    private static TraversedDeps traverse(
-        Set<? extends BuildRule> roots, boolean alwaysPackageRoots) {
-      ImmutableSortedSet.Builder<HasMavenCoordinates> depsCollector =
-          ImmutableSortedSet.naturalOrder();
-
-      ImmutableSortedSet.Builder<JavaLibrary> candidates = ImmutableSortedSet.naturalOrder();
-      for (BuildRule root : roots) {
-        Preconditions.checkState(root instanceof HasClasspathEntries);
-        candidates.addAll(
-            ((HasClasspathEntries) root)
-                .getTransitiveClasspathDeps()
-                .stream()
-                .filter(buildRule -> !(alwaysPackageRoots && root.equals(buildRule)))
-                .iterator());
-      }
-      ImmutableSortedSet.Builder<JavaLibrary> removals = ImmutableSortedSet.naturalOrder();
-      for (JavaLibrary javaLibrary : candidates.build()) {
-        if (HasMavenCoordinates.isMavenCoordsPresent(javaLibrary)) {
-          depsCollector.add(javaLibrary);
-          removals.addAll(javaLibrary.getTransitiveClasspathDeps());
-        }
-      }
-
-      Set<JavaLibrary> difference = Sets.difference(candidates.build(), removals.build());
-      Set<? extends BuildRule> mandatoryRules = alwaysPackageRoots ? roots : Collections.emptySet();
-
-      return new TraversedDeps(
-          /* mavenDeps */ depsCollector.build(),
-          /* packagedDeps */ Sets.union(mandatoryRules, difference));
-    }
+    return shapeSummary.getPackagedRules();
   }
 }

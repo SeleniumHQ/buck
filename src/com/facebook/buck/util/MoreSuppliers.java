@@ -16,7 +16,8 @@
 
 package com.facebook.buck.util;
 
-import com.google.common.base.Preconditions;
+import com.facebook.buck.util.function.ThrowingSupplier;
+import java.util.Objects;
 import java.util.function.Supplier;
 
 public final class MoreSuppliers {
@@ -35,11 +36,39 @@ public final class MoreSuppliers {
     return (delegate instanceof MemoizingSupplier) ? delegate : new MemoizingSupplier<T>(delegate);
   }
 
+  /**
+   * Returns a {@link ThrowingSupplier} that caches the result or the exception during the first
+   * call to {@code get()}, and returns or throws on subsequent calls to {@code get()}
+   */
+  public static <T, E extends Exception> ThrowingSupplier<T, E> memoize(
+      ThrowingSupplier<T, E> delegate, Class<E> exceptionClass) {
+    return (delegate instanceof MemoizingThrowingSupplier)
+        ? delegate
+        : new MemoizingThrowingSupplier<>(delegate, exceptionClass);
+  }
+
+  private static class MemoizingThrowingSupplier<T, E extends Exception>
+      extends ThrowingMemoizer<T, E> implements ThrowingSupplier<T, E> {
+
+    private final ThrowingSupplier<T, E> delegate;
+    private final Class<E> exceptionClass;
+
+    public MemoizingThrowingSupplier(ThrowingSupplier<T, E> delegate, Class<E> exceptionClass) {
+      this.delegate = delegate;
+      this.exceptionClass = exceptionClass;
+    }
+
+    @Override
+    public T get() throws E {
+      return get(delegate, exceptionClass);
+    }
+  }
+
   private static class MemoizingSupplier<T> extends Memoizer<T> implements Supplier<T> {
     private final Supplier<T> delegate;
 
     public MemoizingSupplier(Supplier<T> delegate) {
-      this.delegate = Preconditions.checkNotNull(delegate);
+      this.delegate = Objects.requireNonNull(delegate);
     }
 
     @Override
@@ -58,7 +87,7 @@ public final class MoreSuppliers {
     private final Supplier<T> delegate;
 
     public WeakMemoizingSupplier(Supplier<T> delegate) {
-      this.delegate = Preconditions.checkNotNull(delegate);
+      this.delegate = Objects.requireNonNull(delegate);
     }
 
     @Override

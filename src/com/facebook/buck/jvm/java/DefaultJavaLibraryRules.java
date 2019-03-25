@@ -34,12 +34,14 @@ import com.facebook.buck.jvm.java.JavaBuckConfig.SourceAbiVerificationMode;
 import com.facebook.buck.jvm.java.JavaBuckConfig.UnusedDependenciesAction;
 import com.facebook.buck.jvm.java.JavaLibraryDescription.CoreArg;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.SortedSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 import org.immutables.value.Value;
 
@@ -67,7 +69,9 @@ public abstract class DefaultJavaLibraryRules {
         boolean requiredForSourceOnlyAbi,
         UnusedDependenciesAction unusedDependenciesAction,
         Optional<UnusedDependenciesFinderFactory> unusedDependenciesFinderFactory,
-        @Nullable CalculateSourceAbi previousRuleInPipeline);
+        @Nullable CalculateSourceAbi previousRuleInPipeline,
+        boolean isDesugarEnabled,
+        boolean isInterfaceMethodsDesugarEnabled);
   }
 
   @org.immutables.builder.Builder.Parameter
@@ -224,8 +228,8 @@ public abstract class DefaultJavaLibraryRules {
     if (!willProduceCompareAbis()) {
       return null;
     }
-    Preconditions.checkNotNull(correctAbi);
-    Preconditions.checkNotNull(experimentalAbi);
+    Objects.requireNonNull(correctAbi);
+    Objects.requireNonNull(experimentalAbi);
 
     BuildTarget compareAbisTarget = JavaAbis.getVerifiedSourceAbiJar(getLibraryTarget());
     return getActionGraphBuilder()
@@ -238,7 +242,7 @@ public abstract class DefaultJavaLibraryRules {
                     .withoutExtraDeps(),
                 correctAbi.getSourcePathToOutput(),
                 experimentalAbi.getSourcePathToOutput(),
-                Preconditions.checkNotNull(getJavaBuckConfig()).getSourceAbiVerificationMode()));
+                Objects.requireNonNull(getJavaBuckConfig()).getSourceAbiVerificationMode()));
   }
 
   @Value.Lazy
@@ -269,6 +273,20 @@ public abstract class DefaultJavaLibraryRules {
     return !getSrcs().isEmpty() || !getResources().isEmpty() || getManifestFile().isPresent();
   }
 
+  // regex pattern to extract java version from both "7" and "1.7" notations.
+  private static final Pattern JAVA_VERSION_PATTERN = Pattern.compile("^(1\\.)*(?<version>\\d)$");
+
+  private boolean isDesugarRequired() {
+    String sourceLevel = getJavacOptions().getSourceLevel();
+    Matcher matcher = JAVA_VERSION_PATTERN.matcher(sourceLevel);
+    if (!matcher.find()) {
+      return false;
+    }
+    int version = Integer.parseInt(matcher.group("version"));
+    // Currently only java 8+ requires desugaring on Android
+    return version > 7;
+  }
+
   @Value.Lazy
   AbiGenerationMode getAbiGenerationMode() {
     AbiGenerationMode result = null;
@@ -278,7 +296,7 @@ public abstract class DefaultJavaLibraryRules {
       result = args.getAbiGenerationMode().orElse(null);
     }
     if (result == null) {
-      result = Preconditions.checkNotNull(getJavaBuckConfig()).getAbiGenerationMode();
+      result = Objects.requireNonNull(getJavaBuckConfig()).getAbiGenerationMode();
     }
 
     if (result == AbiGenerationMode.CLASS) {
@@ -351,9 +369,9 @@ public abstract class DefaultJavaLibraryRules {
 
   private boolean pluginsSupportSourceOnlyAbis() {
     ImmutableList<ResolvedJavacPluginProperties> annotationProcessors =
-        Preconditions.checkNotNull(getJavacOptions())
-            .getAnnotationProcessingParams()
-            .getModernProcessors();
+        Objects.requireNonNull(getJavacOptions())
+            .getJavaAnnotationProcessorParams()
+            .getPluginProperties();
 
     for (ResolvedJavacPluginProperties annotationProcessor : annotationProcessors) {
       if (!annotationProcessor.getDoesNotAffectAbi()
@@ -387,7 +405,7 @@ public abstract class DefaultJavaLibraryRules {
                       buildRuleResolver,
                       getCellPathResolver(),
                       CompilerOutputPaths.getDepFilePath(buildTarget, projectFilesystem),
-                      Preconditions.checkNotNull(getDeps()),
+                      Objects.requireNonNull(getDeps()),
                       sourcePathResolver,
                       unusedDependenciesAction));
     }
@@ -401,9 +419,9 @@ public abstract class DefaultJavaLibraryRules {
                 getSourcePathRuleFinder(),
                 getProguardConfig(),
                 classpaths.getFirstOrderPackageableDeps(),
-                Preconditions.checkNotNull(getDeps()).getExportedDeps(),
-                Preconditions.checkNotNull(getDeps()).getProvidedDeps(),
-                Preconditions.checkNotNull(getDeps()).getExportedProvidedDeps(),
+                Objects.requireNonNull(getDeps()).getExportedDeps(),
+                Objects.requireNonNull(getDeps()).getProvidedDeps(),
+                Objects.requireNonNull(getDeps()).getExportedProvidedDeps(),
                 getAbiJar(),
                 getSourceOnlyAbiJar(),
                 getMavenCoords(),
@@ -411,7 +429,9 @@ public abstract class DefaultJavaLibraryRules {
                 getRequiredForSourceOnlyAbi(),
                 unusedDependenciesAction,
                 unusedDependenciesFinderFactory,
-                sourceAbiRule);
+                sourceAbiRule,
+                isDesugarRequired(),
+                getConfiguredCompilerFactory().shouldDesugarInterfaceMethods());
 
     getActionGraphBuilder().addToIndex(libraryRule);
     return libraryRule;
@@ -490,7 +510,7 @@ public abstract class DefaultJavaLibraryRules {
   DefaultJavaLibraryClasspaths getClasspaths() {
     return DefaultJavaLibraryClasspaths.builder(getActionGraphBuilder())
         .setBuildRuleParams(getInitialParams())
-        .setDeps(Preconditions.checkNotNull(getDeps()))
+        .setDeps(Objects.requireNonNull(getDeps()))
         .setCompileAgainstLibraryType(getCompileAgainstLibraryType())
         .build();
   }
@@ -519,12 +539,11 @@ public abstract class DefaultJavaLibraryRules {
   @Value.Lazy
   JavacOptions getJavacOptionsForSourceOnlyAbi() {
     JavacOptions javacOptions = getJavacOptions();
-    return javacOptions.withAnnotationProcessingParams(
-        abiProcessorsOnly(javacOptions.getAnnotationProcessingParams()));
+    return javacOptions.withJavaAnnotationProcessorParams(
+        abiProcessorsOnly(javacOptions.getJavaAnnotationProcessorParams()));
   }
 
-  private AnnotationProcessingParams abiProcessorsOnly(
-      AnnotationProcessingParams annotationProcessingParams) {
+  private JavacPluginParams abiProcessorsOnly(JavacPluginParams annotationProcessingParams) {
     return annotationProcessingParams.withAbiProcessorsOnly();
   }
 

@@ -16,13 +16,12 @@
 
 package org.openqa.selenium.buck.javascript;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
-import java.util.Optional;
 
 class JavascriptFragmentStep extends ShellStep {
 

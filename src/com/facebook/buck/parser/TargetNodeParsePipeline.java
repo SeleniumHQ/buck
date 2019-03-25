@@ -18,7 +18,9 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.impl.ImmutableUnconfiguredBuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
@@ -27,9 +29,11 @@ import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.event.SimplePerfEvent.Scope;
 import com.facebook.buck.parser.PipelineNodeCache.Cache;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableList;
+import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
@@ -41,13 +45,14 @@ import javax.annotation.concurrent.ThreadSafe;
  *
  * <p>The high-level flow looks like this: (in) BuildTarget -> [getRawNodes] -*> [createTargetNode]
  * -> (out) TargetNode (steps in [] have their output cached, -*> means that this step has parallel
- * fanout).
+ * fan-out).
  *
  * <p>The work is simply dumped onto the executor, the {@link ProjectBuildFileParserPool} is used to
  * constrain the number of concurrent active parsers. Within a single pipeline instance work is not
  * duplicated (the **JobsCache variables) are used to make sure we don't schedule the same work more
  * than once), however it's possible for multiple read-only commands to duplicate work.
  */
+// TODO: remove after migration to configurable attributes
 @ThreadSafe
 public class TargetNodeParsePipeline
     extends ConvertingPipeline<Map<String, Object>, TargetNode<?>> {
@@ -56,7 +61,8 @@ public class TargetNodeParsePipeline
 
   private final ParserTargetNodeFactory<Map<String, Object>> delegate;
   private final boolean speculativeDepsTraversal;
-  private final RawNodeParsePipeline rawNodeParsePipeline;
+  private final BuildFileRawNodeParsePipeline buildFileRawNodeParsePipeline;
+  private final BuildTargetRawNodeParsePipeline buildTargetRawNodeParsePipeline;
 
   /**
    * Create new pipeline for parsing Buck files.
@@ -73,7 +79,8 @@ public class TargetNodeParsePipeline
       ListeningExecutorService executorService,
       BuckEventBus eventBus,
       boolean speculativeDepsTraversal,
-      RawNodeParsePipeline rawNodeParsePipeline) {
+      BuildFileRawNodeParsePipeline buildFileRawNodeParsePipeline,
+      BuildTargetRawNodeParsePipeline buildTargetRawNodeParsePipeline) {
     super(
         executorService,
         cache,
@@ -83,14 +90,21 @@ public class TargetNodeParsePipeline
 
     this.delegate = targetNodeDelegate;
     this.speculativeDepsTraversal = speculativeDepsTraversal;
-    this.rawNodeParsePipeline = rawNodeParsePipeline;
+    this.buildFileRawNodeParsePipeline = buildFileRawNodeParsePipeline;
+    this.buildTargetRawNodeParsePipeline = buildTargetRawNodeParsePipeline;
   }
 
   @Override
   protected BuildTarget getBuildTarget(
-      Path root, Optional<String> cellName, Path buildFile, Map<String, Object> from) {
-    return ImmutableBuildTarget.of(
-        RawNodeParsePipeline.parseBuildTargetFromRawRule(root, cellName, from, buildFile));
+      Path root,
+      Optional<String> cellName,
+      Path buildFile,
+      TargetConfiguration targetConfiguration,
+      Map<String, Object> from) {
+    return ImmutableUnconfiguredBuildTarget.of(
+            UnflavoredBuildTargetFactory.createFromRawNode(root, cellName, from, buildFile))
+        // This pipeline doesn't support configured targets, explicitly erase this information
+        .configure(EmptyTargetConfiguration.INSTANCE);
   }
 
   @Override
@@ -131,14 +145,18 @@ public class TargetNodeParsePipeline
   }
 
   @Override
-  protected ListenableFuture<ImmutableSet<Map<String, Object>>> getItemsToConvert(
+  protected ListenableFuture<ImmutableList<Map<String, Object>>> getItemsToConvert(
       Cell cell, Path buildFile) throws BuildTargetException {
-    return rawNodeParsePipeline.getAllNodesJob(cell, buildFile);
+    return Futures.transform(
+        buildFileRawNodeParsePipeline.getAllNodesJob(cell, buildFile),
+        map -> ImmutableList.copyOf(map.getTargets().values()),
+        MoreExecutors.directExecutor());
   }
 
   @Override
   protected ListenableFuture<Map<String, Object>> getItemToConvert(
       Cell cell, BuildTarget buildTarget) throws BuildTargetException {
-    return rawNodeParsePipeline.getNodeJob(cell, buildTarget);
+    return buildTargetRawNodeParsePipeline.getNodeJob(
+        cell, buildTarget.getUnconfiguredBuildTarget());
   }
 }

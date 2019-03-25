@@ -140,7 +140,13 @@ public abstract class AbstractWorkspace {
     writeContentsToPath(convertToBuckConfig(localConfigs), ".buckconfig.local");
   }
 
-  protected static String convertToBuckConfig(Map<String, Map<String, String>> configs) {
+  /**
+   * Converts a map object into a format understood as a buckconfig (aka ini)
+   *
+   * @param configs The map of section => key => value.
+   * @return The ini string suitable to be written as a .buckconfig (or .buckconfig.local)
+   */
+  public static String convertToBuckConfig(Map<String, Map<String, String>> configs) {
     StringBuilder contents = new StringBuilder();
     for (Map.Entry<String, Map<String, String>> section : configs.entrySet()) {
       contents.append("[").append(section.getKey()).append("]\n\n");
@@ -214,7 +220,7 @@ public abstract class AbstractWorkspace {
     }
   }
 
-  private void ensureNoLocalBuckConfig(Path templatePath) throws IOException {
+  private void ensureNoLocalBuckConfig(Path templatePath) {
     if (Files.exists(templatePath.resolve(".buckconfig.local"))) {
       throw new IllegalStateException(
           "Found a .buckconfig.local in the Workspace template, which is illegal."
@@ -556,6 +562,16 @@ public abstract class AbstractWorkspace {
    */
   public void copyRecursively(Path source, Path pathRelativeToWorkspaceRoot) throws IOException {
     MostFiles.copyRecursively(source, destPath.resolve(pathRelativeToWorkspaceRoot));
+  }
+
+  /**
+   * Deletes the directory (relative to workspace root)
+   *
+   * @param source source path of file relative to workspace root
+   * @throws IOException
+   */
+  public void deleteRecursivelyIfExists(String path) throws IOException {
+    MostFiles.deleteRecursivelyIfExists(getPath(path));
   }
 
   /**

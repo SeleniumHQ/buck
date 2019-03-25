@@ -1,3 +1,17 @@
+# Copyright 2018-present Facebook, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
 """Module containing java macros."""
 
 load("@bazel_skylib//lib:collections.bzl", "collections")
@@ -66,11 +80,6 @@ def java_test(
     else:
         env = {}
 
-    if "//src/com/facebook/buck/step/external:external" in deps:
-        env["EXTERNAL_STEP_RUNNER_JAR_FOR_BUCK_TEST"] = (
-            "$(location //src/com/facebook/buck/step/external:executor)"
-        )
-
     native.java_test(
         name = name,
         deps = deps + [
@@ -81,10 +90,6 @@ def java_test(
             "//src/com/facebook/buck/cli/bootstrapper:bootstrapper_lib",
         ] + convert_module_deps_to_test(module_deps),
         vm_args = [
-            # Add -XX:-UseSplitVerifier by default to work around:
-            # http://arihantwin.blogspot.com/2012/08/getting-error-illegal-local-variable.html
-            "-XX:-UseSplitVerifier",
-
             # Don't use the system-installed JNA; extract it from the local jar.
             "-Djna.nosys=true",
 

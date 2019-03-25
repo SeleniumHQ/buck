@@ -27,6 +27,7 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.UnflavoredBuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
@@ -36,6 +37,7 @@ import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
+import com.facebook.buck.core.sourcepath.DefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
@@ -45,6 +47,7 @@ import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonPlatformsProvider;
 import com.facebook.buck.file.WriteFile;
@@ -57,6 +60,7 @@ import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MkdirStep;
 import com.facebook.buck.step.fs.WriteFileStep;
+import com.facebook.buck.test.config.TestBuckConfig;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Pair;
@@ -64,7 +68,6 @@ import com.facebook.buck.versions.HasVersionUniverse;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionRoot;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -72,9 +75,11 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Ordering;
 import com.google.common.io.Resources;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.SortedSet;
 import java.util.function.Function;
@@ -160,17 +165,19 @@ public class PythonTestDescription
         newBuildTarget, projectFilesystem, contents, outputPath, /* executable */ false);
   }
 
-  private CxxPlatform getCxxPlatform(BuildTarget target, AbstractPythonTestDescriptionArg args) {
+  private UnresolvedCxxPlatform getCxxPlatform(
+      BuildTarget target, AbstractPythonTestDescriptionArg args) {
     CxxPlatformsProvider cxxPlatformsProvider =
         toolchainProvider.getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
-    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
+    FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms =
+        cxxPlatformsProvider.getUnresolvedCxxPlatforms();
 
     return cxxPlatforms
         .getValue(target)
         .orElse(
             args.getCxxPlatform()
                 .map(cxxPlatforms::getValue)
-                .orElse(cxxPlatformsProvider.getDefaultCxxPlatform()));
+                .orElse(cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform()));
   }
 
   private static class PythonTestMainRule extends AbstractBuildRule {
@@ -215,7 +222,7 @@ public class PythonTestDescription
         graphBuilder.computeIfAbsent(
             baseTarget.withFlavors(InternalFlavor.of("python-test-main")),
             target -> new PythonTestMainRule(target, filesystem));
-    return Preconditions.checkNotNull(testMainRule.getSourcePathToOutput());
+    return Objects.requireNonNull(testMainRule.getSourcePathToOutput());
   }
 
   @Override
@@ -239,7 +246,7 @@ public class PythonTestDescription
                     args.getPlatform()
                         .<Flavor>map(InternalFlavor::of)
                         .orElse(pythonPlatforms.getFlavors().iterator().next())));
-    CxxPlatform cxxPlatform = getCxxPlatform(buildTarget, args);
+    CxxPlatform cxxPlatform = getCxxPlatform(buildTarget, args).resolve(graphBuilder);
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     SourcePathResolver pathResolver = DefaultSourcePathResolver.from(ruleFinder);
     Path baseModule = PythonUtil.getBasePath(buildTarget, args.getBaseModule());
@@ -323,6 +330,7 @@ public class PythonTestDescription
             .concat(args.getNeededCoverage().stream().map(NeededCoverageSpec::getBuildTarget))
             .map(graphBuilder::getRule)
             .collect(ImmutableList.toImmutableList());
+
     CellPathResolver cellRoots = context.getCellPathResolver();
     StringWithMacrosConverter macrosConverter =
         StringWithMacrosConverter.builder()
@@ -411,6 +419,21 @@ public class PythonTestDescription
             ImmutableMap.copyOf(
                 Maps.transformValues(args.getEnv(), x -> macrosConverter.convert(x, graphBuilder)));
 
+    // Additional CXX Targets used to generate CXX coverage.
+    ImmutableSet<UnflavoredBuildTarget> additionalCoverageTargets =
+        RichStream.from(args.getAdditionalCoverageTargets())
+            .map(target -> target.getUnflavoredBuildTarget())
+            .collect(ImmutableSet.toImmutableSet());
+    ImmutableSortedSet<SourcePath> additionalCoverageSourcePaths =
+        additionalCoverageTargets.isEmpty()
+            ? ImmutableSortedSet.of()
+            : binary
+                .getRuntimeDeps(ruleFinder)
+                .filter(
+                    target -> additionalCoverageTargets.contains(target.getUnflavoredBuildTarget()))
+                .map(target -> DefaultBuildTargetSourcePath.of(target))
+                .collect(ImmutableSortedSet.toImmutableSortedSet(Ordering.natural()));
+
     // Generate and return the python test rule, which depends on the python binary rule above.
     return PythonTest.from(
         buildTarget,
@@ -421,9 +444,14 @@ public class PythonTestDescription
         binary,
         args.getLabels(),
         neededCoverageBuilder.build(),
+        additionalCoverageSourcePaths,
         args.getTestRuleTimeoutMs()
             .map(Optional::of)
-            .orElse(cxxBuckConfig.getDelegate().getDefaultTestRuleTimeoutMs()),
+            .orElse(
+                cxxBuckConfig
+                    .getDelegate()
+                    .getView(TestBuckConfig.class)
+                    .getDefaultTestRuleTimeoutMs()),
         args.getContacts());
   }
 
@@ -436,7 +464,7 @@ public class PythonTestDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // We need to use the C/C++ linker for native libs handling, so add in the C/C++ linker to
     // parse time deps.
-    extraDepsBuilder.addAll(getCxxPlatform(buildTarget, constructorArg).getLd().getParseTimeDeps());
+    extraDepsBuilder.addAll(getCxxPlatform(buildTarget, constructorArg).getLinkerParseTimeDeps());
 
     if (constructorArg.getPackageStyle().orElse(pythonBuckConfig.getPackageStyle())
         == PythonBuckConfig.PackageStyle.STANDALONE) {
@@ -473,5 +501,12 @@ public class PythonTestDescription
     ImmutableList<String> getBuildArgs();
 
     ImmutableMap<String, StringWithMacros> getEnv();
+
+    // Addidtional CxxLibrary Targets for coverage check
+    // When we use python to drive cxx modules (loaded as foo.so), we would like
+    // to collect code coverage of foo.so as well. In this case, we to path
+    // targets that builds foo.so so that buck can resolve its binary path and
+    // export the downstream testing framework to consume
+    ImmutableSet<BuildTarget> getAdditionalCoverageTargets();
   }
 }

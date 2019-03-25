@@ -1,10 +1,25 @@
+/*
+ * Copyright 2018-present Facebook, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may
+ * not use this file except in compliance with the License. You may obtain
+ * a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
+ */
 {namespace buckquery}
 
 /**
  * @param section The section the entry is in.
  */
 {template .section_link}
-<a href="{ROOT}command/query.html#{$section}"><code>buck query {$section}</code></a>
+<a href="{ROOT}command/query.html#{$section}"><code>buck query {$section}()</code></a>
 {/template}
 
 /***/
@@ -13,3 +28,54 @@
   {param section: 'attrfilter' /}
 {/call}
 {/template}
+
+/***/
+{template .set}
+{call .section_link}
+  {param section: 'set' /}
+{/call}
+{/template}
+
+/***/
+{template .example_multiple_targets}
+
+<p>
+The following command line returns the target <code>main</code> in the build file in
+the root of the Buck project and all the targets from the build file in
+the <code>myclass</code> subdirectory of the root.
+</p>
+
+<p>
+<pre>
+{literal}
+buck query "set( '//:main' '//myclass:' )"
+{/literal}
+</pre>
+</p>
+
+
+{/template}
+
+/***/
+{template .example_buildfile_owner}
+<p>
+In order to find the build file associated with a source file, combine the <code>owner</code>
+{sp}operator with <code>buildfile</code>.
+For example, 
+</p>
+
+<p>
+<pre>
+{literal}
+buck query "buildfile(owner('foo/bar/main.cpp'))" 
+{/literal}
+</pre>
+</p>
+
+<p>
+first finds the targets that <em>own</em> <code>foo/bar/main.cpp</code> and 
+then returns the build files, such as <code>foo/bar/BUCK</code>, that define 
+those targets. 
+</p>
+{/template}
+

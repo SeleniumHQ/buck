@@ -18,6 +18,7 @@ package com.facebook.buck.cxx;
 
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
@@ -25,15 +26,16 @@ import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
+import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -131,6 +133,19 @@ public class CxxPrepareForLinkStepTest {
     Files.deleteIfExists(fileListPath.getParent());
   }
 
+  @Test
+  public void cxxLinkStepEscapesOptionsForArgFile() throws IOException, InterruptedException {
+    ProjectFilesystem projectFilesystem = FakeProjectFilesystem.createRealTempFilesystem();
+    Path argFilePath =
+        projectFilesystem.getRootPath().resolve("cxxLinkStepEscapesOptionsForArgFile.txt");
+    Path fileListPath =
+        projectFilesystem.getRootPath().resolve("cxxLinkStepEscapesOptionsForFileList.txt");
+    Path output = projectFilesystem.getRootPath().resolve("output");
+
+    runTestForArgFilePathAndOutputPathWithoutFileList(
+        argFilePath, fileListPath, output, projectFilesystem.getRootPath());
+  }
+
   private void runTestForArgFilePathAndOutputPath(
       Path argFilePath, Path fileListPath, Path output, Path currentCellPath)
       throws IOException, InterruptedException {
@@ -148,8 +163,6 @@ public class CxxPrepareForLinkStepTest {
             StringArg.of("a.o"),
             FileListableLinkerInputArg.withSourcePathArg(
                 SourcePathArg.of(FakeSourcePath.of("libb.a"))),
-            StringArg.of("-lsysroot"),
-            StringArg.of("/Library/Application Support/blabla"),
             StringArg.of("-F/System/Frameworks"),
             StringArg.of("-L/System/libraries"),
             StringArg.of("-lz"));
@@ -171,15 +184,14 @@ public class CxxPrepareForLinkStepTest {
     }
 
     assertThat(Files.exists(argFilePath), Matchers.equalTo(true));
+    assertThat(Files.exists(fileListPath), Matchers.equalTo(true));
 
     ImmutableList<String> expectedArgFileContents =
         ImmutableList.<String>builder()
-            .add("-o", output.toString())
+            .add("-o", MorePaths.pathWithUnixSeparators(output))
             .add("-rpath")
             .add("hello")
             .add("a.o")
-            .add("-lsysroot")
-            .add("\"/Library/Application Support/blabla\"")
             .add("-F/System/Frameworks")
             .add("-L/System/libraries")
             .add("-lz")
@@ -188,13 +200,81 @@ public class CxxPrepareForLinkStepTest {
             .build();
 
     ImmutableList<String> expectedFileListContents =
-        ImmutableList.of(Paths.get("libb.a").toAbsolutePath().toString());
+        ImmutableList.of(MorePaths.pathWithUnixSeparators(Paths.get("libb.a").toAbsolutePath()));
 
     checkContentsOfFile(argFilePath, expectedArgFileContents);
     checkContentsOfFile(fileListPath, expectedFileListContents);
 
     Files.deleteIfExists(argFilePath);
     Files.deleteIfExists(fileListPath);
+  }
+
+  private void runTestForArgFilePathAndOutputPathWithoutFileList(
+      Path argFilePath, Path fileListPath, Path output, Path currentCellPath)
+      throws IOException, InterruptedException {
+    ExecutionContext context = TestExecutionContext.newInstance();
+
+    BuildRuleResolver buildRuleResolver = new TestActionGraphBuilder();
+    SourcePathResolver pathResolver =
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(buildRuleResolver));
+
+    // Setup some dummy values for inputs to the CxxLinkStep
+    ImmutableList<Arg> args =
+        ImmutableList.of(
+            StringArg.of("-rpath"),
+            StringArg.of("\"hello\""),
+            StringArg.of("'a.o'"),
+            StringArg.of("-fuse-ld=gold"),
+            StringArg.of("-lsysroot"),
+            StringArg.of("/Library/Application Support/blabla"),
+            FileListableLinkerInputArg.withSourcePathArg(
+                SourcePathArg.of(FakeSourcePath.of("libb.a"))),
+            FileListableLinkerInputArg.withSourcePathArg(
+                SourcePathArg.of(
+                    FakeSourcePath.of("buck-out/gen/mylib#default,static/libmylib.lib"))));
+
+    // Create our CxxLinkStep to test.
+    ImmutableList<Step> steps =
+        CxxPrepareForLinkStep.create(
+            argFilePath,
+            fileListPath,
+            ImmutableList.of(),
+            output,
+            args,
+            CxxPlatformUtils.DEFAULT_PLATFORM.getLd().resolve(buildRuleResolver),
+            currentCellPath,
+            pathResolver);
+
+    for (Step step : steps) {
+      step.execute(context);
+    }
+
+    assertThat(Files.exists(argFilePath), Matchers.equalTo(true));
+    assertThat(Files.exists(fileListPath), Matchers.equalTo(false));
+
+    boolean isWindows = Platform.detect() == Platform.WINDOWS;
+
+    ImmutableList<String> expectedArgFileContents =
+        ImmutableList.<String>builder()
+            .add("-o", MorePaths.pathWithUnixSeparators(output))
+            .add("-rpath")
+            .add(isWindows ? "\"\\\"hello\\\"\"" : "'\"hello\"'")
+            .add(isWindows ? "'a.o'" : "''\\''a.o'\\'''")
+            .add(isWindows ? "-fuse-ld=gold" : "'-fuse-ld=gold'")
+            .add("-lsysroot")
+            .add(
+                isWindows
+                    ? "\"/Library/Application Support/blabla\""
+                    : "'/Library/Application Support/blabla'")
+            .add(MorePaths.pathWithUnixSeparators(FakeSourcePath.of("libb.a").toString()))
+            .add(
+                MorePaths.pathWithUnixSeparators(
+                    FakeSourcePath.of("buck-out/gen/mylib#default,static/libmylib.lib").toString()))
+            .build();
+
+    checkContentsOfFile(argFilePath, expectedArgFileContents);
+
+    Files.deleteIfExists(argFilePath);
   }
 
   private void checkContentsOfFile(Path file, ImmutableList<String> contents) throws IOException {

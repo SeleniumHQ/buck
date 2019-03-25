@@ -31,8 +31,8 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.google.common.collect.ImmutableMap;
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
@@ -49,13 +49,13 @@ abstract class GoAssumptions {
   private static final Pattern VERSION_PATTERN =
       Pattern.compile("^go version go(\\d+)\\.(\\d+).*$");
 
-  public static void assumeGoCompilerAvailable() throws IOException {
+  public static void assumeGoCompilerAvailable() {
     Throwable exception = null;
     try {
       ProcessExecutor executor = new DefaultProcessExecutor(new TestConsole());
 
       FakeBuckConfig.Builder baseConfig = FakeBuckConfig.builder();
-      String goRoot = System.getenv("GOROOT");
+      String goRoot = EnvVariablesProvider.getSystemEnv().get("GOROOT");
       if (goRoot != null) {
         baseConfig.setSections("[go]", "  root = " + goRoot);
         // This should really act like some kind of readonly bind-mount onto the real filesystem.
@@ -70,7 +70,8 @@ abstract class GoAssumptions {
                   .withToolchain(
                       CxxPlatformsProvider.DEFAULT_NAME,
                       CxxPlatformsProvider.of(
-                          CxxPlatformUtils.DEFAULT_PLATFORM, CxxPlatformUtils.DEFAULT_PLATFORMS))
+                          CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM,
+                          CxxPlatformUtils.DEFAULT_PLATFORMS))
                   .build(),
               ToolchainCreationContext.of(
                   ImmutableMap.of(),

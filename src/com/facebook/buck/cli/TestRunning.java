@@ -16,8 +16,13 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.android.AndroidBinary;
+import com.facebook.buck.android.AndroidInstrumentationApk;
+import com.facebook.buck.android.AndroidInstrumentationTest;
+import com.facebook.buck.android.HasInstallableApk;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.engine.BuildEngine;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.BuildRule;
@@ -47,7 +52,6 @@ import com.facebook.buck.jvm.java.JavaLibraryWithTests;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.JavaTest;
 import com.facebook.buck.jvm.java.JavacOptions;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.step.StepRunner;
@@ -89,6 +93,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -261,7 +266,7 @@ public class TestRunning {
               UUID testUUID =
                   testUUIDMap.get(
                       testResultSummary.getTestCaseName() + ":" + testResultSummary.getTestName());
-              Preconditions.checkNotNull(testUUID);
+              Objects.requireNonNull(testUUID);
               params.getBuckEventBus().post(TestSummaryEvent.finished(testUUID, testResultSummary));
             }
 
@@ -503,7 +508,7 @@ public class TestRunning {
 
           @Override
           public void onFailure(Throwable throwable) {
-            LOG.warn(throwable, "Test command step failed, marking %s as failed", testRule);
+            LOG.info(throwable, "Test command step failed, marking %s as failed", testRule);
             // If the test command steps themselves fail, report this as special test result.
             TestResults testResults =
                 TestResults.of(
@@ -573,6 +578,33 @@ public class TestRunning {
             ImmutableSortedSet<BuildTarget> depTests = ((JavaLibraryWithTests) dep).getTests();
             if (depTests.contains(test.getBuildTarget())) {
               rulesUnderTest.add(dep);
+            }
+          }
+        }
+      }
+      if (test instanceof AndroidInstrumentationTest) {
+        // Look at the transitive dependencies for `tests` attribute that refers to this test.
+        AndroidInstrumentationTest androidInstrumentationTest = (AndroidInstrumentationTest) test;
+
+        HasInstallableApk apk = androidInstrumentationTest.getApk();
+        if (apk instanceof AndroidBinary) {
+          AndroidBinary androidBinary = (AndroidBinary) apk;
+          Iterable<JavaLibrary> transitiveDeps = androidBinary.getTransitiveClasspathDeps();
+
+          if (androidBinary instanceof AndroidInstrumentationApk) {
+            transitiveDeps =
+                Iterables.concat(
+                    transitiveDeps,
+                    ((AndroidInstrumentationApk) androidBinary)
+                        .getApkUnderTest()
+                        .getTransitiveClasspathDeps());
+          }
+          for (JavaLibrary dep : transitiveDeps) {
+            if (dep instanceof JavaLibraryWithTests) {
+              ImmutableSortedSet<BuildTarget> depTests = ((JavaLibraryWithTests) dep).getTests();
+              if (depTests.contains(test.getBuildTarget())) {
+                rulesUnderTest.add(dep);
+              }
             }
           }
         }

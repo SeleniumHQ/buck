@@ -20,12 +20,12 @@ import static org.easymock.EasyMock.createStrictMock;
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
@@ -50,14 +50,11 @@ import com.facebook.buck.rules.modern.ModernBuildRule;
 import com.facebook.buck.rules.modern.OutputPath;
 import com.facebook.buck.rules.modern.OutputPathResolver;
 import com.facebook.buck.step.Step;
-import com.facebook.buck.testutil.MoreAsserts;
 import com.facebook.buck.util.ErrorLogger;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
 import org.hamcrest.Matchers;
@@ -77,7 +74,7 @@ public class DefaultClassInfoTest {
 
   private RuleKeyObjectSink ruleKeyObjectSink = createStrictMock(RuleKeyObjectSink.class);
 
-  private ProjectFilesystem filesystem = new FakeProjectFilesystem();
+  private ProjectFilesystem filesystem = new FakeProjectFilesystem(Paths.get("/project/root"));
 
   static class NoOpBuildable implements Buildable {
     @Override
@@ -116,9 +113,9 @@ public class DefaultClassInfoTest {
 
   @Test
   public void testDerivedClass() {
-    BuildTarget target1 = ImmutableBuildTarget.of(Paths.get("some1"), "//some1", "name");
-    BuildTarget target2 = ImmutableBuildTarget.of(Paths.get("some2"), "//some2", "name");
-    BuildTarget target3 = ImmutableBuildTarget.of(Paths.get("some3"), "//some3", "name");
+    BuildTarget target1 = BuildTargetFactory.newInstance(Paths.get("some1"), "//some1", "name");
+    BuildTarget target2 = BuildTargetFactory.newInstance(Paths.get("some2"), "//some2", "name");
+    BuildTarget target3 = BuildTargetFactory.newInstance(Paths.get("some3"), "//some3", "name");
 
     BuildRule rule1 = new FakeBuildRule(target1, ImmutableSortedSet.of());
     BuildRule rule2 = new FakeBuildRule(target2, ImmutableSortedSet.of());
@@ -343,10 +340,10 @@ public class DefaultClassInfoTest {
   public void testExcludedLazyImmutable() {
     SourcePath path = FakeSourcePath.of("some.path");
     ExcludedLazyImmutable excludedLazy = ExcludedLazyImmutable.builder().setPath(path).build();
-    List<SourcePath> inputs = new ArrayList<>();
     ClassInfo<ExcludedLazyImmutable> classInfo = DefaultClassInfoFactory.forInstance(excludedLazy);
-    classInfo.visit(excludedLazy, new InputsVisitor(inputs::add));
-    MoreAsserts.assertListEquals(ImmutableList.of(), inputs);
+    StringifyingValueVisitor visitor = new StringifyingValueVisitor();
+    classInfo.visit(excludedLazy, visitor);
+    assertEquals("path:\n" + "lazyPath:", visitor.getValue());
   }
 
   @Value.Immutable
@@ -362,12 +359,12 @@ public class DefaultClassInfoTest {
 
   @Test
   public void testDerivedImmutable() {
-    SourcePath path = FakeSourcePath.of("some.path");
+    SourcePath path = FakeSourcePath.of(filesystem, "some.path");
     DerivedImmutable derived = DerivedImmutable.builder().setPath(path).build();
-    List<SourcePath> inputs = new ArrayList<>();
     ClassInfo<DerivedImmutable> classInfo = DefaultClassInfoFactory.forInstance(derived);
-    classInfo.visit(derived, new InputsVisitor(inputs::add));
-    MoreAsserts.assertListEquals(ImmutableList.of(path), inputs);
+    StringifyingValueVisitor visitor = new StringifyingValueVisitor();
+    classInfo.visit(derived, visitor);
+    assertEquals("path:\n" + "lazyPath:SourcePath(/project/root/some.path)", visitor.getValue());
   }
 
   @Value.Immutable

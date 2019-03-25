@@ -16,9 +16,9 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ConsoleEvent;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.Escaper;
@@ -39,6 +39,7 @@ import java.lang.management.OperatingSystemMXBean;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -48,7 +49,7 @@ public abstract class ShellStep implements Step {
   private static final Logger LOG = Logger.get(ShellStep.class);
   private static final OperatingSystemMXBean OS_JMX = ManagementFactory.getOperatingSystemMXBean();
 
-  /** Defined lazily by {@link #getShellCommand(com.facebook.buck.step.ExecutionContext)}. */
+  /** Defined lazily by {@link #getShellCommand(ExecutionContext)}. */
   @Nullable private ImmutableList<String> shellCommandArgs;
 
   /**
@@ -73,7 +74,7 @@ public abstract class ShellStep implements Step {
   private long endTime = 0L;
 
   protected ShellStep(Path workingDirectory) {
-    this.workingDirectory = Preconditions.checkNotNull(workingDirectory);
+    this.workingDirectory = Objects.requireNonNull(workingDirectory);
     this.stdout = Optional.empty();
     this.stderr = Optional.empty();
 
@@ -86,7 +87,7 @@ public abstract class ShellStep implements Step {
   public StepExecutionResult execute(ExecutionContext context)
       throws InterruptedException, IOException {
     ImmutableList<String> command = getShellCommand(context);
-    if (command.size() == 0) {
+    if (command.isEmpty()) {
       return StepExecutionResult.of(0);
     }
 

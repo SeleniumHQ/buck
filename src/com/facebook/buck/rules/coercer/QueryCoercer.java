@@ -18,8 +18,9 @@ package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
@@ -34,20 +35,27 @@ import java.util.stream.Stream;
 /** Coercer for {@link Query}s. */
 public class QueryCoercer implements TypeCoercer<Query> {
 
-  private static final TypeCoercerFactory TYPE_COERCER_FACTORY = new DefaultTypeCoercerFactory();
+  private final TypeCoercerFactory typeCoercerFactory;
+  private final UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory;
+
+  public QueryCoercer(
+      TypeCoercerFactory typeCoercerFactory,
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory) {
+    this.typeCoercerFactory = typeCoercerFactory;
+    this.unconfiguredBuildTargetFactory = unconfiguredBuildTargetFactory;
+  }
 
   private Stream<BuildTarget> extractBuildTargets(CellPathResolver cellPathResolver, Query query) {
     GraphEnhancementQueryEnvironment env =
         new GraphEnhancementQueryEnvironment(
             Optional.empty(),
             Optional.empty(),
-            TYPE_COERCER_FACTORY,
+            typeCoercerFactory,
             cellPathResolver,
-            query
-                .getBaseName()
-                .map(BuildTargetPatternParser::forBaseName)
-                .orElseGet(BuildTargetPatternParser::fullyQualified),
-            ImmutableSet.of());
+            unconfiguredBuildTargetFactory,
+            query.getBaseName().orElse(""),
+            ImmutableSet.of(),
+            query.getTargetConfiguration());
     QueryExpression parsedExp;
     try {
       parsedExp = QueryExpression.parse(query.getQuery(), env);
@@ -89,10 +97,11 @@ public class QueryCoercer implements TypeCoercer<Query> {
       CellPathResolver cellRoots,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
+      TargetConfiguration targetConfiguration,
       Object object)
       throws CoerceFailedException {
     if (object instanceof String) {
-      return Query.of((String) object, "//" + pathRelativeToProjectRoot);
+      return Query.of((String) object, targetConfiguration, "//" + pathRelativeToProjectRoot);
     }
     throw CoerceFailedException.simple(object, getOutputClass());
   }

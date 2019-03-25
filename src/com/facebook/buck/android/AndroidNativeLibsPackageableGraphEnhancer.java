@@ -23,7 +23,6 @@ import com.facebook.buck.android.relinker.NativeRelinker;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformsProvider;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
-import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntimeType;
 import com.facebook.buck.android.toolchain.ndk.TargetCpuType;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
@@ -35,7 +34,6 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
-import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
@@ -60,6 +58,7 @@ import com.google.common.collect.Sets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -190,7 +189,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
           toolchainProvider.getByName(
               NdkCxxPlatformsProvider.DEFAULT_NAME, NdkCxxPlatformsProvider.class);
 
-      nativePlatforms = ndkCxxPlatformsProvider.getNdkCxxPlatforms();
+      nativePlatforms = ndkCxxPlatformsProvider.getResolvedNdkCxxPlatforms(graphBuilder);
 
       if (nativePlatforms.isEmpty()) {
         throw new HumanReadableException(
@@ -362,12 +361,11 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
         .distinct()
         .forEach(
             targetCpuType -> {
-              NdkCxxPlatform platform =
-                  Preconditions.checkNotNull(nativePlatforms.get(targetCpuType));
+              NdkCxxPlatform platform = Objects.requireNonNull(nativePlatforms.get(targetCpuType));
               NdkCxxRuntime cxxRuntime = platform.getCxxRuntime();
-              if (cxxRuntime.equals(NdkCxxRuntime.SYSTEM)
-                  || (platform.getCxxRuntimeType() == NdkCxxRuntimeType.STATIC)) {
-                // The system / statically compiled runtime doesn't need to be packaged with apks.
+              Optional<SourcePath> cxxSharedRuntimePath = platform.getCxxSharedRuntimePath();
+              if (!cxxSharedRuntimePath.isPresent()) {
+                // Not all ndk cxx platforms require a packages c++ runtime.
                 return;
               }
               AndroidLinkableMetadata runtimeLinkableMetadata =
@@ -376,9 +374,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
                       .setSoName(cxxRuntime.getSoname())
                       .setApkModule(apkModuleGraph.getRootAPKModule())
                       .build();
-              nativeLinkableLibsBuilder.put(
-                  runtimeLinkableMetadata,
-                  PathSourcePath.of(projectFilesystem, platform.getCxxSharedRuntimePath().get()));
+              nativeLinkableLibsBuilder.put(runtimeLinkableMetadata, cxxSharedRuntimePath.get());
             });
   }
 
@@ -402,8 +398,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
   }
 
   private static Iterable<TargetCpuType> getFilteredPlatforms(
-      ImmutableMap<TargetCpuType, NdkCxxPlatform> nativePlatforms,
-      ImmutableSet<TargetCpuType> cpuFilters) {
+      ImmutableMap<TargetCpuType, ?> nativePlatforms, ImmutableSet<TargetCpuType> cpuFilters) {
     // TODO(agallagher): We currently treat an empty set of filters to mean to allow everything.
     // We should fix this by assigning a default list of CPU filters in the descriptions, but
     // until we do, if the set of filters is empty, just build for all available platforms.
@@ -425,23 +420,26 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
       TargetCpuType targetCpuType = entry.getKey().getTargetCpuType();
       APKModule apkModule = entry.getKey().getApkModule();
 
-      NdkCxxPlatform platform = Preconditions.checkNotNull(nativePlatforms.get(targetCpuType));
+      NdkCxxPlatform platform = Objects.requireNonNull(nativePlatforms.get(targetCpuType));
 
       // To be safe, default to using the app rule target as the base for the strip rule.
       // This will be used for stripping the C++ runtime.  We could use something more easily
       // shareable (like just using the app's containing directory, or even the repo root),
       // but stripping the C++ runtime is pretty fast, so just keep the safe old behavior for now.
       BuildTarget baseBuildTarget = originalBuildTarget;
+      ProjectFilesystem filesystem = this.projectFilesystem;
       // But if we're stripping a cxx_library, use that library as the base of the target
       // to allow sharing the rule between all apps that depend on it.
       if (sourcePath instanceof BuildTargetSourcePath) {
-        baseBuildTarget = ((BuildTargetSourcePath) sourcePath).getTarget();
+        BuildTargetSourcePath targetSourcePath = (BuildTargetSourcePath) sourcePath;
+        baseBuildTarget = targetSourcePath.getTarget();
+        filesystem = ruleFinder.getRule(targetSourcePath).getProjectFilesystem();
       }
 
       String sharedLibrarySoName = entry.getKey().getSoName();
       StripLinkable stripLinkable =
           requireStripLinkable(
-              projectFilesystem,
+              filesystem,
               ruleFinder,
               graphBuilder,
               sourcePath,
@@ -485,7 +483,7 @@ public class AndroidNativeLibsPackageableGraphEnhancer {
                 new StripLinkable(
                     targetForStripRule,
                     projectFilesystem,
-                    ImmutableSortedSet.copyOf(ruleFinder.filterBuildRuleInputs(sourcePath)),
+                    ruleFinder,
                     platform.getCxxPlatform().getStrip(),
                     sourcePath,
                     sharedLibrarySoName));

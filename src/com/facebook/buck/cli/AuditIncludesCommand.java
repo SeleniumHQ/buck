@@ -24,13 +24,13 @@ import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.core.JsonGenerator;
-import com.google.common.base.Preconditions;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
 
@@ -55,8 +55,7 @@ public class AuditIncludesCommand extends AbstractCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
     ProjectFilesystem projectFilesystem = params.getCell().getFilesystem();
     try (ProjectBuildFileParser parser =
         new DefaultProjectBuildFileParserFactory(
@@ -64,7 +63,9 @@ public class AuditIncludesCommand extends AbstractCommand {
                 params.getConsole(),
                 new ParserPythonInterpreterProvider(
                     params.getCell().getBuckConfig(), params.getExecutableFinder()),
-                params.getKnownRuleTypesProvider())
+                params.getKnownRuleTypesProvider(),
+                params.getManifestServiceSupplier(),
+                params.getFileHashCache())
             .createBuildFileParser(
                 params.getBuckEventBus(), params.getCell(), params.getWatchman())) {
       PrintStream out = params.getConsole().getStdOut();
@@ -83,7 +84,7 @@ public class AuditIncludesCommand extends AbstractCommand {
 
         Iterable<String> includes = parser.getIncludedFiles(path);
         printIncludesToStdout(
-            params, Preconditions.checkNotNull(includes, "__includes metadata entry is missing"));
+            params, Objects.requireNonNull(includes, "__includes metadata entry is missing"));
       }
     }
 

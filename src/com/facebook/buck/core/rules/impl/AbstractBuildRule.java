@@ -18,14 +18,10 @@ package com.facebook.buck.core.rules.impl;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
+import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
-import com.facebook.buck.core.rules.provider.BuildRuleInfoProvider;
-import com.facebook.buck.core.rules.provider.BuildRuleInfoProvider.ProviderKey;
-import com.facebook.buck.core.rules.provider.BuildRuleInfoProviderCollection;
-import com.facebook.buck.core.rules.provider.MissingProviderException;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.util.MoreSuppliers;
 import com.google.common.base.CaseFormat;
@@ -104,10 +100,11 @@ public abstract class AbstractBuildRule implements BuildRule {
   }
 
   @Override
+  public void appendToRuleKey(RuleKeyObjectSink sink) {}
+
+  @Override
   public void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver) {}
+      BuildRuleResolver ruleResolver, SourcePathRuleFinder ruleFinder) {}
 
   @Override
   public final String toString() {
@@ -131,21 +128,5 @@ public abstract class AbstractBuildRule implements BuildRule {
 
   private final int computeHashCode() {
     return this.buildTarget.hashCode();
-  }
-
-  @Override
-  public final boolean hasProviders() {
-    return false;
-  }
-
-  @Override
-  public <T extends BuildRuleInfoProvider> T getProvider(ProviderKey providerKey)
-      throws MissingProviderException {
-    throw new UnsupportedOperationException("Not yet implemented");
-  }
-
-  @Override
-  public BuildRuleInfoProviderCollection getProviderCollection() {
-    throw new UnsupportedOperationException("Not yet implemented");
   }
 }

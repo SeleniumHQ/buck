@@ -1,3 +1,18 @@
+/*
+ * Copyright 2018-present Facebook, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may
+ * not use this file except in compliance with the License. You may obtain
+ * a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
+ */
 {namespace buck.query}
 
 /**
@@ -353,34 +368,41 @@ expr ::= set(expr *)
 </p>
 
 <p>
-The <code>set(<em>a</em> <em>b</em> <em>c</em> ...)</code> operator computes the union of a set of zero
-or more targets, separated by white space (no commas).
-Quote the targets to ensure that they are parsed correctly.
+The <code>set(<em>a</em> <em>b</em> <em>c</em> ...)</code> operator
+computes the union of a set of zero or more targets. Separate the
+targets with white space (not commas).  Quote the targets to ensure that
+they are parsed correctly.
+</p>
+
+<p>
+If you want to invoke <code>buck query</code> on a list of targets, 
+then <code>set()</code> is a way to group this list in the query. 
 </p>
 
 <p>
 <b>Example:</b>
 </p>
 
+{call buckquery.example_multiple_targets /}
+
 <p>
-The following expression returns the merged set (union) of dependencies for 
-the targets: <code>:main</code> and <code>:myclass</code>.
+<b>Example:</b>
+</p>
+
+<p>
+The following command line returns the merged set (union) of
+dependencies for the targets: <code>main</code> and <code>subs</code> in
+the build file in the root of the Buck project.
 </p>
 
 <p>
 <pre>
 {literal}
-buck query "deps( set( ':main' ':myclass' ) )"
+buck query "deps( set( '//:main' '//:subs' ) )"
 {/literal}
 </pre>
 </p>
 
-
-<p>
-If you invoke <code>buck query</code> programmatically, such as 
-to run a query on a list of targets, then <code>set()</code> is 
-a way to group this list in the query. 
-</p>
 
 
 {call .section}
@@ -441,14 +463,14 @@ the repository and the target <code>//foo:bar</code>.
 
 <p>
 We recommend using <code>allpaths()</code> with 
-the <code>--dot</code>{sp}parameter to generate a 
+the <code>--output-format dot</code>{sp}parameter to generate a
 graphviz file that can then
 be rendered as an image. For example:
 </p>
 
 <p><pre class="prettyprint lang-py">
 {literal}
-$ buck query "allpaths('//foo:bar', '//foo/bar/lib:baz')" --dot > result.dot
+$ buck query "allpaths('//foo:bar', '//foo/bar/lib:baz')" --output-format dot --output-file result.dot
 $ dot -Tpng result.dot -o image.png
 {/literal}
 </pre>
@@ -587,25 +609,7 @@ files that define the targets that result from the evaluation
 of <code>expression</code>.
 </p>
 
-<p>
-In order to find the build file associated with a source file, combine the <code>owner</code>
-{sp}operator with <code>buildfile</code>.
-For example, 
-</p>
-
-<p>
-<pre>
-{literal}
-buck query "buildfile(owner('foo/bar/main.cpp'))" 
-{/literal}
-</pre>
-</p>
-
-<p>
-first finds the targets that <em>own</em> <code>foo/bar/main.cpp</code> and 
-then returns the build files, such as <code>foo/bar/BUCK</code>, that define 
-those targets. 
-</p>
+{call buckquery.example_buildfile_owner /}
 
 
 {call .section}
@@ -1241,7 +1245,7 @@ buck query "testsof(deps( %s ))" target1 target2 target3
 <p>
 The <code>%s</code> in the query expression is replaced by each of
 the listed targets, and for each target, the resulting query expression is evaluated. 
-If you add the <code>--json</code> parameter, the result of
+If you add the <code>--output-format json</code> parameter, the result of
 the command is grouped by input target; otherwise, as in the previous
 example using <code>set()</code>, the command merges the results and 
 returns the union of the queries.
@@ -1356,7 +1360,7 @@ buck query "testsof(deps(set('//foo:foo'))) union deps(set('//bar:bar'))"
 {param params}
 
 {call buck.param}
-  {param name: 'dot' /}
+  {param name: 'output-format dot'  /}
   {param desc}
   <p>
   Outputs the digraph representing the query results in <a href=
@@ -1381,7 +1385,7 @@ prebuilt_jar         : mediumpurple1
 
 <p><pre class="prettyprint lang-py">
 {literal}
-$ buck query "allpaths('//foo:bar', '//path/to:other')" --dot > graph.dot
+$ buck query "allpaths('//foo:bar', '//path/to:other')" --output-format dot --output-file graph.dot
 $ dot -Tpng graph.dot -o graph.png
 {/literal}
 </pre>
@@ -1393,10 +1397,60 @@ $ dot -Tpng graph.dot -o graph.png
 {/call}
 
 {call buck.param}
-  {param name: 'json' /}
+    {param name: 'output-format dot_bfs'  /}
+    {param desc}
+      <p>
+        Outputs the digraph representing the query results in <a href="https://en.wikipedia.org/wiki/DOT_(graph_description_language)#Directed_graphs">dot format</a> in bfs order.
+        The nodes will be colored according to their type.
+      </p>
+
+      Example usage:
+      <p><pre class="prettyprint lang-py">
+          {literal}
+$ buck query "allpaths('//foo:bar', '//path/to:other')" --output-format dot_bfs --output-file graph.dot
+$ dot -Tpng graph.dot -o graph.png
+          {/literal}
+      </pre>
+      </p>
+
+      <p>Then, open <code>graph.png</code> to visualize the graph.</p>
+
+    {/param}
+{/call}
+
+{call buck.param}
+  {param name: 'output-format json' /}
   {param desc}
-  Outputs the results as JSON.
+    <p>
+      Outputs the results as JSON.
+    </p>
   {/param}
+{/call}
+
+{call buck.param}
+    {param name: 'output-format thrift' /}
+    {param desc}
+      <p>
+        Outputs the results as thrift binary.
+      </p>
+    {/param}
+{/call}
+
+{call buck.param}
+    {param name: 'output-file' /}
+    {param desc}
+      <p>
+      Outputs the results into file path specified.
+      </p>
+      Example usage:
+      <p><pre class="prettyprint lang-py">
+          {literal}
+$ buck query "allpaths('//foo:bar', '//path/to:other')" --output-format dot --output-file graph.dot
+$ dot -Tpng graph.dot -o graph.png
+          {/literal}
+      </pre>
+      </p>
+    {/param}
 {/call}
 
 {call buck.param}
@@ -1599,7 +1653,7 @@ Then the following query
 <p>
 <pre>
 {literal}
-buck query "%s" app lib --json
+buck query "%s" app lib --output-format json
 {/literal}
 </pre>
 </p>
@@ -1665,7 +1719,7 @@ the{sp} <code>one</code> and <code>three</code> libraries.
 <p>
 <pre>
 {literal}
-$ buck query --json "testsof(deps('%s'))" //examples:one //examples:three
+$ buck query --output-format json "testsof(deps('%s'))" //examples:one //examples:three
 {
   "//examples:one": ["//examples:two-tests"],
   "//examples:three": ["//examples:three-tests"]

@@ -25,6 +25,7 @@ import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
@@ -46,9 +47,9 @@ import com.facebook.buck.rules.coercer.VersionMatchedCollection;
 import com.facebook.buck.shell.GenruleBuilder;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.FixedVersionSelector;
+import com.facebook.buck.versions.ParallelVersionedTargetGraphBuilder;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionedAliasBuilder;
-import com.facebook.buck.versions.VersionedTargetGraphBuilder;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
@@ -60,6 +61,8 @@ import org.hamcrest.Matchers;
 import org.junit.Test;
 
 public class PythonLibraryDescriptionTest {
+
+  private static final int NUMBER_OF_THREADS = ForkJoinPool.commonPool().getParallelism();
 
   @Test
   public void baseModule() {
@@ -118,7 +121,7 @@ public class PythonLibraryDescriptionTest {
                         SourceSortedSet.ofUnnamedSources(
                             ImmutableSortedSet.of(pyPlatformMatchedSource)))
                     .add(
-                        Pattern.compile("^" + CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor() + "$"),
+                        Pattern.compile("^" + CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR + "$"),
                         SourceSortedSet.ofUnnamedSources(
                             ImmutableSortedSet.of(cxxPlatformMatchedSource)))
                     .add(
@@ -153,7 +156,7 @@ public class PythonLibraryDescriptionTest {
                         SourceSortedSet.ofUnnamedSources(
                             ImmutableSortedSet.of(pyPlatformMatchedSource)))
                     .add(
-                        Pattern.compile("^" + CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor() + "$"),
+                        Pattern.compile("^" + CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR + "$"),
                         SourceSortedSet.ofUnnamedSources(
                             ImmutableSortedSet.of(cxxPlatformMatchedSource)))
                     .add(
@@ -197,7 +200,7 @@ public class PythonLibraryDescriptionTest {
                         SourceSortedSet.ofUnnamedSources(ImmutableSortedSet.of(unmatchedSource)))
                     .build());
     TargetGraph targetGraph =
-        VersionedTargetGraphBuilder.transform(
+        ParallelVersionedTargetGraphBuilder.transform(
                 new FixedVersionSelector(
                     ImmutableMap.of(
                         builder.getTarget(),
@@ -206,8 +209,10 @@ public class PythonLibraryDescriptionTest {
                     TargetGraphFactory.newInstance(
                         transitiveDepBuilder.build(), depBuilder.build(), builder.build()),
                     ImmutableSet.of(builder.getTarget())),
-                new ForkJoinPool(),
-                new DefaultTypeCoercerFactory())
+                NUMBER_OF_THREADS,
+                new DefaultTypeCoercerFactory(),
+                new ParsingUnconfiguredBuildTargetFactory(),
+                20)
             .getTargetGraph();
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
     PythonLibrary library = (PythonLibrary) graphBuilder.requireRule(builder.getTarget());
@@ -245,7 +250,7 @@ public class PythonLibraryDescriptionTest {
                         SourceSortedSet.ofUnnamedSources(ImmutableSortedSet.of(unmatchedSource)))
                     .build());
     TargetGraph targetGraph =
-        VersionedTargetGraphBuilder.transform(
+        ParallelVersionedTargetGraphBuilder.transform(
                 new FixedVersionSelector(
                     ImmutableMap.of(
                         builder.getTarget(),
@@ -254,8 +259,10 @@ public class PythonLibraryDescriptionTest {
                     TargetGraphFactory.newInstance(
                         transitiveDepBuilder.build(), depBuilder.build(), builder.build()),
                     ImmutableSet.of(builder.getTarget())),
-                new ForkJoinPool(),
-                new DefaultTypeCoercerFactory())
+                NUMBER_OF_THREADS,
+                new DefaultTypeCoercerFactory(),
+                new ParsingUnconfiguredBuildTargetFactory(),
+                20)
             .getTargetGraph();
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
     PythonLibrary library = (PythonLibrary) graphBuilder.requireRule(builder.getTarget());
@@ -303,8 +310,7 @@ public class PythonLibraryDescriptionTest {
                 PatternMatchedCollection.<ImmutableSortedSet<BuildTarget>>builder()
                     .add(
                         Pattern.compile(
-                            CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor().toString(),
-                            Pattern.LITERAL),
+                            CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR.toString(), Pattern.LITERAL),
                         ImmutableSortedSet.of(libraryABuilder.getTarget()))
                     .add(
                         Pattern.compile("matches nothing", Pattern.LITERAL),

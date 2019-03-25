@@ -1,5 +1,12 @@
-load("//tools/build_rules:java_rules.bzl", "java_immutables_library", "java_library_with_plugins")
-load("//tools/build_rules:file_alias.bzl", "file_alias")
+load(
+    "//tools/build_rules:java_rules.bzl",
+    "java_immutables_library",
+    "java_library_with_plugins",
+)
+load(
+    "//tools/build_rules:file_alias.bzl",
+    "file_alias",
+)
 
 BUCK_CONFIG_SRCS = [
     "AndroidBuckConfig.java",
@@ -13,13 +20,12 @@ java_immutables_library(
     exported_deps = [
         "//src/com/facebook/buck/util/randomizedtrial:randomizedtrial",
     ],
-    resources = [
-        ":guava.jar",
-    ],
     tests = [
         "//test/com/facebook/buck/android:unit",
     ],
-    visibility = ["PUBLIC"],
+    visibility = [
+        "PUBLIC",
+    ],
     deps = [
         "//src/com/facebook/buck/android/toolchain/ndk:ndk",
         "//src/com/facebook/buck/core/config:config",
@@ -106,6 +112,8 @@ RULES_SRCS = [
     "NativeLibraryBuildRule.java",
     "NdkLibrary.java",
     "NdkLibraryDescription.java",
+    "NdkToolchainBuildRule.java",
+    "NdkToolchainDescription.java",
     "NonPreDexedDexBuildable.java",
     "PackageStringAssets.java",
     "PreDexMerge.java",
@@ -123,9 +131,9 @@ RULES_SRCS = [
     "UnsortedAndroidResourceDeps.java",
     "UnzipAar.java",
     "WriteFileHashCode.java",
+    "ApkInstallStep.java",
     # This and the InstrumentationStep would make more sense in the steps
     # library, but are added here to avoid circular dependencies.
-    "ApkInstallStep.java",
     "InstrumentationStep.java",
     "relinker/RelinkerRule.java",
     "relinker/NativeRelinker.java",
@@ -161,7 +169,9 @@ java_library_with_plugins(
         "//test/com/facebook/buck/android:integration2",
         "//test/com/facebook/buck/android:unit",
     ],
-    visibility = ["PUBLIC"],
+    visibility = [
+        "PUBLIC",
+    ],
     deps = [
         ":config",
         ":helpers",
@@ -169,7 +179,6 @@ java_library_with_plugins(
         ":steps",
         "//src/com/facebook/buck/android/aapt:aapt",
         "//src/com/facebook/buck/android/apkmodule:apkmodule",
-        "//src/com/facebook/buck/android/bundle:bundle",
         "//src/com/facebook/buck/android/dalvik:dalvik",
         "//src/com/facebook/buck/android/dalvik:steps",
         "//src/com/facebook/buck/android/redex:options",
@@ -183,6 +192,8 @@ java_library_with_plugins(
         "//src/com/facebook/buck/core/rules/common:common",
         "//src/com/facebook/buck/core/rules/impl:impl",
         "//src/com/facebook/buck/core/sourcepath/resolver/impl:impl",
+        "//src/com/facebook/buck/core/toolchain/tool/impl:impl",
+        "//src/com/facebook/buck/core/toolchain/toolprovider/impl:impl",
         "//src/com/facebook/buck/core/util/graph:graph",
         "//src/com/facebook/buck/core/util/log:log",
         "//src/com/facebook/buck/cxx:rules",
@@ -204,7 +215,6 @@ java_library_with_plugins(
         "//src/com/facebook/buck/jvm/java/toolchain:toolchain",
         "//src/com/facebook/buck/jvm/kotlin:kotlin",
         "//src/com/facebook/buck/jvm/scala:scala",
-        "//src/com/facebook/buck/parser:rule_pattern",
         "//src/com/facebook/buck/rules/args:args",
         "//src/com/facebook/buck/rules/coercer:coercer",
         "//src/com/facebook/buck/rules/coercer:interface",
@@ -220,6 +230,7 @@ java_library_with_plugins(
         "//src/com/facebook/buck/step:step",
         "//src/com/facebook/buck/step/fs:fs",
         "//src/com/facebook/buck/test:test",
+        "//src/com/facebook/buck/test/config:config",
         "//src/com/facebook/buck/test/result/type:type",
         "//src/com/facebook/buck/test/selectors:selectors",
         "//src/com/facebook/buck/unarchive:unarchive",
@@ -299,12 +310,14 @@ HELPERS_SRCS = [
     "ResourceFilesInfo.java",
     "RedexArgsHelper.java",
     "HasInstallableApkSupport.java",
+    "exopackage/AbstractAdbConfig.java",
     "exopackage/AndroidDevicesHelperFactory.java",
     "exopackage/DexExoHelper.java",
     "exopackage/ModuleExoHelper.java",
     "exopackage/ExopackageAgent.java",
     "exopackage/ExopackageInstaller.java",
     "exopackage/ExopackageMode.java",
+    "exopackage/ExopackageSymlinkTree.java",
     "exopackage/ExopackageUtil.java",
     "exopackage/NativeExoHelper.java",
     "exopackage/RealAndroidDevice.java",
@@ -315,6 +328,7 @@ java_immutables_library(
     name = "helpers",
     srcs = HELPERS_SRCS,
     exported_deps = [
+        "//src/com/facebook/buck/android/device:device",
         "//src/com/facebook/buck/core/toolchain:toolchain",
     ],
     tests = [
@@ -322,7 +336,9 @@ java_immutables_library(
         "//test/com/facebook/buck/android:integration2",
         "//test/com/facebook/buck/android:unit",
     ],
-    visibility = ["PUBLIC"],
+    visibility = [
+        "PUBLIC",
+    ],
     deps = [
         ":config",
         ":utils",
@@ -338,6 +354,7 @@ java_immutables_library(
         "//src/com/facebook/buck/event:interfaces",
         "//src/com/facebook/buck/event/external:external_lib",
         "//src/com/facebook/buck/io:io",
+        "//src/com/facebook/buck/io/file:file",
         "//src/com/facebook/buck/log:log",
         "//src/com/facebook/buck/rules/args:args",
         "//src/com/facebook/buck/rules/macros:macros",
@@ -372,7 +389,9 @@ java_immutables_library(
         "//test/com/facebook/buck/android:integration2",
         "//test/com/facebook/buck/android:unit",
     ],
-    visibility = ["PUBLIC"],
+    visibility = [
+        "PUBLIC",
+    ],
     deps = [
         "//src/com/facebook/buck/android:config",
         "//src/com/facebook/buck/core/model:model",
@@ -400,7 +419,9 @@ UTILS_API_SRCS = [
 java_immutables_library(
     name = "utils_api",
     srcs = UTILS_API_SRCS,
-    visibility = ["PUBLIC"],
+    visibility = [
+        "PUBLIC",
+    ],
     deps = [
         "//src/com/facebook/buck/core/exceptions:exceptions",
         "//src/com/facebook/buck/core/model:model",
@@ -432,14 +453,15 @@ java_immutables_library(
         "//test/com/facebook/buck/android:integration2",
         "//test/com/facebook/buck/android:steps",
     ],
-    visibility = ["PUBLIC"],
+    visibility = [
+        "PUBLIC",
+    ],
     deps = [
         ":config",
         ":helpers",
         ":split_dex",
         ":utils",
         "//src/com/facebook/buck/android/apkmodule:apkmodule",
-        "//src/com/facebook/buck/android/bundle:bundle",
         "//src/com/facebook/buck/android/dalvik:dalvik",
         "//src/com/facebook/buck/android/dalvik/firstorder:firstorder",
         "//src/com/facebook/buck/android/packageable:packageable",
@@ -466,7 +488,6 @@ java_immutables_library(
         "//src/com/facebook/buck/io/file:file",
         "//src/com/facebook/buck/jvm/java:support",
         "//src/com/facebook/buck/jvm/java/classes:classes",
-        "//src/com/facebook/buck/parser:rule_pattern",
         "//src/com/facebook/buck/rules/args:args",
         "//src/com/facebook/buck/rules/coercer:coercer",
         "//src/com/facebook/buck/rules/keys:keys",
@@ -489,6 +510,7 @@ java_immutables_library(
         "//third-party/java/aosp:aosp",
         "//third-party/java/aosp:apksig",
         "//third-party/java/asm:asm",
+        "//third-party/java/bundletool:bundletool",
         "//third-party/java/d8:d8",
         "//third-party/java/dx:dx",
         "//third-party/java/infer-annotations:infer-annotations",

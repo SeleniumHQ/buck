@@ -51,7 +51,7 @@ public class CxxPlatformUtils {
       new PreprocessorProvider(new ConstantToolProvider(DEFAULT_TOOL), CxxToolProvider.Type.GCC);
 
   private static final CompilerProvider DEFAULT_COMPILER_PROVIDER =
-      new CompilerProvider(new ConstantToolProvider(DEFAULT_TOOL), CxxToolProvider.Type.GCC);
+      new CompilerProvider(new ConstantToolProvider(DEFAULT_TOOL), CxxToolProvider.Type.GCC, false);
 
   public static final DebugPathSanitizer DEFAULT_COMPILER_DEBUG_PATH_SANITIZER =
       new MungingDebugPathSanitizer(250, File.separatorChar, Paths.get("."), ImmutableBiMap.of());
@@ -59,9 +59,10 @@ public class CxxPlatformUtils {
   public static final DebugPathSanitizer DEFAULT_ASSEMBLER_DEBUG_PATH_SANITIZER =
       new MungingDebugPathSanitizer(250, File.separatorChar, Paths.get("."), ImmutableBiMap.of());
 
+  public static final InternalFlavor DEFAULT_PLATFORM_FLAVOR = InternalFlavor.of("default");
   public static final CxxPlatform DEFAULT_PLATFORM =
       CxxPlatform.builder()
-          .setFlavor(InternalFlavor.of("default"))
+          .setFlavor(DEFAULT_PLATFORM_FLAVOR)
           .setAs(DEFAULT_COMPILER_PROVIDER)
           .setAspp(DEFAULT_PREPROCESSOR_PROVIDER)
           .setCc(DEFAULT_COMPILER_PROVIDER)
@@ -74,9 +75,10 @@ public class CxxPlatformUtils {
           .setAsmpp(DEFAULT_PREPROCESSOR_PROVIDER)
           .setLd(
               new DefaultLinkerProvider(
-                  LinkerProvider.Type.GNU, new ConstantToolProvider(DEFAULT_TOOL)))
+                  LinkerProvider.Type.GNU, new ConstantToolProvider(DEFAULT_TOOL), true))
           .setStrip(DEFAULT_TOOL)
           .setAr(ArchiverProvider.from(new GnuArchiver(DEFAULT_TOOL)))
+          .setArchiveContents(ArchiveContents.NORMAL)
           .setRanlib(new ConstantToolProvider(DEFAULT_TOOL))
           .setSymbolNameTool(new PosixNmSymbolNameTool(DEFAULT_TOOL))
           .setSharedLibraryExtension("so")
@@ -89,9 +91,11 @@ public class CxxPlatformUtils {
           .setPublicHeadersSymlinksEnabled(true)
           .setPrivateHeadersSymlinksEnabled(true)
           .build();
+  public static final UnresolvedCxxPlatform DEFAULT_UNRESOLVED_PLATFORM =
+      new StaticUnresolvedCxxPlatform(DEFAULT_PLATFORM);
 
-  public static final FlavorDomain<CxxPlatform> DEFAULT_PLATFORMS =
-      FlavorDomain.of("C/C++ Platform", DEFAULT_PLATFORM);
+  public static final FlavorDomain<UnresolvedCxxPlatform> DEFAULT_PLATFORMS =
+      FlavorDomain.of("C/C++ Platform", DEFAULT_UNRESOLVED_PLATFORM);
 
   public static CxxPlatform build(CxxBuckConfig config) {
     return DefaultCxxPlatforms.build(Platform.detect(), config);
@@ -108,8 +112,7 @@ public class CxxPlatformUtils {
     return DefaultCxxPlatforms.build(Platform.detect(), new CxxBuckConfig(buckConfig));
   }
 
-  public static HeaderMode getHeaderModeForDefaultPlatform(Path root)
-      throws InterruptedException, IOException {
+  public static HeaderMode getHeaderModeForDefaultPlatform(Path root) throws IOException {
     BuildRuleResolver ruleResolver = new TestActionGraphBuilder();
     CxxPlatform defaultPlatform = getDefaultPlatform(root);
     return defaultPlatform.getCpp().resolve(ruleResolver).supportsHeaderMaps()

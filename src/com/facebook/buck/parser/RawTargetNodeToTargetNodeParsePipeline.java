@@ -18,6 +18,8 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.RawTargetNode;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.util.log.Logger;
@@ -27,7 +29,7 @@ import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.event.SimplePerfEvent.Scope;
 import com.facebook.buck.parser.PipelineNodeCache.Cache;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.nio.file.Path;
@@ -42,7 +44,6 @@ public class RawTargetNodeToTargetNodeParsePipeline
   private final boolean speculativeDepsTraversal;
   private final RawTargetNodePipeline rawTargetNodePipeline;
   private final ParserTargetNodeFactory<RawTargetNode> rawTargetNodeToTargetNodeFactory;
-  private final SimplePerfEvent.Scope targetNodePipelineLifetimeEventScope;
 
   /** Create new pipeline for parsing Buck files. */
   public RawTargetNodeToTargetNodeParsePipeline(
@@ -50,27 +51,28 @@ public class RawTargetNodeToTargetNodeParsePipeline
       ListeningExecutorService executorService,
       RawTargetNodePipeline rawTargetNodePipeline,
       BuckEventBus eventBus,
+      String pipelineName,
       boolean speculativeDepsTraversal,
       ParserTargetNodeFactory<RawTargetNode> rawTargetNodeToTargetNodeFactory) {
     super(
         executorService,
         cache,
         eventBus,
-        SimplePerfEvent.scope(
-            eventBus, PerfEventId.of("configured_raw_target_node_parse_pipeline")),
+        SimplePerfEvent.scope(eventBus, PerfEventId.of(pipelineName)),
         PerfEventId.of("GetTargetNode"));
     this.rawTargetNodePipeline = rawTargetNodePipeline;
     this.speculativeDepsTraversal = speculativeDepsTraversal;
-    this.targetNodePipelineLifetimeEventScope =
-        SimplePerfEvent.scope(
-            eventBus, PerfEventId.of("configured_raw_target_node_parse_pipeline"));
     this.rawTargetNodeToTargetNodeFactory = rawTargetNodeToTargetNodeFactory;
   }
 
   @Override
   protected BuildTarget getBuildTarget(
-      Path root, Optional<String> cellName, Path buildFile, RawTargetNode from) {
-    return from.getBuildTarget();
+      Path root,
+      Optional<String> cellName,
+      Path buildFile,
+      TargetConfiguration targetConfiguration,
+      RawTargetNode from) {
+    return from.getBuildTarget().configure(targetConfiguration);
   }
 
   @Override
@@ -110,20 +112,14 @@ public class RawTargetNodeToTargetNodeParsePipeline
   }
 
   @Override
-  protected ListenableFuture<ImmutableSet<RawTargetNode>> getItemsToConvert(
+  protected ListenableFuture<ImmutableList<RawTargetNode>> getItemsToConvert(
       Cell cell, Path buildFile) throws BuildTargetException {
-    return rawTargetNodePipeline.getAllNodesJob(cell, buildFile);
+    return rawTargetNodePipeline.getAllNodesJob(cell, buildFile, EmptyTargetConfiguration.INSTANCE);
   }
 
   @Override
   protected ListenableFuture<RawTargetNode> getItemToConvert(Cell cell, BuildTarget buildTarget)
       throws BuildTargetException {
     return rawTargetNodePipeline.getNodeJob(cell, buildTarget);
-  }
-
-  @Override
-  public void close() {
-    targetNodePipelineLifetimeEventScope.close();
-    super.close();
   }
 }

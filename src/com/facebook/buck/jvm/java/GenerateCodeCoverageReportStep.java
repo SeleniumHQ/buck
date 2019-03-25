@@ -19,11 +19,11 @@ package com.facebook.buck.jvm.java;
 import static com.facebook.buck.jvm.java.JacocoConstants.JACOCO_EXEC_COVERAGE_FILE;
 import static java.util.stream.Collectors.joining;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.io.file.MostFiles;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.test.CoverageReportFormat;
 import com.facebook.buck.util.unarchive.ArchiveFormat;
@@ -39,6 +39,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -152,7 +153,7 @@ public class GenerateCodeCoverageReportStep extends ShellStep {
       properties.setProperty("jacoco.excludes", coverageExcludes.get());
     }
 
-    try (Writer writer = new OutputStreamWriter(outputStream, "utf8")) {
+    try (Writer writer = new OutputStreamWriter(outputStream, StandardCharsets.UTF_8)) {
       properties.store(writer, "Parameters for Jacoco report generator.");
     }
   }

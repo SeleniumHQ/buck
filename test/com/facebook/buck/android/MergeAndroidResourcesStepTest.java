@@ -30,6 +30,7 @@ import com.facebook.buck.android.MergeAndroidResourcesStep.DuplicateResourceExce
 import com.facebook.buck.android.aapt.FakeRDotTxtEntryWithID;
 import com.facebook.buck.android.aapt.RDotTxtEntry;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
@@ -41,7 +42,6 @@ import com.facebook.buck.core.sourcepath.FakeSourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.TestExecutionContext;
 import com.google.common.collect.ImmutableList;
@@ -72,8 +72,7 @@ public class MergeAndroidResourcesStepTest {
   @Rule public ExpectedException thrown = ExpectedException.none();
 
   @Test
-  public void testGenerateRDotJavaForMultipleSymbolsFiles()
-      throws IOException, DuplicateResourceException {
+  public void testGenerateRDotJavaForMultipleSymbolsFiles() throws DuplicateResourceException {
     RDotTxtEntryBuilder entriesBuilder = new RDotTxtEntryBuilder();
 
     // Merge everything into the same package space.
@@ -129,8 +128,7 @@ public class MergeAndroidResourcesStepTest {
   }
 
   @Test
-  public void testGenerateRDotJavaForWithStyleables()
-      throws IOException, DuplicateResourceException {
+  public void testGenerateRDotJavaForWithStyleables() throws DuplicateResourceException {
     RDotTxtEntryBuilder entriesBuilder = new RDotTxtEntryBuilder();
 
     // Merge everything into the same package space.
@@ -231,7 +229,7 @@ public class MergeAndroidResourcesStepTest {
 
   @Test
   public void testGenerateRDotJavaForMultipleSymbolsFilesWithDuplicates()
-      throws IOException, DuplicateResourceException {
+      throws DuplicateResourceException {
     RDotTxtEntryBuilder entriesBuilder = new RDotTxtEntryBuilder();
 
     // Merge everything into the same package space.

@@ -20,14 +20,15 @@ import com.facebook.buck.apple.xcode.xcodeproj.PBXReference;
 import com.facebook.buck.apple.xcode.xcodeproj.SourceTreePath;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Objects;
 import java.util.Optional;
 
 public class FrameworkPathTypeCoercer implements TypeCoercer<FrameworkPath> {
@@ -72,13 +73,14 @@ public class FrameworkPathTypeCoercer implements TypeCoercer<FrameworkPath> {
       CellPathResolver cellRoots,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
+      TargetConfiguration targetConfiguration,
       Object object)
       throws CoerceFailedException {
     if (object instanceof String) {
       Path path = Paths.get((String) object);
 
       String firstElement =
-          Preconditions.checkNotNull(Iterables.getFirst(path, Paths.get(""))).toString();
+          Objects.requireNonNull(Iterables.getFirst(path, Paths.get(""))).toString();
 
       if (firstElement.startsWith("$")) { // NOPMD - length() > 0 && charAt(0) == '$' is ridiculous
         Optional<PBXReference.SourceTree> sourceTree =
@@ -106,7 +108,8 @@ public class FrameworkPathTypeCoercer implements TypeCoercer<FrameworkPath> {
         }
       } else {
         return FrameworkPath.ofSourcePath(
-            sourcePathTypeCoercer.coerce(cellRoots, filesystem, pathRelativeToProjectRoot, object));
+            sourcePathTypeCoercer.coerce(
+                cellRoots, filesystem, pathRelativeToProjectRoot, targetConfiguration, object));
       }
     }
 

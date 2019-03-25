@@ -33,9 +33,8 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
-import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.toolchain.JavaCxxPlatformProvider;
@@ -47,6 +46,7 @@ import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -77,12 +77,12 @@ public class JavaBinaryDescription
     return JavaBinaryDescriptionArg.class;
   }
 
-  private CxxPlatform getCxxPlatform(AbstractJavaBinaryDescriptionArg args) {
+  private UnresolvedCxxPlatform getCxxPlatform(AbstractJavaBinaryDescriptionArg args) {
     return args.getDefaultCxxPlatform()
         .map(
             toolchainProvider
                     .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class)
-                    .getCxxPlatforms()
+                    .getUnresolvedCxxPlatforms()
                 ::getValue)
         .orElse(
             toolchainProvider
@@ -101,7 +101,9 @@ public class JavaBinaryDescription
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     ImmutableMap<String, SourcePath> nativeLibraries =
         JavaLibraryRules.getNativeLibraries(
-            params.getBuildDeps(), getCxxPlatform(args), context.getActionGraphBuilder());
+            params.getBuildDeps(),
+            getCxxPlatform(args).resolve(graphBuilder),
+            context.getActionGraphBuilder());
     BuildTarget binaryBuildTarget = buildTarget;
 
     // If we're packaging native libraries, we'll build the binary JAR in a separate rule and
@@ -142,18 +144,21 @@ public class JavaBinaryDescription
     } else {
       graphBuilder.addToIndex(javaBinary);
       SourcePath innerJar = javaBinary.getSourcePathToOutput();
+      JavacFactory javacFactory = JavacFactory.getDefault(toolchainProvider);
       rule =
           new JarFattener(
               buildTarget,
               projectFilesystem,
               params.copyAppendingExtraDeps(
                   Suppliers.<Iterable<BuildRule>>ofInstance(
-                      ruleFinder.filterBuildRuleInputs(
-                          ImmutableList.<SourcePath>builder()
-                              .add(innerJar)
-                              .addAll(nativeLibraries.values())
-                              .build()))),
-              JavacFactory.getDefault(toolchainProvider).create(ruleFinder, null),
+                      Iterables.concat(
+                          ruleFinder.filterBuildRuleInputs(
+                              ImmutableList.<SourcePath>builder()
+                                  .add(innerJar)
+                                  .addAll(nativeLibraries.values())
+                                  .build()),
+                          javacFactory.getBuildDeps(ruleFinder)))),
+              javacFactory.create(ruleFinder, null),
               toolchainProvider
                   .getByName(JavacOptionsProvider.DEFAULT_NAME, JavacOptionsProvider.class)
                   .getJavacOptions(),
@@ -173,8 +178,7 @@ public class JavaBinaryDescription
       AbstractJavaBinaryDescriptionArg constructorArg,
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    targetGraphOnlyDepsBuilder.addAll(
-        CxxPlatforms.getParseTimeDeps(getCxxPlatform(constructorArg)));
+    targetGraphOnlyDepsBuilder.addAll(getCxxPlatform(constructorArg).getParseTimeDeps());
     javacFactory.addParseTimeDeps(targetGraphOnlyDepsBuilder, null);
     javaOptions.get().addParseTimeDeps(targetGraphOnlyDepsBuilder);
   }

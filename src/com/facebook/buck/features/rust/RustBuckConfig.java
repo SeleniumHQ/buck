@@ -37,22 +37,16 @@ public class RustBuckConfig {
   private static final String REMAP_SRC_PATHS = "remap_src_paths";
   private static final String FORCE_RLIB = "force_rlib";
   private static final String PREFER_STATIC_LIBS = "prefer_static_libs";
+  private static final String RUSTC_INCREMENTAL = "incremental";
 
   enum RemapSrcPaths {
     NO, // no path remapping
-    UNSTABLE, // remap using unstable command-line option
     YES, // remap using stable command-line option
     ;
 
     public void addRemapOption(Builder<String> cmd, String cwd, String basedir) {
       switch (this) {
         case NO:
-          break;
-        case UNSTABLE:
-          cmd.add("-Zremap-path-prefix-from=" + basedir);
-          cmd.add("-Zremap-path-prefix-to=");
-          cmd.add("-Zremap-path-prefix-from=" + cwd);
-          cmd.add("-Zremap-path-prefix-to=./");
           break;
         case YES:
           cmd.add("--remap-path-prefix", basedir + "=");
@@ -214,5 +208,19 @@ public class RustBuckConfig {
    */
   boolean getPreferStaticLibs() {
     return delegate.getBooleanValue(SECTION, PREFER_STATIC_LIBS, false);
+  }
+
+  /**
+   * Get "incremental" config - when present, incremental mode is enabled, and the string is used to
+   * make sure rustc's incremental database is set to a mode, platform and flavor-specific path.
+   * Rustc guarantees that the output of an incremental build it bit-for-bit identical to a
+   * non-incremental one, so in principle we don't need to add this to the rulekey.
+   *
+   * @param platform
+   */
+  Optional<String> getIncremental(String platform) {
+    return firstOf(
+        () -> delegate.getValue(SECTION + "#" + platform, RUSTC_INCREMENTAL),
+        () -> delegate.getValue(SECTION, RUSTC_INCREMENTAL));
   }
 }

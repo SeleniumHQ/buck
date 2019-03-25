@@ -16,28 +16,102 @@
 
 package com.facebook.buck.intellij.ideabuck.autodeps;
 
-import static com.facebook.buck.intellij.ideabuck.test.TestUtil.buckFile;
 import static org.junit.Assert.assertEquals;
 
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.Test;
 
 public class MaybeAddDepToTargetTest {
+
+  private static String buckFile(String... lines) {
+    return Stream.of(lines).collect(Collectors.joining("\n", "", "\n"));
+  }
+
   @Test
-  public void addsWhenDepIsAbsent() {
+  public void addsRefToDepsWhenAbsent() {
     String buckInput =
         buckFile(
-            "# Comment", "rule(", "\tname = \"foo\",", "\tdeps = [", "\t\t\"/this\",", "\t]", ")");
+            "# Comment",
+            "rule(",
+            "\tname = \"foo\",",
+            "\tprovided_deps = [",
+            "\t\t\"//not:here\",",
+            "\t]",
+            "\tdeps = [",
+            "\t\t\"//this:this\",",
+            "\t]",
+            "\texported_deps = [",
+            "\t\t\"//or:here\",",
+            "\t]",
+            ")");
+    String expected =
+        buckFile(
+            "# Comment",
+            "rule(",
+            "\tname = \"foo\",",
+            "\tprovided_deps = [",
+            "\t\t\"//not:here\",",
+            "\t]",
+            "\tdeps = [",
+            "\t\t\"from//that:that\",",
+            "\t\t\"//this:this\",",
+            "\t]",
+            "\texported_deps = [",
+            "\t\t\"//or:here\",",
+            "\t]",
+            ")");
+    String actual = BuckDeps.tryToAddDepsToTarget(buckInput, "from//that:that", "to//src:foo");
+    assertEquals(expected, actual);
+  }
+
+  @Test
+  public void addsSameCellRefWhenDepIsAbsent() {
+    String buckInput =
+        buckFile(
+            "# Comment",
+            "rule(",
+            "\tname = \"foo\",",
+            "\tdeps = [",
+            "\t\t\"//this:this\",",
+            "\t]",
+            ")");
     String expected =
         buckFile(
             "# Comment",
             "rule(",
             "\tname = \"foo\",",
             "\tdeps = [",
-            "\t\t\"/other:thing\",",
-            "\t\t\"/this\",",
+            "\t\t\"//that:that\",",
+            "\t\t\"//this:this\",",
             "\t]",
             ")");
-    String actual = BuckDeps.maybeAddDepToTarget(buckInput, "/other:thing", "foo");
+    String actual = BuckDeps.tryToAddDepsToTarget(buckInput, "cell//that:that", "cell//src:foo");
+    assertEquals(expected, actual);
+  }
+
+  @Test
+  public void addsCrossCellRefWhenDepIsAbsent() {
+    String buckInput =
+        buckFile(
+            "# Comment",
+            "rule(",
+            "\tname = \"foo\",",
+            "\tdeps = [",
+            "\t\t\"//this:this\",",
+            "\t]",
+            ")");
+    String expected =
+        buckFile(
+            "# Comment",
+            "rule(",
+            "\tname = \"foo\",",
+            "\tdeps = [",
+            "\t\t\"from//that:that\",",
+            "\t\t\"//this:this\",",
+            "\t]",
+            ")");
+    String actual = BuckDeps.tryToAddDepsToTarget(buckInput, "from//that:that", "to//src:foo");
     assertEquals(expected, actual);
   }
 
@@ -45,9 +119,33 @@ public class MaybeAddDepToTargetTest {
   public void unchangedWhenDepExists() {
     String buckInput =
         buckFile(
-            "# Comment", "rule(", "\tname = \"foo\",", "\tdeps = [", "\t\t\"/this\",", "\t]", ")");
+            "# Comment",
+            "rule(",
+            "\tname = \"foo\",",
+            "\tdeps = [",
+            "\t\t\"//this:this\",",
+            "\t]",
+            ")");
     String expected = buckInput;
-    String actual = BuckDeps.maybeAddDepToTarget(buckInput, "/this", "foo");
+    String actual = BuckDeps.tryToAddDepsToTarget(buckInput, "//this:this", "//src:foo");
+    assertEquals(expected, actual);
+  }
+
+  @Test
+  public void unchangedWhenSynonymOfDepExists() {
+    String buckInput =
+        buckFile(
+            "# Comment",
+            "rule(",
+            "\tname = \"foo\",",
+            "\tdeps = [",
+            "\t\t\"//this:this\",",
+            "\t]",
+            ")");
+    String expected = buckInput;
+    // 'cell//this' expands to 'cell//this:this', which (relative to 'cell//path:foo') is
+    // '//this:this')
+    String actual = BuckDeps.tryToAddDepsToTarget(buckInput, "cell//this", "cell//path:foo");
     assertEquals(expected, actual);
   }
 
@@ -59,14 +157,14 @@ public class MaybeAddDepToTargetTest {
             "rule(",
             "\tname = \"foo\",",
             "\texported_deps = [",
-            "\t\t\"/this\",",
+            "\t\t\"//this:this\",",
             "\t]",
             "\tdeps = [",
-            "\t\t\"/that\",",
+            "\t\t\"//that:that\",",
             "\t]",
             ")");
     String expected = buckInput;
-    String actual = BuckDeps.maybeAddDepToTarget(buckInput, "/this", "foo");
+    String actual = BuckDeps.tryToAddDepsToTarget(buckInput, "//this:this", "foo");
     assertEquals(expected, actual);
   }
 
@@ -79,11 +177,11 @@ public class MaybeAddDepToTargetTest {
             "\tname = \"foo\",",
             "\tautodeps = True",
             "\tdeps = [",
-            "\t\t\"/this\",",
+            "\t\t\"//this:this\",",
             "\t]",
             ")");
     String expected = buckInput;
-    String actual = BuckDeps.maybeAddDepToTarget(buckInput, "/that", "foo");
+    String actual = BuckDeps.tryToAddDepsToTarget(buckInput, "//that:that", "//src:foo");
     assertEquals(expected, actual);
   }
 
@@ -91,9 +189,15 @@ public class MaybeAddDepToTargetTest {
   public void unchangedWhenCantFindRule() {
     String buckInput =
         buckFile(
-            "# Comment", "rule(", "\tname = \"bar\",", "\tdeps = [", "\t\t\"/this\",", "\t]", ")");
+            "# Comment",
+            "rule(",
+            "\tname = \"bar\",",
+            "\tdeps = [",
+            "\t\t\"//this:this\",",
+            "\t]",
+            ")");
     String expected = buckInput;
-    String actual = BuckDeps.maybeAddDepToTarget(buckInput, "/that", "foo");
+    String actual = BuckDeps.tryToAddDepsToTarget(buckInput, "//that:that", "//src:foo");
     assertEquals(expected, actual);
   }
 
@@ -105,11 +209,11 @@ public class MaybeAddDepToTargetTest {
             "rule(",
             "\tname = \"foo\",",
             "\tdeps = [",
-            "\t\t\"/this\",",
+            "\t\t\"//this:this\",",
             "\t]",
             "# No closing paren");
     String expected = buckInput;
-    String actual = BuckDeps.maybeAddDepToTarget(buckInput, "/that", "foo");
+    String actual = BuckDeps.tryToAddDepsToTarget(buckInput, "//that:that", "//src:foo");
     assertEquals(expected, actual);
   }
 }

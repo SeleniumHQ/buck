@@ -19,7 +19,6 @@ package com.facebook.buck.rules.keys;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.RuleType;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.sourcepath.AbstractDefaultBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.ForwardingBuildTargetSourcePath;
@@ -47,10 +46,12 @@ import com.google.common.hash.HashCode;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
@@ -145,7 +146,7 @@ public class ThriftRuleKeyHasherTest {
     hasher.putKey(".number_value");
     hasher.putString("string");
     hasher.putKey(".string_value");
-    hasher.putBytes("test".getBytes("utf-8"));
+    hasher.putBytes("test".getBytes(StandardCharsets.UTF_8));
     hasher.putKey(".bytes_value");
     hasher.putPattern(Pattern.compile("\\w+"));
     hasher.putKey(".pattern_value");
@@ -160,21 +161,24 @@ public class ThriftRuleKeyHasherTest {
     hasher.putKey(".archive_member_path_value");
     hasher.putNonHashingPath("non_hashing_test");
     hasher.putKey(".non_hashing_path_value");
-    hasher.putSourceRoot(new SourceRoot("source_root"));
-    hasher.putKey(".source_root_value");
     hasher.putRuleKey(new RuleKey(HashCode.fromString("d0c852385a66458b6e960c89fac580e5eb6d6aec")));
     hasher.putKey(".rule_key_value");
     hasher.putRuleType(RuleType.of("sample_build_rule", RuleType.Kind.BUILD));
     hasher.putKey(".build_rule_type_value");
     hasher.putBuildTarget(
-        ImmutableBuildTarget.of(new File("cell_path").toPath(), "//base_name", "rule_name"));
+        BuildTargetFactory.newInstance(new File("cell_path").toPath(), "//base_name", "rule_name"));
     hasher.putKey(".build_target_value");
     hasher.putBuildTargetSourcePath(
         new AbstractDefaultBuildTargetSourcePath() {
           @Override
           public BuildTarget getTarget() {
-            return ImmutableBuildTarget.of(
+            return BuildTargetFactory.newInstance(
                 new File("cell_path_2").toPath(), "//base_name_2", "rule_name_2");
+          }
+
+          @Override
+          public Optional<HashCode> getPrecomputedHash() {
+            return Optional.empty();
           }
         });
     hasher.putKey(".build_target_source_path_value");
@@ -247,10 +251,6 @@ public class ThriftRuleKeyHasherTest {
                     new com.facebook.buck.log.thrift.rulekeys.ArchiveMemberPath(
                         "archive_path", "member_path", "f9d8ff855a16a3a3d28bfb445cc440502d6e895a")))
             .put(".non_hashing_path_value", Value.path(new NonHashedPath("non_hashing_test")))
-            .put(
-                ".source_root_value",
-                Value.sourceRoot(
-                    new com.facebook.buck.log.thrift.rulekeys.SourceRoot("source_root")))
             .put(
                 ".rule_key_value",
                 Value.ruleKeyHash(new RuleKeyHash("d0c852385a66458b6e960c89fac580e5eb6d6aec")))

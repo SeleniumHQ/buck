@@ -42,7 +42,9 @@ import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.WindowsLinker;
+import com.facebook.buck.features.python.PythonBuckConfig.PackageStyle;
 import com.facebook.buck.features.python.toolchain.PexToolProvider;
 import com.facebook.buck.features.python.toolchain.PythonPlatform;
 import com.facebook.buck.features.python.toolchain.PythonPlatformsProvider;
@@ -144,7 +146,8 @@ public class PythonBinaryDescription
       String mainModule,
       Optional<String> extension,
       PythonPackageComponents components,
-      ImmutableSet<String> preloadLibraries) {
+      ImmutableSet<String> preloadLibraries,
+      PackageStyle packageStyle) {
 
     // We don't currently support targeting Windows.
     if (cxxPlatform.getLd().resolve(graphBuilder) instanceof WindowsLinker) {
@@ -187,7 +190,8 @@ public class PythonBinaryDescription
         preloadLibraries,
         pythonBuckConfig.legacyOutputPath(),
         linkTree,
-        pythonPlatform.getEnvironment());
+        pythonPlatform.getEnvironment(),
+        packageStyle);
   }
 
   PythonBinary createPackageRule(
@@ -206,6 +210,7 @@ public class PythonBinaryDescription
       ImmutableSet<String> preloadLibraries) {
 
     switch (packageStyle) {
+      case INPLACE_LITE:
       case INPLACE:
         return createInPlaceBinaryRule(
             buildTarget,
@@ -218,7 +223,8 @@ public class PythonBinaryDescription
             mainModule,
             extension,
             components,
-            preloadLibraries);
+            preloadLibraries,
+            packageStyle);
 
       case STANDALONE:
         return new PythonPackagedBinary(
@@ -245,16 +251,18 @@ public class PythonBinaryDescription
     }
   }
 
-  private CxxPlatform getCxxPlatform(BuildTarget target, AbstractPythonBinaryDescriptionArg args) {
+  private UnresolvedCxxPlatform getCxxPlatform(
+      BuildTarget target, AbstractPythonBinaryDescriptionArg args) {
     CxxPlatformsProvider cxxPlatformsProvider =
         toolchainProvider.getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class);
-    FlavorDomain<CxxPlatform> cxxPlatforms = cxxPlatformsProvider.getCxxPlatforms();
+    FlavorDomain<UnresolvedCxxPlatform> cxxPlatforms =
+        cxxPlatformsProvider.getUnresolvedCxxPlatforms();
     return cxxPlatforms
         .getValue(target)
         .orElse(
             args.getCxxPlatform()
                 .map(cxxPlatforms::getValue)
-                .orElse(cxxPlatformsProvider.getDefaultCxxPlatform()));
+                .orElse(cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform()));
   }
 
   @Override
@@ -311,7 +319,7 @@ public class PythonBinaryDescription
                     args.getPlatform()
                         .<Flavor>map(InternalFlavor::of)
                         .orElse(pythonPlatforms.getFlavors().iterator().next())));
-    CxxPlatform cxxPlatform = getCxxPlatform(buildTarget, args);
+    CxxPlatform cxxPlatform = getCxxPlatform(buildTarget, args).resolve(graphBuilder);
     CellPathResolver cellRoots = context.getCellPathResolver();
     ProjectFilesystem projectFilesystem = context.getProjectFilesystem();
     StringWithMacrosConverter macrosConverter =
@@ -367,7 +375,7 @@ public class PythonBinaryDescription
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     // We need to use the C/C++ linker for native libs handling, so add in the C/C++ linker to
     // parse time deps.
-    extraDepsBuilder.addAll(getCxxPlatform(buildTarget, constructorArg).getLd().getParseTimeDeps());
+    extraDepsBuilder.addAll(getCxxPlatform(buildTarget, constructorArg).getLinkerParseTimeDeps());
 
     if (constructorArg.getPackageStyle().orElse(pythonBuckConfig.getPackageStyle())
         == PythonBuckConfig.PackageStyle.STANDALONE) {

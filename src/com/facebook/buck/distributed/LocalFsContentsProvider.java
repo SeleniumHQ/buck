@@ -30,6 +30,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -55,7 +56,8 @@ public class LocalFsContentsProvider implements FileContentsProvider {
             projectFilesystemFactory.createProjectFilesystem(cacheDirAbsPath),
             Paths.get(CACHE_NAME),
             CacheReadMode.READWRITE,
-            Optional.empty());
+            Optional.empty(),
+            MoreExecutors.newDirectExecutorService());
   }
 
   @Override
@@ -64,7 +66,8 @@ public class LocalFsContentsProvider implements FileContentsProvider {
     RuleKey key = new RuleKey(entry.getSha1());
     return Futures.transform(
         dirCache.fetchAsync(null, key, LazyPath.ofInstance(targetAbsPath)),
-        (CacheResult result) -> result.getType() == CacheResultType.HIT);
+        (CacheResult result) -> result.getType() == CacheResultType.HIT,
+        MoreExecutors.directExecutor());
   }
 
   public void writeFileAndGetInputStream(BuildJobStateFileHashEntry entry, Path absPath)

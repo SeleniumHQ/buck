@@ -18,7 +18,6 @@ package org.openqa.selenium.buck.file;
 import com.facebook.buck.core.description.Description;
 import com.facebook.buck.core.description.DescriptionCreationContext;
 import com.facebook.buck.core.model.targetgraph.DescriptionProvider;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.stream.Collectors;
@@ -29,8 +28,7 @@ import org.pf4j.Extension;
 public class FileDescriptionProvider implements DescriptionProvider {
 
   @Override
-  public Collection<DescriptionWithTargetGraph<?>> getDescriptions(
-      DescriptionCreationContext context) {
+  public Collection<Description<?>> getDescriptions(DescriptionCreationContext context) {
     return Stream.of(new FolderDescription())
         .collect(Collectors.toCollection(HashSet::new));
   }

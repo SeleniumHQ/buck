@@ -18,11 +18,11 @@ package com.facebook.buck.zip;
 
 import static com.facebook.buck.util.zip.ZipOutputStreams.HandleDuplicates.THROW_EXCEPTION;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -53,8 +53,7 @@ import java.util.zip.ZipEntry;
 @SuppressWarnings("PMD.AvoidUsingOctalValues")
 public class ZipStep implements Step {
 
-  private static final Logger LOG = Logger.get(ZipStep.class);
-
+  public static final Logger LOG = Logger.get(ZipStep.class);
   private final ProjectFilesystem filesystem;
   private final Path pathToZipFile;
   private final ImmutableSet<Path> paths;
@@ -70,6 +69,7 @@ public class ZipStep implements Step {
    * containing just the file. If you were in {@code /} and added {@code dir/file.txt}, you would
    * get an archive containing the file within a directory.
    *
+   * @param filesystem project filesystem based in current working directory.
    * @param pathToZipFile path to archive to create, relative to project root.
    * @param paths a set of files to work on. The entire working directory is assumed if this set is
    *     empty.
@@ -94,16 +94,13 @@ public class ZipStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context)
-      throws IOException, InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) throws IOException {
     if (filesystem.exists(pathToZipFile)) {
       context.postEvent(
           ConsoleEvent.severe("Attempting to overwrite an existing zip: %s", pathToZipFile));
       return StepExecutionResults.ERROR;
     }
 
-    // Since filesystem traversals can be non-deterministic, sort the entries we find into
-    // a tree map before writing them out.
     Map<String, Pair<CustomZipEntry, Optional<Path>>> entries = new TreeMap<>();
 
     FileVisitor<Path> pathFileVisitor =
@@ -191,7 +188,6 @@ public class ZipStep implements Step {
         out.closeEntry();
       }
     }
-
     return StepExecutionResults.SUCCESS;
   }
 
@@ -208,7 +204,7 @@ public class ZipStep implements Step {
     // compression level
     args.append("-").append(compressionLevel).append(" ");
 
-    // unk paths
+    // junk paths
     if (junkPaths) {
       args.append("-j ");
     }

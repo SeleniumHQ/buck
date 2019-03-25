@@ -13,11 +13,19 @@
       <sourceFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cli/testdata" type="java-test-resource" relativeOutputPath="com/facebook/buck/cli/testdata" />
       <sourceFolder url="file://$MODULE_DIR$/test/com/facebook/buck/config/testdata" type="java-resource" />
       <sourceFolder url="file://$MODULE_DIR$/third-party/java/dx/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/src/com/facebook/buck/jvm/java/abi/java8" isTestSource="false" packagePrefix="com.facebook.buck.jvm.java.abi" />
+      <sourceFolder url="file://$MODULE_DIR$/src/com/facebook/buck/jvm/java/abi/source/java8" isTestSource="false" packagePrefix="com.facebook.buck.jvm.java.abi.source" />
+      <sourceFolder url="file://$MODULE_DIR$/src/com/facebook/buck/jvm/java/plugin/adapter/java8" isTestSource="false" packagePrefix="com.facebook.buck.jvm.java.plugin.adapter" />
+      <sourceFolder url="file://$MODULE_DIR$/third-party/java/android/annotations/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/third-party/java/aosp/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/.buckd" />
       <excludeFolder url="file://$MODULE_DIR$/ant-out" />
       <excludeFolder url="file://$MODULE_DIR$/buck-out" />
       <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/android/support" />
       <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/intellij" />
+      <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/jvm/java/abi/java11" />
+      <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/jvm/java/abi/source/java11" />
+      <excludeFolder url="file://$MODULE_DIR$/src/com/facebook/buck/jvm/java/plugin/adapter/java11" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/android/agent/util/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/android/exopackage/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/android/testdata" />
@@ -28,7 +36,9 @@
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cli/bootstrapper/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cli/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/core/model/actiongraph/computation/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/core/model/targetgraph/impl/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/core/rules/configsetting/testdata" />
+      <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/core/select/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/crosscell/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cxx/elf/testdata" />
       <excludeFolder url="file://$MODULE_DIR$/test/com/facebook/buck/cxx/testdata" />
@@ -81,7 +91,6 @@
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="asm" level="project" />
     <orderEntry type="library" name="buck-lib" level="project" />
-    <orderEntry type="module" module-name="aosp" />
     <orderEntry type="library" name="concurrent-locks" level="project" />
     <orderEntry type="library" name="dd-plist" level="project" />
     <orderEntry type="library" name="gson" level="project" />
@@ -106,6 +115,7 @@
     <orderEntry type="library" name="diffutils-1.3.0" level="project" />
     <orderEntry type="library" name="okio" level="project" />
     <orderEntry type="library" name="okhttp" level="project" />
+    <orderEntry type="library" name="okhttp-tls" level="project" />
     <orderEntry type="library" name="sqlite" level="project" />
     <orderEntry type="library" name="android-tools-25.3.0" level="project" />
     <orderEntry type="library" name="jmh" level="project" />
@@ -118,15 +128,18 @@
     <orderEntry type="library" name="d8" level="project" />
     <orderEntry type="library" name="objenesis-1.2" level="project" />
     <orderEntry type="library" name="junitparams" level="project" />
-    <orderEntry type="library" name="protobuf-java-3.5.1" level="project" />
+    <orderEntry type="library" name="protobuf-java-3.7.0" level="project" />
     <orderEntry type="library" name="grpc" level="project" />
-    <orderEntry type="library" name="opencensus-api-0.12.2" level="project" />
+    <orderEntry type="library" name="opencensus-api-0.18.0" level="project" />
     <orderEntry type="library" name="remote-apis" level="project" />
-    <orderEntry type="library" name="netty-all-4.1.24.Final" level="project" />
     <orderEntry type="library" name="guava-20.0" level="project" />
-    <orderEntry type="library" name="bundle" level="project" />
-    <orderEntry type="library" name="commons-compress-1.17" level="project" />
+    <orderEntry type="library" name="bundletool-0.7.1" level="project" />
+    <orderEntry type="library" name="aapt2-proto-0.3.1" level="project" />
+    <orderEntry type="library" name="commons-compress-1.18" level="project" />
     <orderEntry type="library" name="apksig" level="project" />
     <orderEntry type="library" name="zstd-jni-1.3.5-2" level="project" />
+    <orderEntry type="library" name="a2api" level="project" />
+    <orderEntry type="library" name="devspeed.logging" level="project" />
+    <orderEntry type="library" name="KotlinJavaRuntime" level="project" />
   </component>
 </module>

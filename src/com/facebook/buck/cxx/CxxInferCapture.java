@@ -18,6 +18,7 @@ package com.facebook.buck.cxx;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
@@ -36,7 +37,6 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.DefaultShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -166,7 +166,8 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
 
   @Override
   public Predicate<SourcePath> getCoveredByDepFilePredicate(SourcePathResolver pathResolver) {
-    return preprocessorDelegate.getCoveredByDepFilePredicate();
+    return Depfiles.getCoveredByDepFilePredicate(
+        Optional.of(preprocessorDelegate), Optional.empty());
   }
 
   @Override
@@ -189,7 +190,8 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
               getDepFilePath(),
               context.getSourcePathResolver().getRelativePath(input),
               output,
-              DependencyTrackingMode.MAKEFILE);
+              DependencyTrackingMode.MAKEFILE,
+              false);
     } catch (Depfiles.HeaderVerificationException e) {
       throw new HumanReadableException(e);
     }
@@ -226,8 +228,7 @@ class CxxInferCapture extends AbstractBuildRule implements SupportsDependencyFil
     }
 
     @Override
-    public StepExecutionResult execute(ExecutionContext context)
-        throws IOException, InterruptedException {
+    public StepExecutionResult execute(ExecutionContext context) throws IOException {
       getProjectFilesystem()
           .writeLinesToPath(
               Iterables.transform(getCompilerArgs(), Escaper.ARGFILE_ESCAPER::apply), getArgfile());

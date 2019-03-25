@@ -36,6 +36,8 @@ import com.facebook.buck.core.model.targetgraph.impl.TargetNodeFactory;
 import com.facebook.buck.core.model.targetgraph.impl.TargetNodes;
 import com.facebook.buck.core.module.BuckModuleManager;
 import com.facebook.buck.core.module.TestBuckModuleManagerFactory;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -57,14 +59,14 @@ import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
 import com.facebook.buck.parser.DefaultParserTargetNodeFactory;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserTargetNodeFactory;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
+import com.facebook.buck.rules.coercer.DefaultConstructorArgMarshaller;
 import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.coercer.PathTypeCoercer;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
-import com.facebook.buck.rules.visibility.VisibilityPatternFactory;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ProjectWorkspace;
@@ -76,6 +78,7 @@ import com.facebook.buck.util.cache.impl.DefaultFileHashCache;
 import com.facebook.buck.util.cache.impl.StackedFileHashCache;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.ConfigBuilder;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -105,12 +108,14 @@ public class DistBuildStateTest {
   private ExecutableFinder executableFinder;
   private BuckModuleManager moduleManager;
   private PluginManager pluginManager;
+  private UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory;
 
   private void setUp() {
     processExecutor = new DefaultProcessExecutor(new TestConsole());
     executableFinder = new ExecutableFinder();
     pluginManager = BuckPluginManagerFactory.createPluginManager();
     moduleManager = TestBuckModuleManagerFactory.create(pluginManager);
+    unconfiguredBuildTargetFactory = new ParsingUnconfiguredBuildTargetFactory();
   }
 
   @Test
@@ -121,7 +126,7 @@ public class DistBuildStateTest {
         FakeBuckConfig.builder()
             .setEnvironment(
                 ImmutableMap.<String, String>builder()
-                    .putAll(System.getenv())
+                    .putAll(EnvVariablesProvider.getSystemEnv())
                     .put("envKey", "envValue")
                     .build())
             .setFilesystem(filesystem)
@@ -150,7 +155,8 @@ public class DistBuildStateTest {
             executableFinder,
             moduleManager,
             pluginManager,
-            new DefaultProjectFilesystemFactory());
+            new DefaultProjectFilesystemFactory(),
+            unconfiguredBuildTargetFactory);
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
     assertThat(cells, Matchers.aMapWithSize(1));
     assertThat(cells.get(0).getBuckConfig(), Matchers.equalTo(buckConfig));
@@ -174,7 +180,7 @@ public class DistBuildStateTest {
         FakeBuckConfig.builder()
             .setEnvironment(
                 ImmutableMap.<String, String>builder()
-                    .putAll(System.getenv())
+                    .putAll(EnvVariablesProvider.getSystemEnv())
                     .put("envKey", "envValue")
                     .build())
             .setFilesystem(filesystem)
@@ -191,7 +197,7 @@ public class DistBuildStateTest {
         FakeBuckConfig.builder()
             .setEnvironment(
                 ImmutableMap.<String, String>builder()
-                    .putAll(System.getenv())
+                    .putAll(EnvVariablesProvider.getSystemEnv())
                     .put("envKey", "envValue")
                     .build())
             .setFilesystem(filesystem)
@@ -217,7 +223,8 @@ public class DistBuildStateTest {
             executableFinder,
             moduleManager,
             pluginManager,
-            new DefaultProjectFilesystemFactory());
+            new DefaultProjectFilesystemFactory(),
+            unconfiguredBuildTargetFactory);
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
 
     assertThat(cells, Matchers.aMapWithSize(1));
@@ -234,14 +241,13 @@ public class DistBuildStateTest {
     Cell cell = projectWorkspace.asCell();
     ProjectFilesystem projectFilesystem = cell.getFilesystem();
     projectFilesystem.mkdirs(projectFilesystem.getBuckPaths().getBuckOut());
-    BuckConfig buckConfig = cell.getBuckConfig();
     setUp();
-    Parser parser = TestParserFactory.create(buckConfig);
+    Parser parser = TestParserFactory.create(cell);
     TargetGraph targetGraph =
         parser.buildTargetGraph(
-            cell,
-            /* enableProfiling */ false,
-            MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
+            ParsingContext.builder(
+                    cell, MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()))
+                .build(),
             ImmutableSet.of(
                 BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:lib1"),
                 BuildTargetFactory.newInstance(projectFilesystem.getRootPath(), "//:lib2"),
@@ -270,7 +276,8 @@ public class DistBuildStateTest {
             executableFinder,
             moduleManager,
             pluginManager,
-            new DefaultProjectFilesystemFactory());
+            new DefaultProjectFilesystemFactory(),
+            unconfiguredBuildTargetFactory);
 
     ProjectFilesystem reconstructedCellFilesystem =
         distributedBuildState.getCells().get(0).getFilesystem();
@@ -312,7 +319,7 @@ public class DistBuildStateTest {
         FakeBuckConfig.builder()
             .setEnvironment(
                 ImmutableMap.<String, String>builder()
-                    .putAll(System.getenv())
+                    .putAll(EnvVariablesProvider.getSystemEnv())
                     .put("envKey", "envValue")
                     .build())
             .setFilesystem(cell1Filesystem)
@@ -341,7 +348,7 @@ public class DistBuildStateTest {
         FakeBuckConfig.builder()
             .setEnvironment(
                 ImmutableMap.<String, String>builder()
-                    .putAll(System.getenv())
+                    .putAll(EnvVariablesProvider.getSystemEnv())
                     .put("envKey", "envValue")
                     .build())
             .setFilesystem(cell1Filesystem)
@@ -357,7 +364,8 @@ public class DistBuildStateTest {
             executableFinder,
             moduleManager,
             pluginManager,
-            new DefaultProjectFilesystemFactory());
+            new DefaultProjectFilesystemFactory(),
+            unconfiguredBuildTargetFactory);
     ImmutableMap<Integer, Cell> cells = distributedBuildState.getCells();
     assertThat(cells, Matchers.aMapWithSize(2));
 
@@ -405,9 +413,11 @@ public class DistBuildStateTest {
               return parser
                   .get()
                   .getTargetNodeRawAttributes(
-                      cell.getCell(input.getBuildTarget()),
-                      /* enableProfiling */ false,
-                      MoreExecutors.listeningDecorator(MoreExecutors.newDirectExecutorService()),
+                      ParsingContext.builder(
+                              cell.getCell(input.getBuildTarget()),
+                              MoreExecutors.listeningDecorator(
+                                  MoreExecutors.newDirectExecutorService()))
+                          .build(),
                       input);
             } catch (BuildFileParseException e) {
               throw new RuntimeException(e);
@@ -424,10 +434,9 @@ public class DistBuildStateTest {
     ParserTargetNodeFactory<Map<String, Object>> parserTargetNodeFactory =
         DefaultParserTargetNodeFactory.createForDistributedBuild(
             knownRuleTypesProvider,
-            new ConstructorArgMarshaller(typeCoercerFactory),
-            new TargetNodeFactory(typeCoercerFactory),
-            new VisibilityPatternFactory(),
-            TestRuleKeyConfigurationFactory.create());
+            new DefaultConstructorArgMarshaller(typeCoercerFactory),
+            new TargetNodeFactory(
+                typeCoercerFactory, PathTypeCoercer.PathExistenceVerificationMode.DO_NOT_VERIFY));
 
     return new DistBuildTargetGraphCodec(
         MoreExecutors.newDirectExecutorService(),
@@ -455,8 +464,7 @@ public class DistBuildStateTest {
         JavaLibraryBuilder.createBuilder(target, cellTwoFilesystem).build());
   }
 
-  public static ProjectFilesystem createJavaOnlyFilesystem(String rootPath)
-      throws InterruptedException, IOException {
+  public static ProjectFilesystem createJavaOnlyFilesystem(String rootPath) throws IOException {
     ProjectFilesystem filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem(rootPath);
     filesystem.mkdirs(filesystem.getBuckPaths().getBuckOut());
     return filesystem;

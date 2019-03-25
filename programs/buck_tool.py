@@ -1,3 +1,17 @@
+# Copyright 2018-present Facebook, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
 from __future__ import print_function
 
 import errno
@@ -22,7 +36,7 @@ from subprocutils import which
 from timing import monotonic_time_nanos
 from tracing import Tracing
 
-BUCKD_CLIENT_TIMEOUT_MILLIS = 120000
+BUCKD_CLIENT_TIMEOUT_MILLIS = 180000
 BUCKD_STARTUP_TIMEOUT_MILLIS = 10000
 GC_MAX_PAUSE_TARGET = 15000
 
@@ -52,6 +66,7 @@ EXPORTED_RESOURCES = [
     Resource("path_to_pathlib_py", basename="pathlib.py"),
     Resource("path_to_pywatchman"),
     Resource("path_to_typing"),
+    Resource("path_to_six_py", basename="six.py"),
     Resource("path_to_sh_binary_template"),
     Resource("path_to_isolated_trampoline"),
     Resource("jacoco_agent_jar"),
@@ -112,9 +127,7 @@ class ExecuteTarget(Exception):
             signal.signal(signal.SIGPIPE, signal.SIG_DFL)
             os.execvpe(self._path, self._argv, self._envp)
         else:
-            child = subprocess.Popen(
-                self._argv, executable=self._path, env=self._envp, cwd=self._cwd
-            )
+            child = subprocess.Popen(self._argv, env=self._envp, cwd=self._cwd)
             child.wait()
             sys.exit(child.returncode)
 
@@ -228,6 +241,9 @@ class BuckTool(object):
     def _get_buck_repo_dirty(self):
         return self._package_info["is_dirty"]
 
+    def get_buck_compiled_java_version(self):
+        return self._package_info["java_version"]
+
     def _get_bootstrap_classpath(self):
         raise NotImplementedError()
 
@@ -279,24 +295,32 @@ class BuckTool(object):
 
     def _add_args(self, argv, args):
         """
-        Add new arguments to the beginning of arguments string
-        Adding to the end will mess up with custom test runner params
+        Add new arguments to the end of arguments string
+        But before optional arguments to test runner ("--")
         """
-        if len(argv) < 2:
-            return argv + args
-        return [argv[0]] + args + argv[1:]
+        try:
+            pos = argv.index("--")
+        except ValueError:
+            # "--" not found, just add to the end of the list
+            pos = len(argv)
+
+        return argv[:pos] + args + argv[pos:]
 
     def _add_args_from_env(self, argv):
         """
         Implicitly add command line arguments based on environmental variables. This is a bad
         practice and should be considered for infrastructure / debugging purposes only
         """
+        args = []
 
         if os.environ.get("BUCK_NO_CACHE") == "1" and "--no-cache" not in argv:
-            argv = self._add_args(argv, ["--no-cache"])
+            args.append("--no-cache")
         if os.environ.get("BUCK_CACHE_READONLY") == "1":
-            argv = self._add_args(argv, ["-c", "cache.http_mode=readonly"])
-        return argv
+            args.append("-c")
+            args.append("cache.http_mode=readonly")
+        if len(args) == 0:
+            return argv
+        return self._add_args(argv, args)
 
     def _run_with_nailgun(self, argv, env):
         """
@@ -313,21 +337,26 @@ class BuckTool(object):
                     now = int(round(time.time() * 1000))
                     env["BUCK_PYTHON_SPACE_INIT_TIME"] = str(now - self._init_timestamp)
                     exit_code = c.send_command(
-                        "com.facebook.buck.cli.Main",
+                        "com.facebook.buck.cli.MainWithNailgun",
                         self._add_args_from_env(argv),
                         env=env,
                         cwd=self._buck_project.root,
                     )
                     if exit_code == 2:
                         env["BUCK_BUILD_ID"] = str(uuid.uuid4())
-                        if not busy_diagnostic_displayed:
+                        if busy_diagnostic_displayed:
+                            sys.stderr.write(".")
+                            sys.stderr.flush()
+                        else:
                             logging.info(
-                                "Buck daemon is busy with another command. "
-                                + "Waiting for it to become free...\n"
-                                + "You can use 'buck kill' to kill buck "
+                                "You can use 'buck kill' to kill buck "
                                 + "if you suspect buck is stuck."
                             )
                             busy_diagnostic_displayed = True
+                            env["BUCK_BUSY_DISPLAYED"] = "1"
+                            sys.stderr.write("Waiting for Buck Daemon to become free")
+                            sys.stderr.flush()
+
                         time.sleep(3)
             except NailgunException as nex:
                 if nex.code == NailgunException.CONNECTION_BROKEN:
@@ -379,7 +408,7 @@ class BuckTool(object):
                 command, cwd=self._buck_project.root, env=env, executable=java
             )
 
-    def _execute_command_and_maybe_run_target(self, run_fn, env):
+    def _execute_command_and_maybe_run_target(self, run_fn, env, argv):
         """
         Run a buck command using the specified `run_fn`.  If the command is "run", get the path,
         args, etc. from the daemon, and raise an exception that tells __main__ to run that binary
@@ -407,7 +436,7 @@ class BuckTool(object):
                         handle, console_mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING
                     )
 
-            argv = sys.argv[1:]
+            argv = argv[1:]
             if len(argv) == 0 or argv[0] != "run":
                 return run_fn(argv, env)
             else:
@@ -428,7 +457,7 @@ class BuckTool(object):
                     cwd = cmd["cwd"].encode("utf8")
                     raise ExecuteTarget(path, argv, envp, cwd)
 
-    def launch_buck(self, build_id):
+    def launch_buck(self, build_id, argv):
         with Tracing("BuckTool.launch_buck"):
             with JvmCrashLogger(self, self._buck_project.root):
                 self._reporter.build_id = build_id
@@ -475,6 +504,8 @@ class BuckTool(object):
                 if use_buckd:
                     need_start = True
                     running_version = self._buck_project.get_running_buckd_version()
+                    running_jvm_args = self._buck_project.get_running_buckd_jvm_args()
+                    jvm_args = self._get_java_args(buck_version_uid)
                     if running_version is None:
                         logging.info("Starting new Buck daemon...")
                     elif running_version != buck_version_uid:
@@ -485,12 +516,18 @@ class BuckTool(object):
                         logging.info(
                             "Unable to connect to Buck daemon, restarting it..."
                         )
+                    elif jvm_args != running_jvm_args:
+                        logging.info(
+                            "Restarting Buck daemon because JVM args have changed..."
+                        )
                     else:
                         need_start = False
 
                     if need_start:
                         self.kill_buckd()
-                        if not self.launch_buckd(buck_version_uid=buck_version_uid):
+                        if not self.launch_buckd(
+                            jvm_args, buck_version_uid=buck_version_uid
+                        ):
                             use_buckd = False
                             self._reporter.no_buckd_reason = "daemon_failure"
                             logging.warning(
@@ -507,7 +544,9 @@ class BuckTool(object):
 
                 self._unpack_modules()
 
-                exit_code = self._execute_command_and_maybe_run_target(run_fn, env)
+                exit_code = self._execute_command_and_maybe_run_target(
+                    run_fn, env, argv
+                )
 
                 # Most shells return process termination with signal as
                 # 128 + N, where N is the signal. However Python's subprocess
@@ -518,7 +557,7 @@ class BuckTool(object):
                 return exit_code
 
 
-    def launch_buckd(self, buck_version_uid=None):
+    def launch_buckd(self, jvm_args, buck_version_uid=None):
         with Tracing("BuckTool.launch_buckd"):
             setup_watchman_watch()
             if buck_version_uid is None:
@@ -552,14 +591,15 @@ class BuckTool(object):
                 "-XX:+UnlockDiagnosticVMOptions",
                 "-XX:GuaranteedSafepointInterval=5000",
                 "-Djava.io.tmpdir={0}".format(buckd_tmp_dir),
-                "-Dcom.martiansoftware.nailgun.NGServer.outputPath={0}".format(
+                "-Dcom.facebook.nailgun.NGServer.outputPath={0}".format(
                     ngserver_output_path
                 ),
                 "-XX:+UseG1GC",
                 "-XX:MaxHeapFreeRatio=40",
             ]
 
-            command.extend(self._get_java_args(buck_version_uid, extra_default_options))
+            command.extend(extra_default_options)
+            command.extend(jvm_args)
             command.append("com.facebook.buck.cli.bootstrapper.ClassLoaderBootstrapper")
             command.append("com.facebook.buck.cli.Main$DaemonBootstrap")
             command.append(self._buck_project.get_buckd_transport_address())
@@ -605,6 +645,9 @@ class BuckTool(object):
             )
 
             self._buck_project.save_buckd_version(buck_version_uid)
+            self._buck_project.save_buckd_jvm_args(
+                self._get_java_args(buck_version_uid)
+            )
 
             # Give Java some time to create the listening socket.
 
@@ -743,11 +786,14 @@ class BuckTool(object):
                 "-Dbuck.binary_hash={0}".format(self._get_buck_binary_hash()),
             ]
 
-            if "BUCK_DEFAULT_FILESYSTEM" not in os.environ and (
-                sys.platform == "darwin" or sys.platform.startswith("linux")
+            if (
+                "BUCK_DEFAULT_FILESYSTEM" not in os.environ
+                and (sys.platform == "darwin" or sys.platform.startswith("linux"))
+                and self.get_buck_compiled_java_version() <= 8
             ):
                 # Change default filesystem to custom filesystem for memory optimizations
                 # Calls like Paths.get() would return optimized Path implementation
+                # TODO: Temporarily disabled for Java 11 due to class loader issues.
                 java_args.append(
                     "-Djava.nio.file.spi.DefaultFileSystemProvider="
                     "com.facebook.buck.cli.bootstrapper.filesystem.BuckFileSystemProvider"
@@ -808,6 +854,24 @@ class BuckTool(object):
             extra_java_args = os.environ.get("BUCK_EXTRA_JAVA_ARGS")
             if extra_java_args:
                 java_args.extend(shlex.split(extra_java_args))
+
+            # Remove unsupported args on newer Java versions. This is only here temporarily to
+            # simplify the transition while we need to support multiple versions of the JVM.
+            # TODO: Remove once Java 11 upgrade is done.
+            if self.get_buck_compiled_java_version() >= 9:
+                unsupported_args = set(["-XX:+UseParNewGC"])
+                stripped_args = []
+                for arg in java_args:
+                    if arg in unsupported_args:
+                        logging.warning(
+                            "Removing JVM arg %s, which is not supported in Java %d.",
+                            arg,
+                            self.get_buck_compiled_java_version(),
+                        )
+                    else:
+                        stripped_args.append(arg)
+                java_args = stripped_args
+
             return java_args
 
 

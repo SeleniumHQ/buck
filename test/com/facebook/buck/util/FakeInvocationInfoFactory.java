@@ -28,6 +28,13 @@ public class FakeInvocationInfoFactory {
 
   public static InvocationInfo create() {
     return InvocationInfo.of(
-        new BuildId(), false, false, "test", ImmutableList.of(), ImmutableList.of(), Paths.get(""));
+        new BuildId(),
+        false,
+        false,
+        "test",
+        ImmutableList.of(),
+        ImmutableList.of(),
+        Paths.get(""),
+        false);
   }
 }

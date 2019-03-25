@@ -1,4 +1,18 @@
 #!/bin/sh
+# Copyright 2018-present Facebook, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
 set -eux
 
 # We export TERM=dumb to hide Buck's SuperConsole
@@ -34,7 +48,7 @@ if [ "$CI_ACTION" = "heavy_integration" ]; then
   ./bin/buck test  --num-threads=1 //test/com/facebook/buck/android/... //test/com/facebook/buck/jvm/java/... --filter '.*[Ii]ntegration.*'
 fi
 
-if [ "$CI_ACTION" = "android_ndk_15" ] || [ "$CI_ACTION" = "android_ndk_16" ] || [ "$CI_ACTION" = "android_ndk_17" ]; then
+if [ "$CI_ACTION" = "android_ndk_15" ] || [ "$CI_ACTION" = "android_ndk_16" ] || [ "$CI_ACTION" = "android_ndk_17" ] || [ "$CI_ACTION" = "android_ndk_18" ]; then
   ./bin/buck build --num-threads=$BUCK_NUM_THREADS //test/com/facebook/buck/android/...
   ./bin/buck test  --num-threads=1 //test/com/facebook/buck/android/... --filter '.*[Ii]ntegration.*'
 fi

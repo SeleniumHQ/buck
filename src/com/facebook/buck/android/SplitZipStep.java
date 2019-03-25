@@ -21,9 +21,9 @@ import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.dalvik.DalvikAwareZipSplitterFactory;
 import com.facebook.buck.android.dalvik.ZipSplitterFactory;
 import com.facebook.buck.android.dalvik.firstorder.FirstOrderHelper;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -45,6 +45,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -164,8 +165,7 @@ public class SplitZipStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context)
-      throws IOException, InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) throws IOException {
     Set<Path> inputJarPaths =
         inputPathsToSplit.stream().map(filesystem::resolve).collect(ImmutableSet.toImmutableSet());
     Supplier<ImmutableList<ClassNode>> classes =
@@ -235,7 +235,7 @@ public class SplitZipStep implements Step {
           writeMetaList(
               secondaryMetaInfoWriter,
               dexStore.getName(),
-              Preconditions.checkNotNull(apkModuleMap.get(dexStore)),
+              Objects.requireNonNull(apkModuleMap.get(dexStore)),
               outputFiles
                   .get(dexStore)
                   .stream()
@@ -263,7 +263,7 @@ public class SplitZipStep implements Step {
     return classFileName -> {
       // Drop the ".class" suffix and deobfuscate the class name before we apply our checks.
       String internalClassName =
-          Preconditions.checkNotNull(deobfuscate.apply(classFileName.replaceAll("\\.class$", "")));
+          Objects.requireNonNull(deobfuscate.apply(classFileName.replaceAll("\\.class$", "")));
 
       return primaryDexClassNames.contains(internalClassName)
           || primaryDexFilter.matches(internalClassName);
@@ -444,7 +444,7 @@ public class SplitZipStep implements Step {
       }
       String jarHash = hexSha1(jarFiles.get(i));
       String containedClass = findAnyClass(jarFiles.get(i));
-      Preconditions.checkNotNull(containedClass);
+      Objects.requireNonNull(containedClass);
       writer.write(String.format("%s %s %s", filename, jarHash, containedClass));
       writer.newLine();
     }

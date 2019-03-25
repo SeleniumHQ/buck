@@ -19,13 +19,13 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.apkmodule.APKModule;
 import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.dalvik.CanaryFactory;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.java.classes.FileLike;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -177,7 +177,7 @@ public class PreDexedFilesSorter {
 
       // If this is the first class in the dex, initialize it with a canary and add it to the set of
       // dexes.
-      if (currentDexContents.size() == 0) {
+      if (currentDexContents.isEmpty()) {
         DexWithClasses canary =
             createCanary(
                 filesystem, apkModule.getCanaryClassName(), dexesContents.size() + 1, steps);

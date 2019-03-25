@@ -17,8 +17,6 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.core.cell.CellPathResolver;
-import com.facebook.buck.parser.BuildTargetPattern;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.types.Pair;
 import com.facebook.buck.versions.TargetNodeTranslator;
@@ -61,14 +59,10 @@ public class PatternMatchedCollection<T>
 
   @Override
   public Optional<PatternMatchedCollection<T>> translateTargets(
-      CellPathResolver cellPathResolver,
-      BuildTargetPatternParser<BuildTargetPattern> pattern,
-      TargetNodeTranslator translator) {
+      CellPathResolver cellPathResolver, String targetBaseName, TargetNodeTranslator translator) {
     Optional<ImmutableList<Pair<Pattern, T>>> translatedValues =
-        translator.translate(cellPathResolver, pattern, values);
-    return translatedValues.isPresent()
-        ? Optional.of(new PatternMatchedCollection<>(translatedValues.get()))
-        : Optional.empty();
+        translator.translate(cellPathResolver, targetBaseName, values);
+    return translatedValues.map(PatternMatchedCollection::new);
   }
 
   public static <T> PatternMatchedCollection<T> of() {

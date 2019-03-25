@@ -26,7 +26,6 @@ import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.description.arg.Hint;
 import com.facebook.buck.core.description.attr.ImplicitDepsInferringDescription;
 import com.facebook.buck.core.exceptions.HumanReadableException;
-import com.facebook.buck.core.macros.MacroException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.FlavorDomain;
@@ -42,32 +41,17 @@ import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.macros.ClasspathMacroExpander;
-import com.facebook.buck.rules.macros.ExecutableMacroExpander;
-import com.facebook.buck.rules.macros.LocationMacroExpander;
-import com.facebook.buck.rules.macros.MacroArg;
-import com.facebook.buck.rules.macros.MacroExpander;
-import com.facebook.buck.rules.macros.MacroHandler;
-import com.facebook.buck.rules.macros.MavenCoordinatesMacroExpander;
-import com.facebook.buck.rules.macros.QueryOutputsMacroExpander;
-import com.facebook.buck.rules.macros.QueryPathsMacroExpander;
-import com.facebook.buck.rules.macros.QueryTargetsAndOutputsMacroExpander;
-import com.facebook.buck.rules.macros.QueryTargetsMacroExpander;
-import com.facebook.buck.rules.macros.WorkerMacroExpander;
 import com.facebook.buck.sandbox.SandboxExecutionStrategy;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.MultimapBuilder;
 import com.google.common.collect.Sets;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 import org.immutables.value.Value;
 
 public class ApplePackageDescription
@@ -75,22 +59,6 @@ public class ApplePackageDescription
         Flavored,
         ImplicitDepsInferringDescription<
             ApplePackageDescription.AbstractApplePackageDescriptionArg> {
-
-  private static final MacroHandler PARSE_TIME_MACRO_HANDLER =
-      new MacroHandler(
-          ImmutableMap.<String, MacroExpander>builder()
-              .put("classpath", new ClasspathMacroExpander())
-              .put("exe", new ExecutableMacroExpander())
-              .put("worker", new WorkerMacroExpander())
-              .put("location", new LocationMacroExpander())
-              .put("maven_coords", new MavenCoordinatesMacroExpander())
-              .put("query_targets", new QueryTargetsMacroExpander(Optional.empty()))
-              .put("query_outputs", new QueryOutputsMacroExpander(Optional.empty()))
-              .put("query_paths", new QueryPathsMacroExpander(Optional.empty()))
-              .put(
-                  "query_targets_and_outputs",
-                  new QueryTargetsAndOutputsMacroExpander(Optional.empty()))
-              .build());
 
   private final ToolchainProvider toolchainProvider;
   private final SandboxExecutionStrategy sandboxExecutionStrategy;
@@ -118,13 +86,7 @@ public class ApplePackageDescription
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
 
     Optional<ApplePackageConfigAndPlatformInfo> applePackageConfigAndPlatformInfo =
-        getApplePackageConfig(
-            buildTarget,
-            MacroArg.toMacroArgFunction(
-                PARSE_TIME_MACRO_HANDLER,
-                buildTarget,
-                context.getCellPathResolver(),
-                graphBuilder));
+        getApplePackageConfig(buildTarget);
 
     if (applePackageConfigAndPlatformInfo.isPresent()) {
       return new ExternallyBuiltApplePackage(
@@ -141,7 +103,7 @@ public class ApplePackageDescription
                               applePackageConfigAndPlatformInfo.get().getExpandedArg(), ruleFinder))
                       .build()),
           applePackageConfigAndPlatformInfo.get(),
-          Preconditions.checkNotNull(bundle.getSourcePathToOutput()),
+          Objects.requireNonNull(bundle.getSourcePathToOutput()),
           bundle.isCacheable(),
           Optional.empty(),
           toolchainProvider.getByNameIfPresent(
@@ -173,7 +135,6 @@ public class ApplePackageDescription
       ImmutableCollection.Builder<BuildTarget> extraDepsBuilder,
       ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
     extraDepsBuilder.add(propagateFlavorsToTarget(buildTarget, constructorArg.getBundle()));
-    addDepsFromParam(extraDepsBuilder, targetGraphOnlyDepsBuilder, buildTarget, cellRoots);
   }
 
   @Override
@@ -201,8 +162,7 @@ public class ApplePackageDescription
    * @return If found, a package config for this target.
    * @throws HumanReadableException if there are multiple possible package configs.
    */
-  private Optional<ApplePackageConfigAndPlatformInfo> getApplePackageConfig(
-      BuildTarget target, Function<String, Arg> macroExpander) {
+  private Optional<ApplePackageConfigAndPlatformInfo> getApplePackageConfig(BuildTarget target) {
     FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain = getAppleCxxPlatformFlavorDomain();
     Set<Flavor> platformFlavors = getPlatformFlavorsOrDefault(target, appleCxxPlatformFlavorDomain);
 
@@ -216,11 +176,9 @@ public class ApplePackageDescription
       Optional<ApplePackageConfig> packageConfig =
           config.getPackageConfigForPlatform(platform.getAppleSdk().getApplePlatform());
       packageConfigs.put(
-          packageConfig.isPresent()
-              ? Optional.of(
-                  ApplePackageConfigAndPlatformInfo.of(
-                      packageConfig.get(), macroExpander, platform))
-              : Optional.empty(),
+          packageConfig.map(
+              applePackageConfig ->
+                  ApplePackageConfigAndPlatformInfo.of(applePackageConfig, platform)),
           flavor);
     }
 
@@ -235,43 +193,6 @@ public class ApplePackageDescription
     }
   }
 
-  /**
-   * Retrieve deps from macros in externally configured rules.
-   *
-   * <p>This is used for ImplicitDepsInferringDescription, so it is flavor agnostic.
-   */
-  private void addDepsFromParam(
-      ImmutableCollection.Builder<BuildTarget> buildDepsBuilder,
-      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder,
-      BuildTarget target,
-      CellPathResolver cellNames) {
-    FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain = getAppleCxxPlatformFlavorDomain();
-    // Add all macro expanded dependencies for these platforms.
-    for (Flavor flavor : appleCxxPlatformFlavorDomain.getFlavors()) {
-      AppleCxxPlatform platform = appleCxxPlatformFlavorDomain.getValue(flavor);
-      Optional<ApplePackageConfig> packageConfig =
-          config.getPackageConfigForPlatform(platform.getAppleSdk().getApplePlatform());
-
-      if (packageConfig.isPresent()) {
-        try {
-          PARSE_TIME_MACRO_HANDLER.extractParseTimeDeps(
-              target,
-              cellNames,
-              packageConfig.get().getCommand(),
-              buildDepsBuilder,
-              targetGraphOnlyDepsBuilder);
-        } catch (MacroException e) {
-          throw new HumanReadableException(
-              e,
-              "%s (for platform %s): %s",
-              target,
-              platform.getAppleSdk().getApplePlatform().getName(),
-              e.getMessage());
-        }
-      }
-    }
-  }
-
   private ImmutableSet<Flavor> getPlatformFlavorsOrDefault(
       BuildTarget target, FlavorDomain<AppleCxxPlatform> appleCxxPlatformFlavorDomain) {
     Sets.SetView<Flavor> intersection =
@@ -280,7 +201,7 @@ public class ApplePackageDescription
       return ImmutableSet.of(
           toolchainProvider
               .getByName(CxxPlatformsProvider.DEFAULT_NAME, CxxPlatformsProvider.class)
-              .getDefaultCxxPlatform()
+              .getDefaultUnresolvedCxxPlatform()
               .getFlavor());
     } else {
       return intersection.immutableCopy();

@@ -17,6 +17,8 @@
 package com.facebook.buck.testrunner;
 
 import com.facebook.buck.test.selectors.TestSelectorList;
+import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.environment.PlatformType;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -46,6 +48,23 @@ public abstract class BaseRunner {
   // consumers of that information to understand whether the testrunner they're using supports the
   // new features.
   protected static final String[] RUNNER_CAPABILITIES = {"simple_test_selector"};
+
+  /**
+   * Flag indicating whether strings coming from external sources should be processed to remove
+   * carriage return characters (\r).
+   *
+   * <p>This is necessary for XML processing since XML specification consider \n as a line separator
+   * and XML transformers can represent \r characters in various ways.
+   */
+  private static final boolean NEED_TO_REMOVE_CR =
+      Platform.detect().getType() == PlatformType.WINDOWS;
+
+  private static String removeCRIfNeeded(String text) {
+    if (NEED_TO_REMOVE_CR) {
+      return text.replace("\r\n", "\n").replace('\r', '\n');
+    }
+    return text;
+  }
 
   protected File outputDirectory;
   protected List<String> testClassNames;
@@ -78,7 +97,11 @@ public abstract class BaseRunner {
       Element test = doc.createElement("test");
 
       // suite attribute
-      test.setAttribute("suite", result.testClassName);
+      test.setAttribute(
+          "suite",
+          (result.testMethodName == null && result.testClassName.equals("null"))
+              ? testClassName
+              : result.testClassName);
 
       // name attribute
       test.setAttribute("name", result.testMethodName);
@@ -107,14 +130,14 @@ public abstract class BaseRunner {
       // stdout, if non-empty.
       if (result.stdOut != null) {
         Element stdOutEl = doc.createElement("stdout");
-        stdOutEl.appendChild(doc.createTextNode(result.stdOut));
+        stdOutEl.appendChild(doc.createTextNode(removeCRIfNeeded(result.stdOut)));
         test.appendChild(stdOutEl);
       }
 
       // stderr, if non-empty.
       if (result.stdErr != null) {
         Element stdErrEl = doc.createElement("stderr");
-        stdErrEl.appendChild(doc.createTextNode(result.stdErr));
+        stdErrEl.appendChild(doc.createTextNode(removeCRIfNeeded(result.stdErr)));
         test.appendChild(stdErrEl);
       }
 

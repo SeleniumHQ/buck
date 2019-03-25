@@ -17,16 +17,15 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.util.Verbosity;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.nio.file.Path;
-import java.util.function.Function;
 
 public class NdkBuildStep extends ShellStep {
 
@@ -37,7 +36,6 @@ public class NdkBuildStep extends ShellStep {
   private final Path buildArtifactsDirectory;
   private final Path binDirectory;
   private final ImmutableList<String> flags;
-  private final Function<String, String> macroExpander;
 
   public NdkBuildStep(
       ProjectFilesystem filesystem,
@@ -46,8 +44,7 @@ public class NdkBuildStep extends ShellStep {
       Path makefile,
       Path buildArtifactsDirectory,
       Path binDirectory,
-      Iterable<String> flags,
-      Function<String, String> macroExpander) {
+      Iterable<String> flags) {
     super(filesystem.getRootPath());
 
     this.filesystem = filesystem;
@@ -57,7 +54,6 @@ public class NdkBuildStep extends ShellStep {
     this.buildArtifactsDirectory = buildArtifactsDirectory;
     this.binDirectory = binDirectory;
     this.flags = ImmutableList.copyOf(flags);
-    this.macroExpander = macroExpander;
   }
 
   @Override
@@ -85,7 +81,7 @@ public class NdkBuildStep extends ShellStep {
         "-C",
         this.root.toString());
 
-    this.flags.stream().map(macroExpander).forEach(builder::add);
+    builder.addAll(flags);
 
     // We want relative, not absolute, paths in the debug-info for binaries we build using
     // ndk_library.  Absolute paths are machine-specific, but relative ones should be the

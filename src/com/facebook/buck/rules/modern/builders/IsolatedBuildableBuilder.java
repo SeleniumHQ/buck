@@ -16,7 +16,9 @@
 
 package com.facebook.buck.rules.modern.builders;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.cell.CellConfig;
 import com.facebook.buck.core.cell.CellProvider;
 import com.facebook.buck.core.cell.impl.DefaultCellPathResolver;
@@ -26,6 +28,8 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.module.BuckModuleManager;
 import com.facebook.buck.core.module.impl.BuckModuleJarHashProvider;
 import com.facebook.buck.core.module.impl.DefaultBuckModuleManager;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.AbstractBuildRuleResolver;
 import com.facebook.buck.core.rules.BuildRule;
@@ -48,13 +52,10 @@ import com.facebook.buck.io.filesystem.ProjectFilesystemFactory;
 import com.facebook.buck.io.filesystem.impl.DefaultProjectFilesystemFactory;
 import com.facebook.buck.jvm.core.JavaPackageFinder;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.rules.modern.Deserializer;
 import com.facebook.buck.rules.modern.Deserializer.DataProvider;
 import com.facebook.buck.rules.modern.ModernBuildRule;
 import com.facebook.buck.step.DefaultStepRunner;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepFailedException;
 import com.facebook.buck.util.Console;
@@ -65,6 +66,7 @@ import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.config.Config;
 import com.facebook.buck.util.config.Configs;
 import com.facebook.buck.util.environment.Architecture;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.base.Preconditions;
@@ -75,8 +77,10 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -129,20 +133,17 @@ public abstract class IsolatedBuildableBuilder {
     ProjectFilesystemFactory projectFilesystemFactory = new DefaultProjectFilesystemFactory();
 
     // Root filesystemCell doesn't require embedded buck-out info.
-    ProjectFilesystem filesystem;
-    try {
-      filesystem = projectFilesystemFactory.createProjectFilesystem(canonicalProjectRoot, config);
-    } catch (InterruptedException e) {
-      throw new RuntimeException(e);
-    }
+    ProjectFilesystem filesystem =
+        projectFilesystemFactory.createProjectFilesystem(canonicalProjectRoot, config);
 
     Architecture architecture = Architecture.detect();
     Platform platform = Platform.detect();
 
-    ImmutableMap<String, String> clientEnvironment = ImmutableMap.copyOf(System.getenv());
+    ImmutableMap<String, String> clientEnvironment = EnvVariablesProvider.getSystemEnv();
 
     DefaultCellPathResolver cellPathResolver =
         DefaultCellPathResolver.of(filesystem.getRootPath(), config);
+    UnconfiguredBuildTargetFactory buildTargetFactory = new ParsingUnconfiguredBuildTargetFactory();
 
     BuckConfig buckConfig =
         new BuckConfig(
@@ -151,9 +152,7 @@ public abstract class IsolatedBuildableBuilder {
             architecture,
             platform,
             clientEnvironment,
-            target ->
-                BuildTargetParser.INSTANCE.parse(
-                    target, BuildTargetPatternParser.fullyQualified(), cellPathResolver));
+            buildTargetName -> buildTargetFactory.create(cellPathResolver, buildTargetName));
 
     BuckModuleManager moduleManager =
         new DefaultBuckModuleManager(pluginManager, new BuckModuleJarHashProvider());
@@ -175,7 +174,8 @@ public abstract class IsolatedBuildableBuilder {
             cellPathResolver,
             moduleManager,
             toolchainProviderFactory,
-            projectFilesystemFactory);
+            projectFilesystemFactory,
+            buildTargetFactory);
 
     this.filesystemFunction =
         (cellName) ->
@@ -233,7 +233,8 @@ public abstract class IsolatedBuildableBuilder {
             .setBuildCellRootPath(canonicalProjectRoot)
             .setEventBus(eventBus)
             .setJavaPackageFinder(javaPackageFinder)
-            .setShouldDeleteTemporaries(buckConfig.getShouldDeleteTemporaries())
+            .setShouldDeleteTemporaries(
+                buckConfig.getView(BuildBuckConfig.class).getShouldDeleteTemporaries())
             .build();
 
     this.toolchainProviderFunction =
@@ -251,10 +252,12 @@ public abstract class IsolatedBuildableBuilder {
 
               fs.mkdirs(configuredPaths.getTmpDir());
               fs.mkdirs(configuredPaths.getBuckOut());
-              fs.createSymLink(configuredPaths.getProjectRootDir(), fs.getRootPath(), true);
+              fs.deleteFileAtPathIfExists(configuredPaths.getProjectRootDir());
+              fs.writeContentsToPath(
+                  fs.getRootPath().toString(), configuredPaths.getProjectRootDir());
 
               if (!configuredPaths.getConfiguredBuckOut().equals(configuredPaths.getBuckOut())
-                  && buckConfig.getBuckOutCompatLink()
+                  && buckConfig.getView(BuildBuckConfig.class).getBuckOutCompatLink()
                   && Platform.detect() != Platform.WINDOWS) {
                 BuckPaths unconfiguredPaths =
                     configuredPaths.withConfiguredBuckOut(configuredPaths.getBuckOut());
@@ -263,10 +266,19 @@ public abstract class IsolatedBuildableBuilder {
                         unconfiguredPaths.getGenDir(), configuredPaths.getGenDir(),
                         unconfiguredPaths.getScratchDir(), configuredPaths.getScratchDir());
                 for (Map.Entry<Path, Path> entry : paths.entrySet()) {
-                  filesystem.createSymLink(
-                      entry.getKey(),
-                      entry.getKey().getParent().relativize(entry.getValue()),
-                      /* force */ false);
+                  try {
+                    filesystem.createSymLink(
+                        entry.getKey(),
+                        entry.getKey().getParent().relativize(entry.getValue()),
+                        /* force */ false);
+                  } catch (FileAlreadyExistsException e) {
+                    // Verify that the symlink is valid then continue gracefully
+                    if (!filesystem
+                        .readSymLink(entry.getKey())
+                        .equals(entry.getKey().getParent().relativize(entry.getValue()))) {
+                      throw e;
+                    }
+                  }
                 }
               }
             });
@@ -278,6 +290,7 @@ public abstract class IsolatedBuildableBuilder {
 
   /** Deserializes the BuildableAndTarget corresponding to hash and builds it. */
   public void build(HashCode hash) throws IOException, StepFailedException, InterruptedException {
+    final Instant start = Instant.now();
     Deserializer deserializer =
         new Deserializer(
             filesystemFunction,
@@ -308,10 +321,12 @@ public abstract class IsolatedBuildableBuilder {
                 }
               }));
 
+      final Instant deserializationComplete = Instant.now();
       LOG.info(
           String.format(
-              "Finished deserializing the rule at [%s]. Running the build now.",
-              new java.util.Date()));
+              "Finished deserializing the rule at [%s], took %d ms. Running the build now.",
+              new java.util.Date(),
+              deserializationComplete.minusMillis(start.toEpochMilli()).toEpochMilli()));
 
       for (Step step :
           ModernBuildRule.stepsForBuildable(
@@ -322,12 +337,14 @@ public abstract class IsolatedBuildableBuilder {
 
       LOG.info(
           String.format(
-              "Finished running the build at [%s]. Exiting buck now.", new java.util.Date()));
+              "Finished running the build at [%s], took %d ms. Exiting buck now.",
+              new java.util.Date(),
+              Instant.now().minusMillis(deserializationComplete.toEpochMilli()).toEpochMilli()));
     }
   }
 
   private DataProvider getProvider(Path dir) {
-    Preconditions.checkState(Files.exists(dir));
+    Preconditions.checkState(Files.exists(dir), "Dir [%s] does not exist.", dir.toAbsolutePath());
 
     return new DataProvider() {
       @Override

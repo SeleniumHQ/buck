@@ -28,6 +28,7 @@ import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.core.build.buildable.context.FakeBuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.build.context.FakeBuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
@@ -61,7 +62,6 @@ import com.facebook.buck.rules.macros.ExecutableMacro;
 import com.facebook.buck.rules.macros.LocationMacro;
 import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.rules.macros.WorkerMacro;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.TestExecutionContext;
 import com.facebook.buck.step.fs.MkdirStep;
@@ -410,7 +410,7 @@ public class GenruleTest {
   }
 
   @Test
-  public void testGenruleWithWorkerMacroUsesSpecialShellStep() throws Exception {
+  public void testGenruleWithWorkerMacroUsesSpecialShellStep() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -439,7 +439,7 @@ public class GenruleTest {
   }
 
   @Test
-  public void testIsWorkerGenruleReturnsTrue() throws Exception {
+  public void testIsWorkerGenruleReturnsTrue() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     Genrule genrule = createGenruleBuilderThatUsesWorkerMacro(graphBuilder).build(graphBuilder);
     assertTrue(genrule.isWorkerGenrule());
@@ -458,7 +458,7 @@ public class GenruleTest {
   }
 
   @Test
-  public void testConstructingGenruleWithBadWorkerMacroThrows() throws Exception {
+  public void testConstructingGenruleWithBadWorkerMacroThrows() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     GenruleBuilder genruleBuilder = createGenruleBuilderThatUsesWorkerMacro(graphBuilder);
     try {
@@ -509,7 +509,7 @@ public class GenruleTest {
   }
 
   @Test
-  public void ensureFilesInSubdirectoriesAreKeptInSubDirectories() throws Exception {
+  public void ensureFilesInSubdirectoriesAreKeptInSubDirectories() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -570,7 +570,7 @@ public class GenruleTest {
   }
 
   @Test
-  public void testShouldIncludeAndroidSpecificEnvInEnvironmentIfPresent() throws Exception {
+  public void testShouldIncludeAndroidSpecificEnvInEnvironmentIfPresent() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
@@ -579,8 +579,8 @@ public class GenruleTest {
             "android",
             Paths.get(""),
             Collections.emptyList(),
-            () -> new SimpleTool(""),
-            () -> new SimpleTool(""),
+            () -> new SimpleTool("aapt"),
+            () -> new SimpleTool("aapt2"),
             Paths.get(""),
             Paths.get(""),
             Paths.get("zipalign"),
@@ -612,12 +612,14 @@ public class GenruleTest {
 
     assertEquals(Paths.get(".").toString(), env.get("DX"));
     assertEquals(Paths.get("zipalign").toString(), env.get("ZIPALIGN"));
+    assertEquals("aapt", env.get("AAPT"));
+    assertEquals("aapt2", env.get("AAPT2"));
     assertEquals(sdkDir.toString(), env.get("ANDROID_HOME"));
     assertEquals(ndkDir.toString(), env.get("NDK_HOME"));
   }
 
   @Test
-  public void shouldPreventTheParentBuckdBeingUsedIfARecursiveBuckCallIsMade() throws Exception {
+  public void shouldPreventTheParentBuckdBeingUsedIfARecursiveBuckCallIsMade() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));

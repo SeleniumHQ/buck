@@ -21,20 +21,10 @@ import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.rules.args.Arg;
-import com.google.common.collect.ImmutableCollection;
-import com.google.common.collect.ImmutableList;
-import javax.annotation.Nullable;
 
 /** A macro expander with no inputs or precomputed work */
 public abstract class SimpleMacroExpander<M extends Macro>
     extends AbstractMacroExpanderWithoutPrecomputedWork<M> {
-
-  @Override
-  @Nullable
-  protected final M parse(
-      BuildTarget target, CellPathResolver cellNames, ImmutableList<String> input) {
-    return null;
-  }
 
   @Override
   public final Arg expandFrom(
@@ -44,21 +34,4 @@ public abstract class SimpleMacroExpander<M extends Macro>
 
   public abstract Arg expandFrom(
       BuildTarget target, CellPathResolver cellNames, BuildRuleResolver resolver);
-
-  @Override
-  public final void extractParseTimeDepsFrom(
-      BuildTarget target,
-      CellPathResolver cellNames,
-      M input,
-      ImmutableCollection.Builder<BuildTarget> buildDepsBuilder,
-      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {
-    extractParseTimeDepsFrom(target, cellNames, buildDepsBuilder, targetGraphOnlyDepsBuilder);
-  }
-
-  @SuppressWarnings("unused")
-  public void extractParseTimeDepsFrom(
-      BuildTarget target,
-      CellPathResolver cellNames,
-      ImmutableCollection.Builder<BuildTarget> buildDepsBuilder,
-      ImmutableCollection.Builder<BuildTarget> targetGraphOnlyDepsBuilder) {}
 }

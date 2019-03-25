@@ -21,11 +21,7 @@ import com.facebook.buck.core.build.context.BuildContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
-import com.facebook.buck.core.rules.provider.BuildRuleInfoProvider;
-import com.facebook.buck.core.rules.provider.BuildRuleInfoProviderCollection;
-import com.facebook.buck.core.rules.provider.MissingProviderException;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.log.views.JsonViews;
 import com.facebook.buck.step.Step;
@@ -38,10 +34,9 @@ import java.util.SortedSet;
 import javax.annotation.Nullable;
 
 @JsonAutoDetect(
-  fieldVisibility = JsonAutoDetect.Visibility.NONE,
-  getterVisibility = JsonAutoDetect.Visibility.NONE,
-  setterVisibility = JsonAutoDetect.Visibility.NONE
-)
+    fieldVisibility = JsonAutoDetect.Visibility.NONE,
+    getterVisibility = JsonAutoDetect.Visibility.NONE,
+    setterVisibility = JsonAutoDetect.Visibility.NONE)
 public interface BuildRule extends Comparable<BuildRule> {
 
   BuildTarget getBuildTarget();
@@ -109,8 +104,7 @@ public interface BuildRule extends Comparable<BuildRule> {
    * Add additional details when calculating this rule's {@link RuleKey} which isn't available via
    * reflection.
    */
-  @SuppressWarnings("unused")
-  default void appendToRuleKey(RuleKeyObjectSink sink) {}
+  void appendToRuleKey(RuleKeyObjectSink sink);
 
   @Override
   default int compareTo(BuildRule that) {
@@ -128,40 +122,7 @@ public interface BuildRule extends Comparable<BuildRule> {
    * to be cached, it must update its BuildRuleResolver when a new action graph is constructed to
    * avoid leaking the entire action graph it was originally associated with.
    */
-  @SuppressWarnings("unused")
-  void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver);
-
-  /**
-   * Whether the BuildRule is implemented with {@link BuildRuleInfoProvider}. This will be removed
-   * once all {@link BuildRule} have been converted to using providers
-   */
-  boolean hasProviders();
-
-  /**
-   * Exposes information about the BuildRule to BuildRules that depend on this BuildRule during
-   * action graph construction. If {@link #hasProviders()} is {@code false},
-   * UnsupportedOperationException will be thrown.
-   *
-   * @param providerKey the key to the provider desired
-   * @param <T> the type of the provider
-   * @return the provider of the type desired from this BuildRule
-   * @throws MissingProviderException if the required provider is not present
-   */
-  <T extends BuildRuleInfoProvider> T getProvider(BuildRuleInfoProvider.ProviderKey providerKey)
-      throws MissingProviderException;
-
-  /**
-   * Exposes all the providers about this BuildRule to BuildRules that depend on this BuildRule
-   * during action graph construction. If {@link #hasProviders()} is {@code false}, {@link
-   * UnsupportedOperationException} will be thrown.
-   *
-   * @return an immutable BuildRuleInfoProviderCollection containing all providers for this
-   *     BuildRule
-   */
-  BuildRuleInfoProviderCollection getProviderCollection();
+  void updateBuildRuleResolver(BuildRuleResolver ruleResolver, SourcePathRuleFinder ruleFinder);
 
   /**
    * @return true if this rule, and all rules which that depend on it, should be built locally i.e.

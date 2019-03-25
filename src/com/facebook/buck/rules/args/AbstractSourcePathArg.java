@@ -21,6 +21,7 @@ import com.facebook.buck.core.sourcepath.BuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
+import com.facebook.buck.io.file.MorePaths;
 import com.google.common.collect.ImmutableList;
 import java.nio.file.Path;
 import java.util.function.Consumer;
@@ -36,17 +37,33 @@ abstract class AbstractSourcePathArg implements Arg, HasSourcePath {
 
   @Override
   public void appendToCommandLine(Consumer<String> consumer, SourcePathResolver pathResolver) {
-    consumer.accept(pathResolver.getAbsolutePath(getPath()).toString());
+    appendToCommandLine(consumer, pathResolver, false);
+  }
+
+  public void appendToCommandLine(
+      Consumer<String> consumer, SourcePathResolver pathResolver, boolean useUnixPathSeparator) {
+    String line = pathResolver.getAbsolutePath(getPath()).toString();
+    if (useUnixPathSeparator) {
+      line = MorePaths.pathWithUnixSeparators(line);
+    }
+    consumer.accept(line);
   }
 
   public void appendToCommandLineRel(
-      Consumer<String> consumer, Path cellPath, SourcePathResolver pathResolver) {
+      Consumer<String> consumer,
+      Path cellPath,
+      SourcePathResolver pathResolver,
+      boolean useUnixPathSeparator) {
     SourcePath path = getPath();
     if (path instanceof BuildTargetSourcePath
         && cellPath.equals(((BuildTargetSourcePath) path).getTarget().getCellPath())) {
-      consumer.accept(pathResolver.getRelativePath(path).toString());
+      String line = pathResolver.getRelativePath(path).toString();
+      if (useUnixPathSeparator) {
+        line = MorePaths.pathWithUnixSeparators(line);
+      }
+      consumer.accept(line);
     } else {
-      appendToCommandLine(consumer, pathResolver);
+      appendToCommandLine(consumer, pathResolver, useUnixPathSeparator);
     }
   }
 

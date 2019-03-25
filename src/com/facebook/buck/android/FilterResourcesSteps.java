@@ -16,6 +16,7 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
@@ -24,7 +25,6 @@ import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.shell.BashStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.util.DefaultFilteredDirectoryCopier;
@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -128,10 +129,7 @@ public class FilterResourcesSteps {
     this.enableStringWhitelisting = enableStringWhitelisting;
     this.whitelistedStringDirs = whitelistedStringDirs;
     this.locales = locales;
-    this.localizedStringFileName =
-        localizedStringFileName.isPresent()
-            ? localizedStringFileName.get()
-            : DEFAULT_STRINGS_FILE_NAME;
+    this.localizedStringFileName = localizedStringFileName.orElse(DEFAULT_STRINGS_FILE_NAME);
     this.filteredDirectoryCopier = filteredDirectoryCopier;
     this.targetDensities = targetDensities;
     this.drawableFinder = drawableFinder;
@@ -140,8 +138,7 @@ public class FilterResourcesSteps {
 
   private class CopyStep implements Step {
     @Override
-    public StepExecutionResult execute(ExecutionContext context)
-        throws IOException, InterruptedException {
+    public StepExecutionResult execute(ExecutionContext context) throws IOException {
       LOG.info(
           "FilterResourcesSteps: canDownscale: %s. imageScalar non-null: %s.",
           canDownscale(context), imageScaler != null);
@@ -200,12 +197,12 @@ public class FilterResourcesSteps {
     List<Predicate<Path>> pathPredicates = new ArrayList<>();
 
     if (filterByDensity) {
-      Preconditions.checkNotNull(targetDensities);
+      Objects.requireNonNull(targetDensities);
       Set<Path> rootResourceDirs = inResDirToOutResDirMap.keySet();
 
       pathPredicates.add(ResourceFilters.createDensityFilter(filesystem, targetDensities));
 
-      Preconditions.checkNotNull(drawableFinder);
+      Objects.requireNonNull(drawableFinder);
       Set<Path> drawables = drawableFinder.findDrawables(rootResourceDirs, filesystem);
       pathPredicates.add(
           ResourceFilters.createImageDensityFilter(
@@ -260,7 +257,7 @@ public class FilterResourcesSteps {
     ResourceFilters.Density targetDensity = ResourceFilters.Density.ORDERING.max(targetDensities);
 
     // Go over all the images that remain after filtering.
-    Preconditions.checkNotNull(drawableFinder);
+    Objects.requireNonNull(drawableFinder);
     Collection<Path> drawables =
         drawableFinder.findDrawables(inResDirToOutResDirMap.values(), filesystem);
     for (Path drawable : drawables) {
@@ -281,7 +278,7 @@ public class FilterResourcesSteps {
       ResourceFilters.Density density = qualifiers.density;
 
       // If the image has a qualifier but it's not the right one.
-      Preconditions.checkNotNull(targetDensities);
+      Objects.requireNonNull(targetDensities);
       if (!targetDensities.contains(density)) {
 
         // Replace density qualifier with target density using regular expression to match
@@ -302,7 +299,7 @@ public class FilterResourcesSteps {
 
         // Make sure destination folder exists and perform downscaling.
         filesystem.createParentDirs(destination);
-        Preconditions.checkNotNull(imageScaler);
+        Objects.requireNonNull(imageScaler);
         imageScaler.scale(factor, drawable, destination, context);
 
         // Delete source file.
@@ -503,10 +500,10 @@ public class FilterResourcesSteps {
     }
 
     public FilterResourcesSteps build() {
-      Preconditions.checkNotNull(filesystem);
-      Preconditions.checkNotNull(resourceFilter);
+      Objects.requireNonNull(filesystem);
+      Objects.requireNonNull(resourceFilter);
       LOG.info("FilterResourcesSteps.Builder: resource filter: %s", resourceFilter);
-      Preconditions.checkNotNull(inResDirToOutResDirMap);
+      Objects.requireNonNull(inResDirToOutResDirMap);
       return new FilterResourcesSteps(
           filesystem,
           inResDirToOutResDirMap,

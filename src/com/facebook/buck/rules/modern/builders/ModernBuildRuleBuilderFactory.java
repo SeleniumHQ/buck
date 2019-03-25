@@ -16,27 +16,24 @@
 
 package com.facebook.buck.rules.modern.builders;
 
-import com.facebook.buck.core.build.engine.BuildExecutorRunner;
+import com.facebook.buck.core.build.engine.BuildStrategyContext;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.build.strategy.BuildRuleStrategy;
 import com.facebook.buck.event.BuckEventBus;
-import com.facebook.buck.remoteexecution.Protocol;
 import com.facebook.buck.remoteexecution.config.RemoteExecutionConfig;
-import com.facebook.buck.remoteexecution.grpc.GrpcProtocol;
-import com.facebook.buck.remoteexecution.thrift.ThriftProtocol;
-import com.facebook.buck.rules.modern.config.ModernBuildRuleConfig;
-import com.facebook.buck.util.Console;
+import com.facebook.buck.remoteexecution.factory.RemoteExecutionClientsFactory;
+import com.facebook.buck.remoteexecution.interfaces.MetadataProvider;
+import com.facebook.buck.rules.modern.config.HybridLocalBuildStrategyConfig;
+import com.facebook.buck.rules.modern.config.ModernBuildRuleStrategyConfig;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
-import com.facebook.buck.util.function.ThrowingFunction;
 import com.facebook.buck.util.hashing.FileHashLoader;
-import com.google.common.hash.HashCode;
-import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.Futures;
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.Optional;
 
 /**
@@ -46,73 +43,45 @@ import java.util.Optional;
 public class ModernBuildRuleBuilderFactory {
   /** Creates a BuildRuleStrategy for ModernBuildRules based on the buck configuration. */
   public static Optional<BuildRuleStrategy> getBuildStrategy(
-      ModernBuildRuleConfig config,
+      ModernBuildRuleStrategyConfig config,
       RemoteExecutionConfig remoteExecutionConfig,
       BuildRuleResolver resolver,
       Cell rootCell,
       CellPathResolver cellResolver,
       FileHashLoader hashLoader,
       BuckEventBus eventBus,
-      Console console) {
+      MetadataProvider metadataProvider) {
     try {
+      RemoteExecutionClientsFactory remoteExecutionFactory =
+          new RemoteExecutionClientsFactory(remoteExecutionConfig);
       switch (config.getBuildStrategy()) {
         case NONE:
           return Optional.empty();
-        case GRPC_REMOTE:
-          return Optional.of(
-              createGrpcRemote(
-                  eventBus,
-                  new SourcePathRuleFinder(resolver),
-                  cellResolver,
-                  rootCell,
-                  hashLoader::get,
-                  remoteExecutionConfig.getRemoteHost(),
-                  remoteExecutionConfig.getRemotePort()));
-        case THRIFT_REMOTE:
-          return Optional.of(
-              createThriftRemote(
-                  eventBus,
-                  new SourcePathRuleFinder(resolver),
-                  cellResolver,
-                  rootCell,
-                  hashLoader::get,
-                  remoteExecutionConfig));
         case DEBUG_RECONSTRUCT:
           return Optional.of(
               createReconstructing(new SourcePathRuleFinder(resolver), cellResolver, rootCell));
         case DEBUG_PASSTHROUGH:
           return Optional.of(createPassthrough());
-        case DEBUG_ISOLATED_IN_PROCESS:
+        case HYBRID_LOCAL:
           return Optional.of(
-              createIsolatedInProcess(
-                  new SourcePathRuleFinder(resolver),
-                  cellResolver,
+              createHybridLocal(
+                  config.getHybridLocalConfig(),
+                  remoteExecutionConfig,
+                  resolver,
                   rootCell,
-                  hashLoader::get,
-                  eventBus,
-                  console));
-        case DEBUG_ISOLATED_OUT_OF_PROCESS:
-          return Optional.of(
-              createIsolatedOutOfProcess(
-                  eventBus,
-                  new SourcePathRuleFinder(resolver),
                   cellResolver,
-                  rootCell,
-                  hashLoader::get,
-                  new ThriftProtocol()));
+                  hashLoader,
+                  eventBus,
+                  metadataProvider));
+        case REMOTE:
+        case GRPC_REMOTE:
+        case DEBUG_GRPC_SERVICE_IN_PROCESS:
         case DEBUG_ISOLATED_OUT_OF_PROCESS_GRPC:
           return Optional.of(
-              createIsolatedOutOfProcess(
+              RemoteExecutionStrategy.createRemoteExecutionStrategy(
                   eventBus,
-                  new SourcePathRuleFinder(resolver),
-                  cellResolver,
-                  rootCell,
-                  hashLoader::get,
-                  new GrpcProtocol()));
-        case DEBUG_GRPC_SERVICE_IN_PROCESS:
-          return Optional.of(
-              createGrpcInProcess(
-                  eventBus,
+                  remoteExecutionConfig.getStrategyConfig(),
+                  remoteExecutionFactory.create(eventBus, metadataProvider),
                   new SourcePathRuleFinder(resolver),
                   cellResolver,
                   rootCell,
@@ -125,13 +94,39 @@ public class ModernBuildRuleBuilderFactory {
         "Unrecognized build strategy " + config.getBuildStrategy() + ".");
   }
 
+  private static BuildRuleStrategy createHybridLocal(
+      HybridLocalBuildStrategyConfig hybridLocalConfig,
+      RemoteExecutionConfig remoteExecutionConfig,
+      BuildRuleResolver resolver,
+      Cell rootCell,
+      CellPathResolver cellResolver,
+      FileHashLoader hashLoader,
+      BuckEventBus eventBus,
+      MetadataProvider metadataProvider) {
+    BuildRuleStrategy delegate =
+        getBuildStrategy(
+                hybridLocalConfig.getDelegateConfig(),
+                remoteExecutionConfig,
+                resolver,
+                rootCell,
+                cellResolver,
+                hashLoader,
+                eventBus,
+                metadataProvider)
+            .orElseThrow(
+                () -> new HumanReadableException("Delegate config configured incorrectly."));
+    return new HybridLocalStrategy(
+        hybridLocalConfig.getLocalJobs(), hybridLocalConfig.getDelegateJobs(), delegate);
+  }
+
   /** The passthrough strategy just forwards to executorRunner.runWithDefaultExecutor. */
   public static BuildRuleStrategy createPassthrough() {
     return new AbstractModernBuildRuleStrategy() {
       @Override
-      public void build(
-          ListeningExecutorService service, BuildRule rule, BuildExecutorRunner executorRunner) {
-        service.execute(executorRunner::runWithDefaultExecutor);
+      public StrategyBuildResult build(BuildRule rule, BuildStrategyContext strategyContext) {
+        return StrategyBuildResult.nonCancellable(
+            Futures.submitAsync(
+                strategyContext::runWithDefaultBehavior, strategyContext.getExecutorService()));
       }
     };
   }
@@ -143,99 +138,5 @@ public class ModernBuildRuleBuilderFactory {
   public static BuildRuleStrategy createReconstructing(
       SourcePathRuleFinder ruleFinder, CellPathResolver cellResolver, Cell rootCell) {
     return new ReconstructingStrategy(ruleFinder, cellResolver, rootCell);
-  }
-
-  /**
-   * This strategy will construct a separate isolated build directory for each rule. The rule will
-   * be serialized to data files in that directory, and all inputs required (including buck configs)
-   * will be materialized there. Buck's own classpath will also be materialized there and then a
-   * separate subprocess will be created to deserialize and run the rule. Outputs will then be
-   * copied back to the real build directory.
-   */
-  public static BuildRuleStrategy createIsolatedOutOfProcess(
-      BuckEventBus eventBus,
-      SourcePathRuleFinder ruleFinder,
-      CellPathResolver cellResolver,
-      Cell rootCell,
-      ThrowingFunction<Path, HashCode, IOException> fileHasher,
-      Protocol protocol)
-      throws IOException {
-    return IsolatedExecution.createIsolatedExecutionStrategy(
-        new RemoteExecution(
-            eventBus, OutOfProcessIsolatedExecutionClients.create(protocol, eventBus)),
-        ruleFinder,
-        cellResolver,
-        rootCell,
-        fileHasher);
-  }
-
-  /**
-   * This strategy will construct a separate isolated build directory for each rule. The rule will
-   * be serialized to data files in that directory, and all inputs required (including buck configs)
-   * will be materialized there and then the rule will be deserialized within this process and run
-   * within that directory. The outputs will be copied back to the real build directory.
-   */
-  public static BuildRuleStrategy createIsolatedInProcess(
-      SourcePathRuleFinder ruleFinder,
-      CellPathResolver cellResolver,
-      Cell rootCell,
-      ThrowingFunction<Path, HashCode, IOException> fileHasher,
-      BuckEventBus eventBus,
-      Console console)
-      throws IOException {
-    return IsolatedExecution.createIsolatedExecutionStrategy(
-        new InProcessIsolatedExecution(eventBus, console),
-        ruleFinder,
-        cellResolver,
-        rootCell,
-        fileHasher);
-  }
-
-  private static BuildRuleStrategy createGrpcRemote(
-      BuckEventBus eventBus,
-      SourcePathRuleFinder ruleFinder,
-      CellPathResolver cellResolver,
-      Cell rootCell,
-      ThrowingFunction<Path, HashCode, IOException> fileHasher,
-      String host,
-      int port)
-      throws IOException {
-    return IsolatedExecution.createIsolatedExecutionStrategy(
-        GrpcExecutionFactory.createRemote(host, port, eventBus),
-        ruleFinder,
-        cellResolver,
-        rootCell,
-        fileHasher);
-  }
-
-  private static BuildRuleStrategy createThriftRemote(
-      BuckEventBus eventBus,
-      SourcePathRuleFinder ruleFinder,
-      CellPathResolver cellResolver,
-      Cell rootCell,
-      ThrowingFunction<Path, HashCode, IOException> fileHasher,
-      RemoteExecutionConfig remoteExecutionConfig)
-      throws IOException {
-    return IsolatedExecution.createIsolatedExecutionStrategy(
-        ThriftRemoteExecutionFactory.createRemote(remoteExecutionConfig, eventBus),
-        ruleFinder,
-        cellResolver,
-        rootCell,
-        fileHasher);
-  }
-
-  public static BuildRuleStrategy createGrpcInProcess(
-      BuckEventBus eventBus,
-      SourcePathRuleFinder ruleFinder,
-      CellPathResolver cellResolver,
-      Cell rootCell,
-      ThrowingFunction<Path, HashCode, IOException> fileHasher)
-      throws IOException {
-    return IsolatedExecution.createIsolatedExecutionStrategy(
-        GrpcExecutionFactory.createInProcess(eventBus),
-        ruleFinder,
-        cellResolver,
-        rootCell,
-        fileHasher);
   }
 }

@@ -19,6 +19,7 @@ package com.facebook.buck.rules.tool.config;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.ConfigView;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
@@ -36,6 +37,10 @@ import org.immutables.value.Value;
 @BuckStyleImmutable
 abstract class AbstractToolConfig implements ConfigView<BuckConfig> {
 
+  @Override
+  @Value.Parameter
+  public abstract BuckConfig getDelegate();
+
   /**
    * @return a {@link Tool} identified by a @{link BuildTarget} or {@link Path} reference by the
    *     given section:field, if set.
@@ -45,7 +50,8 @@ abstract class AbstractToolConfig implements ConfigView<BuckConfig> {
     if (!value.isPresent()) {
       return Optional.empty();
     }
-    Optional<BuildTarget> target = getDelegate().getMaybeBuildTarget(section, field);
+    Optional<BuildTarget> target =
+        getDelegate().getMaybeBuildTarget(section, field, EmptyTargetConfiguration.INSTANCE);
     if (target.isPresent()) {
       return Optional.of(
           new BinaryBuildRuleToolProvider(target.get(), String.format("[%s] %s", section, field)));
@@ -74,10 +80,7 @@ abstract class AbstractToolConfig implements ConfigView<BuckConfig> {
 
   public Optional<Tool> getTool(String section, String field, BuildRuleResolver resolver) {
     Optional<ToolProvider> provider = getToolProvider(section, field);
-    if (!provider.isPresent()) {
-      return Optional.empty();
-    }
-    return Optional.of(provider.get().resolve(resolver));
+    return provider.map(toolProvider -> toolProvider.resolve(resolver));
   }
 
   public Tool getRequiredTool(String section, String field, BuildRuleResolver resolver) {

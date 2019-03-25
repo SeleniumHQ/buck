@@ -31,6 +31,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -91,9 +92,9 @@ public class ClientSideSlb implements HttpLoadBalancer {
   ClientSideSlb(
       ClientSideSlbConfig config, ScheduledExecutorService executor, OkHttpClient pingClient) {
     this.clock = config.getClock();
-    this.pingEndpoint = Preconditions.checkNotNull(config.getPingEndpoint());
-    this.serverPool = Preconditions.checkNotNull(config.getServerPool());
-    this.eventBus = Preconditions.checkNotNull(config.getEventBus());
+    this.pingEndpoint = Objects.requireNonNull(config.getPingEndpoint());
+    this.serverPool = Objects.requireNonNull(config.getServerPool());
+    this.eventBus = Objects.requireNonNull(config.getEventBus());
     Preconditions.checkArgument(serverPool.size() > 0, "No server URLs passed.");
 
     this.healthManager =
@@ -160,11 +161,11 @@ public class ClientSideSlb implements HttpLoadBalancer {
       eventBus.post(new LoadBalancerPingEvent(eventData.build()));
       LOG.verbose("all pings complete %s", toString());
     } catch (InterruptedException ex) {
-      LOG.warn(ex, "ClientSideSlb was interrupted");
+      LOG.info(ex, "ClientSideSlb was interrupted");
       Thread.currentThread().interrupt();
       throw new RuntimeException(ex);
     } catch (ExecutionException ex) {
-      LOG.verbose(ex, "some pings failed");
+      LOG.warn(ex, "Some pings failed");
     }
   }
 

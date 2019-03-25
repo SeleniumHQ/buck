@@ -17,10 +17,13 @@
 package com.facebook.buck.cxx.toolchain;
 
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.RuleType;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.UserFlavor;
 import com.facebook.buck.core.rules.schedule.RuleScheduleInfo;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
@@ -29,17 +32,21 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.facebook.buck.core.toolchain.toolprovider.impl.BinaryBuildRuleToolProvider;
+import com.facebook.buck.core.toolchain.toolprovider.impl.ConstantToolProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.cxx.toolchain.ArchiverProvider.LegacyArchiverType;
 import com.facebook.buck.cxx.toolchain.linker.DefaultLinkerProvider;
 import com.facebook.buck.cxx.toolchain.linker.LinkerProvider;
 import com.facebook.buck.rules.tool.config.ToolConfig;
 import com.facebook.buck.util.environment.Platform;
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import java.nio.file.Path;
 import java.util.Optional;
 import javax.annotation.Nullable;
@@ -69,6 +76,7 @@ public class CxxBuckConfig {
   private static final String HEADERS_SYMLINKS_ENABLED = "headers_symlinks_enabled";
   private static final String LINK_WEIGHT = "link_weight";
   private static final String CACHE_LINKS = "cache_links";
+  private static final String CACHE_STRIPS = "cache_strips";
   private static final String CACHE_BINARIES = "cache_binaries";
   private static final String PCH_ENABLED = "pch_enabled";
   private static final String ARCHIVE_CONTENTS = "archive_contents";
@@ -84,9 +92,16 @@ public class CxxBuckConfig {
       "independent_shlib_interface_ldflags";
   private static final String DECLARED_PLATFORMS = "declared_platforms";
   private static final String SHARED_LIBRARY_EXT = "shared_library_extension";
+  private static final String STATIC_LIBRARY_EXT = "static_library_extension";
+  private static final String OBJECT_FILE_EXT = "object_file_extension";
   private static final String CONFLICTING_HEADER_BASENAME_WHITELIST =
       "conflicting_header_basename_whitelist";
   private static final String HEADER_MODE = "header_mode";
+  private static final String DETAILED_UNTRACKED_HEADER_MESSAGES =
+      "detailed_untracked_header_messages";
+  private static final String USE_ARG_FILE = "use_arg_file";
+  private static final String TOOLCHAIN_TARGET = "toolchain_target";
+  private static final String FILEPATH_LENGTH_LIMITED = "filepath_length_limited";
 
   private static final String ASFLAGS = "asflags";
   private static final String ASPPFLAGS = "asppflags";
@@ -96,6 +111,8 @@ public class CxxBuckConfig {
   private static final String CXXPPFLAGS = "cxxppflags";
   private static final String CUDAFLAGS = "cudaflags";
   private static final String CUDAPPFLAGS = "cudappflags";
+  private static final String HIPFLAGS = "hipflags";
+  private static final String HIPPPFLAGS = "hipppflags";
   private static final String ASMFLAGS = "asmflags";
   private static final String ASMPPFLAGS = "asmppflags";
   private static final String LDFLAGS = "ldflags";
@@ -115,6 +132,8 @@ public class CxxBuckConfig {
   private static final String CXXPP = "cxxpp";
   private static final String CUDA = "cuda";
   private static final String CUDAPP = "cudapp";
+  private static final String HIP = "hip";
+  private static final String HIPPP = "hippp";
   private static final String ASM = "asm";
   private static final String ASMPP = "asmpp";
   private static final String LD = "ld";
@@ -162,7 +181,7 @@ public class CxxBuckConfig {
 
   /** @return the {@link BuildTarget} which represents the gtest library. */
   public Optional<BuildTarget> getGtestDep() {
-    return delegate.getBuildTarget(cxxSection, GTEST_DEP);
+    return delegate.getBuildTarget(cxxSection, GTEST_DEP, EmptyTargetConfiguration.INSTANCE);
   }
 
   /**
@@ -170,12 +189,13 @@ public class CxxBuckConfig {
    *     by default (if no other main is given).
    */
   public Optional<BuildTarget> getGtestDefaultTestMainDep() {
-    return delegate.getBuildTarget(cxxSection, GTEST_DEFAULT_TEST_MAIN_DEP);
+    return delegate.getBuildTarget(
+        cxxSection, GTEST_DEFAULT_TEST_MAIN_DEP, EmptyTargetConfiguration.INSTANCE);
   }
 
   /** @return the {@link BuildTarget} which represents the boost testing library. */
   public Optional<BuildTarget> getBoostTestDep() {
-    return delegate.getBuildTarget(cxxSection, BOOST_TEST_DEP);
+    return delegate.getBuildTarget(cxxSection, BOOST_TEST_DEP, EmptyTargetConfiguration.INSTANCE);
   }
 
   public Optional<Path> getPath(String name) {
@@ -187,8 +207,8 @@ public class CxxBuckConfig {
     return delegate.getPathSourcePath(path);
   }
 
-  public Optional<SourcePath> getSourcePath(String name) {
-    return delegate.getSourcePath(cxxSection, name);
+  public Optional<SourcePath> getSourcePath(String name, TargetConfiguration targetConfiguration) {
+    return delegate.getSourcePath(cxxSection, name, targetConfiguration);
   }
 
   public Optional<String> getDefaultPlatform() {
@@ -239,6 +259,14 @@ public class CxxBuckConfig {
     return getFlags(CUDAPPFLAGS);
   }
 
+  public Optional<ImmutableList<String>> getHipflags() {
+    return getFlags(HIPFLAGS);
+  }
+
+  public Optional<ImmutableList<String>> getHipppflags() {
+    return getFlags(HIPPPFLAGS);
+  }
+
   public Optional<ImmutableList<String>> getAsmflags() {
     return getFlags(ASMFLAGS);
   }
@@ -265,13 +293,16 @@ public class CxxBuckConfig {
   public Optional<ArchiverProvider> getArchiverProvider(Platform defaultPlatform) {
     Optional<ToolProvider> toolProvider =
         delegate.getView(ToolConfig.class).getToolProvider(cxxSection, AR);
-    Optional<ArchiverProvider.Type> type =
-        delegate.getEnum(cxxSection, ARCHIVER_TYPE, ArchiverProvider.Type.class);
+    // TODO(cjhopman): This should probably accept ArchiverProvider.Type, not LegacyArchiverType.
+    Optional<LegacyArchiverType> type =
+        delegate.getEnum(cxxSection, ARCHIVER_TYPE, LegacyArchiverType.class);
     return toolProvider.map(
         archiver -> {
           Optional<Platform> archiverPlatform =
               delegate.getEnum(cxxSection, ARCHIVER_PLATFORM, Platform.class);
-          return ArchiverProvider.from(archiver, archiverPlatform.orElse(defaultPlatform), type);
+
+          Platform platform = archiverPlatform.orElse(defaultPlatform);
+          return ArchiverProvider.from(archiver, platform, type);
         });
   }
 
@@ -286,7 +317,8 @@ public class CxxBuckConfig {
       return Optional.empty();
     }
     String source = String.format("[%s] %s", cxxSection, field);
-    Optional<BuildTarget> target = delegate.getMaybeBuildTarget(cxxSection, field);
+    Optional<BuildTarget> target =
+        delegate.getMaybeBuildTarget(cxxSection, field, EmptyTargetConfiguration.INSTANCE);
     Optional<CxxToolProvider.Type> type =
         delegate.getEnum(cxxSection, field + "_type", CxxToolProvider.Type.class);
     if (target.isPresent()) {
@@ -295,6 +327,7 @@ public class CxxBuckConfig {
               .setSource(source)
               .setBuildTarget(target.get())
               .setType(type)
+              .setPreferDependencyTree(getUseDetailedUntrackedHeaderMessages())
               .build());
     } else {
       return Optional.of(
@@ -302,6 +335,7 @@ public class CxxBuckConfig {
               .setSource(source)
               .setPath(delegate.getPathSourcePath(delegate.getRequiredPath(cxxSection, field)))
               .setType(type)
+              .setPreferDependencyTree(getUseDetailedUntrackedHeaderMessages())
               .build());
     }
   }
@@ -347,12 +381,24 @@ public class CxxBuckConfig {
     return getPreprocessorProvider(CUDAPP);
   }
 
+  public Optional<CompilerProvider> getHip() {
+    return getCompilerProvider(HIP);
+  }
+
+  public Optional<PreprocessorProvider> getHippp() {
+    return getPreprocessorProvider(HIPPP);
+  }
+
   public Optional<CompilerProvider> getAsm() {
     return getCompilerProvider(ASM);
   }
 
   public Optional<PreprocessorProvider> getAsmpp() {
     return getPreprocessorProvider(ASMPP);
+  }
+
+  public Optional<Boolean> getUseArgFile() {
+    return delegate.getBoolean(cxxSection, USE_ARG_FILE);
   }
 
   /**
@@ -369,7 +415,9 @@ public class CxxBuckConfig {
     }
     Optional<LinkerProvider.Type> type =
         delegate.getEnum(cxxSection, LINKER_PLATFORM, LinkerProvider.Type.class);
-    return Optional.of(new DefaultLinkerProvider(type.orElse(defaultType), toolProvider.get()));
+    return Optional.of(
+        new DefaultLinkerProvider(
+            type.orElse(defaultType), toolProvider.get(), shouldCacheLinks()));
   }
 
   public HeaderVerification getHeaderVerificationOrIgnore() {
@@ -392,15 +440,16 @@ public class CxxBuckConfig {
 
   public Optional<RuleScheduleInfo> getLinkScheduleInfo() {
     Optional<Long> linkWeight = delegate.getLong(cxxSection, LINK_WEIGHT);
-    if (!linkWeight.isPresent()) {
-      return Optional.empty();
-    }
-    return Optional.of(
-        RuleScheduleInfo.builder().setJobsMultiplier(linkWeight.get().intValue()).build());
+    return linkWeight.map(
+        weight -> RuleScheduleInfo.builder().setJobsMultiplier(weight.intValue()).build());
   }
 
   public boolean shouldCacheLinks() {
     return delegate.getBooleanValue(cxxSection, CACHE_LINKS, true);
+  }
+
+  public boolean shouldCacheStrip() {
+    return delegate.getBooleanValue(cxxSection, CACHE_STRIPS, true);
   }
 
   public boolean shouldCacheBinaries() {
@@ -411,10 +460,8 @@ public class CxxBuckConfig {
     return delegate.getBooleanValue(cxxSection, PCH_ENABLED, true);
   }
 
-  public ArchiveContents getArchiveContents() {
-    return delegate
-        .getEnum(cxxSection, ARCHIVE_CONTENTS, ArchiveContents.class)
-        .orElse(ArchiveContents.NORMAL);
+  public Optional<ArchiveContents> getArchiveContents() {
+    return delegate.getEnum(cxxSection, ARCHIVE_CONTENTS, ArchiveContents.class);
   }
 
   public ImmutableMap<String, Flavor> getDefaultFlavorsForRuleType(RuleType type) {
@@ -516,6 +563,16 @@ public class CxxBuckConfig {
     return delegate.getValue(cxxSection, SHARED_LIBRARY_EXT);
   }
 
+  /** @return the extension to use for static libraries (e.g. ".a"). */
+  public Optional<String> getStaticLibraryExtension() {
+    return delegate.getValue(cxxSection, STATIC_LIBRARY_EXT);
+  }
+
+  /** @return the extension to use for object files (e.g. ".o"). */
+  public Optional<String> getObjectFileExtension() {
+    return delegate.getValue(cxxSection, OBJECT_FILE_EXT);
+  }
+
   public ImmutableSortedSet<String> getConflictingHeaderBasenameWhitelist() {
     return ImmutableSortedSet.copyOf(
         delegate.getListWithoutComments(cxxSection, CONFLICTING_HEADER_BASENAME_WHITELIST));
@@ -526,8 +583,48 @@ public class CxxBuckConfig {
     return delegate.getEnum(cxxSection, HEADER_MODE, HeaderMode.class);
   }
 
+  /** @return whether to generate more detailed untracked header messages. */
+  public Boolean getUseDetailedUntrackedHeaderMessages() {
+    return delegate.getBooleanValue(cxxSection, DETAILED_UNTRACKED_HEADER_MESSAGES, false);
+  }
+
+  /** @return whether short names for intermediate files should be used */
+  public Boolean getFilepathLengthLimited() {
+    return delegate.getBooleanValue(cxxSection, FILEPATH_LENGTH_LIMITED, false);
+  }
+
   public BuckConfig getDelegate() {
     return delegate;
+  }
+
+  /**
+   * If the config specifies a value for "toolchain_target", returns a {@link UnresolvedCxxPlatform}
+   * backed by the specified target.
+   */
+  public static Optional<UnresolvedCxxPlatform> getProviderBasedPlatform(
+      BuckConfig config, Flavor flavor) {
+    String cxxSection = new CxxBuckConfig(config, flavor).cxxSection;
+
+    Optional<BuildTarget> toolchainTarget =
+        config.getBuildTarget(cxxSection, TOOLCHAIN_TARGET, EmptyTargetConfiguration.INSTANCE);
+    if (!toolchainTarget.isPresent()) {
+      return Optional.empty();
+    }
+
+    if (!cxxSection.equals(UNFLAVORED_CXX_SECTION)) {
+      // In a flavored cxx section, we don't allow any configuration except for configuration of the
+      // platform.
+      ImmutableMap<String, String> allEntries = config.getEntriesForSection(cxxSection);
+      if (allEntries.size() != 1) {
+        throw new HumanReadableException(
+            "When configuring a cxx %s, no other configuration is allowed in that section. Got unexpected keys [%s]",
+            TOOLCHAIN_TARGET,
+            Joiner.on(", ")
+                .join(Sets.difference(allEntries.keySet(), ImmutableSet.of(TOOLCHAIN_TARGET))));
+      }
+    }
+
+    return Optional.of(new ProviderBasedUnresolvedCxxPlatform(toolchainTarget.get(), flavor));
   }
 
   @Value.Immutable
@@ -542,6 +639,8 @@ public class CxxBuckConfig {
 
     public abstract Optional<CxxToolProvider.Type> getType();
 
+    public abstract Optional<Boolean> getPreferDependencyTree();
+
     @Value.Check
     protected void check() {
       Preconditions.checkState(getBuildTarget().isPresent() || getPath().isPresent());
@@ -553,16 +652,25 @@ public class CxxBuckConfig {
         return new PreprocessorProvider(
             new BinaryBuildRuleToolProvider(getBuildTarget().get(), getSource()), getType().get());
       } else {
-        return new PreprocessorProvider(getPath().get(), getType());
+        PathSourcePath path = getPath().get();
+        return new PreprocessorProvider(
+            new ConstantToolProvider(new HashedFileTool(path)),
+            () -> getType().orElseGet(() -> CxxToolTypeInferer.getTypeFromPath(path)));
       }
     }
 
     public CompilerProvider getCompilerProvider() {
       if (getBuildTarget().isPresent()) {
         return new CompilerProvider(
-            new BinaryBuildRuleToolProvider(getBuildTarget().get(), getSource()), getType().get());
+            new BinaryBuildRuleToolProvider(getBuildTarget().get(), getSource()),
+            getType().get(),
+            false);
       } else {
-        return new CompilerProvider(getPath().get(), getType());
+        PathSourcePath path = getPath().get();
+        return new CompilerProvider(
+            new ConstantToolProvider(new HashedFileTool(path)),
+            () -> getType().orElseGet(() -> CxxToolTypeInferer.getTypeFromPath(path)),
+            getPreferDependencyTree().orElse(false));
       }
     }
   }

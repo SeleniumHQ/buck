@@ -57,7 +57,7 @@ import com.facebook.buck.distributed.thrift.RuleKeyCalculatedEvent;
 import com.facebook.buck.distributed.thrift.StampedeId;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.log.InvocationInfo;
-import com.facebook.buck.step.ExecutorPool;
+import com.facebook.buck.util.concurrent.ExecutorPool;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.facebook.buck.util.types.Pair;
@@ -78,6 +78,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
@@ -292,8 +293,13 @@ public class BuildPhase {
           try {
             coordinator.runWithHeartbeatServiceAndReturnExitCode(distBuildConfig);
           } catch (IOException | InterruptedException e) {
+            // This special case of processing IOException and InterruptedException is only to
+            // maintain backwards compatibility
+            // TODO (buck_team): process exceptions in a good structured way
             LOG.error(e, "Coordinator failed with Exception.");
             // throwing inside an executor won't help.
+          } catch (Exception e) {
+            throw new RuntimeException(e);
           }
         });
   }
@@ -326,7 +332,7 @@ public class BuildPhase {
                       buildGraphs.getActionGraphAndBuilder().getActionGraphBuilder(),
                           ruleKeyCalculator,
                       buildExecutorArgs.getBuckEventBus(), topLevelTargets),
-              Preconditions.checkNotNull(buildExecutorArgs.getExecutors().get(ExecutorPool.CPU)));
+              Objects.requireNonNull(buildExecutorArgs.getExecutors().get(ExecutorPool.CPU)));
     }
 
     if (distLocalBuildMode.equals(DistLocalBuildMode.FIRE_AND_FORGET)) {
@@ -613,7 +619,7 @@ public class BuildPhase {
 
     List<LogLineBatchRequest> newLogLineRequests =
         distBuildLogStateTracker.createStreamLogRequests(job.getBuildSlaves());
-    if (newLogLineRequests.size() == 0) {
+    if (newLogLineRequests.isEmpty()) {
       return Futures.immediateFuture(null);
     }
 

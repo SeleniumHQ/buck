@@ -23,14 +23,13 @@ import static org.junit.Assert.assertThat;
 
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
-import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.FlavorDomain;
 import com.facebook.buck.core.model.InternalFlavor;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
-import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
@@ -47,6 +46,7 @@ import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
 import com.facebook.buck.cxx.toolchain.HeaderMode;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.PicType;
+import com.facebook.buck.cxx.toolchain.StaticUnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
@@ -61,20 +61,17 @@ import com.facebook.buck.rules.macros.StringWithMacrosUtils;
 import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.shell.Genrule;
 import com.facebook.buck.shell.GenruleBuilder;
+import com.facebook.buck.versions.ParallelVersionedTargetGraphBuilder;
 import com.facebook.buck.versions.Version;
 import com.facebook.buck.versions.VersionUniverse;
 import com.facebook.buck.versions.VersionUniverseVersionSelector;
 import com.facebook.buck.versions.VersionedAliasBuilder;
-import com.facebook.buck.versions.VersionedTargetGraphBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.collect.Sets;
 import java.io.File;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ForkJoinPool;
 import java.util.regex.Pattern;
 import org.hamcrest.Matchers;
@@ -82,20 +79,7 @@ import org.junit.Test;
 
 public class CxxBinaryDescriptionTest {
 
-  //  private TargetGraph prepopulateWithSandbox(BuildTarget libTarget) {
-  //      return TargetGraph.EMPTY;
-  //  }
-
-  private TargetNode<CxxBinaryDescriptionArg> mkSandboxNode(BuildTarget libTarget) {
-    Optional<Map.Entry<Flavor, CxxLibraryDescription.Type>> type =
-        CxxLibraryDescription.getLibType(libTarget);
-    Set<Flavor> flavors = Sets.newHashSet(libTarget.getFlavors());
-    if (type.isPresent()) {
-      flavors.remove(type.get().getKey());
-    }
-    BuildTarget target = ImmutableBuildTarget.of(libTarget.getUnflavoredBuildTarget(), flavors);
-    return new CxxBinaryBuilder(target).build();
-  }
+  private static final int NUMBER_OF_THREADS = ForkJoinPool.commonPool().getParallelism();
 
   @Test
   public void createBuildRule() {
@@ -301,8 +285,7 @@ public class CxxBinaryDescriptionTest {
                 new PatternMatchedCollection.Builder<ImmutableList<StringWithMacros>>()
                     .add(
                         Pattern.compile(
-                            Pattern.quote(
-                                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor().toString())),
+                            Pattern.quote(CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR.toString())),
                         ImmutableList.of(
                             StringWithMacrosUtils.format(
                                 "--linker-script=%s", LocationMacro.of(dep.getBuildTarget()))))
@@ -405,7 +388,8 @@ public class CxxBinaryDescriptionTest {
             .setDeps(ImmutableSortedSet.of(transitiveDepBuilder.getTarget()));
     CxxBinaryBuilder builder =
         new CxxBinaryBuilder(BuildTargetFactory.newInstance("//:rule"))
-            .setDepQuery(Query.of("filter(transitive, deps(//:dep))"));
+            .setDepQuery(
+                Query.of("filter(transitive, deps(//:dep))", EmptyTargetConfiguration.INSTANCE));
     TargetGraph targetGraph =
         TargetGraphFactory.newInstance(
             transitiveDepBuilder.build(), depBuilder.build(), builder.build());
@@ -442,13 +426,15 @@ public class CxxBinaryDescriptionTest {
         VersionUniverse.of(ImmutableMap.of(depBuilder.getTarget(), Version.of("2.0")));
 
     TargetGraph versionedTargetGraph =
-        VersionedTargetGraphBuilder.transform(
+        ParallelVersionedTargetGraphBuilder.transform(
                 new VersionUniverseVersionSelector(
                     unversionedTargetGraph, ImmutableMap.of("1", universe1, "2", universe2)),
                 TargetGraphAndBuildTargets.of(
                     unversionedTargetGraph, ImmutableSet.of(builder.getTarget())),
-                new ForkJoinPool(),
-                new DefaultTypeCoercerFactory())
+                NUMBER_OF_THREADS,
+                new DefaultTypeCoercerFactory(),
+                new ParsingUnconfiguredBuildTargetFactory(),
+                20)
             .getTargetGraph();
 
     assertThat(
@@ -464,15 +450,15 @@ public class CxxBinaryDescriptionTest {
         new FlavorDomain<>(
             "C/C++ Platform",
             ImmutableMap.of(
-                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor(),
+                CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR,
                 CxxPlatformUtils.DEFAULT_PLATFORM,
                 alternatePlatform.getFlavor(),
                 alternatePlatform));
     CxxBinaryBuilder binaryBuilder =
         new CxxBinaryBuilder(
             BuildTargetFactory.newInstance("//:foo"),
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            cxxPlatforms);
+            CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM,
+            cxxPlatforms.map(StaticUnresolvedCxxPlatform::new));
     binaryBuilder.setDefaultPlatform(alternatePlatform.getFlavor());
     TargetGraph targetGraph = TargetGraphFactory.newInstance(binaryBuilder.build());
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
@@ -488,15 +474,15 @@ public class CxxBinaryDescriptionTest {
         new FlavorDomain<>(
             "C/C++ Platform",
             ImmutableMap.of(
-                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor(),
+                CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR,
                 CxxPlatformUtils.DEFAULT_PLATFORM,
                 alternatePlatform.getFlavor(),
                 alternatePlatform));
     CxxBinaryBuilder binaryBuilder =
         new CxxBinaryBuilder(
             BuildTargetFactory.newInstance("//:foo"),
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            cxxPlatforms);
+            CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM,
+            cxxPlatforms.map(StaticUnresolvedCxxPlatform::new));
     binaryBuilder.setDefaultPlatform(alternatePlatform.getFlavor());
     TargetGraph targetGraph = TargetGraphFactory.newInstance(binaryBuilder.build());
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder(targetGraph);
@@ -514,15 +500,15 @@ public class CxxBinaryDescriptionTest {
         new FlavorDomain<>(
             "C/C++ Platform",
             ImmutableMap.of(
-                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor(),
+                CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR,
                 CxxPlatformUtils.DEFAULT_PLATFORM,
                 alternatePlatform.getFlavor(),
                 alternatePlatform));
     CxxBinaryBuilder binaryBuilder =
         new CxxBinaryBuilder(
             BuildTargetFactory.newInstance("//:foo"),
-            CxxPlatformUtils.DEFAULT_PLATFORM,
-            cxxPlatforms);
+            CxxPlatformUtils.DEFAULT_UNRESOLVED_PLATFORM,
+            cxxPlatforms.map(StaticUnresolvedCxxPlatform::new));
     binaryBuilder.setExecutableName(Optional.of("FooBarBaz"));
     binaryBuilder.setDefaultPlatform(alternatePlatform.getFlavor());
     TargetGraph targetGraph = TargetGraphFactory.newInstance(binaryBuilder.build());

@@ -29,12 +29,20 @@ python_library(
     ],
 )
 
+python_library(
+    name = "java_version",
+    srcs = [
+        "java_version.py",
+    ],
+)
+
 python_binary(
     name = "gen_buck_info",
     main = "gen_buck_info.py",
     visibility = ["PUBLIC"],
     deps = [
         ":buck_version",
+        ":java_version",
     ],
 )
 
@@ -84,12 +92,12 @@ RESOURCES_AFFECTING_BUILD_ARTIFACTS = {
     "bootstrapper_jar": "//src/com/facebook/buck/cli/bootstrapper:bootstrapper",
     "buck_server": "//src/com/facebook/buck/cli:main-fixed",
     "dx": "//third-party/java/dx:etc_dx",
-    "external_executor_jar": "//src/com/facebook/buck/step/external:executor",
     "native_exopackage_fake_path": "//assets/android:native-exopackage-fakes.apk",
     "path_to_pathlib_py": "//third-party/py/pathlib:pathlib.py",
     "path_to_pywatchman": "//third-party/py/pywatchman:pywatchman-archive",
     "path_to_sh_binary_template": "//src/com/facebook/buck/shell:sh_binary_template",
     "path_to_typing": "//third-party/py:typing-archive",
+    "path_to_six_py": "//third-party/py/six:six.py",
 }
 
 BUCK_MODULES = {
@@ -175,6 +183,7 @@ python_binary(
     ],
     deps = [
         ":bucklib",
+        ":java_version",
         ":subprocutils",
     ],
 )

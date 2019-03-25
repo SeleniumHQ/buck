@@ -17,7 +17,6 @@
 package com.facebook.buck.cli;
 
 import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -27,6 +26,7 @@ import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.model.BuildFileTree;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.model.impl.FilesystemBackedBuildFileTree;
 import com.facebook.buck.core.model.targetgraph.BuildRuleCreationContextWithTargetGraph;
 import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
@@ -36,6 +36,7 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.impl.FakeBuildRule;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
+import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.parser.Parser;
@@ -47,7 +48,6 @@ import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.hash.Hashing;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.function.Function;
@@ -92,7 +92,6 @@ public class OwnersReportTest {
     try {
       return new TargetNodeFactory(new DefaultTypeCoercerFactory())
           .createFromObject(
-              Hashing.sha1().hashString(buildTarget.getFullyQualifiedName(), UTF_8),
               description,
               arg,
               filesystem,
@@ -109,7 +108,7 @@ public class OwnersReportTest {
   private ProjectFilesystem filesystem;
 
   @Before
-  public void setUp() throws InterruptedException {
+  public void setUp() {
     filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
   }
 
@@ -256,16 +255,17 @@ public class OwnersReportTest {
     String input = "java/some_file";
 
     Cell cell = new TestCellBuilder().setFilesystem(filesystem).build();
-    Parser parser = TestParserFactory.create(cell.getBuckConfig());
+    Parser parser = TestParserFactory.create(cell);
     OwnersReport report =
         OwnersReport.builder(
                 cell,
-                TestParserFactory.create(cell.getBuckConfig()),
-                TestPerBuildStateFactory.create(parser, cell))
+                TestParserFactory.create(cell),
+                TestPerBuildStateFactory.create(parser, cell),
+                EmptyTargetConfiguration.INSTANCE)
             .build(getBuildFileTrees(cell), ImmutableSet.of(input));
 
     assertEquals(1, report.nonExistentInputs.size());
-    assertTrue(report.nonExistentInputs.contains(input));
+    assertTrue(report.nonExistentInputs.contains(MorePaths.pathWithPlatformSeparators(input)));
   }
 
   private ImmutableMap<Cell, BuildFileTree> getBuildFileTrees(Cell rootCell) {

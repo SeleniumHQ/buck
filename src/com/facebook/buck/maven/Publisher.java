@@ -49,6 +49,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.apache.maven.repository.internal.MavenRepositorySystemUtils;
 import org.eclipse.aether.DefaultRepositorySystemSession;
@@ -107,7 +108,7 @@ public class Publisher {
 
   public ImmutableSet<DeployResult> publish(
       SourcePathResolver pathResolver, ImmutableSet<MavenPublishable> publishables)
-      throws DeploymentException, InterruptedException {
+      throws DeploymentException {
     ImmutableListMultimap<UnflavoredBuildTarget, UnflavoredBuildTarget> duplicateBuiltinBuileRules =
         checkForDuplicatePackagedDeps(publishables);
     if (duplicateBuiltinBuileRules.size() > 0) {
@@ -206,7 +207,7 @@ public class Publisher {
    *     extension of each given file will be used as a maven "extension" coordinate
    */
   public DeployResult publish(Artifact descriptor, List<File> toPublish)
-      throws DeploymentException, InterruptedException {
+      throws DeploymentException {
     String providedExtension = descriptor.getExtension();
     if (!providedExtension.isEmpty()) {
       LOG.warn(
@@ -231,10 +232,8 @@ public class Publisher {
    *     coordinates in the corresponding {@link Artifact}.
    * @see Artifact#setFile
    */
-  public DeployResult publish(List<Artifact> toPublish)
-      throws DeploymentException, InterruptedException {
-    RepositorySystem repoSys =
-        Preconditions.checkNotNull(locator.getService(RepositorySystem.class));
+  public DeployResult publish(List<Artifact> toPublish) throws DeploymentException {
+    RepositorySystem repoSys = Objects.requireNonNull(locator.getService(RepositorySystem.class));
 
     DefaultRepositorySystemSession session = MavenRepositorySystemUtils.newSession();
     session.setLocalRepositoryManager(repoSys.newLocalRepositoryManager(session, localRepo));
@@ -251,11 +250,11 @@ public class Publisher {
     }
   }
 
-  private DeployRequest createDeployRequest(List<Artifact> toPublish) throws InterruptedException {
+  private DeployRequest createDeployRequest(List<Artifact> toPublish) {
     DeployRequest deployRequest = new DeployRequest().setRepository(remoteRepo);
     for (Artifact artifact : toPublish) {
       File file = artifact.getFile();
-      Preconditions.checkNotNull(file);
+      Objects.requireNonNull(file);
       Preconditions.checkArgument(file.exists(), "No such file: %s", file.getAbsolutePath());
 
       deployRequest.addArtifact(artifact);
@@ -267,7 +266,7 @@ public class Publisher {
     return deployRequest;
   }
 
-  private SubArtifact sign(Artifact descriptor, File file) throws InterruptedException {
+  private SubArtifact sign(Artifact descriptor, File file) {
     // Run gpg
     try (PrintStream stdout = new PrintStream(new ByteArrayOutputStream());
          PrintStream stderr = new PrintStream(new ByteArrayOutputStream())) {
@@ -292,7 +291,13 @@ public class Publisher {
               "--passphrase", pgpPassphrase.get(),
               file.getAbsolutePath())
           .build();
-      ProcessExecutor.Result result = processExecutor.launchAndExecute(args);
+      ProcessExecutor.Result result = null;
+      try {
+        result = processExecutor.launchAndExecute(args);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException(e);
+      }
       if (result.getExitCode() != 0) {
         throw new HumanReadableException("Unable to sign %s", file);
       }

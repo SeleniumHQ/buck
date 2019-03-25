@@ -18,6 +18,9 @@ package com.facebook.buck.artifact_cache;
 
 import com.facebook.buck.artifact_cache.config.ArtifactCacheMode;
 import com.facebook.buck.artifact_cache.config.CacheReadMode;
+import com.facebook.buck.core.cell.TestCellPathResolver;
+import com.facebook.buck.core.model.impl.JsonTargetConfigurationSerializer;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rulekey.RuleKey;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.io.file.BorrowablePath;
@@ -28,7 +31,6 @@ import com.facebook.buck.util.concurrent.FakeListeningExecutorService;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -40,20 +42,18 @@ import org.junit.Test;
 public class AbstractNetworkCacheTest {
 
   @Test
-  public void testBigArtifactIsNotStored()
-      throws InterruptedException, IOException, ExecutionException {
+  public void testBigArtifactIsNotStored() throws InterruptedException, ExecutionException {
     testStoreCall(0, Optional.of(10L), 11, 111);
   }
 
   @Test
-  public void testBigArtifactIsStored()
-      throws InterruptedException, IOException, ExecutionException {
+  public void testBigArtifactIsStored() throws InterruptedException, ExecutionException {
     testStoreCall(2, Optional.of(10L), 5, 10);
   }
 
   @Test
   public void testBigArtifactIsStoredWhenMaxIsNotDefined()
-      throws InterruptedException, IOException, ExecutionException {
+      throws InterruptedException, ExecutionException {
     testStoreCall(4, Optional.empty(), 5, 10, 100, 1000);
   }
 
@@ -82,6 +82,11 @@ public class AbstractNetworkCacheTest {
                 .setFetchClient(httpService)
                 .setStoreClient(httpService)
                 .setCacheReadMode(CacheReadMode.READWRITE)
+                .setTargetConfigurationSerializer(new JsonTargetConfigurationSerializer())
+                .setUnconfiguredBuildTargetFactory(
+                    target ->
+                        new ParsingUnconfiguredBuildTargetFactory()
+                            .create(TestCellPathResolver.get(filesystem), target))
                 .setProjectFilesystem(filesystem)
                 .setBuckEventBus(BuckEventBusForTests.newInstance())
                 .setHttpWriteExecutorService(service)

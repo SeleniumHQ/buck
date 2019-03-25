@@ -18,10 +18,10 @@ package com.facebook.buck.android;
 import com.facebook.buck.android.DxStep.Option;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.DefaultStepRunner;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -47,8 +47,10 @@ import com.google.common.collect.ImmutableMultimap.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
+import com.google.common.io.Files;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -56,6 +58,7 @@ import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -86,6 +89,7 @@ public class SmartDexingStep implements Step {
   private final AndroidPlatformTarget androidPlatformTarget;
   private final BuildContext buildContext;
   private final ProjectFilesystem filesystem;
+  private final boolean desugarInterfaceMethods;
   private final Supplier<Multimap<Path, Path>> outputToInputsSupplier;
   private final Optional<Path> secondaryOutputDir;
   private final DexInputHashesProvider dexInputHashesProvider;
@@ -95,6 +99,8 @@ public class SmartDexingStep implements Step {
   private final OptionalInt xzCompressionLevel;
   private final Optional<String> dxMaxHeapSize;
   private final String dexTool;
+  private final boolean useDexBuckedId;
+  private final Optional<Set<Path>> additonalDesugarDeps;
 
   /**
    * @param primaryOutputPath Path for the primary dex artifact.
@@ -122,10 +128,14 @@ public class SmartDexingStep implements Step {
       ListeningExecutorService executorService,
       OptionalInt xzCompressionLevel,
       Optional<String> dxMaxHeapSize,
-      String dexTool) {
+      String dexTool,
+      boolean desugarInterfaceMethods,
+      boolean useDexBuckedId,
+      Optional<Set<Path>> additonalDesugarDeps) {
     this.androidPlatformTarget = androidPlatformTarget;
     this.buildContext = buildContext;
     this.filesystem = filesystem;
+    this.desugarInterfaceMethods = desugarInterfaceMethods;
     this.outputToInputsSupplier =
         MoreSuppliers.memoize(
             () -> {
@@ -144,6 +154,8 @@ public class SmartDexingStep implements Step {
     this.xzCompressionLevel = xzCompressionLevel;
     this.dxMaxHeapSize = dxMaxHeapSize;
     this.dexTool = dexTool;
+    this.useDexBuckedId = useDexBuckedId;
+    this.additonalDesugarDeps = additonalDesugarDeps;
   }
 
   /**
@@ -299,6 +311,7 @@ public class SmartDexingStep implements Step {
       ProjectFilesystem filesystem, Multimap<Path, Path> outputToInputs) {
 
     ImmutableMap<Path, Sha1HashCode> dexInputHashes = dexInputHashesProvider.getDexInputHashes();
+    ImmutableSet<Path> allDexInputPaths = ImmutableSet.copyOf(outputToInputs.values());
 
     return outputToInputs
         .asMap()
@@ -317,7 +330,14 @@ public class SmartDexingStep implements Step {
                     dxOptions,
                     xzCompressionLevel,
                     dxMaxHeapSize,
-                    dexTool))
+                    dexTool,
+                    desugarInterfaceMethods
+                        ? Sets.union(
+                            Sets.difference(
+                                allDexInputPaths, ImmutableSet.copyOf(outputInputsPair.getValue())),
+                            additonalDesugarDeps.orElse(ImmutableSet.of()))
+                        : null,
+                    useDexBuckedId))
         .filter(dxPseudoRule -> !dxPseudoRule.checkIsCached())
         .map(
             dxPseudoRule -> {
@@ -351,6 +371,8 @@ public class SmartDexingStep implements Step {
     private final OptionalInt xzCompressionLevel;
     private final Optional<String> dxMaxHeapSize;
     private final String dexTool;
+    @Nullable private final Collection<Path> classpathFiles;
+    private final boolean useDexBuckedId;
 
     public DxPseudoRule(
         AndroidPlatformTarget androidPlatformTarget,
@@ -363,7 +385,9 @@ public class SmartDexingStep implements Step {
         EnumSet<Option> dxOptions,
         OptionalInt xzCompressionLevel,
         Optional<String> dxMaxHeapSize,
-        String dexTool) {
+        String dexTool,
+        @Nullable Collection<Path> classpathFiles,
+        boolean useDexBuckedId) {
       this.androidPlatformTarget = androidPlatformTarget;
       this.buildContext = buildContext;
       this.filesystem = filesystem;
@@ -375,6 +399,8 @@ public class SmartDexingStep implements Step {
       this.xzCompressionLevel = xzCompressionLevel;
       this.dxMaxHeapSize = dxMaxHeapSize;
       this.dexTool = dexTool;
+      this.classpathFiles = classpathFiles;
+      this.useDexBuckedId = useDexBuckedId;
     }
 
     /**
@@ -394,7 +420,7 @@ public class SmartDexingStep implements Step {
       for (Path src : srcs) {
         Preconditions.checkState(
             dexInputHashes.containsKey(src), "no hash key exists for path %s", src.toString());
-        Sha1HashCode hash = Preconditions.checkNotNull(dexInputHashes.get(src));
+        Sha1HashCode hash = Objects.requireNonNull(dexInputHashes.get(src));
         hash.update(hasher);
       }
       return hasher.hash().toString();
@@ -425,7 +451,9 @@ public class SmartDexingStep implements Step {
           dxOptions,
           xzCompressionLevel,
           dxMaxHeapSize,
-          dexTool);
+          dexTool,
+          classpathFiles,
+          useDexBuckedId);
       steps.add(
           new WriteFileStep(filesystem, newInputsHash, outputHashPath, /* executable */ false));
     }
@@ -448,9 +476,22 @@ public class SmartDexingStep implements Step {
       EnumSet<Option> dxOptions,
       OptionalInt xzCompressionLevel,
       Optional<String> dxMaxHeapSize,
-      String dexTool) {
+      String dexTool,
+      @Nullable Collection<Path> classpathFiles,
+      boolean useDexBuckedId) {
 
+    Optional<String> buckedId = Optional.empty();
     String output = outputPath.toString();
+    String fileName = Files.getNameWithoutExtension(output);
+    if (useDexBuckedId && fileName.startsWith("classes")) {
+      // We know what the output file name is ("classes.dex" or "classesN.dex") as these
+      // are generated in SplitZipStep and passed around as part of a multi-map - it is
+      // simply easier and cleaner to extract the dex file number to be used as unique
+      // identifier rather than creating another map and pass it around
+      String[] tokens = fileName.split("classes");
+      String id = tokens.length == 0 ? "" /* primary */ : tokens[1] /* secondary */;
+      buckedId = Optional.of(id);
+    }
 
     if (DexStore.XZ.matchesPath(outputPath)) {
       Path tempDexJarOutput = Paths.get(output.replaceAll("\\.jar\\.xz$", ".tmp.jar"));
@@ -463,7 +504,9 @@ public class SmartDexingStep implements Step {
               dxOptions,
               dxMaxHeapSize,
               dexTool,
-              false));
+              false,
+              classpathFiles,
+              buckedId));
       // We need to make sure classes.dex is STOREd in the .dex.jar file, otherwise .XZ
       // compression won't be effective.
       Path repackedJar = Paths.get(output.replaceAll("\\.xz$", ""));
@@ -503,7 +546,9 @@ public class SmartDexingStep implements Step {
               dxOptions,
               dxMaxHeapSize,
               dexTool,
-              false));
+              false,
+              classpathFiles,
+              buckedId));
       steps.add(
           new RepackZipEntriesStep(
               filesystem,
@@ -534,7 +579,9 @@ public class SmartDexingStep implements Step {
               dxOptions,
               dxMaxHeapSize,
               dexTool,
-              false));
+              false,
+              classpathFiles,
+              buckedId));
       if (DexStore.JAR.matchesPath(outputPath)) {
         steps.add(
             new DexJarAnalysisStep(

@@ -16,6 +16,7 @@
 
 package com.facebook.buck.cli;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphCache;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphFactory;
@@ -28,6 +29,7 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.modern.tools.IsolationChecker;
 import com.facebook.buck.rules.modern.tools.IsolationChecker.FailureReporter;
@@ -36,13 +38,11 @@ import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.TreeMultimap;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -51,6 +51,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.kohsuke.args4j.Argument;
 
@@ -67,8 +68,7 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) {
     try {
       // Create a TargetGraph that is composed of the transitive closure of all of the dependent
       // BuildRules for the specified BuildTargetPaths.
@@ -85,9 +85,9 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
             params
                 .getParser()
                 .buildTargetGraph(
-                    params.getCell(),
-                    getEnableParserProfiling(),
-                    pool.getListeningExecutorService(),
+                    createParsingContext(params.getCell(), pool.getListeningExecutorService())
+                        .withSpeculativeParsing(SpeculativeParsing.ENABLED)
+                        .withExcludeUnsupportedTargets(false),
                     targets);
       } catch (BuildFileParseException e) {
         params
@@ -95,14 +95,14 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
             .post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
         return ExitCode.PARSE_ERROR;
       }
-      if (params.getBuckConfig().getBuildVersions()) {
+      if (params.getBuckConfig().getView(BuildBuckConfig.class).getBuildVersions()) {
         targetGraph =
             toVersionedTargetGraph(params, TargetGraphAndBuildTargets.of(targetGraph, targets))
                 .getTargetGraph();
       }
 
       ActionGraphBuilder graphBuilder =
-          Preconditions.checkNotNull(
+          Objects.requireNonNull(
                   new ActionGraphProvider(
                           params.getBuckEventBus(),
                           ActionGraphFactory.create(
@@ -111,7 +111,10 @@ public class AuditMbrIsolationCommand extends AbstractCommand {
                               params.getPoolSupplier(),
                               params.getBuckConfig()),
                           new ActionGraphCache(
-                              params.getBuckConfig().getMaxActionGraphCacheEntries()),
+                              params
+                                  .getBuckConfig()
+                                  .getView(BuildBuckConfig.class)
+                                  .getMaxActionGraphCacheEntries()),
                           params.getRuleKeyConfiguration(),
                           params.getBuckConfig())
                       .getFreshActionGraph(targetGraph))

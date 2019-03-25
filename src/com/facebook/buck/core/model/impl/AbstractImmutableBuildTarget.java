@@ -19,8 +19,10 @@ package com.facebook.buck.core.model.impl;
 import com.facebook.buck.core.model.AbstractBuildTarget;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.UnconfiguredBuildTarget;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
-import com.facebook.buck.core.util.immutables.BuckStyleTuple;
+import com.facebook.buck.core.util.immutables.BuckStylePackageVisibleTuple;
 import com.facebook.buck.log.views.JsonViews;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -28,10 +30,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonView;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
-import java.nio.file.Path;
 import java.util.Optional;
 import java.util.Set;
 import org.immutables.value.Value;
@@ -40,16 +40,15 @@ import org.immutables.value.Value;
     fieldVisibility = JsonAutoDetect.Visibility.NONE,
     getterVisibility = JsonAutoDetect.Visibility.NONE,
     setterVisibility = JsonAutoDetect.Visibility.NONE)
-@BuckStyleTuple
+@BuckStylePackageVisibleTuple
 @Value.Immutable(prehash = true, builder = false)
 abstract class AbstractImmutableBuildTarget extends AbstractBuildTarget {
 
   @Override
-  public abstract UnflavoredBuildTarget getUnflavoredBuildTarget();
+  public abstract UnconfiguredBuildTarget getUnconfiguredBuildTarget();
 
   @Override
-  @Value.NaturalOrder
-  public abstract ImmutableSortedSet<Flavor> getFlavors();
+  public abstract TargetConfiguration getTargetConfiguration();
 
   @Value.Check
   protected void check() {
@@ -98,16 +97,6 @@ abstract class AbstractImmutableBuildTarget extends AbstractBuildTarget {
     return super.isFlavored();
   }
 
-  public static BuildTarget of(UnflavoredBuildTarget unflavoredBuildTarget) {
-    return ImmutableBuildTarget.of(unflavoredBuildTarget, ImmutableSortedSet.of());
-  }
-
-  /** Helper for creating a build target with no flavors and no cell name. */
-  public static BuildTarget of(Path cellPath, String baseName, String shortName) {
-    return ImmutableBuildTarget.of(
-        ImmutableUnflavoredBuildTarget.of(cellPath, Optional.empty(), baseName, shortName));
-  }
-
   /** @return {@link #getFullyQualifiedName()} */
   @Override
   public String toString() {
@@ -115,9 +104,14 @@ abstract class AbstractImmutableBuildTarget extends AbstractBuildTarget {
   }
 
   @Override
-  public BuildTarget withoutFlavors(Set<Flavor> flavors) {
+  public BuildTarget withShortName(String shortName) {
     return ImmutableBuildTarget.of(
-        getUnflavoredBuildTarget(), Sets.difference(getFlavors(), flavors));
+        getUnconfiguredBuildTarget().withShortName(shortName), getTargetConfiguration());
+  }
+
+  @Override
+  public BuildTarget withoutFlavors(Set<Flavor> flavors) {
+    return withFlavors(Sets.difference(getFlavors(), flavors));
   }
 
   @Override
@@ -127,12 +121,24 @@ abstract class AbstractImmutableBuildTarget extends AbstractBuildTarget {
 
   @Override
   public BuildTarget withoutFlavors() {
-    return ImmutableBuildTarget.of(getUnflavoredBuildTarget());
+    return ImmutableBuildTarget.of(
+        ImmutableUnconfiguredBuildTarget.of(getUnflavoredBuildTarget()), getTargetConfiguration());
+  }
+
+  @Override
+  public BuildTarget withFlavors(Flavor... flavors) {
+    return withFlavors(ImmutableSet.copyOf(flavors));
+  }
+
+  @Override
+  public BuildTarget withFlavors(Iterable<? extends Flavor> flavors) {
+    return ImmutableBuildTarget.of(
+        getUnconfiguredBuildTarget().withFlavors(flavors), getTargetConfiguration());
   }
 
   @Override
   public BuildTarget withAppendedFlavors(Set<Flavor> flavors) {
-    return ImmutableBuildTarget.of(getUnflavoredBuildTarget(), Sets.union(getFlavors(), flavors));
+    return withFlavors(Sets.union(getFlavors(), flavors));
   }
 
   @Override
@@ -141,10 +147,14 @@ abstract class AbstractImmutableBuildTarget extends AbstractBuildTarget {
   }
 
   @Override
+  public BuildTarget withUnflavoredBuildTarget(UnflavoredBuildTarget target) {
+    return ImmutableBuildTarget.of(
+        getUnconfiguredBuildTarget().withUnflavoredBuildTarget(target), getTargetConfiguration());
+  }
+
+  @Override
   public BuildTarget withoutCell() {
     return ImmutableBuildTarget.of(
-        ImmutableUnflavoredBuildTarget.of(
-            getCellPath(), Optional.empty(), getBaseName(), getShortName()),
-        getFlavors());
+        getUnconfiguredBuildTarget().withoutCell(), getTargetConfiguration());
   }
 }

@@ -21,11 +21,15 @@ import static org.junit.Assert.assertFalse;
 import com.facebook.buck.android.AndroidBuckConfig;
 import com.facebook.buck.android.relinker.Symbols;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
+import com.facebook.buck.android.toolchain.ndk.NdkCompilerType;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatformCompiler;
+import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntime;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntimeType;
+import com.facebook.buck.android.toolchain.ndk.UnresolvedNdkCxxPlatform;
 import com.facebook.buck.core.config.FakeBuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
+import com.facebook.buck.core.rules.resolver.impl.TestActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.ToolchainCreationContext;
 import com.facebook.buck.core.toolchain.impl.ToolchainProviderBuilder;
@@ -39,9 +43,9 @@ import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.testutil.integration.ZipInspector;
 import com.facebook.buck.util.DefaultProcessExecutor;
 import com.facebook.buck.util.ProcessExecutor;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.collect.ImmutableCollection;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.io.BufferedReader;
 import java.io.File;
@@ -73,14 +77,14 @@ public class AndroidNdkHelper {
               .createToolchain(
                   new ToolchainProviderBuilder().build(),
                   ToolchainCreationContext.of(
-                      ImmutableMap.copyOf(System.getenv()),
+                      EnvVariablesProvider.getSystemEnv(),
                       FakeBuckConfig.builder().build(),
                       filesystem,
                       new DefaultProcessExecutor(new TestConsole()),
                       new ExecutableFinder(),
                       TestRuleKeyConfigurationFactory.create()));
     } catch (HumanReadableException e) {
-      LOG.warn(e, "Cannot detect Android NDK");
+      LOG.info(e, "Cannot detect Android NDK");
       androidNdk = Optional.empty();
     }
     return androidNdk;
@@ -93,25 +97,29 @@ public class AndroidNdkHelper {
     Path ndkPath = androidNdk.get().getNdkRootPath();
     String ndkVersion = AndroidNdkResolver.findNdkVersionFromDirectory(ndkPath).get();
     String gccVersion = NdkCxxPlatforms.getDefaultGccVersionForNdk(ndkVersion);
+    String clangVersion = NdkCxxPlatforms.getDefaultClangVersionForNdk(ndkVersion);
+    NdkCompilerType compilerType = NdkCxxPlatforms.getDefaultCompilerTypeForNdk(ndkVersion);
+    NdkCxxRuntime cxxRuntime = NdkCxxPlatforms.getDefaultCxxRuntimeForNdk(ndkVersion);
+    String compilerVersion = compilerType == NdkCompilerType.GCC ? gccVersion : clangVersion;
 
-    ImmutableCollection<NdkCxxPlatform> platforms =
+    ImmutableCollection<UnresolvedNdkCxxPlatform> platforms =
         NdkCxxPlatforms.getPlatforms(
                 CxxPlatformUtils.DEFAULT_CONFIG,
                 AndroidNdkHelper.DEFAULT_CONFIG,
                 filesystem,
                 ndkPath,
                 NdkCxxPlatformCompiler.builder()
-                    .setType(NdkCxxPlatforms.DEFAULT_COMPILER_TYPE)
-                    .setVersion(gccVersion)
+                    .setType(compilerType)
+                    .setVersion(compilerVersion)
                     .setGccVersion(gccVersion)
                     .build(),
-                NdkCxxPlatforms.DEFAULT_CXX_RUNTIME,
+                cxxRuntime,
                 NdkCxxRuntimeType.DYNAMIC,
                 getDefaultCpuAbis(ndkVersion),
                 Platform.detect())
             .values();
     assertFalse(platforms.isEmpty());
-    return platforms.iterator().next();
+    return platforms.iterator().next().resolve(new TestActionGraphBuilder());
   }
 
   private static Path unzip(Path tmpDir, Path zipPath, String name) throws IOException {

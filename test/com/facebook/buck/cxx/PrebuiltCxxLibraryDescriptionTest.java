@@ -44,6 +44,7 @@ import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver
 import com.facebook.buck.cxx.AbstractCxxSource.Type;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
 import com.facebook.buck.cxx.toolchain.CxxPlatformUtils;
+import com.facebook.buck.cxx.toolchain.StaticUnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkTargetMode;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
@@ -216,7 +217,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
   }
 
   @Test
-  public void missingSharedLibsAreNotAutoBuiltForHeaderOnlyRules() throws Exception {
+  public void missingSharedLibsAreNotAutoBuiltForHeaderOnlyRules() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
@@ -235,7 +236,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
   }
 
   @Test
-  public void addsLibsToAndroidPackageableCollector() throws Exception {
+  public void addsLibsToAndroidPackageableCollector() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     ProjectFilesystem filesystem = new AllExistingProjectFilesystem();
     PrebuiltCxxLibraryBuilder libBuilder =
@@ -375,7 +376,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
             ImmutableMap.of(platform1.getFlavor(), platform1, platform2.getFlavor(), platform2));
 
     PrebuiltCxxLibraryBuilder libraryBuilder =
-        new PrebuiltCxxLibraryBuilder(TARGET, platforms)
+        new PrebuiltCxxLibraryBuilder(TARGET, platforms.map(StaticUnresolvedCxxPlatform::new))
             .setPlatformStaticLib(
                 PatternMatchedCollection.<SourcePath>builder()
                     .add(
@@ -584,7 +585,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
             graphBuilder.requireRule(
                 TARGET.withAppendedFlavors(
                     CxxDescriptionEnhancer.SHARED_FLAVOR,
-                    CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor()));
+                    CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR));
     assertThat(Arg.stringify(cxxLink.getArgs(), pathResolver), Matchers.hasItem("--some-flag"));
   }
 
@@ -940,7 +941,7 @@ public class PrebuiltCxxLibraryDescriptionTest {
                     PatternMatchedCollection.<ImmutableList<StringWithMacros>>builder()
                         .add(
                             Pattern.compile(
-                                CxxPlatformUtils.DEFAULT_PLATFORM.getFlavor().toString(),
+                                CxxPlatformUtils.DEFAULT_PLATFORM_FLAVOR.toString(),
                                 Pattern.LITERAL),
                             ImmutableList.of(StringWithMacrosUtils.format("-expected")))
                         .add(

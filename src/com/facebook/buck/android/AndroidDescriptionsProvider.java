@@ -17,9 +17,9 @@
 package com.facebook.buck.android;
 
 import com.facebook.buck.core.config.BuckConfig;
+import com.facebook.buck.core.description.Description;
 import com.facebook.buck.core.description.DescriptionCreationContext;
 import com.facebook.buck.core.model.targetgraph.DescriptionProvider;
-import com.facebook.buck.core.model.targetgraph.DescriptionWithTargetGraph;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.jvm.java.JavaBuckConfig;
@@ -35,8 +35,7 @@ import org.pf4j.Extension;
 public class AndroidDescriptionsProvider implements DescriptionProvider {
 
   @Override
-  public Collection<DescriptionWithTargetGraph<?>> getDescriptions(
-      DescriptionCreationContext context) {
+  public Collection<Description<?>> getDescriptions(DescriptionCreationContext context) {
     SandboxExecutionStrategy sandboxExecutionStrategy = context.getSandboxExecutionStrategy();
     ToolchainProvider toolchainProvider = context.getToolchainProvider();
     BuckConfig config = context.getBuckConfig();
@@ -71,8 +70,8 @@ public class AndroidDescriptionsProvider implements DescriptionProvider {
         new AndroidBuildConfigDescription(toolchainProvider),
         new AndroidBundleDescription(
             javaConfig,
-            androidBuckConfig,
             proGuardConfig,
+            androidBuckConfig,
             config,
             cxxBuckConfig,
             dxConfig,
@@ -88,7 +87,8 @@ public class AndroidDescriptionsProvider implements DescriptionProvider {
         new RobolectricTestDescription(
             toolchainProvider, javaConfig, defaultAndroidCompilerFactory),
         new PrebuiltNativeLibraryDescription(),
-        new NdkLibraryDescription(),
+        new NdkLibraryDescription(toolchainProvider),
+        new NdkToolchainDescription(),
         new GenAidlDescription(),
         new ApkGenruleDescription(toolchainProvider, sandboxExecutionStrategy));
   }

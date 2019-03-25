@@ -21,6 +21,7 @@ import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.android.toolchain.ndk.AndroidNdk;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.HasOutputName;
@@ -48,7 +49,6 @@ import com.facebook.buck.sandbox.SandboxProperties;
 import com.facebook.buck.shell.AbstractGenruleStep.CommandString;
 import com.facebook.buck.shell.programrunner.DirectProgramRunner;
 import com.facebook.buck.shell.programrunner.ProgramRunner;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
@@ -154,7 +154,7 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   protected final Path pathToOutFile;
   private final Path pathToTmpDirectory;
   private final Path pathToSrcDirectory;
-  private final Boolean isWorkerGenrule;
+  private final boolean isWorkerGenrule;
   private final Optional<AndroidPlatformTarget> androidPlatformTarget;
   private final Optional<AndroidNdk> androidNdk;
   private final Optional<AndroidSdkLocation> androidSdkLocation;
@@ -206,7 +206,7 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
     this.pathToSrcDirectory =
         BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s__srcs");
-    this.type = super.getType() + (type.isPresent() ? "_" + type.get() : "");
+    this.type = super.getType() + (type.map(typeStr -> "_" + typeStr).orElse(""));
     this.isWorkerGenrule = this.isWorkerGenrule();
     this.enableSandboxingInGenrule = enableSandboxingInGenrule;
 
@@ -261,6 +261,12 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
         target -> {
           environmentVariablesBuilder.put("DX", target.getDxExecutable().toString());
           environmentVariablesBuilder.put("ZIPALIGN", target.getZipalignExecutable().toString());
+          environmentVariablesBuilder.put(
+              "AAPT",
+              String.join(" ", target.getAaptExecutable().get().getCommandPrefix(pathResolver)));
+          environmentVariablesBuilder.put(
+              "AAPT2",
+              String.join(" ", target.getAapt2Executable().get().getCommandPrefix(pathResolver)));
         });
 
     // TODO(t5302074): This shouldn't be necessary. Speculatively disabling.
@@ -268,7 +274,7 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
   }
 
   @VisibleForTesting
-  public boolean isWorkerGenrule() {
+  boolean isWorkerGenrule() {
     Arg cmdArg = cmd.orElse(null);
     Arg bashArg = bash.orElse(null);
     Arg cmdExeArg = cmdExe.orElse(null);
@@ -293,7 +299,8 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     return type;
   }
 
-  public AbstractGenruleStep createGenruleStep(BuildContext context) {
+  @VisibleForTesting
+  AbstractGenruleStep createGenruleStep(BuildContext context) {
     SourcePathResolver sourcePathResolver = context.getSourcePathResolver();
 
     // The user's command (this.cmd) should be run from the directory that contains only the
@@ -379,7 +386,7 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     return inputs.build();
   }
 
-  public WorkerShellStep createWorkerShellStep(BuildContext context) {
+  private WorkerShellStep createWorkerShellStep(BuildContext context) {
     return new WorkerShellStep(
         getBuildTarget(),
         convertToWorkerJobParams(context.getSourcePathResolver(), cmd),
@@ -566,9 +573,7 @@ public class Genrule extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver) {
+      BuildRuleResolver ruleResolver, SourcePathRuleFinder ruleFinder) {
     this.buildRuleResolver = ruleResolver;
   }
 }

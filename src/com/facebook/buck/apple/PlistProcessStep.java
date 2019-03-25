@@ -21,9 +21,9 @@ import com.dd.plist.NSDictionary;
 import com.dd.plist.NSObject;
 import com.dd.plist.PropertyListFormatException;
 import com.dd.plist.PropertyListParser;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.text.ParseException;
+import java.util.HashMap;
 import java.util.Optional;
 import javax.xml.parsers.ParserConfigurationException;
 import org.xml.sax.SAXException;
@@ -80,8 +81,7 @@ class PlistProcessStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context)
-      throws IOException, InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) throws IOException {
     try (InputStream stream = filesystem.newFileInputStream(input);
         BufferedInputStream bufferedStream = new BufferedInputStream(stream)) {
       NSObject infoPlist;
@@ -113,8 +113,23 @@ class PlistProcessStep implements Step {
                 | SAXException e) {
               throw new IOException(additionalInputToMerge + ": " + e);
             }
-
-            dictionary.putAll(((NSDictionary) mergeInfoPlist).getHashMap());
+            HashMap<String, NSObject> infoPlistMap = dictionary.getHashMap();
+            ((NSDictionary) mergeInfoPlist)
+                .getHashMap()
+                .forEach(
+                    (mergeInfoPlistKey, mergeInfoPlistValue) ->
+                        infoPlistMap.merge(
+                            mergeInfoPlistKey,
+                            mergeInfoPlistValue,
+                            (oldInfoPlistValue, newInfoPlistValue) -> {
+                              if (oldInfoPlistValue instanceof NSDictionary
+                                  && newInfoPlistValue instanceof NSDictionary) {
+                                ((NSDictionary) oldInfoPlistValue)
+                                    .putAll(((NSDictionary) newInfoPlistValue).getHashMap());
+                                return oldInfoPlistValue;
+                              }
+                              return newInfoPlistValue;
+                            }));
           }
         }
 

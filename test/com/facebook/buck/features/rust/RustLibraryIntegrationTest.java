@@ -34,7 +34,7 @@ public class RustLibraryIntegrationTest {
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
 
   @Before
-  public void ensureRustIsAvailable() throws IOException, InterruptedException {
+  public void ensureRustIsAvailable() {
     RustAssumptions.assumeRustIsConfigured();
   }
 
@@ -209,6 +209,28 @@ public class RustLibraryIntegrationTest {
     workspace.setUp();
 
     workspace.runBuckBuild("//messenger2").assertSuccess();
+  }
+
+  @Test
+  public void libraryRust2015() throws IOException, InterruptedException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "editions", tmp);
+    workspace.setUp();
+
+    RustAssumptions.assumeVersion(workspace, "1.31");
+
+    workspace.runBuckBuild("//:rust2015#check").assertSuccess();
+  }
+
+  @Test
+  public void libraryRust2018() throws IOException, InterruptedException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "editions", tmp);
+    workspace.setUp();
+
+    RustAssumptions.assumeVersion(workspace, "1.31");
+
+    workspace.runBuckBuild("//:rust2018#check").assertSuccess();
   }
 
   @Test

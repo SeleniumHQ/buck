@@ -19,8 +19,9 @@ package com.facebook.buck.rules.modern.impl;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.Flavor;
 import com.facebook.buck.core.model.InternalFlavor;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.UnflavoredBuildTarget;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
+import com.facebook.buck.core.model.impl.ImmutableUnconfiguredBuildTarget;
 import com.facebook.buck.core.model.impl.ImmutableUnflavoredBuildTarget;
 import com.facebook.buck.rules.modern.ValueCreator;
 import com.facebook.buck.rules.modern.ValueTypeInfo;
@@ -60,6 +61,7 @@ public class BuildTargetTypeInfo implements ValueTypeInfo<BuildTarget> {
             .map(Flavor::getName)
             .collect(ImmutableSortedSet.toImmutableSortedSet(Comparator.naturalOrder())),
         visitor);
+    TargetConfigurationTypeInfo.INSTANCE.visit(value.getTargetConfiguration(), visitor);
   }
 
   @Override
@@ -74,7 +76,9 @@ public class BuildTargetTypeInfo implements ValueTypeInfo<BuildTarget> {
             .stream()
             .map(InternalFlavor::of)
             .collect(ImmutableList.toImmutableList());
-    return ImmutableBuildTarget.of(
-        ImmutableUnflavoredBuildTarget.of(cellPath, cellName, baseName, shortName), flavors);
+    TargetConfiguration targetConfiguration = creator.createTargetConfiguration();
+    return ImmutableUnconfiguredBuildTarget.of(
+            ImmutableUnflavoredBuildTarget.of(cellPath, cellName, baseName, shortName), flavors)
+        .configure(targetConfiguration);
   }
 }

@@ -23,6 +23,7 @@ import com.facebook.buck.event.api.BuckTracing;
 import com.facebook.buck.jvm.core.JavaAbis;
 import com.facebook.buck.jvm.java.abi.AbiGenerationMode;
 import com.facebook.buck.jvm.java.abi.SourceBasedAbiStubber;
+import com.facebook.buck.jvm.java.abi.SourceVersionUtils;
 import com.facebook.buck.jvm.java.abi.StubGenerator;
 import com.facebook.buck.jvm.java.abi.source.api.FrontendOnlyJavacTaskProxy;
 import com.facebook.buck.jvm.java.abi.source.api.SourceOnlyAbiRuleInfoFactory;
@@ -38,7 +39,6 @@ import com.facebook.buck.jvm.java.tracing.TranslatingJavacPhaseTracer;
 import com.facebook.buck.util.concurrent.MostExecutors.NamedThreadFactory;
 import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.zip.JarBuilder;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
@@ -57,6 +57,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
@@ -240,7 +241,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
           buildSourceOnlyAbi
               ? JavaAbis.getSourceOnlyAbiJar(libraryTarget)
               : JavaAbis.getSourceAbiJar(libraryTarget);
-      JarParameters jarParameters = Preconditions.checkNotNull(abiJarParameters);
+      JarParameters jarParameters = Objects.requireNonNull(abiJarParameters);
       BuckJavacTaskProxy javacTask = getJavacTask(buildSourceOnlyAbi);
       javacTask.addPostEnterCallback(
           topLevelTypes -> {
@@ -307,7 +308,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
     }
 
     private void switchToFullJarIfRequested() throws InterruptedException, ExecutionException {
-      Preconditions.checkNotNull(targetEvent).close();
+      Objects.requireNonNull(targetEvent).close();
 
       // Make a new event to capture the time spent waiting for the next stage in the
       // pipeline (or for the pipeline to realize it's done)
@@ -320,8 +321,8 @@ class Jsr199JavacInvocation implements Javac.Invocation {
       targetEvent.close();
 
       // Now start tracking the full jar
-      Preconditions.checkNotNull(tracingBridge).setBuildTarget(libraryTarget);
-      Preconditions.checkNotNull(phaseEventLogger).setBuildTarget(libraryTarget);
+      Objects.requireNonNull(tracingBridge).setBuildTarget(libraryTarget);
+      Objects.requireNonNull(phaseEventLogger).setBuildTarget(libraryTarget);
       targetEvent =
           new JavacEventSinkScopedSimplePerfEvent(context.getEventSink(), libraryTarget.toString());
     }
@@ -419,7 +420,8 @@ class Jsr199JavacInvocation implements Javac.Invocation {
                     try {
                       success = javacTask.call();
                     } catch (IllegalStateException ex) {
-                      if (ex.getLocalizedMessage().equals("no source files")) {
+                      if (ex.getLocalizedMessage().equals("no source files")
+                          || ex.getLocalizedMessage().equals("error: no source files")) {
                         success = true;
                       }
                     }
@@ -456,7 +458,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
 
                     return newJarBuilder(libraryJarParameters)
                         .createJarFile(
-                            Preconditions.checkNotNull(
+                            Objects.requireNonNull(
                                 context
                                     .getProjectFilesystem()
                                     .getPathForRelativePath(libraryJarParameters.getJarPath())));
@@ -619,7 +621,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
 
     private JarBuilder newJarBuilder(JarParameters jarParameters) {
       JarBuilder jarBuilder = new JarBuilder();
-      Preconditions.checkNotNull(inMemoryFileManager).writeToJar(jarBuilder);
+      Objects.requireNonNull(inMemoryFileManager).writeToJar(jarBuilder);
       return jarBuilder
           .setObserver(new LoggingJarBuilderObserver(context.getEventSink()))
           .setEntriesToJar(
@@ -643,7 +645,8 @@ class Jsr199JavacInvocation implements Javac.Invocation {
           Iterable<? extends JavaFileObject> javaFileObjects =
               fileManager.getJavaFileObjects(absolutifier.apply(path).toFile());
           compilationUnits.add(Iterables.getOnlyElement(javaFileObjects));
-        } else if (pathString.endsWith(Javac.SRC_ZIP) || pathString.endsWith(Javac.SRC_JAR)) {
+        } else if (pathString.endsWith(JavaPaths.SRC_ZIP)
+            || pathString.endsWith(JavaPaths.SRC_JAR)) {
           // For a Zip of .java files, create a JavaFileObject for each .java entry.
           ZipFile zipFile = new ZipFile(absolutifier.apply(path).toFile());
           boolean hasZipFileBeenUsed = false;
@@ -673,26 +676,7 @@ class Jsr199JavacInvocation implements Javac.Invocation {
       if (option.equals("-target")) {
         foundTarget = true;
       } else if (foundTarget) {
-        switch (option) {
-          case "1.3":
-            return SourceVersion.RELEASE_3;
-          case "1.4":
-            return SourceVersion.RELEASE_4;
-          case "1.5":
-          case "5":
-            return SourceVersion.RELEASE_5;
-          case "1.6":
-          case "6":
-            return SourceVersion.RELEASE_6;
-          case "1.7":
-          case "7":
-            return SourceVersion.RELEASE_7;
-          case "1.8":
-          case "8":
-            return SourceVersion.RELEASE_8;
-          default:
-            throw new HumanReadableException("target %s not supported", option);
-        }
+        return SourceVersionUtils.getSourceVersionFromTarget(option);
       }
     }
 

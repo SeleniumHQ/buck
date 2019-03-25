@@ -1,3 +1,17 @@
+# Copyright 2018-present Facebook, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
 import argparse
 import errno
 import json
@@ -6,6 +20,7 @@ import sys
 import time
 
 import buck_version
+import java_version
 
 
 def main(argv):
@@ -13,6 +28,11 @@ def main(argv):
     parser.add_argument("--release-version", help="The buck release version")
     parser.add_argument(
         "--release-timestamp", help="The unix timestamp when the release happened"
+    )
+    parser.add_argument(
+        "--java-version",
+        help="The Java version buck was compiled against",
+        required=True,
     )
     args = parser.parse_args(argv[1:])
     if bool(args.release_version) != bool(args.release_timestamp):
@@ -59,7 +79,12 @@ def main(argv):
         dirty = False
 
     json.dump(
-        {"version": version, "timestamp": timestamp, "is_dirty": dirty},
+        {
+            "version": version,
+            "timestamp": timestamp,
+            "is_dirty": dirty,
+            "java_version": java_version.get_java_major_version(args.java_version),
+        },
         sys.stdout,
         sort_keys=True,
         indent=2,

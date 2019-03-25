@@ -25,7 +25,6 @@ import com.facebook.buck.core.model.InternalFlavor;
 import com.facebook.buck.core.model.UserFlavor;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
-import com.facebook.buck.core.rulekey.RuleKeyObjectSink;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.BuildRuleParams;
@@ -59,9 +58,9 @@ import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkableInput;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.json.JsonConcatenate;
+import com.facebook.buck.rules.args.AddsToRuleKeyFunction;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.rules.args.FileListableLinkerInputArg;
-import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.args.SourcePathArg;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
@@ -97,6 +96,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.SortedSet;
 import java.util.function.Function;
@@ -473,7 +473,7 @@ public class CxxDescriptionEnhancer {
                               graphBuilder,
                               ruleFinder,
                               cxxPlatform,
-                              Preconditions.checkNotNull(s.getSourcePath())));
+                              Objects.requireNonNull(s.getSourcePath())));
                     })
                 .collect(ImmutableList.toImmutableList()),
             x -> true,
@@ -706,14 +706,14 @@ public class CxxDescriptionEnhancer {
    * @return a function that transforms the {@link FrameworkPath} to search paths with any embedded
    *     macros expanded.
    */
-  public static RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathToSearchPath(
+  public static AddsToRuleKeyFunction<FrameworkPath, Path> frameworkPathToSearchPath(
       CxxPlatform cxxPlatform, SourcePathResolver resolver) {
     return new FrameworkPathToSearchPathFunction(cxxPlatform, resolver);
   }
 
   private static class FrameworkPathToSearchPathFunction
-      implements RuleKeyAppendableFunction<FrameworkPath, Path> {
-    @AddToRuleKey private final RuleKeyAppendableFunction<String, String> translateMacrosFn;
+      implements AddsToRuleKeyFunction<FrameworkPath, Path> {
+    @AddToRuleKey private final AddsToRuleKeyFunction<String, String> translateMacrosFn;
     // TODO(cjhopman): This should be refactored to accept the resolver as an argument.
     @CustomFieldBehavior(SourcePathResolverSerialization.class)
     private final SourcePathResolver resolver;
@@ -721,12 +721,9 @@ public class CxxDescriptionEnhancer {
     public FrameworkPathToSearchPathFunction(CxxPlatform cxxPlatform, SourcePathResolver resolver) {
       this.resolver = resolver;
       this.translateMacrosFn =
-          new CxxFlags.TranslateMacrosAppendableFunction(
+          new CxxFlags.TranslateMacrosFunction(
               ImmutableSortedMap.copyOf(cxxPlatform.getFlagMacros()), cxxPlatform);
     }
-
-    @Override
-    public void appendToRuleKey(RuleKeyObjectSink sink) {}
 
     @Override
     public Path apply(FrameworkPath input) {
@@ -765,7 +762,7 @@ public class CxxDescriptionEnhancer {
     // Add in deps found via deps query.
     ImmutableList<BuildRule> depQueryDeps =
         args.getDepsQuery()
-            .map(query -> Preconditions.checkNotNull(query.getResolvedQuery()))
+            .map(query -> Objects.requireNonNull(query.getResolvedQuery()))
             .orElse(ImmutableSortedSet.of())
             .stream()
             .map(graphBuilder::getRule)
@@ -777,7 +774,8 @@ public class CxxDescriptionEnhancer {
 
     CxxLinkOptions linkOptions =
         CxxLinkOptions.of(
-            args.getThinLto()
+            args.getThinLto(),
+            args.getFatLto()
             );
     return createBuildRulesForCxxBinary(
         target,
@@ -921,6 +919,8 @@ public class CxxDescriptionEnhancer {
             f -> toStringWithMacrosArgs(target, cellRoots, graphBuilder, cxxPlatform, f)));
     if (linkOptions.getThinLto()) {
       allCompilerFlagsBuilder.putAll(CxxFlags.toLanguageFlags(StringArg.from("-flto=thin")));
+    } else if (linkOptions.getFatLto()) {
+      allCompilerFlagsBuilder.putAll(CxxFlags.toLanguageFlags(StringArg.from("-flto")));
     }
     ImmutableListMultimap<CxxSource.Type, Arg> allCompilerFlags = allCompilerFlagsBuilder.build();
 
@@ -979,7 +979,7 @@ public class CxxDescriptionEnhancer {
 
       // Embed a origin-relative library path into the binary so it can find the shared libraries.
       // The shared libraries root is absolute. Also need an absolute path to the linkOutput
-      Path absLinkOut = target.getCellPath().resolve(linkOutput);
+      Path absLinkOut = projectFilesystem.resolve(linkOutput);
       argsBuilder.addAll(
           StringArg.from(
               Linkers.iXlinker(
@@ -1054,6 +1054,7 @@ public class CxxDescriptionEnhancer {
               projectFilesystem,
               graphBuilder,
               stripStyle.get(),
+              cxxBuckConfig.shouldCacheStrip(),
               cxxLink,
               cxxPlatform,
               outputRootName);
@@ -1110,6 +1111,7 @@ public class CxxDescriptionEnhancer {
       ProjectFilesystem projectFilesystem,
       ActionGraphBuilder graphBuilder,
       StripStyle stripStyle,
+      boolean isCacheable,
       BuildRule unstrippedBinaryRule,
       CxxPlatform cxxPlatform,
       Optional<String> outputRootName) {
@@ -1127,6 +1129,7 @@ public class CxxDescriptionEnhancer {
                     new SourcePathRuleFinder(graphBuilder),
                     stripStyle,
                     cxxPlatform.getStrip(),
+                    isCacheable,
                     CxxDescriptionEnhancer.getBinaryOutputPath(
                         stripBuildTarget,
                         projectFilesystem,
@@ -1165,7 +1168,7 @@ public class CxxDescriptionEnhancer {
 
   public static Optional<CxxCompilationDatabaseDependencies> createCompilationDatabaseDependencies(
       BuildTarget buildTarget,
-      FlavorDomain<CxxPlatform> platforms,
+      FlavorDomain<?> platforms,
       ActionGraphBuilder graphBuilder,
       ImmutableSortedSet<BuildTarget> deps) {
     Preconditions.checkState(

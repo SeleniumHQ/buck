@@ -26,16 +26,15 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.jvm.java.AbstractJavacPluginProperties.Type;
+import com.facebook.buck.jvm.java.javax.SynchronizedToolProvider;
 import com.facebook.buck.util.ClassLoaderCache;
 import java.io.IOException;
-import java.net.MalformedURLException;
-import javax.tools.ToolProvider;
 import org.junit.Test;
 
 public class AnnotationProcessorFactoryTest {
   @Test
-  public void testAnnotationProcessorClassloadersNotReusedIfMarkedUnsafe()
-      throws MalformedURLException {
+  public void testAnnotationProcessorClassloadersNotReusedIfMarkedUnsafe() {
     assertFalse(
         isAnnotationProcessorClassLoaderReused(
             "some.Processor", // processor
@@ -43,7 +42,7 @@ public class AnnotationProcessorFactoryTest {
   }
 
   @Test
-  public void testAnnotationProcessorClassloadersReusedIfMarkedSafe() throws MalformedURLException {
+  public void testAnnotationProcessorClassloadersReusedIfMarkedSafe() {
     assertTrue(
         isAnnotationProcessorClassLoaderReused(
             "some.Processor", // processor
@@ -54,12 +53,13 @@ public class AnnotationProcessorFactoryTest {
       String annotationProcessor, boolean canReuseClasspath) {
     ProjectFilesystem filesystem = new FakeProjectFilesystem();
     SourcePath classpath = FakeSourcePath.of("some/path/to.jar");
-    ClassLoader baseClassLoader = ToolProvider.getSystemToolClassLoader();
+    ClassLoader baseClassLoader = SynchronizedToolProvider.getSystemToolClassLoader();
     ClassLoaderCache classLoaderCache = new ClassLoaderCache();
     BuildTarget buildTarget = BuildTargetFactory.newInstance("//:test");
     ResolvedJavacPluginProperties processorGroup =
         new ResolvedJavacPluginProperties(
             JavacPluginProperties.builder()
+                .setType(Type.ANNOTATION_PROCESSOR)
                 .addClasspathEntries(classpath)
                 .addProcessorNames(annotationProcessor)
                 .setCanReuseClassLoader(canReuseClasspath)

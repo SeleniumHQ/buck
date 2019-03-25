@@ -398,6 +398,13 @@ public class ParserIntegrationTest {
         "NameError: global name 'java_library' is not defined",
         "extension.bzl\", line 5",
         "BUCK\", line 5");
+    assertParseFailedWithSubstrings(
+        workspace.runBuckBuild(
+            "//python/native_in_build_file:main",
+            "-c",
+            "parser.disable_implicit_native_rules=true"),
+        "AttributeError: 'native' object has no attribute 'java_library'",
+        "BUCK\", line 1");
     workspace
         .runBuckBuild(
             "//python/native_in_extension_bzl:main",
@@ -451,6 +458,14 @@ public class ParserIntegrationTest {
         "name 'java_library' is not defined",
         "extension.bzl\", line 5",
         "BUCK\", line 4");
+    assertParseFailedWithSubstrings(
+        workspace.runBuckBuild(
+            "//skylark/native_in_build_file:main",
+            "-c",
+            "parser.polyglot_parsing_enabled=true",
+            "-c",
+            "parser.disable_implicit_native_rules=true"),
+        "BUCK:2:1: type 'native (a language module)' has no method java_library");
     workspace
         .runBuckBuild(
             "//skylark/native_in_extension_bzl:main",
@@ -573,5 +588,25 @@ public class ParserIntegrationTest {
     assertParseFailedWithSubstrings(
         workspace.runBuckCommand("build", "//:glob"),
         "Recursive globs are prohibited at top-level directory");
+  }
+
+  @Test
+  public void skylarkParseErrorIfTopLevelRecursiveGlob() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(
+            this, "top_level_recursive_glob", temporaryFolder);
+    workspace.setUp();
+    assertParseFailedWithSubstrings(
+        workspace.runBuckCommand(
+            "build", "//:glob", "-c", "parser.default_build_file_syntax=skylark"),
+        "Recursive globs are prohibited at top-level directory");
+  }
+
+  @Test
+  public void parseAllFromRootCellShouldIgnoreSubcells() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "subcell_ignored", temporaryFolder);
+    workspace.setUp();
+    workspace.runBuckBuild("//...").assertSuccess();
   }
 }

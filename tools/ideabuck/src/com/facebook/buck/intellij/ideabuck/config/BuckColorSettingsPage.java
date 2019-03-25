@@ -32,10 +32,14 @@ public class BuckColorSettingsPage implements ColorSettingsPage {
 
   private static final AttributesDescriptor[] DESCRIPTORS =
       new AttributesDescriptor[] {
-        new AttributesDescriptor("Key", BuckSyntaxHighlighter.BUCK_KEYWORD),
+        new AttributesDescriptor("Keyword", BuckSyntaxHighlighter.BUCK_KEYWORD),
         new AttributesDescriptor("String", BuckSyntaxHighlighter.BUCK_STRING),
         new AttributesDescriptor("Comment", BuckSyntaxHighlighter.BUCK_COMMENT),
         new AttributesDescriptor("Name", BuckSyntaxHighlighter.BUCK_RULE_NAME),
+        new AttributesDescriptor("Attribute", BuckSyntaxHighlighter.BUCK_PROPERTY_LVALUE),
+        new AttributesDescriptor("Target", BuckSyntaxHighlighter.BUCK_TARGET),
+        new AttributesDescriptor("TargetPattern", BuckSyntaxHighlighter.BUCK_TARGET_PATTERN),
+        new AttributesDescriptor("Invalid Target", BuckSyntaxHighlighter.BUCK_INVALID_TARGET),
       };
 
   @Override

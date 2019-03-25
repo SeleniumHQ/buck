@@ -16,6 +16,7 @@
 
 package com.facebook.buck.shell;
 
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.description.arg.CommonDescriptionArg;
 import com.facebook.buck.core.exceptions.HumanReadableException;
@@ -31,11 +32,11 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.rules.args.ProxyArg;
-import com.facebook.buck.rules.macros.AbstractMacroExpander;
 import com.facebook.buck.rules.macros.ClasspathMacroExpander;
 import com.facebook.buck.rules.macros.ExecutableMacroExpander;
 import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.Macro;
+import com.facebook.buck.rules.macros.MacroExpander;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
 import com.facebook.buck.util.types.Either;
@@ -53,7 +54,7 @@ public class WorkerToolDescription implements DescriptionWithTargetGraph<WorkerT
   private static final String CONFIG_SECTION = "worker";
   private static final String CONFIG_PERSISTENT_KEY = "persistent";
 
-  public static final ImmutableList<AbstractMacroExpander<? extends Macro, ?>> MACRO_EXPANDERS =
+  public static final ImmutableList<MacroExpander<? extends Macro, ?>> MACRO_EXPANDERS =
       ImmutableList.of(
           new LocationMacroExpander(), new ClasspathMacroExpander(), new ExecutableMacroExpander());
 
@@ -141,10 +142,16 @@ public class WorkerToolDescription implements DescriptionWithTargetGraph<WorkerT
           percent > 0, "max_workers_per_thread_percent must be greater than 0.");
       Preconditions.checkArgument(
           percent <= 100, "max_workers_per_thread_percent must not be greater than 100.");
-      maxWorkers = (int) Math.max(1, percent / 100.0 * buckConfig.getNumThreads());
+      maxWorkers =
+          (int)
+              Math.max(
+                  1, percent / 100.0 * buckConfig.getView(BuildBuckConfig.class).getNumThreads());
     } else {
       // negative or zero: unlimited number of worker processes
-      maxWorkers = args.getMaxWorkers().map(x -> x < 1 ? buckConfig.getNumThreads() : x).orElse(1);
+      maxWorkers =
+          args.getMaxWorkers()
+              .map(x -> x < 1 ? buckConfig.getView(BuildBuckConfig.class).getNumThreads() : x)
+              .orElse(1);
     }
 
     CommandTool tool = builder.build();

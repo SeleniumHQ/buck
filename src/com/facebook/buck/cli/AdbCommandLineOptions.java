@@ -17,6 +17,7 @@
 package com.facebook.buck.cli;
 
 import com.facebook.buck.android.AndroidBuckConfig;
+import com.facebook.buck.android.exopackage.AdbConfig;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.step.AdbOptions;
 import com.facebook.buck.util.environment.Platform;
@@ -37,7 +38,7 @@ public class AdbCommandLineOptions {
   private int adbThreadCount = 0;
 
   @VisibleForTesting static final String MULTI_INSTALL_MODE_SHORT_ARG = "-x";
-  @VisibleForTesting static final String MULTI_INSTALL_MODE_LONG_ARG = "-all";
+  @VisibleForTesting static final String MULTI_INSTALL_MODE_LONG_ARG = "--all-devices";
 
   @Option(
       name = MULTI_INSTALL_MODE_LONG_ARG,
@@ -46,7 +47,7 @@ public class AdbCommandLineOptions {
   private boolean multiInstallMode;
 
   public AdbOptions getAdbOptions(BuckConfig buckConfig) {
-    if (buckConfig.getMultiInstallMode()) {
+    if (buckConfig.getView(AdbConfig.class).getMultiInstallMode()) {
       multiInstallMode = true;
     }
     AndroidBuckConfig androidBuckConfig = new AndroidBuckConfig(buckConfig, Platform.detect());

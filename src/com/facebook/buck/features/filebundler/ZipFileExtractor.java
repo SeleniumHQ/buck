@@ -25,11 +25,10 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.unarchive.UnzipStep;
 import com.facebook.buck.util.PatternsMatcher;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /** Extracts zip archives with excluding entries matching given patterns. */
@@ -48,7 +47,7 @@ public class ZipFileExtractor {
       BuildTarget target,
       ProjectFilesystem filesystem,
       Path destinationDir,
-      ImmutableSortedSet<SourcePath> toExtract,
+      Iterable<SourcePath> toExtract,
       SourcePathResolver pathResolver,
       PatternsMatcher entriesToExclude) {
 
@@ -59,7 +58,7 @@ public class ZipFileExtractor {
 
     for (Map.Entry<Path, Path> pathEntry : relativeMap.entrySet()) {
       Path relativePath = pathEntry.getKey();
-      Path absolutePath = Preconditions.checkNotNull(pathEntry.getValue());
+      Path absolutePath = Objects.requireNonNull(pathEntry.getValue());
       Path destination = destinationDir.resolve(relativePath);
 
       steps.add(

@@ -33,7 +33,7 @@ public class CellPathResolverViewTest {
   private ProjectFilesystem filesystem;
 
   @Before
-  public void setUp() throws InterruptedException {
+  public void setUp() {
     filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
   }
 
@@ -92,6 +92,20 @@ public class CellPathResolverViewTest {
     Assert.assertEquals(
         knownRoots,
         ImmutableSortedSet.of(filesystem.getPath("foo/b"), filesystem.getPath("foo/c")));
+  }
+
+  @Test
+  public void isEqualAndHashable() {
+    CellPathResolverView view1 =
+        new CellPathResolverView(
+            getTestDelegate(), ImmutableSet.of("b"), filesystem.getPath("foo/c"));
+
+    CellPathResolverView view2 =
+        new CellPathResolverView(
+            getTestDelegate(), ImmutableSet.of("b"), filesystem.getPath("foo/c"));
+
+    Assert.assertEquals(view1, view2);
+    Assert.assertEquals(view1.hashCode(), view2.hashCode());
   }
 
   private CellPathResolver getTestDelegate() {

@@ -116,7 +116,7 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
   private ProjectFilesystem filesystem;
 
   @Before
-  public void setUp() throws InterruptedException {
+  public void setUp() {
     assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
     filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
   }
@@ -136,7 +136,7 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
 
   @Test
   public void testBuildJavaLibraryWithoutSrcsAndVerifyAbi()
-      throws InterruptedException, IOException, CompressorException {
+      throws IOException, CompressorException {
     setUpProjectWorkspaceForScenario("abi");
     workspace.enableDirCache();
 
@@ -369,11 +369,11 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
 
     assertThat(utilRuleKey, not(equalTo(getContents(utilRuleKeyPath))));
     assertThat(utilAbiRuleKey, not(equalTo(getContents(utilAbiRuleKeyPath))));
-    workspace.getBuildLog().assertTargetBuiltLocally(utilTarget.toString());
+    workspace.getBuildLog().assertTargetBuiltLocally(utilTarget);
 
     assertThat(bizRuleKey, not(equalTo(getContents(bizRuleKeyPath))));
     assertEquals(bizAbiRuleKey, getContents(bizAbiRuleKeyPath));
-    workspace.getBuildLog().assertTargetHadMatchingInputRuleKey(bizTarget.toString());
+    workspace.getBuildLog().assertTargetHadMatchingInputRuleKey(bizTarget);
 
     assertThat(
         "util.jar should have been rewritten, so its file size should have changed.",
@@ -423,16 +423,13 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
     // Confirm that we got an input based rule key hit on B#abi, C#abi, D#abi
     workspace
         .getBuildLog()
-        .assertTargetWasFetchedFromCache(
-            b.withFlavors(JavaAbis.CLASS_ABI_FLAVOR).getFullyQualifiedName());
+        .assertTargetWasFetchedFromCache(b.withFlavors(JavaAbis.CLASS_ABI_FLAVOR));
     workspace
         .getBuildLog()
-        .assertTargetWasFetchedFromCache(
-            c.withFlavors(JavaAbis.CLASS_ABI_FLAVOR).getFullyQualifiedName());
+        .assertTargetWasFetchedFromCache(c.withFlavors(JavaAbis.CLASS_ABI_FLAVOR));
     workspace
         .getBuildLog()
-        .assertTargetWasFetchedFromCache(
-            d.withFlavors(JavaAbis.CLASS_ABI_FLAVOR).getFullyQualifiedName());
+        .assertTargetWasFetchedFromCache(d.withFlavors(JavaAbis.CLASS_ABI_FLAVOR));
 
     // Confirm that B, C, and D were not re-built
     workspace.getBuildLog().assertNoLogEntry(b.getFullyQualifiedName());
@@ -540,6 +537,63 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
     workspace.getBuildLog().assertTargetHadMatchingRuleKey("//:util");
     workspace.getBuildLog().assertTargetHadMatchingInputRuleKey("//:main");
     workspace.getBuildLog().assertTargetBuiltLocally("//:annotation_processor_lib");
+  }
+
+  @Test
+  public void testJavacPluginCrashesShouldCrashBuck() throws IOException {
+    setUpProjectWorkspaceForScenario("javac_plugin_crashes");
+
+    // Run `buck build` to create the dep file
+    BuildTarget mainTarget = BuildTargetFactory.newInstance("//:main");
+    // Warm the used classes file
+    ProcessResult buildResult =
+        workspace.runBuckCommand("build", mainTarget.getFullyQualifiedName());
+    buildResult.assertFailure("MyPlugin won't let you build this");
+  }
+
+  @Test
+  public void testJavacPluginFileChangeThatDoesNotModifyCodeDoesNotCauseRebuild()
+      throws IOException {
+    setUpProjectWorkspaceForScenario("javac_plugin");
+
+    // Run `buck build` to create the dep file
+    BuildTarget mainTarget = BuildTargetFactory.newInstance("//:main");
+    // Warm the used classes file
+    ProcessResult buildResult =
+        workspace.runBuckCommand("build", mainTarget.getFullyQualifiedName());
+    buildResult.assertSuccess("Successful build should exit with 0.");
+
+    workspace.getBuildLog().assertTargetBuiltLocally("//:main");
+    workspace.getBuildLog().assertTargetBuiltLocally("//:util");
+
+    // Edit a source file in the javac plugin in a way that doesn't change the ABI
+    workspace.replaceFileContents("JavacPlugin.java", "doStuff();", "doStuff(); /* false */");
+
+    // Run `buck build` again.
+    ProcessResult buildResult2 = workspace.runBuckCommand("build", "//:main");
+    buildResult2.assertSuccess("Successful build should exit with 0.");
+
+    // If all goes well, we'll rebuild //:javac_plugin because of the source change,
+    // and then rebuild //:main because the code of the annotation processor has changed
+    workspace.getBuildLog().assertTargetHadMatchingRuleKey("//:util");
+    workspace.getBuildLog().assertTargetHadMatchingInputRuleKey("//:main");
+    workspace.getBuildLog().assertTargetBuiltLocally("//:javac_plugin_lib");
+  }
+
+  @Test
+  public void testMixedAnnotationProcessorAndJavaPlugins() throws IOException {
+    setUpProjectWorkspaceForScenario("mixed_javac_plugin_annotation_processors");
+
+    // Run `buck build` to create the dep file
+    BuildTarget mainTarget = BuildTargetFactory.newInstance("//:main");
+    // Warm the used classes file
+    ProcessResult buildResult =
+        workspace.runBuckCommand("build", mainTarget.getFullyQualifiedName());
+    buildResult.assertSuccess("Successful build should exit with 0.");
+
+    workspace.getBuildLog().assertTargetBuiltLocally("//:main");
+    workspace.getBuildLog().assertTargetBuiltLocally("//:jp_util");
+    workspace.getBuildLog().assertTargetBuiltLocally("//:ap_util");
   }
 
   @Test
@@ -1151,14 +1205,13 @@ public class DefaultJavaLibraryIntegrationTest extends AbiCompilationModeTest {
     assertThat(
         result.getStderr(),
         Matchers.stringContainsInOrder(
-            "Build failed:",
             "The annotation processor com.example.buck.AnnotationProcessor has crashed.",
             "java.lang.RuntimeException: java.lang.IllegalArgumentException: Test crash!   |\n|  at com.example.buck.AnnotationProcessor.process(AnnotationProcessor.java:22) |\n|  ...", // Buck frames have been stripped properly
             "Caused by: java.lang.IllegalArgumentException: Test crash!", // Without then stripping
             // out the caused
             // exception!
-            "    When running <javac>.",
-            "    When building rule //:main."));
+            "When running <javac>.",
+            "When building rule //:main."));
   }
 
   @Test

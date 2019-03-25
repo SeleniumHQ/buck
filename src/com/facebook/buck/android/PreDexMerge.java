@@ -21,6 +21,7 @@ import com.facebook.buck.android.apkmodule.APKModuleGraph;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
@@ -33,7 +34,6 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.AbstractExecutionStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -92,6 +92,7 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       EnumSet.of(
           DxStep.Option.USE_CUSTOM_DX_IF_AVAILABLE,
           DxStep.Option.RUN_IN_PROCESS,
+          DxStep.Option.NO_DESUGAR,
           DxStep.Option.NO_OPTIMIZE);
 
   @AddToRuleKey private final DexSplitMode dexSplitMode;
@@ -370,7 +371,10 @@ public class PreDexMerge extends AbstractBuildRuleWithDeclaredAndExtraDeps {
             dxExecutorService,
             xzCompressionLevel,
             dxMaxHeapSize,
-            dexTool));
+            dexTool,
+            false,
+            false,
+            Optional.empty()));
 
     for (PreDexedFilesSorter.Result result : sortResults.values()) {
       if (!result.apkModule.equals(apkModuleGraph.getRootAPKModule())) {

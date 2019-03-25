@@ -20,8 +20,6 @@ import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.util.graph.AbstractBreadthFirstTraversal;
 import com.facebook.buck.core.util.graph.DirectedAcyclicGraph;
-import com.facebook.buck.core.util.graph.Dot;
-import com.facebook.buck.core.util.graph.Dot.Builder;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildState;
@@ -32,28 +30,27 @@ import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
 import com.facebook.buck.query.QueryTarget;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
+import com.facebook.buck.rules.coercer.DefaultConstructorArgMarshaller;
+import com.facebook.buck.util.CloseableWrapper;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.PatternsMatcher;
 import com.facebook.buck.util.json.ObjectMappers;
-import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CaseFormat;
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeMultimap;
-import com.google.common.util.concurrent.ListeningExecutorService;
+import java.io.BufferedOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.io.StringWriter;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -62,16 +59,21 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import org.codehaus.plexus.util.StringUtils;
 import org.kohsuke.args4j.Argument;
 import org.kohsuke.args4j.Option;
+import org.kohsuke.args4j.spi.FileOptionHandler;
 
 public class QueryCommand extends AbstractCommand {
 
@@ -84,37 +86,91 @@ public class QueryCommand extends AbstractCommand {
    * Example usage:
    *
    * <pre>
-   * buck query "allpaths('//path/to:target', '//path/to:other')" --dot > /tmp/graph.dot
+   * buck query "allpaths('//path/to:target', '//path/to:other')" --output-format dot --output-file /tmp/graph.dot
    * dot -Tpng /tmp/graph.dot -o /tmp/graph.png
    * </pre>
    */
-  @Option(name = "--dot", usage = "Print result as Dot graph")
+  @Deprecated
+  @Option(
+      name = "--dot",
+      usage = "Deprecated (use `--output-format dot`): Print result as Dot graph",
+      forbids = {"--json", "--output-format"})
   private boolean generateDotOutput;
 
-  @Option(name = "--bfs", usage = "Sort the dot output in bfs order")
+  @Deprecated
+  @Option(
+      name = "--bfs",
+      usage = "Deprecated (use `--output-format dot_bfs`): Sort the dot output in bfs order",
+      depends = {"--dot"})
   private boolean generateBFSOutput;
 
-  @Option(name = "--json", usage = "Output in JSON format")
+  @Deprecated
+  @Option(
+      name = "--json",
+      usage = "Deprecated (use `--output-format json`): Output in JSON format",
+      forbids = {"--dot", "--output-format"})
   private boolean generateJsonOutput;
 
-  /** Output format. */
-  public enum OutputFormat {
+  /** Enum with values for `--output-format` CLI parameter */
+  private enum OutputFormat {
+    /** Format output as list */
+    LIST,
+
+    /** Format output as dot graph */
+    DOT,
+
+    /** Format output as dot graph in bfs order */
+    DOT_BFS,
+
+    /** Format output as JSON */
+    JSON,
+
+    /** Format output as Thrift binary */
+    THRIFT,
+  }
+
+  @Option(
+      name = "--output-format",
+      usage =
+          "Output format (default: list).\n"
+              + " dot -  dot graph format.\n"
+              + " dot_bfs -  dot graph format in bfs order.\n"
+              + " json - JSON format.\n"
+              + " thrift - thrift binary format.\n")
+  private OutputFormat outputFormat = OutputFormat.LIST;
+
+  @Option(
+      name = "--output-file",
+      usage = "Specify output file path for a result",
+      handler = FileOptionHandler.class)
+  @Nullable
+  private File outputFile;
+
+  /** Sort Output format. */
+  public enum SortOutputFormat {
     LABEL,
     /** Rank by the length of the shortest path from a root node. */
     MINRANK,
     /** Rank by the length of the longest path from a root node. */
-    MAXRANK,
+    MAXRANK;
+
+    boolean needToSortByRank() {
+      return this == MAXRANK || this == MINRANK;
+    }
   }
 
   @Option(
-      name = "--output",
+      name = "--sort-output",
+      // leaving `output` for a backward compatibility with existing code console parameters
+      aliases = {"--output"},
       usage =
-          "Output format (default: label). "
+          "Sort output format (default: label). "
               + "minrank/maxrank: Sort the output in rank order and output the ranks "
               + "according to the length of the shortest or longest path from a root node, "
-              + "respectively. This does not apply to --dot or --json.")
-  private OutputFormat outputFormat = OutputFormat.LABEL;
+              + "respectively. This does not apply to --output-format equals to dot, dot_bfs, json and thrift.")
+  private SortOutputFormat sortOutputFormat = SortOutputFormat.LABEL;
 
+  @Deprecated
   @Option(
       name = "--output-attributes",
       usage =
@@ -123,9 +179,7 @@ public class QueryCommand extends AbstractCommand {
               + "--output-attribute.",
       handler = StringSetOptionHandler.class,
       forbids = {"--output-attribute"})
-  @SuppressFieldNotInitialized
-  @VisibleForTesting
-  Supplier<ImmutableSet<String>> outputAttributesDeprecated =
+  private Supplier<ImmutableSet<String>> outputAttributesDeprecated =
       Suppliers.ofInstance(ImmutableSet.of());
 
   // Two options are kept to not break the UI and scripts
@@ -137,7 +191,6 @@ public class QueryCommand extends AbstractCommand {
               + "multiple times.",
       handler = SingleStringSetOptionHandler.class,
       forbids = {"--output-attributes"})
-  @SuppressFieldNotInitialized
   @VisibleForTesting
   Supplier<ImmutableSet<String>> outputAttributesSane = Suppliers.ofInstance(ImmutableSet.of());
 
@@ -148,23 +201,7 @@ public class QueryCommand extends AbstractCommand {
     return sane.size() > deprecated.size() ? sane : deprecated;
   }
 
-  public boolean shouldGenerateJsonOutput() {
-    return generateJsonOutput;
-  }
-
-  public boolean shouldGenerateDotOutput() {
-    return generateDotOutput;
-  }
-
-  public boolean shouldGenerateBFSOutput() {
-    return generateBFSOutput;
-  }
-
-  public OutputFormat getOutputFormat() {
-    return outputFormat;
-  }
-
-  public boolean shouldOutputAttributes() {
+  private boolean shouldOutputAttributes() {
     return !outputAttributes().isEmpty();
   }
 
@@ -177,8 +214,7 @@ public class QueryCommand extends AbstractCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
     if (arguments.isEmpty()) {
       throw new CommandLineException("must specify at least the query expression");
     }
@@ -186,52 +222,74 @@ public class QueryCommand extends AbstractCommand {
     try (CommandThreadManager pool =
             new CommandThreadManager("Query", getConcurrencyLimit(params.getBuckConfig()));
         PerBuildState parserState =
-            new PerBuildStateFactory(
+            PerBuildStateFactory.createFactory(
                     params.getTypeCoercerFactory(),
-                    new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
+                    new DefaultConstructorArgMarshaller(params.getTypeCoercerFactory()),
                     params.getKnownRuleTypesProvider(),
                     new ParserPythonInterpreterProvider(
                         params.getCell().getBuckConfig(), params.getExecutableFinder()),
+                    params.getCell().getBuckConfig(),
                     params.getWatchman(),
-                    params.getBuckEventBus())
+                    params.getBuckEventBus(),
+                    params.getManifestServiceSupplier(),
+                    params.getFileHashCache(),
+                    params.getUnconfiguredBuildTargetFactory())
                 .create(
+                    createParsingContext(params.getCell(), pool.getListeningExecutorService())
+                        .withSpeculativeParsing(SpeculativeParsing.ENABLED),
                     params.getParser().getPermState(),
-                    pool.getListeningExecutorService(),
-                    params.getCell(),
-                    getTargetPlatforms(),
-                    getEnableParserProfiling(),
-                    SpeculativeParsing.ENABLED)) {
-      ListeningExecutorService executor = pool.getListeningExecutorService();
+                    getTargetPlatforms())) {
       BuckQueryEnvironment env =
-          BuckQueryEnvironment.from(params, parserState, executor, getEnableParserProfiling());
-      return formatAndRunQuery(params, env);
+          BuckQueryEnvironment.from(
+              params,
+              parserState,
+              createParsingContext(params.getCell(), pool.getListeningExecutorService()));
+      formatAndRunQuery(params, env);
     } catch (QueryException e) {
       throw new HumanReadableException(e);
     }
+    return ExitCode.SUCCESS;
   }
 
   @VisibleForTesting
-  ExitCode formatAndRunQuery(CommandRunnerParams params, BuckQueryEnvironment env)
+  void formatAndRunQuery(CommandRunnerParams params, BuckQueryEnvironment env)
       throws IOException, InterruptedException, QueryException {
+
+    if (generateJsonOutput) {
+      outputFormat = OutputFormat.JSON;
+    } else if (generateDotOutput) {
+      outputFormat = generateBFSOutput ? OutputFormat.DOT_BFS : OutputFormat.DOT;
+    }
+
     String queryFormat = arguments.get(0);
     List<String> formatArgs = arguments.subList(1, arguments.size());
     if (queryFormat.contains("%Ss")) {
-      return runSingleQueryWithSet(params, env, queryFormat, formatArgs);
+      runSingleQueryWithSet(params, env, queryFormat, formatArgs);
+      return;
     }
     if (queryFormat.contains("%s")) {
-      return runMultipleQuery(
-          params, env, queryFormat, formatArgs, shouldGenerateJsonOutput(), outputAttributes());
+      try (CloseableWrapper<PrintStream> printStreamWrapper = getPrintStreamWrapper(params)) {
+        runMultipleQuery(
+            params,
+            env,
+            queryFormat,
+            formatArgs,
+            // generateJsonOutput is deprecated and have to be set as outputFormat parameter
+            outputFormat == OutputFormat.JSON,
+            outputAttributes(),
+            printStreamWrapper.get());
+      }
+      return;
     }
     if (formatArgs.size() > 0) {
-      // TODO: buck_team: return ExitCode.COMMANDLINE_ERROR
-      throw new HumanReadableException(
+      throw new CommandLineException(
           "Must not specify format arguments without a %s or %Ss in the query");
     }
-    return runSingleQuery(params, env, queryFormat);
+    runSingleQuery(params, env, queryFormat);
   }
 
   /** Format and evaluate the query using list substitution */
-  ExitCode runSingleQueryWithSet(
+  private void runSingleQueryWithSet(
       CommandRunnerParams params,
       BuckQueryEnvironment env,
       String queryFormat,
@@ -245,13 +303,14 @@ public class QueryCommand extends AbstractCommand {
           String.format(
               "Incorrect number of sets. Query uses `%%Ss` %d times but %d sets were given",
               numberOfSetsRequested, numberOfSetsProvided);
-      throw new HumanReadableException(message);
+      throw new CommandLineException(message);
     }
 
     // If they only provided one list as args, use that for every instance of `%Ss`
     if (numberOfSetsProvided == 1) {
       String formattedQuery = queryFormat.replace("%Ss", getSetRepresentation(formatArgs));
-      return runSingleQuery(params, env, formattedQuery);
+      runSingleQuery(params, env, formattedQuery);
+      return;
     }
 
     List<String> unusedFormatArgs = formatArgs;
@@ -266,20 +325,21 @@ public class QueryCommand extends AbstractCommand {
       unusedFormatArgs = unusedFormatArgs.subList(nextSeparatorIndex + 1, unusedFormatArgs.size());
       formattedQuery = formattedQuery.replaceFirst("%Ss", getSetRepresentation(currentSet));
     }
-    return runSingleQuery(params, env, formattedQuery);
+    runSingleQuery(params, env, formattedQuery);
   }
 
   /**
    * Evaluate multiple queries in a single `buck query` run. Usage: buck query <query format>
    * <input1> <input2> <...> <inputN>
    */
-  static ExitCode runMultipleQuery(
+  static void runMultipleQuery(
       CommandRunnerParams params,
       BuckQueryEnvironment env,
       String queryFormat,
       List<String> inputsFormattedAsBuildTargets,
       boolean generateJsonOutput,
-      ImmutableSet<String> attributesFilter)
+      ImmutableSet<String> attributesFilter,
+      PrintStream printStream)
       throws IOException, InterruptedException, QueryException {
     if (inputsFormattedAsBuildTargets.isEmpty()) {
       throw new CommandLineException(
@@ -305,7 +365,7 @@ public class QueryCommand extends AbstractCommand {
       queryResultMap.putAll(input, queryResult);
     }
 
-    LOG.debug("Printing out the following targets: " + queryResultMap);
+    LOG.debug("Printing out the following targets: %s", queryResultMap);
 
     if (attributesFilter.size() > 0) {
       collectAndPrintAttributesAsJson(
@@ -317,99 +377,174 @@ public class QueryCommand extends AbstractCommand {
               .stream()
               .flatMap(Collection::stream)
               .collect(ImmutableSet.toImmutableSet()),
-          attributesFilter);
+          attributesFilter,
+          printStream);
     } else if (generateJsonOutput) {
-      CommandHelper.printJSON(params, queryResultMap);
+      CommandHelper.printJsonOutput(queryResultMap, printStream);
     } else {
-      CommandHelper.printToConsole(params, queryResultMap);
+      CommandHelper.print(queryResultMap, printStream);
     }
-    return ExitCode.SUCCESS;
   }
 
-  ExitCode runSingleQuery(CommandRunnerParams params, BuckQueryEnvironment env, String query)
+  private void runSingleQuery(CommandRunnerParams params, BuckQueryEnvironment env, String query)
       throws IOException, InterruptedException, QueryException {
     ImmutableSet<QueryTarget> queryResult = env.evaluateQuery(query);
+    LOG.debug("Printing out the following targets: %s", queryResult);
 
-    LOG.debug("Printing out the following targets: " + queryResult);
-    if (getOutputFormat() == OutputFormat.MINRANK || getOutputFormat() == OutputFormat.MAXRANK) {
-      printRankOutput(params, env, queryResult, getOutputFormat());
-    } else if (shouldGenerateDotOutput()) {
-      printDotOutput(params, env, queryResult);
-    } else if (shouldOutputAttributes()) {
-      collectAndPrintAttributesAsJson(params, env, queryResult, outputAttributes());
-    } else if (shouldGenerateJsonOutput()) {
-      CommandHelper.printJSON(params, queryResult);
-    } else {
-      CommandHelper.printToConsole(params, queryResult);
+    try (CloseableWrapper<PrintStream> printStreamWrapper = getPrintStreamWrapper(params)) {
+      PrintStream printStream = printStreamWrapper.get();
+
+      if (sortOutputFormat.needToSortByRank()) {
+        printRankOutput(params, env, queryResult, printStream);
+        return;
+      }
+
+      switch (outputFormat) {
+        case DOT:
+          printDotOutput(params, env, queryResult, false, printStream);
+          break;
+
+        case DOT_BFS:
+          printDotOutput(params, env, queryResult, true, printStream);
+          break;
+
+        case JSON:
+          printJsonOutput(params, env, queryResult, printStream);
+          break;
+
+        case THRIFT:
+          printThriftOutput(params, env, queryResult, printStream);
+          break;
+
+        case LIST:
+        default:
+          printListOutput(params, env, queryResult, printStream);
+      }
     }
-    return ExitCode.SUCCESS;
+  }
+
+  private void printJsonOutput(
+      CommandRunnerParams params,
+      BuckQueryEnvironment env,
+      ImmutableSet<QueryTarget> queryResult,
+      PrintStream printStream)
+      throws IOException, QueryException {
+    if (shouldOutputAttributes()) {
+      collectAndPrintAttributesAsJson(params, env, queryResult, outputAttributes(), printStream);
+    } else {
+      CommandHelper.printJsonOutput(queryResult, printStream);
+    }
+  }
+
+  private void printListOutput(
+      CommandRunnerParams params,
+      BuckQueryEnvironment env,
+      ImmutableSet<QueryTarget> queryResult,
+      PrintStream printStream)
+      throws QueryException {
+    if (shouldOutputAttributes()) {
+      collectAndPrintAttributesAsJson(params, env, queryResult, outputAttributes(), printStream);
+    } else {
+      CommandHelper.print(queryResult, printStream);
+    }
   }
 
   private void printDotOutput(
-      CommandRunnerParams params, BuckQueryEnvironment env, Set<QueryTarget> queryResult)
+      CommandRunnerParams params,
+      BuckQueryEnvironment env,
+      Set<QueryTarget> queryResult,
+      boolean bfsSorted,
+      PrintStream printStream)
       throws IOException, QueryException {
-    Builder<TargetNode<?>> dotBuilder =
+    Dot.Builder<TargetNode<?>> dotBuilder =
         Dot.builder(env.getTargetGraph(), "result_graph")
             .setNodesToFilter(env.getNodesFromQueryTargets(queryResult)::contains)
             .setNodeToName(targetNode -> targetNode.getBuildTarget().getFullyQualifiedName())
             .setNodeToTypeName(targetNode -> targetNode.getRuleType().getName())
-            .setBfsSorted(shouldGenerateBFSOutput());
+            .setBfsSorted(bfsSorted);
     if (shouldOutputAttributes()) {
-      PatternsMatcher patternsMatcher = new PatternsMatcher(outputAttributes());
-      dotBuilder.setNodeToAttributes(
-          node ->
-              getAttributes(params, env, patternsMatcher, node)
-                  .map(
-                      attrs ->
-                          attrs
-                              .entrySet()
-                              .stream()
-                              .collect(
-                                  ImmutableSortedMap.toImmutableSortedMap(
-                                      Comparator.naturalOrder(),
-                                      Entry::getKey,
-                                      e -> String.valueOf(e.getValue()))))
-                  .orElse(ImmutableSortedMap.of()));
+      Function<TargetNode<?>, ImmutableSortedMap<String, String>> nodeToAttributes =
+          getNodeToAttributeFunction(params, env);
+      dotBuilder.setNodeToAttributes(nodeToAttributes);
     }
-    dotBuilder.build().writeOutput(params.getConsole().getStdOut());
+    dotBuilder.build().writeOutput(printStream);
+  }
+
+  @Nonnull
+  private Function<TargetNode<?>, ImmutableSortedMap<String, String>> getNodeToAttributeFunction(
+      CommandRunnerParams params, BuckQueryEnvironment env) {
+    PatternsMatcher patternsMatcher = new PatternsMatcher(outputAttributes());
+    return node ->
+        getAttributes(params, env, patternsMatcher, node)
+            .map(
+                attrs ->
+                    attrs
+                        .entrySet()
+                        .stream()
+                        .collect(
+                            ImmutableSortedMap.toImmutableSortedMap(
+                                Comparator.naturalOrder(),
+                                e -> e.getKey(),
+                                e -> String.valueOf(e.getValue()))))
+            .orElseGet(() -> ImmutableSortedMap.of());
   }
 
   private void printRankOutput(
       CommandRunnerParams params,
       BuckQueryEnvironment env,
       Set<QueryTarget> queryResult,
-      OutputFormat outputFormat)
+      PrintStream printStream)
       throws QueryException {
     Map<TargetNode<?>, Integer> ranks =
-        computeRanks(
-            env.getTargetGraph(),
-            env.getNodesFromQueryTargets(queryResult)::contains,
-            outputFormat);
+        computeRanks(env.getTargetGraph(), env.getNodesFromQueryTargets(queryResult)::contains);
 
-    PrintStream stdOut = params.getConsole().getStdOut();
     if (shouldOutputAttributes()) {
       ImmutableSortedMap<String, ImmutableSortedMap<String, Object>> attributesWithRanks =
-          extendAttributesWithRankMetadata(params, env, outputFormat, ranks.entrySet());
-      printAttributesAsJson(attributesWithRanks, stdOut);
+          extendAttributesWithRankMetadata(params, env, ranks.entrySet());
+      printAttributesAsJson(attributesWithRanks, printStream);
     } else {
-      printRankOutputAsPlainText(ranks, stdOut);
+      printRankOutputAsPlainText(ranks, printStream);
     }
   }
 
-  private void printRankOutputAsPlainText(Map<TargetNode<?>, Integer> ranks, PrintStream stdOut) {
+  private void printRankOutputAsPlainText(
+      Map<TargetNode<?>, Integer> ranks, PrintStream printStream) {
     ranks
         .entrySet()
         .stream()
         // sort by rank and target nodes to break ties in order to make output deterministic
         .sorted(
             Comparator.comparing(Entry<TargetNode<?>, Integer>::getValue)
-                .thenComparing(Entry<TargetNode<?>, Integer>::getKey))
+                .thenComparing(Entry::getKey))
         .forEach(
             entry -> {
               int rank = entry.getValue();
               String name = toPresentationForm(entry.getKey());
-              stdOut.println(rank + " " + name);
+              printStream.println(rank + " " + name);
             });
+  }
+
+  private void printThriftOutput(
+      CommandRunnerParams params,
+      BuckQueryEnvironment env,
+      Set<QueryTarget> queryResult,
+      PrintStream printStream)
+      throws IOException, QueryException {
+
+    ThriftOutput.Builder<TargetNode<?>> targetNodeBuilder =
+        ThriftOutput.builder(env.getTargetGraph())
+            .filter(env.getNodesFromQueryTargets(queryResult)::contains)
+            .nodeToNameMappingFunction(
+                targetNode -> targetNode.getBuildTarget().getFullyQualifiedName());
+
+    if (shouldOutputAttributes()) {
+      Function<TargetNode<?>, ImmutableSortedMap<String, String>> nodeToAttributes =
+          getNodeToAttributeFunction(params, env);
+      targetNodeBuilder.nodeToAttributesFunction(nodeToAttributes);
+    }
+
+    ThriftOutput<TargetNode<?>> thriftOutput = targetNodeBuilder.build();
+    thriftOutput.writeOutput(printStream);
   }
 
   /**
@@ -417,13 +552,12 @@ public class QueryCommand extends AbstractCommand {
    * {@link #toPresentationForm(TargetNode)}
    *
    * @param rankEntries A set of pairs that map {@link TargetNode}s to their rank value (min or max)
-   *     depending on {@code outputFormat}.
+   *     depending on {@code sortOutputFormat}.
    */
   private ImmutableSortedMap<String, ImmutableSortedMap<String, Object>>
       extendAttributesWithRankMetadata(
           CommandRunnerParams params,
           BuckQueryEnvironment env,
-          OutputFormat outputFormat,
           Set<Entry<TargetNode<?>, Integer>> rankEntries) {
     PatternsMatcher patternsMatcher = new PatternsMatcher(outputAttributes());
     // since some nodes differ in their flavors but ultimately have the same attributes, immutable
@@ -450,16 +584,14 @@ public class QueryCommand extends AbstractCommand {
                               .orElseGet(TreeMap::new);
                       return ImmutableSortedMap.<String, Object>naturalOrder()
                           .putAll(attributes)
-                          .put(outputFormat.name().toLowerCase(), rankIndex.get(label))
+                          .put(sortOutputFormat.name().toLowerCase(), rankIndex.get(label))
                           .build();
                     })),
         Comparator.<String>comparingInt(rankIndex::get).thenComparing(Comparator.naturalOrder()));
   }
 
   private Map<TargetNode<?>, Integer> computeRanks(
-      DirectedAcyclicGraph<TargetNode<?>> graph,
-      Predicate<TargetNode<?>> shouldContainNode,
-      OutputFormat outputFormat) {
+      DirectedAcyclicGraph<TargetNode<?>> graph, Predicate<TargetNode<?>> shouldContainNode) {
     Map<TargetNode<?>, Integer> ranks = new HashMap<>();
     for (TargetNode<?> root : ImmutableSortedSet.copyOf(graph.getNodesWithNoIncomingEdges())) {
       ranks.put(root, 0);
@@ -471,7 +603,7 @@ public class QueryCommand extends AbstractCommand {
             return ImmutableSet.of();
           }
 
-          int nodeRank = Preconditions.checkNotNull(ranks.get(node));
+          int nodeRank = Objects.requireNonNull(ranks.get(node));
           ImmutableSortedSet<TargetNode<?>> sinks =
               ImmutableSortedSet.copyOf(
                   Sets.filter(graph.getOutgoingNodesFor(node), shouldContainNode::test));
@@ -483,7 +615,7 @@ public class QueryCommand extends AbstractCommand {
               // max rank is the length of the longest path from a root node
               ranks.put(
                   sink,
-                  outputFormat == OutputFormat.MINRANK
+                  sortOutputFormat == SortOutputFormat.MINRANK
                       ? Math.min(ranks.get(sink), nodeRank + 1)
                       : Math.max(ranks.get(sink), nodeRank + 1));
             }
@@ -499,15 +631,14 @@ public class QueryCommand extends AbstractCommand {
       CommandRunnerParams params,
       BuckQueryEnvironment env,
       Set<QueryTarget> queryResult,
-      ImmutableSet<String> attributes)
+      ImmutableSet<String> attributes,
+      PrintStream printStream)
       throws QueryException {
-    ImmutableSortedMap<String, SortedMap<String, Object>> result =
-        collectAttributes(params, env, queryResult, attributes);
-    printAttributesAsJson(result, params.getConsole().getStdOut());
+    printAttributesAsJson(collectAttributes(params, env, queryResult, attributes), printStream);
   }
 
   private static <T extends SortedMap<String, Object>> void printAttributesAsJson(
-      ImmutableSortedMap<String, T> result, PrintStream outputStream) {
+      ImmutableSortedMap<String, T> result, PrintStream printStream) {
     StringWriter stringWriter = new StringWriter();
     try {
       ObjectMappers.WRITER.withDefaultPrettyPrinter().writeValue(stringWriter, result);
@@ -516,7 +647,7 @@ public class QueryCommand extends AbstractCommand {
       throw new RuntimeException(e);
     }
     String output = stringWriter.getBuffer().toString();
-    outputStream.println(output);
+    printStream.println(output);
   }
 
   private static ImmutableSortedMap<String, SortedMap<String, Object>> collectAttributes(
@@ -537,24 +668,17 @@ public class QueryCommand extends AbstractCommand {
       }
       TargetNode<?> node = env.getNode(target);
       try {
-        Optional<SortedMap<String, Object>> attributes =
-            getAttributes(params, env, patternsMatcher, node);
-        if (!attributes.isPresent()) {
-          continue;
-        }
+        getAttributes(params, env, patternsMatcher, node)
+            .ifPresent(attrMap -> attributesMap.put(toPresentationForm(node), attrMap));
 
-        attributesMap.put(toPresentationForm(node), attributes.get());
       } catch (BuildFileParseException e) {
         params
             .getConsole()
             .printErrorText(
                 "unable to find rule for target " + node.getBuildTarget().getFullyQualifiedName());
-        continue;
       }
     }
-    return ImmutableSortedMap.<String, SortedMap<String, Object>>naturalOrder()
-        .putAll(attributesMap)
-        .build();
+    return ImmutableSortedMap.copyOf(attributesMap);
   }
 
   private static Optional<SortedMap<String, Object>> getAttributes(
@@ -598,12 +722,13 @@ public class QueryCommand extends AbstractCommand {
   }
 
   public static String getEscapedArgumentsListAsString(List<String> arguments) {
-    return Joiner.on(" ").join(Lists.transform(arguments, arg -> "'" + arg + "'"));
+    return arguments.stream().map(arg -> "'" + arg + "'").collect(Collectors.joining(" "));
   }
 
   private static String getSetRepresentation(List<String> args) {
-    String argsList = Joiner.on(' ').join(Iterables.transform(args, input -> "'" + input + "'"));
-    return "set(" + argsList + ")";
+    return args.stream()
+        .map(input -> "'" + input + "'")
+        .collect(Collectors.joining(" ", "set(", ")"));
   }
 
   static String getAuditDependenciesQueryFormat(boolean isTransitive, boolean includeTests) {
@@ -626,7 +751,7 @@ public class QueryCommand extends AbstractCommand {
         .append("\" ");
     queryBuilder.append(getEscapedArgumentsListAsString(arguments));
     if (jsonOutput) {
-      queryBuilder.append(" --json");
+      queryBuilder.append(getJsonOutputParamDeclaration());
     }
     return queryBuilder.toString();
   }
@@ -636,7 +761,7 @@ public class QueryCommand extends AbstractCommand {
     StringBuilder queryBuilder = new StringBuilder("buck query \"testsof('%s')\" ");
     queryBuilder.append(getEscapedArgumentsListAsString(arguments));
     if (jsonOutput) {
-      queryBuilder.append(" --json");
+      queryBuilder.append(getJsonOutputParamDeclaration());
     }
     return queryBuilder.toString();
   }
@@ -646,8 +771,32 @@ public class QueryCommand extends AbstractCommand {
     StringBuilder queryBuilder = new StringBuilder("buck query \"owner('%s')\" ");
     queryBuilder.append(getEscapedArgumentsListAsString(arguments));
     if (jsonOutput) {
-      queryBuilder.append(" --json");
+      queryBuilder.append(getJsonOutputParamDeclaration());
     }
     return queryBuilder.toString();
+  }
+
+  private static String getJsonOutputParamDeclaration() {
+    return " --output-format json";
+  }
+
+  /**
+   * Returns PrintStream wrapper with modified {@code close()} operation.
+   *
+   * <p>If {@code --output-file} parameter is specified then print stream will be opened from {@code
+   * outputFile}. During the {@code close()} operation this stream will be closed.
+   *
+   * <p>Else if {@code --output-file} parameter is not specified then standard console output will
+   * be returned as print stream. {@code close()} operation is ignored in this case.
+   */
+  private CloseableWrapper<PrintStream> getPrintStreamWrapper(CommandRunnerParams params)
+      throws IOException {
+    if (outputFile == null) {
+      // use stdout for output, do not close stdout stream as it is not owned here
+      return CloseableWrapper.of(params.getConsole().getStdOut(), stream -> {});
+    }
+    return CloseableWrapper.of(
+        new PrintStream(new BufferedOutputStream(Files.newOutputStream(outputFile.toPath()))),
+        stream -> stream.close());
   }
 }

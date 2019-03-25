@@ -37,6 +37,7 @@ abstract class AbstractDoctorConfig implements ConfigView<BuckConfig> {
   public static final String ENDPOINT_URL_FIELD = "endpoint_url";
   private static final String ENDPOINT_TIMEOUT_MS_FIELD = "endpoint_timeout_ms";
   static final String ENDPOINT_EXTRA_ARGS_FIELD = "endpoint_extra_request_args";
+  public static final String ENDPOINT_EXTRA_HEADERS_FIELD = "endpoint_extra_request_headers";
 
   // Fields for the report upload endpoint.
   public static final String REPORT_UPLOAD_PATH_FIELD = "report_upload_path";
@@ -52,62 +53,71 @@ abstract class AbstractDoctorConfig implements ConfigView<BuckConfig> {
   public static final int DEFAULT_REPORT_MAX_UPLOAD_RETRIES = 2;
   public static final String DEFAULT_REPORT_UPLOAD_PATH = "/rage/upload";
 
+  @Override
   @Value.Parameter
+  public abstract BuckConfig getDelegate();
+
+  @Value.Lazy
   public DoctorProtocolVersion getProtocolVersion() {
     return getDelegate()
         .getEnum(DOCTOR_SECTION, PROTOCOL_VERSION_FIELD, DoctorProtocolVersion.class)
         .orElse(DoctorProtocolVersion.JSON);
   }
 
-  @Value.Parameter
+  @Value.Lazy
   public Optional<String> getEndpointUrl() {
     return getDelegate().getValue(DOCTOR_SECTION, ENDPOINT_URL_FIELD);
   }
 
-  @Value.Parameter
+  @Value.Lazy
   public long getEndpointTimeoutMs() {
     return getDelegate()
         .getLong(DOCTOR_SECTION, ENDPOINT_TIMEOUT_MS_FIELD)
         .orElse(DEFAULT_ENDPOINT_TIMEOUT_MS);
   }
 
-  @Value.Parameter
+  @Value.Lazy
   public ImmutableMap<String, String> getEndpointExtraRequestArgs() {
     return getDelegate().getMap(DOCTOR_SECTION, ENDPOINT_EXTRA_ARGS_FIELD);
   }
 
-  @Value.Parameter
+  @Value.Lazy
+  public ImmutableMap<String, String> getEndpointExtraRequestHeaders() {
+    return getDelegate().getMap(DOCTOR_SECTION, ENDPOINT_EXTRA_HEADERS_FIELD);
+  }
+
+  @Value.Lazy
   public String getReportUploadPath() {
     return getDelegate()
         .getValue(DOCTOR_SECTION, REPORT_UPLOAD_PATH_FIELD)
         .orElse(DEFAULT_REPORT_UPLOAD_PATH);
   }
 
-  @Value.Parameter
+  @Value.Lazy
   public Optional<Long> getReportMaxSizeBytes() {
     return getDelegate().getValue(DOCTOR_SECTION, REPORT_MAX_SIZE_FIELD).map(SizeUnit::parseBytes);
   }
 
-  @Value.Parameter
+  @Value.Lazy
   public long getReportTimeoutMs() {
     return getDelegate()
         .getLong(DOCTOR_SECTION, REPORT_TIMEOUT_MS_FIELD)
         .orElse(DEFAULT_REPORT_TIMEOUT_MS);
   }
 
-  @Value.Parameter
+  @Value.Lazy
   public int getReportMaxUploadRetries() {
     return getDelegate()
         .getInteger(DOCTOR_SECTION, REPORT_MAX_UPLOAD_RETRIES_FIELD)
         .orElse(DoctorConfig.DEFAULT_REPORT_MAX_UPLOAD_RETRIES);
   }
 
-  @Value.Parameter
+  @Value.Lazy
   public Optional<SlbBuckConfig> getFrontendConfig() {
     return Optional.of(new SlbBuckConfig(getDelegate(), DOCTOR_SECTION));
   }
 
-  @Value.Parameter
+  @Value.Lazy
   public ImmutableList<String> getExtraInfoCommand() {
     return getDelegate().getListWithoutComments(DOCTOR_SECTION, REPORT_EXTRA_INFO_COMMAND_FIELD);
   }

@@ -23,35 +23,106 @@ import static org.hamcrest.Matchers.hasKey;
 import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
 
+import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildId;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.BuildTargetFactory;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetGraphFactory;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
+import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
+import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.DefaultBuckEventBus;
-import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
+import com.facebook.buck.io.ExecutableFinder;
+import com.facebook.buck.io.file.MorePaths;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.watchman.WatchmanFactory;
 import com.facebook.buck.jvm.java.JavaLibraryBuilder;
+import com.facebook.buck.manifestservice.ManifestService;
+import com.facebook.buck.parser.Parser;
+import com.facebook.buck.parser.ParserPythonInterpreterProvider;
+import com.facebook.buck.parser.ParsingContext;
+import com.facebook.buck.parser.PerBuildState;
+import com.facebook.buck.parser.PerBuildStateFactory;
+import com.facebook.buck.parser.TestParserFactory;
+import com.facebook.buck.rules.coercer.DefaultConstructorArgMarshaller;
+import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
+import com.facebook.buck.rules.coercer.TypeCoercerFactory;
+import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
+import com.facebook.buck.rules.keys.config.TestRuleKeyConfigurationFactory;
 import com.facebook.buck.testutil.DummyFileHashCache;
 import com.facebook.buck.testutil.FakeFileHashCache;
+import com.facebook.buck.testutil.TemporaryPaths;
+import com.facebook.buck.testutil.integration.ProjectWorkspace;
+import com.facebook.buck.testutil.integration.TestDataHelper;
+import com.facebook.buck.util.ThrowingCloseableMemoizedSupplier;
 import com.facebook.buck.util.cache.FileHashCache;
 import com.facebook.buck.util.timing.IncrementingFakeClock;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.HashCode;
+import com.google.common.hash.Hashing;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.function.Function;
+import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 public class TargetGraphHashingTest {
 
+  @Rule public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public ExpectedException thrown = ExpectedException.none();
+
+  private BuckEventBus eventBus;
+  private RuleKeyConfiguration ruleKeyConfiguration;
+  private ProjectFilesystem projectFilesystem;
+  private Function<TargetNode<?>, ListenableFuture<?>> targetNodeRawAttributesProvider;
+
+  @Before
+  public void setUp() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "target_hashing", tmp);
+    workspace.setUp();
+
+    eventBus = new DefaultBuckEventBus(new IncrementingFakeClock(), new BuildId());
+    ruleKeyConfiguration = TestRuleKeyConfigurationFactory.create();
+    Cell cell = workspace.asCell();
+    projectFilesystem = cell.getFilesystem();
+    KnownRuleTypesProvider knownRuleTypesProvider =
+        TestKnownRuleTypesProvider.create(BuckPluginManagerFactory.createPluginManager());
+    Parser parser = TestParserFactory.create(cell, knownRuleTypesProvider, eventBus);
+    TypeCoercerFactory typeCoercerFactory = new DefaultTypeCoercerFactory();
+    PerBuildState parserState =
+        PerBuildStateFactory.createFactory(
+                typeCoercerFactory,
+                new DefaultConstructorArgMarshaller(typeCoercerFactory),
+                knownRuleTypesProvider,
+                new ParserPythonInterpreterProvider(cell.getBuckConfig(), new ExecutableFinder()),
+                cell.getBuckConfig(),
+                WatchmanFactory.NULL_WATCHMAN,
+                eventBus,
+                ThrowingCloseableMemoizedSupplier.of(() -> null, ManifestService::close),
+                new FakeFileHashCache(ImmutableMap.of()),
+                new ParsingUnconfiguredBuildTargetFactory())
+            .create(
+                ParsingContext.builder(cell, MoreExecutors.newDirectExecutorService()).build(),
+                parser.getPermState(),
+                ImmutableList.of());
+    targetNodeRawAttributesProvider =
+        node -> parser.getTargetNodeRawAttributesJob(parserState, cell, node);
+  }
+
   @Test
   public void emptyTargetGraphHasEmptyHashes() throws InterruptedException {
-    BuckEventBus eventBus = new DefaultBuckEventBus(new IncrementingFakeClock(), new BuildId());
     TargetGraph targetGraph = TargetGraphFactory.newInstance();
 
     assertThat(
@@ -60,21 +131,20 @@ public class TargetGraphHashingTest {
                 targetGraph,
                 new DummyFileHashCache(),
                 ImmutableList.of(),
-                MoreExecutors.newDirectExecutorService())
+                MoreExecutors.newDirectExecutorService(),
+                ruleKeyConfiguration,
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph()
             .entrySet(),
         empty());
   }
 
   @Test
-  public void hashChangesWhenSrcContentChanges() throws InterruptedException {
-    FakeProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    BuckEventBus eventBus = new DefaultBuckEventBus(new IncrementingFakeClock(), new BuildId());
-
+  public void hashChangesWhenSrcContentChanges() throws Exception {
     TargetNode<?> node =
         createJavaLibraryTargetNodeWithSrcs(
-            BuildTargetFactory.newInstance("//foo:lib"),
-            HashCode.fromLong(64738),
+            BuildTargetFactory.newInstance(projectFilesystem, "//foo:lib"),
             ImmutableSet.of(Paths.get("foo/FooLib.java")));
     TargetGraph targetGraph = TargetGraphFactory.newInstance(node);
 
@@ -94,7 +164,10 @@ public class TargetGraphHashingTest {
                 targetGraph,
                 baseCache,
                 ImmutableList.of(node),
-                MoreExecutors.newDirectExecutorService())
+                MoreExecutors.newDirectExecutorService(),
+                ruleKeyConfiguration,
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph();
 
     Map<BuildTarget, HashCode> modifiedResult =
@@ -103,7 +176,10 @@ public class TargetGraphHashingTest {
                 targetGraph,
                 modifiedCache,
                 ImmutableList.of(node),
-                MoreExecutors.newDirectExecutorService())
+                MoreExecutors.newDirectExecutorService(),
+                ruleKeyConfiguration,
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph();
 
     assertThat(baseResult, aMapWithSize(1));
@@ -117,18 +193,13 @@ public class TargetGraphHashingTest {
 
   @Test
   public void twoNodeIndependentRootsTargetGraphHasExpectedHashes() throws InterruptedException {
-    FakeProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    BuckEventBus eventBus = new DefaultBuckEventBus(new IncrementingFakeClock(), new BuildId());
-
     TargetNode<?> nodeA =
         createJavaLibraryTargetNodeWithSrcs(
-            BuildTargetFactory.newInstance("//foo:lib"),
-            HashCode.fromLong(64738),
+            BuildTargetFactory.newInstance(projectFilesystem, "//foo:lib"),
             ImmutableSet.of(Paths.get("foo/FooLib.java")));
     TargetNode<?> nodeB =
         createJavaLibraryTargetNodeWithSrcs(
-            BuildTargetFactory.newInstance("//bar:lib"),
-            HashCode.fromLong(49152),
+            BuildTargetFactory.newInstance(projectFilesystem, "//bar:lib"),
             ImmutableSet.of(Paths.get("bar/BarLib.java")));
     TargetGraph targetGraphA = TargetGraphFactory.newInstance(nodeA);
     TargetGraph targetGraphB = TargetGraphFactory.newInstance(nodeB);
@@ -146,7 +217,10 @@ public class TargetGraphHashingTest {
                 targetGraphA,
                 fileHashCache,
                 ImmutableList.of(nodeA),
-                MoreExecutors.newDirectExecutorService())
+                MoreExecutors.newDirectExecutorService(),
+                ruleKeyConfiguration,
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph();
 
     Map<BuildTarget, HashCode> resultsB =
@@ -155,7 +229,10 @@ public class TargetGraphHashingTest {
                 targetGraphB,
                 fileHashCache,
                 ImmutableList.of(nodeB),
-                MoreExecutors.newDirectExecutorService())
+                MoreExecutors.newDirectExecutorService(),
+                ruleKeyConfiguration,
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph();
 
     Map<BuildTarget, HashCode> commonResults =
@@ -164,7 +241,10 @@ public class TargetGraphHashingTest {
                 commonTargetGraph,
                 fileHashCache,
                 ImmutableList.of(nodeA, nodeB),
-                MoreExecutors.newDirectExecutorService())
+                MoreExecutors.newDirectExecutorService(),
+                ruleKeyConfiguration,
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph();
 
     assertThat(resultsA, aMapWithSize(1));
@@ -181,37 +261,31 @@ public class TargetGraphHashingTest {
   }
 
   private TargetGraph createGraphWithANodeAndADep(
-      BuildTarget nodeTarget, HashCode nodeHash, BuildTarget depTarget, HashCode depHash) {
-    TargetNode<?> dep =
-        createJavaLibraryTargetNodeWithSrcs(
-            depTarget, depHash, ImmutableSet.of(Paths.get("dep/DepLib.java")));
+      BuildTarget nodeTarget, BuildTarget depTarget, Path depSrc) {
+    TargetNode<?> dep = createJavaLibraryTargetNodeWithSrcs(depTarget, ImmutableSet.of(depSrc));
     TargetNode<?> node =
         createJavaLibraryTargetNodeWithSrcs(
-            nodeTarget, nodeHash, ImmutableSet.of(Paths.get("foo/FooLib.java")), dep);
+            nodeTarget, ImmutableSet.of(Paths.get("foo/FooLib.java")), dep);
     return TargetGraphFactory.newInstance(node, dep);
   }
 
   @Test
   public void hashChangesForDependentNodeWhenDepsChange() throws InterruptedException {
-    FakeProjectFilesystem projectFilesystem = new FakeProjectFilesystem();
-    BuckEventBus eventBus = new DefaultBuckEventBus(new IncrementingFakeClock(), new BuildId());
-
-    BuildTarget nodeTarget = BuildTargetFactory.newInstance("//foo:lib");
-    BuildTarget depTarget = BuildTargetFactory.newInstance("//dep:lib");
+    BuildTarget nodeTarget = BuildTargetFactory.newInstance(projectFilesystem, "//foo:lib");
+    BuildTarget depTarget = BuildTargetFactory.newInstance(projectFilesystem, "//dep:lib");
 
     TargetGraph targetGraphA =
-        createGraphWithANodeAndADep(
-            nodeTarget, HashCode.fromLong(12345), depTarget, HashCode.fromLong(64738));
+        createGraphWithANodeAndADep(nodeTarget, depTarget, Paths.get("dep/DepLib1.java"));
 
     TargetGraph targetGraphB =
-        createGraphWithANodeAndADep(
-            nodeTarget, HashCode.fromLong(12345), depTarget, HashCode.fromLong(84552));
+        createGraphWithANodeAndADep(nodeTarget, depTarget, Paths.get("dep/DepLib2.java"));
 
     FileHashCache fileHashCache =
         new FakeFileHashCache(
             ImmutableMap.of(
                 projectFilesystem.resolve("foo/FooLib.java"), HashCode.fromString("abcdef"),
-                projectFilesystem.resolve("dep/DepLib.java"), HashCode.fromString("123456")));
+                projectFilesystem.resolve("dep/DepLib1.java"), HashCode.fromString("123456"),
+                projectFilesystem.resolve("dep/DepLib2.java"), HashCode.fromString("123457")));
 
     Map<BuildTarget, HashCode> resultA =
         new TargetGraphHashing(
@@ -219,7 +293,10 @@ public class TargetGraphHashingTest {
                 targetGraphA,
                 fileHashCache,
                 ImmutableList.of(targetGraphA.get(nodeTarget)),
-                MoreExecutors.newDirectExecutorService())
+                MoreExecutors.newDirectExecutorService(),
+                ruleKeyConfiguration,
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph();
 
     Map<BuildTarget, HashCode> resultB =
@@ -228,7 +305,10 @@ public class TargetGraphHashingTest {
                 targetGraphB,
                 fileHashCache,
                 ImmutableList.of(targetGraphB.get(nodeTarget)),
-                MoreExecutors.newDirectExecutorService())
+                MoreExecutors.newDirectExecutorService(),
+                ruleKeyConfiguration,
+                targetNodeRawAttributesProvider,
+                Hashing.murmur3_128())
             .hashTargetGraph();
 
     assertThat(resultA, aMapWithSize(2));
@@ -241,31 +321,37 @@ public class TargetGraphHashingTest {
     assertThat(resultA.get(depTarget), not(equalTo(resultB.get(depTarget))));
   }
 
-  @Test(expected = Throwable.class)
+  @Test
   public void hashingSourceThrowsError() throws Exception {
-    BuckEventBus eventBus = new DefaultBuckEventBus(new IncrementingFakeClock(), new BuildId());
-
     TargetNode<?> node =
         createJavaLibraryTargetNodeWithSrcs(
-            BuildTargetFactory.newInstance("//foo:lib"),
-            HashCode.fromLong(64738),
+            BuildTargetFactory.newInstance(projectFilesystem, "//foo:lib"),
             ImmutableSet.of(Paths.get("foo/FooLib.java")));
     TargetGraph targetGraph = TargetGraphFactory.newInstance(node);
 
     FileHashCache cache = new FakeFileHashCache(ImmutableMap.of());
+
+    thrown.expectMessage(
+        "Error reading path "
+            + MorePaths.pathWithPlatformSeparators("foo/FooLib.java")
+            + " for rule //foo:lib");
 
     new TargetGraphHashing(
             eventBus,
             targetGraph,
             cache,
             ImmutableList.of(node),
-            MoreExecutors.newDirectExecutorService())
+            MoreExecutors.newDirectExecutorService(),
+            ruleKeyConfiguration,
+            targetNodeRawAttributesProvider,
+            Hashing.murmur3_128())
         .hashTargetGraph();
   }
 
-  private static TargetNode<?> createJavaLibraryTargetNodeWithSrcs(
-      BuildTarget buildTarget, HashCode hashCode, ImmutableSet<Path> srcs, TargetNode<?>... deps) {
-    JavaLibraryBuilder targetNodeBuilder = JavaLibraryBuilder.createBuilder(buildTarget, hashCode);
+  private TargetNode<?> createJavaLibraryTargetNodeWithSrcs(
+      BuildTarget buildTarget, ImmutableSet<Path> srcs, TargetNode<?>... deps) {
+    JavaLibraryBuilder targetNodeBuilder =
+        JavaLibraryBuilder.createBuilder(buildTarget, projectFilesystem);
     for (TargetNode<?> dep : deps) {
       targetNodeBuilder.addDep(dep.getBuildTarget());
     }

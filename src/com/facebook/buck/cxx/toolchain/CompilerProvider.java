@@ -16,38 +16,43 @@
 
 package com.facebook.buck.cxx.toolchain;
 
-import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.core.toolchain.toolprovider.ToolProvider;
 import com.google.common.base.Suppliers;
-import java.util.Optional;
 import java.util.function.Supplier;
 
 public class CompilerProvider extends CxxToolProvider<Compiler> {
+  private final boolean preferDependencyTree;
 
-  public CompilerProvider(ToolProvider toolProvider, Type type) {
-    super(toolProvider, type);
+  public CompilerProvider(ToolProvider toolProvider, Type type, boolean preferDependencyTree) {
+    this(toolProvider, Suppliers.ofInstance(type), preferDependencyTree, false);
   }
 
-  public CompilerProvider(Supplier<PathSourcePath> path, Optional<Type> type) {
-    super(path, type);
+  public CompilerProvider(
+      ToolProvider toolProvider, Supplier<Type> type, boolean preferDependencyTree) {
+    this(toolProvider, type, preferDependencyTree, false);
   }
 
-  public CompilerProvider(PathSourcePath path, Optional<Type> type) {
-    super(Suppliers.ofInstance(path), type);
+  public CompilerProvider(
+      ToolProvider toolProvider,
+      Supplier<Type> type,
+      boolean preferDependencyTree,
+      boolean useUnixPathSeparator) {
+    super(toolProvider, type, useUnixPathSeparator);
+    this.preferDependencyTree = preferDependencyTree;
   }
 
   @Override
   protected Compiler build(CxxToolProvider.Type type, Tool tool) {
     switch (type) {
       case CLANG:
-        return new ClangCompiler(tool);
+        return new ClangCompiler(tool, preferDependencyTree);
       case CLANG_CL:
         return new ClangClCompiler(tool);
       case CLANG_WINDOWS:
-        return new ClangWindowsCompiler(tool);
+        return new ClangWindowsCompiler(tool, preferDependencyTree);
       case GCC:
-        return new GccCompiler(tool);
+        return new GccCompiler(tool, preferDependencyTree);
       case WINDOWS:
         return new WindowsCompiler(tool);
       case WINDOWS_ML64:

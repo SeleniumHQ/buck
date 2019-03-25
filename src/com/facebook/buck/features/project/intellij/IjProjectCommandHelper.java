@@ -16,18 +16,24 @@
 
 package com.facebook.buck.features.project.intellij;
 
+import com.facebook.buck.cli.ProjectGeneratorParameters;
 import com.facebook.buck.cli.ProjectTestsMode;
-import com.facebook.buck.cli.parameter_extractors.ProjectGeneratorParameters;
+import com.facebook.buck.command.config.BuildBuckConfig;
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.actiongraph.ActionGraphAndBuilder;
 import com.facebook.buck.core.model.actiongraph.computation.ActionGraphProvider;
 import com.facebook.buck.core.model.targetgraph.NoSuchTargetException;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.model.targetgraph.impl.TargetGraphAndTargets;
+import com.facebook.buck.core.parser.buildtargetparser.BuildTargetPattern;
+import com.facebook.buck.core.parser.buildtargetparser.BuildTargetPatternParser;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.transformer.TargetNodeToBuildRuleTransformer;
 import com.facebook.buck.event.BuckEventBus;
@@ -43,10 +49,11 @@ import com.facebook.buck.jvm.java.JavaLibraryDescription;
 import com.facebook.buck.jvm.java.JavaLibraryDescriptionArg;
 import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.parser.BuildFileSpec;
+import com.facebook.buck.parser.ImmutableTargetNodePredicateSpec;
 import com.facebook.buck.parser.Parser;
 import com.facebook.buck.parser.ParserConfig;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.SpeculativeParsing;
-import com.facebook.buck.parser.TargetNodePredicateSpec;
 import com.facebook.buck.parser.TargetNodeSpec;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
@@ -55,6 +62,7 @@ import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
+import com.facebook.buck.util.RichStream;
 import com.facebook.buck.versions.InstrumentedVersionedTargetGraphCache;
 import com.facebook.buck.versions.VersionException;
 import com.facebook.buck.versions.VersionedTargetGraphAndTargets;
@@ -69,28 +77,29 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Function;
 
 public class IjProjectCommandHelper {
 
   private final BuckEventBus buckEventBus;
   private final Console console;
-  private final ListeningExecutorService executor;
   private final Parser parser;
   private final BuckConfig buckConfig;
   private final ActionGraphProvider actionGraphProvider;
   private final InstrumentedVersionedTargetGraphCache versionedTargetGraphCache;
   private final TypeCoercerFactory typeCoercerFactory;
+  private final UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory;
   private final Cell cell;
   private final IjProjectConfig projectConfig;
-  private final boolean enableParserProfiling;
+  private final TargetConfiguration targetConfiguration;
   private final boolean processAnnotations;
   private final boolean updateOnly;
   private final @Nullable String outputDir;
   private final BuckBuildRunner buckBuildRunner;
   private final Function<Iterable<String>, ImmutableList<TargetNodeSpec>> argsParser;
-
   private final ProjectGeneratorParameters projectGeneratorParameters;
+  private final ParsingContext parsingContext;
 
   public IjProjectCommandHelper(
       BuckEventBus buckEventBus,
@@ -99,7 +108,9 @@ public class IjProjectCommandHelper {
       ActionGraphProvider actionGraphProvider,
       InstrumentedVersionedTargetGraphCache versionedTargetGraphCache,
       TypeCoercerFactory typeCoercerFactory,
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
       Cell cell,
+      TargetConfiguration targetConfiguration,
       IjProjectConfig projectConfig,
       boolean enableParserProfiling,
       boolean processAnnotations,
@@ -109,8 +120,8 @@ public class IjProjectCommandHelper {
       Function<Iterable<String>, ImmutableList<TargetNodeSpec>> argsParser,
       ProjectGeneratorParameters projectGeneratorParameters) {
     this.buckEventBus = buckEventBus;
+    this.targetConfiguration = targetConfiguration;
     this.console = projectGeneratorParameters.getConsole();
-    this.executor = executor;
     this.parser = projectGeneratorParameters.getParser();
     this.buckConfig = buckConfig;
     this.actionGraphProvider = actionGraphProvider;
@@ -118,14 +129,20 @@ public class IjProjectCommandHelper {
     this.typeCoercerFactory = typeCoercerFactory;
     this.cell = cell;
     this.projectConfig = projectConfig;
-    this.enableParserProfiling = enableParserProfiling;
     this.processAnnotations = processAnnotations;
     this.updateOnly = updateOnly;
     this.outputDir = outputDir;
     this.buckBuildRunner = buckBuildRunner;
     this.argsParser = argsParser;
-
     this.projectGeneratorParameters = projectGeneratorParameters;
+    this.unconfiguredBuildTargetFactory = unconfiguredBuildTargetFactory;
+    this.parsingContext =
+        ParsingContext.builder(cell, executor)
+            .setProfilingEnabled(enableParserProfiling)
+            .setSpeculativeParsing(SpeculativeParsing.ENABLED)
+            .setApplyDefaultFlavorsMode(
+                buckConfig.getView(ParserConfig.class).getDefaultFlavorsMode())
+            .build();
   }
 
   public ExitCode parseTargetsAndRunProjectGenerator(List<String> arguments)
@@ -145,18 +162,12 @@ public class IjProjectCommandHelper {
     TargetGraph projectGraph;
 
     try {
-      ParserConfig parserConfig = buckConfig.getView(ParserConfig.class);
       passedInTargetsSet =
           ImmutableSet.copyOf(
               Iterables.concat(
                   parser.resolveTargetSpecs(
-                      cell,
-                      enableParserProfiling,
-                      executor,
-                      argsParser.apply(targets),
-                      SpeculativeParsing.ENABLED,
-                      parserConfig.getDefaultFlavorsMode())));
-      projectGraph = getProjectGraphForIde(executor, passedInTargetsSet);
+                      parsingContext, argsParser.apply(targets), targetConfiguration)));
+      projectGraph = getProjectGraphForIde(passedInTargetsSet);
     } catch (BuildFileParseException e) {
       buckEventBus.post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return ExitCode.PARSE_ERROR;
@@ -180,7 +191,7 @@ public class IjProjectCommandHelper {
     TargetGraphAndTargets targetGraphAndTargets;
     try {
       targetGraphAndTargets =
-          createTargetGraph(projectGraph, graphRoots, passedInTargetsSet.isEmpty(), executor);
+          createTargetGraph(projectGraph, graphRoots, passedInTargetsSet.isEmpty());
     } catch (BuildFileParseException | NoSuchTargetException | VersionException e) {
       buckEventBus.post(ConsoleEvent.severe(MoreExceptions.getHumanReadableOrLocalizedMessage(e)));
       return ExitCode.PARSE_ERROR;
@@ -205,23 +216,21 @@ public class IjProjectCommandHelper {
     return actionGraphProvider.getFreshActionGraph(transformer, targetGraph);
   }
 
-  private TargetGraph getProjectGraphForIde(
-      ListeningExecutorService executor, ImmutableSet<BuildTarget> passedInTargets)
+  private TargetGraph getProjectGraphForIde(ImmutableSet<BuildTarget> passedInTargets)
       throws InterruptedException, BuildFileParseException, IOException {
 
     if (passedInTargets.isEmpty()) {
       return parser
-          .buildTargetGraphForTargetNodeSpecs(
-              cell,
-              enableParserProfiling,
-              executor,
+          .buildTargetGraphWithConfigurationTargets(
+              parsingContext,
               ImmutableList.of(
-                  TargetNodePredicateSpec.of(
-                      BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))))
+                  ImmutableTargetNodePredicateSpec.of(
+                      BuildFileSpec.fromRecursivePath(Paths.get(""), cell.getRoot()))),
+              targetConfiguration)
           .getTargetGraph();
     }
     Preconditions.checkState(!passedInTargets.isEmpty());
-    return parser.buildTargetGraph(cell, enableParserProfiling, executor, passedInTargets);
+    return parser.buildTargetGraph(parsingContext, passedInTargets);
   }
 
   /** Run intellij specific project generation actions. */
@@ -259,7 +268,7 @@ public class IjProjectCommandHelper {
   private ImmutableSet<BuildTarget> writeProjectAndGetRequiredBuildTargets(
       TargetGraphAndTargets targetGraphAndTargets) throws IOException {
     ActionGraphAndBuilder result =
-        Preconditions.checkNotNull(getActionGraph(targetGraphAndTargets.getTargetGraph()));
+        Objects.requireNonNull(getActionGraph(targetGraphAndTargets.getTargetGraph()));
 
     ActionGraphBuilder graphBuilder = result.getActionGraphBuilder();
 
@@ -374,8 +383,7 @@ public class IjProjectCommandHelper {
   private TargetGraphAndTargets createTargetGraph(
       TargetGraph projectGraph,
       ImmutableSet<BuildTarget> graphRoots,
-      boolean needsFullRecursiveParse,
-      ListeningExecutorService executor)
+      boolean needsFullRecursiveParse)
       throws IOException, InterruptedException, BuildFileParseException, VersionException {
 
     boolean isWithTests = isWithTests();
@@ -389,13 +397,12 @@ public class IjProjectCommandHelper {
     if (isWithTests) {
       explicitTestTargets = getExplicitTestTargets(graphRoots, projectGraph);
       projectGraph =
-          parser.buildTargetGraph(
-              cell, enableParserProfiling, executor, Sets.union(graphRoots, explicitTestTargets));
+          parser.buildTargetGraph(parsingContext, Sets.union(graphRoots, explicitTestTargets));
     }
 
     TargetGraphAndTargets targetGraphAndTargets =
         TargetGraphAndTargets.create(graphRoots, projectGraph, isWithTests, explicitTestTargets);
-    if (buckConfig.getBuildVersions()) {
+    if (buckConfig.getView(BuildBuckConfig.class).getBuildVersions()) {
       targetGraphAndTargets =
           VersionedTargetGraphAndTargets.toVersionedTargetGraphAndTargets(
               targetGraphAndTargets,
@@ -403,6 +410,7 @@ public class IjProjectCommandHelper {
               buckEventBus,
               buckConfig,
               typeCoercerFactory,
+              unconfiguredBuildTargetFactory,
               explicitTestTargets);
     }
     return targetGraphAndTargets;
@@ -422,6 +430,43 @@ public class IjProjectCommandHelper {
     } else {
       nodes = projectRoots;
     }
-    return TargetGraphAndTargets.getExplicitTestTargets(nodes.iterator());
+    ImmutableSet<BuildTarget> tests =
+        TargetGraphAndTargets.getExplicitTestTargets(nodes.iterator());
+
+    return filterTests(
+        tests,
+        cell.getCellPathResolver(),
+        projectConfig.getIncludeTestPatterns(),
+        projectConfig.getExcludeTestPatterns());
+  }
+
+  public static ImmutableSet<BuildTarget> filterTests(
+      ImmutableSet<BuildTarget> testTargets,
+      CellPathResolver cellPathResolver,
+      ImmutableSet<String> includes,
+      ImmutableSet<String> excludes) {
+    BuildTargetPatternParser<BuildTargetPattern> parser =
+        BuildTargetPatternParser.forVisibilityArgument();
+    ImmutableSet<BuildTargetPattern> includePatterns =
+        getPatterns(parser, cellPathResolver, includes);
+    ImmutableSet<BuildTargetPattern> excludePatterns =
+        getPatterns(parser, cellPathResolver, excludes);
+    return RichStream.from(testTargets)
+        .filter(
+            test ->
+                (includePatterns.isEmpty()
+                        || includePatterns.stream().anyMatch(pattern -> pattern.matches(test)))
+                    && (excludePatterns.isEmpty()
+                        || excludePatterns.stream().noneMatch(pattern -> pattern.matches(test))))
+        .toImmutableSet();
+  }
+
+  private static ImmutableSet<BuildTargetPattern> getPatterns(
+      BuildTargetPatternParser<BuildTargetPattern> parser,
+      CellPathResolver cellPathResolver,
+      ImmutableSet<String> patterns) {
+    return RichStream.from(patterns)
+        .map(pattern -> parser.parse(cellPathResolver, pattern))
+        .toImmutableSet();
   }
 }

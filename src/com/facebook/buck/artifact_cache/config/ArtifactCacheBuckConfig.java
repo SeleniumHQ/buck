@@ -20,10 +20,10 @@ import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.ConfigView;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.resources.ResourcesConfig;
+import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.slb.SlbBuckConfig;
 import com.facebook.buck.util.unit.SizeUnit;
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -32,6 +32,7 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
@@ -133,12 +134,14 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
   private static final String DEFAULT_SCHEDULE_TYPE = "none";
   public static final String MULTI_FETCH = "multi_fetch";
   private static final String MULTI_FETCH_LIMIT = "multi_fetch_limit";
+  public static final String MULTI_CHECK = "multi_check";
   private static final int DEFAULT_MULTI_FETCH_LIMIT = 100;
 
   private static final String DOWNLOAD_HEAVY_BUILD_CACHE_FETCH_THREADS =
       "download_heavy_build_http_cache_fetch_threads";
   private static final int DEFAULT_DOWNLOAD_HEAVY_BUILD_CACHE_FETCH_THREADS = 20;
 
+  private final ProjectFilesystem projectFilesystem;
   private final BuckConfig buckConfig;
   private final SlbBuckConfig slbConfig;
 
@@ -147,6 +150,7 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
   }
 
   public ArtifactCacheBuckConfig(BuckConfig buckConfig) {
+    this.projectFilesystem = buckConfig.getFilesystem();
     this.buckConfig = buckConfig;
     this.slbConfig = new SlbBuckConfig(buckConfig, CACHE_SECTION_NAME);
   }
@@ -155,6 +159,10 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
     return buckConfig
         .getEnum(CACHE_SECTION_NAME, MULTI_FETCH, MultiFetchType.class)
         .orElse(MultiFetchType.DEFAULT);
+  }
+
+  public boolean getMultiCheckEnabled() {
+    return buckConfig.getBooleanValue(CACHE_SECTION_NAME, MULTI_CHECK, false);
   }
 
   @Override
@@ -382,6 +390,56 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
         .map(SizeUnit::parseBytes);
   }
 
+  /**
+   * If true, fail if client TLS certificate or key paths are unspecified, don't exist, are not the
+   * right format or have expired
+   */
+  public boolean getClientTlsCertRequired() {
+    return buckConfig.getBooleanValue(CACHE_SECTION_NAME, "http_client_tls_cert_required", false);
+  }
+
+  /**
+   * Gets the path to a PEM encoded X509 certificate to use as the TLS client certificate for HTTP
+   * cache requests, from the content of the env var specified in http_client_tls_cert_env_var if
+   * set or the field value
+   *
+   * <p>Both the key and certificate must be set for client TLS certificates to be used
+   */
+  public Optional<Path> getClientTlsCertificate() {
+    return getPathWithEnv("http_client_tls_cert");
+  }
+
+  /**
+   * Gets the path to a PEM encoded PCKS#8 key to use as the TLS client key for HTTP cache requests,
+   * from the content of the env var specified in http_client_tls_key_env_var if set or the field
+   * value. This may be a file that contains both the private key and the certificate if both
+   * objects are newline delimited.
+   *
+   * <p>Both the key and certificate must be set for client TLS certificates to be used
+   */
+  public Optional<Path> getClientTlsKey() {
+    return getPathWithEnv("http_client_tls_key");
+  }
+
+  /** Thread pools that are available for task execution. */
+  public enum Executor {
+    /** @see com.google.common.util.concurrent.MoreExecutors#directExecutor() */
+    DIRECT,
+    /** an executor responsible for carrying out only disk-related operations */
+    DISK_IO,
+  }
+
+  /** @return The thread pool dir cache store operations should be executed on. */
+  public Executor getDirCacheStoreExecutor() {
+    return buckConfig
+        .getEnum(CACHE_SECTION_NAME, "dir_cache_store_executor", Executor.class)
+        .orElse(Executor.DIRECT);
+  }
+
+  private Optional<Path> getPathWithEnv(String field) {
+    return getStringOrEnvironmentVariable(buckConfig, CACHE_SECTION_NAME, field).map(Paths::get);
+  }
+
   private boolean getServingLocalCacheEnabled() {
     return buckConfig.getBooleanValue(CACHE_SECTION_NAME, SERVED_CACHE_ENABLED_FIELD_NAME, false);
   }
@@ -403,8 +461,9 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
   }
 
   private ImmutableMap<String, String> getCacheHeaders(String section, String fieldName) {
-    ImmutableMap.Builder<String, String> headerBuilder = ImmutableMap.builder();
     ImmutableList<String> rawHeaders = buckConfig.getListWithoutComments(section, fieldName, ';');
+    ImmutableMap.Builder<String, String> headerBuilder =
+        ImmutableMap.builderWithExpectedSize(rawHeaders.size());
     for (String rawHeader : rawHeaders) {
       List<String> splitHeader =
           Splitter.on(':').omitEmptyStrings().trimResults().splitToList(rawHeader);
@@ -425,15 +484,21 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
     return buckConfig.getValue(section, fieldName).orElse(defaultValue);
   }
 
+  private String getLocalCacheDirectory(String dirCacheName) {
+    return buckConfig
+        .getValue(dirCacheName, "dir")
+        .orElse(projectFilesystem.getBuckPaths().getCacheDir().toString());
+  }
+
   private DirCacheEntry obtainDirEntryForName(Optional<String> cacheName) {
     String section = Joiner.on('#').skipNulls().join(CACHE_SECTION_NAME, cacheName.orElse(null));
 
     CacheReadMode readMode = getCacheReadMode(section, DIR_MODE_FIELD, DEFAULT_DIR_CACHE_MODE);
 
-    String cacheDir = buckConfig.getLocalCacheDirectory(section);
+    String cacheDir = getLocalCacheDirectory(section);
     Path pathToCacheDir =
         buckConfig.resolvePathThatMayBeOutsideTheProjectFilesystem(Paths.get(cacheDir));
-    Preconditions.checkNotNull(pathToCacheDir);
+    Objects.requireNonNull(pathToCacheDir);
 
     Optional<Long> maxSizeBytes =
         buckConfig.getValue(section, DIR_MAX_SIZE_FIELD).map(SizeUnit::parseBytes);
@@ -489,7 +554,7 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
     CacheReadMode readMode =
         getCacheReadMode(section, SQLITE_MODE_FIELD, DEFAULT_SQLITE_CACHE_MODE);
 
-    String cacheDir = buckConfig.getLocalCacheDirectory(section);
+    String cacheDir = getLocalCacheDirectory(section);
     Path pathToCacheDir =
         buckConfig.resolvePathThatMayBeOutsideTheProjectFilesystem(Paths.get(cacheDir));
 
@@ -542,5 +607,21 @@ public class ArtifactCacheBuckConfig implements ConfigView<BuckConfig> {
     return buckConfig
         .getInteger(CACHE_SECTION_NAME, DOWNLOAD_HEAVY_BUILD_CACHE_FETCH_THREADS)
         .orElse(DEFAULT_DOWNLOAD_HEAVY_BUILD_CACHE_FETCH_THREADS);
+  }
+
+  /**
+   * @return field value or content of environment variable specified in field
+   *     "${section}.${field}_env_var" if this environment variable exists and does not just contain
+   *     0 or more whitespaces
+   */
+  public static Optional<String> getStringOrEnvironmentVariable(
+      BuckConfig buckConfig, String section, String field) {
+    Optional<String> defaultValue = buckConfig.getValue(section, field);
+    Optional<String> envVariable = buckConfig.getValue(section, field + "_env_var");
+    if (!envVariable.isPresent()) {
+      return defaultValue;
+    }
+    String envValue = buckConfig.getEnvironment().getOrDefault(envVariable.get(), "").trim();
+    return envValue.isEmpty() ? defaultValue : Optional.of(envValue);
   }
 }

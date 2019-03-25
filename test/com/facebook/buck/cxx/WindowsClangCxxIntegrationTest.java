@@ -39,6 +39,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Optional;
 import org.hamcrest.Matchers;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -94,7 +95,7 @@ public class WindowsClangCxxIntegrationTest {
   }
 
   @Test
-  public void testThinArchives() throws IOException, InterruptedException {
+  public void testThinArchives() throws IOException {
     workspace.enableDirCache();
     workspace.runBuckCommand("clean");
     workspace
@@ -120,9 +121,8 @@ public class WindowsClangCxxIntegrationTest {
         .getBuildLog()
         .assertTargetBuiltLocally(
             CxxDescriptionEnhancer.createCxxLinkTarget(
-                    BuildTargetFactory.newInstance("//app_lib:app_lib#windows-x86_64"),
-                    Optional.empty())
-                .toString());
+                BuildTargetFactory.newInstance("//app_lib:app_lib#windows-x86_64"),
+                Optional.empty()));
     ImmutableSortedSet<Path> subsequentObjects =
         findFiles(tmp.getRoot(), tmp.getRoot().getFileSystem().getPathMatcher("glob:**/*.obj"));
     assertThat(initialObjects, Matchers.equalTo(subsequentObjects));
@@ -140,6 +140,22 @@ public class WindowsClangCxxIntegrationTest {
   @Test
   public void simpleBinaryWithAsm64IsExecutableByCmd() throws IOException {
     ProcessResult runResult = workspace.runBuckCommand("build", "//app_asm:log");
+    runResult.assertSuccess();
+    Path outputPath = workspace.resolve("buck-out/gen/app_asm/log/log.txt");
+    assertThat(workspace.getFileContents(outputPath), Matchers.equalToIgnoringCase("42"));
+  }
+
+  @Test
+  public void asmAndDependencyTracking() throws IOException {
+    // no depfile is created for assembly, make sure header tracking is OK with it.
+    ProcessResult runResult =
+        workspace.runBuckCommand(
+            "build",
+            "-c",
+            "cxx.untracked_headers=warn",
+            "-c",
+            "cxx.detailed_untracked_header_messages=true",
+            "//app_asm:log");
     runResult.assertSuccess();
     Path outputPath = workspace.resolve("buck-out/gen/app_asm/log/log.txt");
     assertThat(workspace.getFileContents(outputPath), Matchers.equalToIgnoringCase("42"));
@@ -267,5 +283,41 @@ public class WindowsClangCxxIntegrationTest {
           }
         });
     return files.build();
+  }
+
+  @Test
+  public void errorVerifyHeaders() throws IOException {
+    ProcessResult result;
+    result =
+        workspace.runBuckBuild(
+            "-c",
+            "cxx.untracked_headers=error",
+            "-c",
+            "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
+            "//header_check:untracked_header#windows-x86_64");
+    result.assertFailure();
+    Assert.assertThat(
+        result.getStderr(),
+        Matchers.containsString(
+            "header_check\\untracked_header.cpp: included an untracked header \"header_check\\untracked_header.h\""));
+  }
+
+  @Test
+  public void errorVerifyNestedHeaders() throws IOException {
+    ProcessResult result;
+    result =
+        workspace.runBuckBuild(
+            "-c",
+            "cxx.untracked_headers=error",
+            "-c",
+            "cxx.untracked_headers_whitelist=/usr/include/stdc-predef\\.h",
+            "//header_check:nested_untracked_header#windows-x86_64");
+    result.assertFailure();
+    Assert.assertThat(
+        result.getStderr(),
+        Matchers.containsString(
+            "header_check\\nested_untracked_header.cpp: included an untracked header \"header_check\\untracked_header.h\", which is included by:\n"
+                + "\t\"header_check\\untracked_header_includer.h\", which is included by:\n"
+                + "\t\"header_check\\parent_header.h\""));
   }
 }

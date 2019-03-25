@@ -22,13 +22,12 @@ import com.facebook.buck.parser.ParserPythonInterpreterProvider;
 import com.facebook.buck.parser.PerBuildState;
 import com.facebook.buck.parser.PerBuildStateFactory;
 import com.facebook.buck.parser.SpeculativeParsing;
-import com.facebook.buck.rules.coercer.ConstructorArgMarshaller;
+import com.facebook.buck.rules.coercer.DefaultConstructorArgMarshaller;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import org.kohsuke.args4j.Argument;
@@ -75,8 +74,7 @@ public class AuditDependenciesCommand extends AbstractCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
     ImmutableSet<String> fullyQualifiedBuildTargets =
         ImmutableSet.copyOf(getArgumentsFormattedAsBuildTargets(params.getBuckConfig()));
 
@@ -102,32 +100,38 @@ public class AuditDependenciesCommand extends AbstractCommand {
     try (CommandThreadManager pool =
             new CommandThreadManager("Audit", getConcurrencyLimit(params.getBuckConfig()));
         PerBuildState parserState =
-            new PerBuildStateFactory(
+            PerBuildStateFactory.createFactory(
                     params.getTypeCoercerFactory(),
-                    new ConstructorArgMarshaller(params.getTypeCoercerFactory()),
+                    new DefaultConstructorArgMarshaller(params.getTypeCoercerFactory()),
                     params.getKnownRuleTypesProvider(),
                     new ParserPythonInterpreterProvider(
                         params.getCell().getBuckConfig(), params.getExecutableFinder()),
+                    params.getCell().getBuckConfig(),
                     params.getWatchman(),
-                    params.getBuckEventBus())
+                    params.getBuckEventBus(),
+                    params.getManifestServiceSupplier(),
+                    params.getFileHashCache(),
+                    params.getUnconfiguredBuildTargetFactory())
                 .create(
+                    createParsingContext(params.getCell(), pool.getListeningExecutorService())
+                        .withSpeculativeParsing(SpeculativeParsing.ENABLED)
+                        .withExcludeUnsupportedTargets(false),
                     params.getParser().getPermState(),
-                    pool.getListeningExecutorService(),
-                    params.getCell(),
-                    getTargetPlatforms(),
-                    getEnableParserProfiling(),
-                    SpeculativeParsing.ENABLED)) {
+                    getTargetPlatforms())) {
       BuckQueryEnvironment env =
           BuckQueryEnvironment.from(
-              params, parserState, pool.getListeningExecutorService(), getEnableParserProfiling());
-      return QueryCommand.runMultipleQuery(
+              params,
+              parserState,
+              createParsingContext(params.getCell(), pool.getListeningExecutorService()));
+      QueryCommand.runMultipleQuery(
           params,
           env,
           QueryCommand.getAuditDependenciesQueryFormat(
               shouldShowTransitiveDependencies(), shouldIncludeTests()),
           getArgumentsFormattedAsBuildTargets(params.getBuckConfig()),
           shouldGenerateJsonOutput(),
-          ImmutableSet.of());
+          ImmutableSet.of(),
+          params.getConsole().getStdOut());
     } catch (Exception e) {
       if (e.getCause() instanceof InterruptedException) {
         throw (InterruptedException) e.getCause();
@@ -138,6 +142,7 @@ public class AuditDependenciesCommand extends AbstractCommand {
       // TODO(buck_team): catch specific exceptions and return proper codes
       return ExitCode.BUILD_ERROR;
     }
+    return ExitCode.SUCCESS;
   }
 
   @Override

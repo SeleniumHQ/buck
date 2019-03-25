@@ -28,7 +28,6 @@ import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.rules.BuildRuleParams;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.common.BuildableSupport;
-import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.util.immutables.BuckStyleImmutable;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -41,14 +40,13 @@ import com.facebook.buck.rules.macros.LocationMacroExpander;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.StringWithMacros;
 import com.facebook.buck.rules.macros.StringWithMacrosConverter;
+import com.facebook.buck.test.config.TestBuckConfig;
 import com.facebook.buck.util.Optionals;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Ordering;
-import java.nio.file.Path;
 import java.util.Optional;
 import java.util.stream.Stream;
 import org.immutables.value.Value;
@@ -103,12 +101,10 @@ public class ShTestDescription implements DescriptionWithTargetGraph<ShTestDescr
                         arg -> BuildableSupport.getDepsCollection(arg, ruleFinder))),
         testArgs,
         testEnv,
-        FluentIterable.from(args.getResources())
-            .transform(p -> PathSourcePath.of(projectFilesystem, p))
-            .toSortedSet(Ordering.natural()),
+        args.getResources(),
         args.getTestRuleTimeoutMs()
             .map(Optional::of)
-            .orElse(buckConfig.getDefaultTestRuleTimeoutMs()),
+            .orElse(buckConfig.getView(TestBuckConfig.class).getDefaultTestRuleTimeoutMs()),
         args.getRunTestSeparately(),
         args.getLabels(),
         args.getType(),
@@ -136,7 +132,7 @@ public class ShTestDescription implements DescriptionWithTargetGraph<ShTestDescr
     }
 
     @Value.NaturalOrder
-    ImmutableSortedSet<Path> getResources();
+    ImmutableSortedSet<SourcePath> getResources();
 
     ImmutableMap<String, StringWithMacros> getEnv();
   }

@@ -29,6 +29,7 @@ import com.facebook.buck.io.file.MorePaths;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.parser.DaemonicCellState.Cache;
+import com.facebook.buck.parser.api.BuildFileManifestFactory;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -50,16 +51,18 @@ public class DaemonicCellStateTest {
   private void populateDummyRawNode(DaemonicCellState state, BuildTarget target) {
     state.putRawNodesIfNotPresentAndStripMetaEntries(
         target.getCellPath().resolve(target.getBasePath().resolve("BUCK")),
-        ImmutableSet.of(
+        BuildFileManifestFactory.create(
             ImmutableMap.of(
-                "name", target.getShortName(),
-                "buck.base_path", MorePaths.pathWithUnixSeparators(target.getBasePath()))),
+                target.getShortName(),
+                ImmutableMap.of(
+                    "name", target.getShortName(),
+                    "buck.base_path", MorePaths.pathWithUnixSeparators(target.getBasePath())))),
         ImmutableSet.of(),
         ImmutableMap.of());
   }
 
   @Before
-  public void setUp() throws IOException, InterruptedException {
+  public void setUp() throws IOException {
     filesystem = FakeProjectFilesystem.createJavaOnlyFilesystem();
     Files.createDirectories(filesystem.resolve("../xplat"));
     Files.createFile(filesystem.resolve("../xplat/.buckconfig"));
@@ -110,11 +113,13 @@ public class DaemonicCellStateTest {
 
     childState.putRawNodesIfNotPresentAndStripMetaEntries(
         targetPath,
-        ImmutableSet.of(
-            // Forms the target "//path/to:target"
+        BuildFileManifestFactory.create(
             ImmutableMap.of(
-                "buck.base_path", "path/to",
-                "name", "target")),
+                "target",
+                // Forms the target "//path/to:target"
+                ImmutableMap.of(
+                    "buck.base_path", "path/to",
+                    "name", "target"))),
         ImmutableSet.of(),
         ImmutableMap.of());
     assertEquals("Still only one invalidated node", 1, childState.invalidatePath(targetPath));

@@ -28,7 +28,7 @@ import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.query.Query;
+import com.facebook.buck.util.Escaper;
 import com.google.common.collect.ImmutableList;
 import java.util.Objects;
 import java.util.Optional;
@@ -45,16 +45,6 @@ public class QueryPathsMacroExpander extends QueryMacroExpander<QueryPathsMacro>
   @Override
   public Class<QueryPathsMacro> getInputClass() {
     return QueryPathsMacro.class;
-  }
-
-  @Override
-  QueryPathsMacro fromQuery(Query query) {
-    return QueryPathsMacro.of(query);
-  }
-
-  @Override
-  boolean detectsTargetGraphOnlyDeps() {
-    return false;
   }
 
   @Override
@@ -100,6 +90,7 @@ public class QueryPathsMacroExpander extends QueryMacroExpander<QueryPathsMacro>
               .stream()
               .map(pathResolver::getAbsolutePath)
               .map(Object::toString)
+              .map(Escaper::escapeAsShellString)
               .sorted()
               .collect(Collectors.joining(" ")));
     }

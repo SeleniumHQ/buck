@@ -16,12 +16,15 @@
 
 package com.facebook.buck.rules.macros;
 
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.google.common.annotations.VisibleForTesting;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.annotation.Nullable;
 import org.immutables.value.Value;
 
 /** Macro that resolves to the output location of a build rule. */
@@ -38,6 +41,28 @@ abstract class AbstractLocationMacro extends BuildTargetMacro {
   @Value.Parameter(order = 2)
   abstract Optional<String> getSupplementaryOutputIdentifier();
 
+  @Override
+  public int hashCode() {
+    return Objects.hash(getTarget().getFullyQualifiedName(), getSupplementaryOutputIdentifier());
+  }
+
+  @Override
+  public boolean equals(@Nullable Object another) {
+    if (this == another) {
+      return true;
+    }
+    if (!(another instanceof LocationMacro)) {
+      return false;
+    }
+    LocationMacro anotherLocationMacro = (LocationMacro) another;
+
+    return getTarget()
+            .getFullyQualifiedName()
+            .equals(anotherLocationMacro.getTarget().getFullyQualifiedName())
+        && getSupplementaryOutputIdentifier()
+            .equals(anotherLocationMacro.getSupplementaryOutputIdentifier());
+  }
+
   /** Shorthand for constructing a LocationMacro referring to the main output. */
   @VisibleForTesting
   public static LocationMacro of(BuildTarget buildTarget) {
@@ -53,8 +78,10 @@ abstract class AbstractLocationMacro extends BuildTargetMacro {
    */
   public static SplitResult splitSupplementaryOutputPart(String targetish) {
     Matcher matcher = BUILD_TARGET_WITH_SUPPLEMENTARY_OUTPUT_PATTERN.matcher(targetish);
-    String outputNamePart = matcher.matches() ? matcher.group("output") : null;
-    return new SplitResult(matcher.group("target"), Optional.ofNullable(outputNamePart));
+    if (!matcher.matches()) {
+      throw new HumanReadableException(String.format("Cannot parse build target: %s", targetish));
+    }
+    return new SplitResult(matcher.group("target"), Optional.ofNullable(matcher.group("output")));
   }
 
   /** Result object of {@link #splitSupplementaryOutputPart}. */

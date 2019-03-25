@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+# Copyright 2018-present Facebook, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
 
 import argparse
 import datetime
@@ -6,6 +20,7 @@ import logging
 import logging.config
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -33,6 +48,15 @@ TARGET_MACOS_VERSION_SPEC = TARGET_MACOS_VERSION + "_or_later"
 
 def parse_args(args):
     parser = argparse.ArgumentParser("Publish releases of buck to github")
+    parser.add_argument(
+        "--valid-git-upstreams",
+        default=(
+            "git@github.com:facebook/buck.git",
+            "https://github.com/facebook/buck.git",
+        ),
+        nargs="+",
+        help="List of valid upstreams for the git repository in order to publish",
+    )
     parser.add_argument(
         "--github-token-file",
         default=os.path.expanduser("~/.buck-github-token"),
@@ -72,6 +96,12 @@ def parse_args(args):
             "If specified, use this for the release message. If not specified, "
             "and a new release is created, user will be prompted for a message"
         ),
+    )
+    parser.add_argument(
+        "--no-prompt-for-message",
+        help="If set, use a default message rather than prompting for a message",
+        action="store_false",
+        dest="prompt_for_message",
     )
     parser.add_argument(
         "--no-build-deb",
@@ -228,8 +258,21 @@ def configure_logging():
     )
 
 
+def validate_repo_upstream(args):
+    """ Make sure we're in the right repository, not a fork """
+    output = subprocess.check_output(
+        ["git", "remote", "get-url", "origin"], encoding="utf-8"
+    ).strip()
+    if output not in args.valid_git_upstreams:
+        raise ReleaseException(
+            "Releases may only be published from the upstream OSS buck repository"
+        )
+
+
 def validate_environment(args):
     """ Make sure we can build """
+
+    validate_repo_upstream(args)
     if args.build_deb:
         ret = docker(
             args.docker_linux_host,
@@ -367,7 +410,11 @@ def main():
             release = get_release_for_tag(args.repository, github_token, version_tag)
         else:
             release = create_new_release(
-                args.repository, github_token, version_tag, args.release_message
+                args.repository,
+                github_token,
+                version_tag,
+                args.release_message,
+                args.prompt_for_message,
             )
         if args.output_dir:
             output_dir = args.output_dir

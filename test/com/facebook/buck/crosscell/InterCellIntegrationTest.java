@@ -28,6 +28,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeThat;
+import static org.junit.Assume.assumeTrue;
 
 import com.facebook.buck.android.AssumeAndroidPlatform;
 import com.facebook.buck.android.toolchain.ndk.NdkCxxPlatform;
@@ -45,6 +46,7 @@ import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
 import com.facebook.buck.jvm.java.testutil.Bootclasspath;
 import com.facebook.buck.parser.Parser;
+import com.facebook.buck.parser.ParsingContext;
 import com.facebook.buck.parser.TestParserFactory;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.testutil.ProcessResult;
@@ -200,7 +202,7 @@ public class InterCellIntegrationTest {
   }
 
   @Test
-  public void xCellCxxLibraryBuildsShouldBeHermetic() throws InterruptedException, IOException {
+  public void xCellCxxLibraryBuildsShouldBeHermetic() throws IOException {
     assumeThat(Platform.detect(), is(not(WINDOWS)));
 
     Pair<ProjectWorkspace, ProjectWorkspace> cells =
@@ -370,7 +372,7 @@ public class InterCellIntegrationTest {
     registerCell(secondary, "primary", primary);
 
     // We could just do a build, but that's a little extreme since all we need is the target graph
-    Parser parser = TestParserFactory.create(primary.asCell().getBuckConfig());
+    Parser parser = TestParserFactory.create(primary.asCell());
 
     Cell primaryCell = primary.asCell();
     BuildTarget namedTarget =
@@ -378,9 +380,9 @@ public class InterCellIntegrationTest {
 
     // It's enough that this parses cleanly.
     parser.buildTargetGraph(
-        primaryCell,
-        false,
-        MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()),
+        ParsingContext.builder(
+                primaryCell, MoreExecutors.listeningDecorator(Executors.newSingleThreadExecutor()))
+            .build(),
         ImmutableSet.of(namedTarget));
   }
 
@@ -639,8 +641,9 @@ public class InterCellIntegrationTest {
         secondary, ImmutableMap.of("ndk", ImmutableMap.of("cpu_abis", "x86")));
 
     NdkCxxPlatform platform = AndroidNdkHelper.getNdkCxxPlatform(primary.asCell().getFilesystem());
+    TestActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     Path tmpDir = tmp.newFolder("merging_tmp");
     SymbolGetter syms =
         new SymbolGetter(
@@ -684,8 +687,9 @@ public class InterCellIntegrationTest {
         secondary, ImmutableMap.of("ndk", ImmutableMap.of("cpu_abis", "x86")));
 
     NdkCxxPlatform platform = AndroidNdkHelper.getNdkCxxPlatform(primary.asCell().getFilesystem());
+    TestActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
     SourcePathResolver pathResolver =
-        DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
+        DefaultSourcePathResolver.from(new SourcePathRuleFinder(graphBuilder));
     Path tmpDir = tmp.newFolder("merging_tmp");
     SymbolGetter syms =
         new SymbolGetter(
@@ -881,6 +885,28 @@ public class InterCellIntegrationTest {
     secondary.runBuckBuild("primary//:hello").assertSuccess();
   }
 
+  @Test
+  public void crossCellBinarySharedLinkCanRun() throws IOException {
+    assumeThat(Platform.detect(), is(not(WINDOWS)));
+    Pair<ProjectWorkspace, ProjectWorkspace> cells =
+        prepare("inter-cell/cxx_binary_shared/primary", "inter-cell/cxx_binary_shared/secondary");
+    ProjectWorkspace primary = cells.getFirst();
+    primary.runBuckCommand("run", "secondary//:main").assertSuccess();
+  }
+
+  @Test
+  public void crossCellShBinaryWithResources() throws IOException {
+    // sh_binary is not available on Windows. Ignore this test on Windows.
+    assumeTrue(Platform.detect() != WINDOWS);
+
+    Pair<ProjectWorkspace, ProjectWorkspace> cells =
+        prepare(
+            "inter-cell/sh_binary_with_resources/primary",
+            "inter-cell/sh_binary_with_resources/secondary");
+    ProjectWorkspace primary = cells.getFirst();
+    primary.runBuckCommand("run", "secondary//:main").assertSuccess();
+  }
+
   private static String sortLines(String input) {
     return RichStream.from(Splitter.on('\n').trimResults().omitEmptyStrings().split(input))
         .sorted()
@@ -917,6 +943,11 @@ public class InterCellIntegrationTest {
         ImmutableMap.of(
             "repositories",
             ImmutableMap.of(
-                cellName, cellToRegisterAsCellName.getPath(".").normalize().toString())));
+                cellName,
+                cellToModifyConfigOf
+                    .getDestPath()
+                    .relativize(cellToRegisterAsCellName.getPath("."))
+                    .normalize()
+                    .toString())));
   }
 }

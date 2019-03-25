@@ -18,6 +18,7 @@ package com.facebook.buck.features.go;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rules.BuildRule;
@@ -36,7 +37,7 @@ import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.features.go.GoTestCoverStep.Mode;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.step.fs.SymlinkTreeStep;
@@ -54,11 +55,15 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -69,18 +74,21 @@ import java.util.stream.Stream;
 @SuppressWarnings("PMD.TestClassWithoutTestCases")
 public class GoTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     implements TestRule, HasRuntimeDeps, ExternalTestRunnerRule, BinaryBuildRule {
+
   private static final Pattern TEST_START_PATTERN = Pattern.compile("^=== RUN\\s+(?<name>.*)$");
   private static final Pattern TEST_FINISHED_PATTERN =
       Pattern.compile(
           "^\\s*--- (?<status>PASS|FAIL|SKIP): (?<name>.+) \\((?<duration>\\d+\\.\\d+)(?: seconds|s)\\)$");
   // Extra time to wait for the process to exit on top of the test timeout
   private static final int PROCESS_TIMEOUT_EXTRA_MS = 5000;
+  private static final String NON_PRINTABLE_REPLACEMENT = "囧";
 
   private final GoBinary testMain;
 
   private final ImmutableSet<String> labels;
   private final Optional<Long> testRuleTimeoutMs;
   private final ImmutableSet<String> contacts;
+  private final ImmutableMap<String, Arg> env;
   private final boolean runTestsSeparately;
   private final ImmutableSortedSet<SourcePath> resources;
   private final Mode coverageMode;
@@ -93,6 +101,7 @@ public class GoTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
       ImmutableSet<String> labels,
       ImmutableSet<String> contacts,
       Optional<Long> testRuleTimeoutMs,
+      ImmutableMap<String, Arg> env,
       boolean runTestsSeparately,
       ImmutableSortedSet<SourcePath> resources,
       Mode coverageMode) {
@@ -101,6 +110,7 @@ public class GoTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this.labels = labels;
     this.contacts = contacts;
     this.testRuleTimeoutMs = testRuleTimeoutMs;
+    this.env = env;
     this.runTestsSeparately = runTestsSeparately;
     this.resources = resources;
     this.coverageMode = coverageMode;
@@ -113,9 +123,7 @@ public class GoTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
       BuildContext buildContext,
       TestReportingCallback testReportingCallback) {
     Optional<Long> processTimeoutMs =
-        testRuleTimeoutMs.isPresent()
-            ? Optional.of(testRuleTimeoutMs.get() + PROCESS_TIMEOUT_EXTRA_MS)
-            : Optional.empty();
+        testRuleTimeoutMs.map(timeout -> timeout + PROCESS_TIMEOUT_EXTRA_MS);
 
     SourcePathResolver resolver = buildContext.getSourcePathResolver();
     ImmutableList.Builder<String> args = ImmutableList.builder();
@@ -150,7 +158,11 @@ public class GoTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
                 getProjectFilesystem(),
                 getPathToTestWorkingDirectory(),
                 args.build(),
-                testMain.getExecutableCommand().getEnvironment(resolver),
+                Stream.of(
+                        testMain.getExecutableCommand().getEnvironment(resolver),
+                        Arg.stringify(env, resolver))
+                    .flatMap(m -> m.entrySet().stream())
+                    .collect(ImmutableMap.toImmutableMap(Entry::getKey, Entry::getValue)),
                 getPathToTestExitCode(),
                 processTimeoutMs,
                 getPathToTestResults()))
@@ -159,9 +171,14 @@ public class GoTest extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   private ImmutableList<TestResultSummary> parseTestResults() throws IOException {
     ImmutableList.Builder<TestResultSummary> summariesBuilder = ImmutableList.builder();
+    CharsetDecoder decoder = Charsets.UTF_8.newDecoder();
+    decoder.onMalformedInput(CodingErrorAction.REPLACE);
+    decoder.replaceWith(NON_PRINTABLE_REPLACEMENT);
     try (BufferedReader reader =
-        Files.newBufferedReader(
-            getProjectFilesystem().resolve(getPathToTestResults()), Charsets.UTF_8)) {
+        new BufferedReader(
+            new InputStreamReader(
+                Files.newInputStream(getProjectFilesystem().resolve(getPathToTestResults())),
+                decoder))) {
       Set<String> currentTests = new HashSet<>();
       List<String> stdout = new ArrayList<>();
       List<String> stackTrace = new ArrayList<>();

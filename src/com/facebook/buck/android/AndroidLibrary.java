@@ -42,9 +42,9 @@ import com.facebook.buck.jvm.java.JavacOptions;
 import com.facebook.buck.jvm.java.UnusedDependenciesFinderFactory;
 import com.facebook.buck.util.DependencyMode;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Iterables;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.SortedSet;
 import javax.annotation.Nullable;
@@ -95,7 +95,9 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
       boolean requiredForSourceOnlyAbi,
       UnusedDependenciesAction unusedDependenciesAction,
       Optional<UnusedDependenciesFinderFactory> unusedDependenciesFinderFactory,
-      @Nullable CalculateSourceAbi sourceAbi) {
+      @Nullable CalculateSourceAbi sourceAbi,
+      boolean isDesugarEnabled,
+      boolean isInterfaceMethodsDesugarEnabled) {
     super(
         buildTarget,
         projectFilesystem,
@@ -113,7 +115,9 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
         requiredForSourceOnlyAbi,
         unusedDependenciesAction,
         unusedDependenciesFinderFactory,
-        sourceAbi);
+        sourceAbi,
+        isDesugarEnabled,
+        isInterfaceMethodsDesugarEnabled);
     this.manifestFile = manifestFile;
   }
 
@@ -184,7 +188,9 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
                 boolean requiredForSourceOnlyAbi,
                 UnusedDependenciesAction unusedDependenciesAction,
                 Optional<UnusedDependenciesFinderFactory> unusedDependenciesFinderFactory,
-                @Nullable CalculateSourceAbi sourceAbi) {
+                @Nullable CalculateSourceAbi sourceAbi,
+                boolean isDesugarEnabled,
+                boolean isInterfaceMethodsDesugarEnabled) {
               return new AndroidLibrary(
                   buildTarget,
                   projectFilesystem,
@@ -203,13 +209,15 @@ public class AndroidLibrary extends DefaultJavaLibrary implements AndroidPackage
                   requiredForSourceOnlyAbi,
                   unusedDependenciesAction,
                   unusedDependenciesFinderFactory,
-                  sourceAbi);
+                  sourceAbi,
+                  isDesugarEnabled,
+                  isInterfaceMethodsDesugarEnabled);
             }
           });
       delegateBuilder.setJavacOptions(javacOptions);
       delegateBuilder.setTests(args.getTests());
 
-      JavaLibraryDeps deps = Preconditions.checkNotNull(delegateBuilder.getDeps());
+      JavaLibraryDeps deps = Objects.requireNonNull(delegateBuilder.getDeps());
       BuildTarget libraryTarget =
           JavaAbis.isLibraryTarget(buildTarget)
               ? buildTarget

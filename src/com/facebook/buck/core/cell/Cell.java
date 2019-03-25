@@ -18,8 +18,10 @@ package com.facebook.buck.core.cell;
 
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.UnconfiguredBuildTarget;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystemView;
 import com.facebook.buck.parser.exceptions.MissingBuildFileException;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
 import com.google.common.collect.ImmutableList;
@@ -35,37 +37,19 @@ import java.util.Optional;
  * <p>Should only be constructed by {@link CellProvider}.
  */
 public interface Cell {
-  /** Whether or not the cell has changed significantly enough to invalidate caches */
-  public enum IsCompatibleForCaching {
-    IS_COMPATIBLE,
-    FILESYSTEM_CHANGED,
-    BUCK_CONFIG_CHANGED,
-    TOOLCHAINS_INCOMPATIBLE;
-
-    /**
-     * Returns a human readable reason for why the cache needs invalidated (or "" if the cache does
-     * not need invalidated)
-     */
-    public String toHumanReasonableError() {
-      switch (this) {
-        case IS_COMPATIBLE:
-          return "";
-        case FILESYSTEM_CHANGED:
-          return "The project directory changed between invocations";
-        case BUCK_CONFIG_CHANGED:
-          return "Buck configuration options changed between invocations";
-        case TOOLCHAINS_INCOMPATIBLE:
-          return "Available / configured toolchains changed between invocations";
-      }
-      return "";
-    }
-  }
 
   ImmutableSortedSet<Path> getKnownRoots();
 
   Optional<String> getCanonicalName();
 
   ProjectFilesystem getFilesystem();
+
+  /**
+   * @return {@link ProjectFilesystemView} that filters out ignores specified for this cell, like
+   *     blacklisted paths and buck-out, to iterate over files which are potential direct sources,
+   *     build files, etc.
+   */
+  ProjectFilesystemView getFilesystemViewForSourceFiles();
 
   BuckConfig getBuckConfig();
 
@@ -76,8 +60,6 @@ public interface Cell {
   Path getRoot();
 
   RuleKeyConfiguration getRuleKeyConfiguration();
-
-  IsCompatibleForCaching isCompatibleForCaching(Cell other);
 
   String getBuildFileName();
 
@@ -91,6 +73,8 @@ public interface Cell {
   Cell getCellIgnoringVisibilityCheck(Path cellPath);
 
   Cell getCell(Path cellPath);
+
+  Cell getCell(UnconfiguredBuildTarget target);
 
   Cell getCell(BuildTarget target);
 
@@ -106,6 +90,8 @@ public interface Cell {
   /** @return all loaded {@link Cell}s that are children of this {@link Cell}. */
   ImmutableMap<Path, Cell> getLoadedCells();
 
+  Path getAbsolutePathToBuildFileUnsafe(UnconfiguredBuildTarget target);
+
   /**
    * For use in performance-sensitive code or if you don't care if the build file actually exists,
    * otherwise prefer {@link #getAbsolutePathToBuildFile(BuildTarget)}.
@@ -114,6 +100,8 @@ public interface Cell {
    * @return path which may or may not exist.
    */
   Path getAbsolutePathToBuildFileUnsafe(BuildTarget target);
+
+  Path getAbsolutePathToBuildFile(UnconfiguredBuildTarget target) throws MissingBuildFileException;
 
   Path getAbsolutePathToBuildFile(BuildTarget target) throws MissingBuildFileException;
 

@@ -22,12 +22,14 @@ import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator
 import com.android.ddmlib.AndroidDebugBridge;
 import com.android.ddmlib.DdmPreferences;
 import com.android.ddmlib.IDevice;
+import com.facebook.buck.android.device.TargetDeviceOptions;
 import com.facebook.buck.android.exopackage.AndroidDevice;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
 import com.facebook.buck.android.exopackage.ExopackageInfo;
 import com.facebook.buck.android.exopackage.ExopackageInstaller;
 import com.facebook.buck.android.exopackage.RealAndroidDevice;
 import com.facebook.buck.android.toolchain.AndroidPlatformTarget;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
@@ -40,8 +42,6 @@ import com.facebook.buck.event.StartActivityEvent;
 import com.facebook.buck.event.UninstallEvent;
 import com.facebook.buck.log.GlobalStateManager;
 import com.facebook.buck.step.AdbOptions;
-import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.MoreSuppliers;
@@ -160,7 +160,7 @@ public class AdbHelper implements AndroidDevicesHelper {
     try (SimplePerfEvent.Scope ignored =
         SimplePerfEvent.scope(getBuckEventBus(), "set_up_adb_call")) {
       devices = getDevices(quiet);
-      if (devices.size() == 0) {
+      if (devices.isEmpty()) {
         throw new HumanReadableException("Didn't find any attached Android devices/emulators.");
       }
     }
@@ -430,15 +430,13 @@ public class AdbHelper implements AndroidDevicesHelper {
           serialMatches = device.getSerialNumber().equals(getEnvironment().get(SERIAL_NUMBER_ENV));
         }
 
-        boolean deviceTypeMatches;
-        if (emulatorsOnly.isPresent()) {
-          // Only devices of specific type are accepted:
-          // either real devices only or emulators only.
-          deviceTypeMatches = (emulatorsOnly.get() == createDevice(device).isEmulator());
-        } else {
-          // All online devices match.
-          deviceTypeMatches = true;
-        }
+        // Only devices of specific type are accepted:
+        // either real devices only or emulators only.
+        // All online devices match.
+        boolean deviceTypeMatches =
+            emulatorsOnly
+                .map(isEmulatorOnly -> (isEmulatorOnly == createDevice(device).isEmulator()))
+                .orElse(true);
         passed = serialMatches && deviceTypeMatches;
       }
 

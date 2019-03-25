@@ -56,6 +56,10 @@ public class BuckBuildLog {
     this.buildLogEntries = Preconditions.checkNotNull(buildLogEntries);
   }
 
+  public void assertTargetBuiltLocally(BuildTarget buildTarget) {
+    assertTargetBuiltLocally(buildTarget.getFullyQualifiedName());
+  }
+
   public void assertTargetBuiltLocally(String buildTargetRaw) {
     assertBuildSuccessType(buildTargetRaw, BuildRuleSuccessType.BUILT_LOCALLY);
   }
@@ -83,12 +87,21 @@ public class BuckBuildLog {
     assertBuildSuccessType(buildTargetRaw, BuildRuleSuccessType.FETCHED_FROM_CACHE);
   }
 
+  public void assertTargetWasFetchedFromCache(BuildTarget buildTarget) {
+    assertBuildSuccessType(
+        buildTarget.getFullyQualifiedName(), BuildRuleSuccessType.FETCHED_FROM_CACHE);
+  }
+
   public void assertTargetWasFetchedFromCacheByManifestMatch(String buildTargetRaw) {
     assertBuildSuccessType(buildTargetRaw, BuildRuleSuccessType.FETCHED_FROM_CACHE_MANIFEST_BASED);
   }
 
   public void assertTargetHadMatchingInputRuleKey(String buildTargetRaw) {
     assertBuildSuccessType(buildTargetRaw, BuildRuleSuccessType.MATCHING_INPUT_BASED_RULE_KEY);
+  }
+
+  public void assertTargetHadMatchingInputRuleKey(BuildTarget buildTarget) {
+    assertTargetHadMatchingInputRuleKey(buildTarget.getFullyQualifiedName());
   }
 
   public void assertTargetHadMatchingDepfileRuleKey(String buildTargetRaw) {
@@ -99,13 +112,17 @@ public class BuckBuildLog {
     assertBuildSuccessType(buildTargetRaw, BuildRuleSuccessType.MATCHING_RULE_KEY);
   }
 
+  public void assertTargetHadMatchingRuleKey(BuildTarget buildTarget) {
+    assertTargetHadMatchingRuleKey(buildTarget.getFullyQualifiedName());
+  }
+
   public void assertTargetFailed(String buildTargetRaw) {
     BuildLogEntry logEntry = getLogEntry(buildTargetRaw);
     assertEquals(BuildRuleStatus.FAIL, logEntry.status);
   }
 
-  public void assertTargetCanceled(String buildTargetRaw) {
-    BuildLogEntry logEntry = getLogEntry(buildTargetRaw);
+  public void assertTargetCanceled(BuildTarget buildTarget) {
+    BuildLogEntry logEntry = getLogEntry(buildTarget);
     assertEquals(BuildRuleStatus.CANCELED, logEntry.status);
   }
 

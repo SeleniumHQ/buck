@@ -1,3 +1,18 @@
+/*
+ * Copyright 2018-present Facebook, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may
+ * not use this file except in compliance with the License. You may obtain
+ * a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
+ */
 {namespace buck.buckd}
 
 /***/
@@ -58,21 +73,18 @@ created by text editors.
 <p>
 The Buck daemon process is killed if
 <ul>
-<li>
-  the Buck configuration changes&mdash;unless that change is to a setting that is whitelisted 
-  by <code>IGNORE_FIELDS_FOR_DAEMON_RESTART</code> in <a href="https://github.com/facebook/buck/blob/master/src/com/facebook/buck/core/config/BuckConfig.java"><code>BuckConfig.java</code></a>.
-</li>
-<li>the <code>buck clean</code> command is run.</li>
+<li>the {call buck.cmd_clean /} command is run.</li>
 <li>the <code>.buckd</code> directory in the project root directory is deleted.</li>
 <li>the daemon has been idle for 24 hours.</li>
 </ul>
 </p>
 
 <p>
-You can also kill the Buck daemon explicitly by running <code>buck kill</code> in 
-the directory tree for your project. Note that if&mdash;for some
-reason&mdash;multiple instances of the daemon are running, 
-the <code>buck kill</code> command kills only one of them.
+You can also kill the Buck daemon explicitly by 
+running {call buck.cmd_kill /} in the directory tree for your project.
+Note that if&mdash;for some reason&mdash;multiple instances of the
+daemon are running, the <code>buck kill</code> command kills only one of
+them.
 </p>
 
 <p>
@@ -96,10 +108,32 @@ buck build project_name
 </p>
 
 
-<h4>Note about Buck configuration changes</h4>
+<h4>Buck configuration changes invalidate the daemon's state</h4>
 <p>
-A Buck configuration change that kills the Buck daemon can be caused <em>not only by</em> explicitly 
-changing a setting in <code>.buckconfig</code> or <code>.buckconfig.local</code>, but also by using 
+If you change Buck's configuration, it invalidates any cached state
+stored by the Buck daemon&mdash;unless that change is to 
+a <em>small subset</em> of configuration settings that are whitelisted 
+in <a
+ href="https://github.com/facebook/buck/blob/master/src/com/facebook/buck/command/config/AbstractConfigIgnoredByDaemon.java"><code>AbstractConfigIgnoredByDaemon.java</code></a>.
+</p>
+
+If the daemon's state is invalidated, you'll see a message similar to
+the following:
+
+<p>
+<pre>
+{literal}
+Invalidating internal cached state: 
+Buck configuration options changed between invocations. 
+This may cause slower builds.
+{/literal}
+</pre>
+</p>
+
+<p>
+Note that a Buck configuration change that invalidates the daemon's state can be 
+caused not only by explicitly changing a setting in one of Buck's 
+configuration files, such as <code>.buckconfig</code> or <code>.buckconfig.local</code>, but also by using 
 the <code>--config</code>, <code>--flagfile</code>, or <code>--config-file</code> {call buck.cmd_link}{param name: 'common_parameters' /}{param rendered_text: ' command-line parameters' /}{/call}. 
 </p>
 

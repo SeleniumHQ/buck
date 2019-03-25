@@ -22,11 +22,13 @@ import com.facebook.buck.android.toolchain.ndk.NdkCxxRuntimeType;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
 import com.facebook.buck.core.rules.BuildRuleResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.rules.tool.config.ToolConfig;
 import com.facebook.buck.util.environment.Platform;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -36,8 +38,16 @@ import java.util.function.Supplier;
 
 public class AndroidBuckConfig {
 
+  private static final String CONFIG_ENTRY_IN_SDK_PATH_SEARCH_ORDER = "<CONFIG>";
+
+  private static final ImmutableList<String> DEFAULT_SDK_PATH_SEARCH_ORDER =
+      ImmutableList.of("ANDROID_SDK", "ANDROID_HOME", CONFIG_ENTRY_IN_SDK_PATH_SEARCH_ORDER);
+
   private static final String ANDROID_SECTION = "android";
   private static final String REDEX = "redex";
+
+  public static final ImmutableSet<String> VALID_ABI_KEYS =
+      ImmutableSet.of("arm", "armv7", "arm64", "x86", "x86_64");
 
   private final BuckConfig delegate;
   private final Platform platform;
@@ -61,6 +71,35 @@ public class AndroidBuckConfig {
 
   public Optional<String> getSdkPath() {
     return delegate.getValue("android", "sdk_path");
+  }
+
+  /**
+   * Defines the order of search of the path to Android SDK.
+   *
+   * <p>The order is the list of elements that can either be {@code <CONFIG>} (to indicate the entry
+   * from {@code .buckconfig}) or the name of an environment variable that contains path to Android
+   * SDK (for example, {@code ANDROID_SDK}).
+   *
+   * <p>If nothing is specified in {@code .buckconfig} the default order is: {@code ANDROID_SDK},
+   * {@code ANDROID_HOME}, {@code <CONFIG>}
+   */
+  public ImmutableList<String> getSdkPathSearchOrder() {
+    return delegate
+        .getOptionalListWithoutComments("android", "sdk_path_search_order")
+        .orElse(DEFAULT_SDK_PATH_SEARCH_ORDER);
+  }
+
+  /**
+   * Given the entry to from the order of search of the Android SDK location returns the name of the
+   * configuration option that contains SDK path if the entry instructs to get that value from
+   * {@code .buckconfig} (i.e. it's {@code <CONFIG>}) or {@code Optional.empty()} in other cases.
+   */
+  public Optional<String> getSdkPathConfigOptionFromSearchOrderEntry(String entry) {
+    if (CONFIG_ENTRY_IN_SDK_PATH_SEARCH_ORDER.equals(entry)) {
+      return Optional.of("android.sdk_path");
+    } else {
+      return Optional.empty();
+    }
   }
 
   public Optional<String> getNdkVersion() {
@@ -146,6 +185,18 @@ public class AndroidBuckConfig {
         : getNdkCpuAbiFallbackAppPlatform();
   }
 
+  /** Gets the ndk_toolchain target for the abi if it is specified in the config. */
+  public Optional<BuildTarget> getNdkCxxToolchainTargetForAbi(String cpuAbi) {
+    ImmutableMap<String, String> platformMap =
+        delegate.getMap("ndk", "toolchain_target_per_cpu_abi");
+    platformMap.keySet().forEach(key -> Verify.verify(VALID_ABI_KEYS.contains(key)));
+    Optional<String> platformTarget = Optional.ofNullable(platformMap.get(cpuAbi));
+    return platformTarget.map(
+        target ->
+            delegate.getBuildTargetForFullyQualifiedTarget(
+                target, EmptyTargetConfiguration.INSTANCE));
+  }
+
   /**
    * Returns the path to the platform specific aapt executable that is overridden by the current
    * project. If not specified, the Android platform aapt will be used.
@@ -163,7 +214,7 @@ public class AndroidBuckConfig {
   }
 
   public Optional<BuildTarget> getRedexTarget() {
-    return delegate.getMaybeBuildTarget(ANDROID_SECTION, REDEX);
+    return delegate.getMaybeBuildTarget(ANDROID_SECTION, REDEX, EmptyTargetConfiguration.INSTANCE);
   }
 
   public Tool getRedexTool(BuildRuleResolver buildRuleResolver) {

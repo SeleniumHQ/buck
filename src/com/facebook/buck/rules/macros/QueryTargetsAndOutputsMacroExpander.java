@@ -17,7 +17,6 @@
 package com.facebook.buck.rules.macros;
 
 import com.facebook.buck.core.cell.CellPathResolver;
-import com.facebook.buck.core.macros.MacroException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -27,7 +26,6 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.query.Query;
 import com.facebook.buck.util.MoreIterables;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Preconditions;
@@ -68,12 +66,6 @@ public class QueryTargetsAndOutputsMacroExpander
   }
 
   @Override
-  public QueryTargetsAndOutputsMacro fromQuery(Query query) {
-    throw new IllegalArgumentException(
-        "A separator must be provided to create a QueryTargetsAndOutputsMacro object");
-  }
-
-  @Override
   public Arg expandFrom(
       BuildTarget target,
       CellPathResolver cellNames,
@@ -93,29 +85,6 @@ public class QueryTargetsAndOutputsMacroExpander
             .sorted()
             .collect(Collectors.toList()),
         input.getSeparator());
-  }
-
-  @Override
-  boolean detectsTargetGraphOnlyDeps() {
-    return false;
-  }
-
-  @Override
-  protected QueryTargetsAndOutputsMacro parse(
-      BuildTarget target, CellPathResolver cellNames, ImmutableList<String> input)
-      throws MacroException {
-    String separator = " ";
-    String query;
-    if (input.size() == 2) {
-      separator = input.get(0);
-      query = input.get(1);
-    } else if (input.size() == 1) {
-      query = input.get(0);
-    } else {
-      throw new MacroException(
-          "One quoted query expression is expected, or a separator and a query");
-    }
-    return QueryTargetsAndOutputsMacro.of(separator, Query.of(query, target.getBaseName()));
   }
 
   private class QueriedTargestAndOutputsArg implements Arg {

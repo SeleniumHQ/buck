@@ -17,9 +17,9 @@
 package com.facebook.buck.cxx.toolchain;
 
 import com.facebook.buck.apple.clang.ModuleMap;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -52,8 +52,7 @@ class ModuleMapStep implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context)
-      throws IOException, InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) throws IOException {
     LOG.debug("Writing modulemap to %s", output);
     filesystem.writeContentsToPath(moduleMap.render(), output);
     return StepExecutionResults.SUCCESS;

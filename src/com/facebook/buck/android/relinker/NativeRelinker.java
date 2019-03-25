@@ -49,6 +49,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -234,7 +235,6 @@ public class NativeRelinker {
 
   private RelinkerRule makeRelinkerRule(
       TargetCpuType cpuType, SourcePath source, ImmutableList<RelinkerRule> relinkerDeps) {
-    Function<RelinkerRule, SourcePath> getSymbolsNeeded = RelinkerRule::getSymbolsNeededPath;
     String libname = resolver.getAbsolutePath(source).getFileName().toString();
     BuildRuleParams relinkerParams = buildRuleParams.copyAppendingExtraDeps(relinkerDeps);
     BuildRule baseRule = ruleFinder.getRule(source).orElse(null);
@@ -256,9 +256,10 @@ public class NativeRelinker {
         resolver,
         cellPathResolver,
         ruleFinder,
-        ImmutableSortedSet.copyOf(Lists.transform(relinkerDeps, getSymbolsNeeded::apply)),
+        ImmutableSortedSet.copyOf(
+            Lists.transform(relinkerDeps, RelinkerRule::getSymbolsNeededPath)),
         cpuType,
-        Preconditions.checkNotNull(nativePlatforms.get(cpuType)).getObjdump(),
+        Objects.requireNonNull(nativePlatforms.get(cpuType)).getObjdump(),
         cxxBuckConfig,
         source,
         linker,

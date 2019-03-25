@@ -17,7 +17,6 @@
 package com.facebook.buck.core.model.targetgraph;
 
 import static com.facebook.buck.core.cell.TestCellBuilder.createCellRoots;
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -40,7 +39,6 @@ import com.facebook.buck.rules.coercer.DefaultTypeCoercerFactory;
 import com.facebook.buck.rules.visibility.VisibilityPatternParser;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.hash.Hashing;
 import org.immutables.value.Value;
 import org.junit.Test;
 
@@ -236,14 +234,12 @@ public class TargetNodeVisibilityTest {
   private static TargetNode<?> createTargetNode(
       BuildTarget buildTarget, ImmutableList<String> visibilities, ImmutableList<String> withinView)
       throws NoSuchBuildTargetException {
-    VisibilityPatternParser parser = new VisibilityPatternParser();
     CellPathResolver cellNames = TestCellPathResolver.get(filesystem);
     FakeRuleDescription description = new FakeRuleDescription();
     FakeRuleDescriptionArg arg =
         FakeRuleDescriptionArg.builder().setName(buildTarget.getShortName()).build();
     return new TargetNodeFactory(new DefaultTypeCoercerFactory())
         .createFromObject(
-            Hashing.sha1().hashString(buildTarget.getFullyQualifiedName(), UTF_8),
             description,
             arg,
             filesystem,
@@ -251,11 +247,11 @@ public class TargetNodeVisibilityTest {
             ImmutableSet.of(),
             visibilities
                 .stream()
-                .map(s -> parser.parse(cellNames, s))
+                .map(s -> VisibilityPatternParser.parse(cellNames, s))
                 .collect(ImmutableSet.toImmutableSet()),
             withinView
                 .stream()
-                .map(s -> parser.parse(cellNames, s))
+                .map(s -> VisibilityPatternParser.parse(cellNames, s))
                 .collect(ImmutableSet.toImmutableSet()),
             createCellRoots(filesystem));
   }

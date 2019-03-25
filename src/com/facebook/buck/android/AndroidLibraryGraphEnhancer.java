@@ -24,16 +24,17 @@ import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.jvm.core.JavaAbis;
-import com.facebook.buck.jvm.java.AnnotationProcessingParams;
 import com.facebook.buck.jvm.java.ExtraClasspathProvider;
 import com.facebook.buck.jvm.java.Javac;
 import com.facebook.buck.jvm.java.JavacOptions;
+import com.facebook.buck.jvm.java.JavacPluginParams;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
 import com.facebook.buck.util.DependencyMode;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import java.util.Collections;
 import java.util.Optional;
 import java.util.SortedSet;
 
@@ -73,7 +74,7 @@ public class AndroidLibraryGraphEnhancer {
     // Override javacoptions because DummyRDotJava doesn't require annotation processing.
     this.javacOptions =
         JavacOptions.builder(javacOptions)
-            .setAnnotationProcessingParams(AnnotationProcessingParams.EMPTY)
+            .setJavaAnnotationProcessorParams(JavacPluginParams.EMPTY)
             .build();
     this.resourceDependencyMode = resourceDependencyMode;
     this.forceFinalResourceIds = forceFinalResourceIds;
@@ -125,9 +126,11 @@ public class AndroidLibraryGraphEnhancer {
             dummyRDotJavaBuildTarget,
             ignored -> {
               SourcePathRuleFinder ruleFinder = new SourcePathRuleFinder(graphBuilder);
+              JavacOptions filteredOptions =
+                  javacOptions.withExtraArguments(Collections.emptyList());
 
               JavacToJarStepFactory compileToJarStepFactory =
-                  new JavacToJarStepFactory(javac, javacOptions, ExtraClasspathProvider.EMPTY);
+                  new JavacToJarStepFactory(javac, filteredOptions, ExtraClasspathProvider.EMPTY);
 
               return new DummyRDotJava(
                   dummyRDotJavaBuildTarget,

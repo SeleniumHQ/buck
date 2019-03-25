@@ -16,6 +16,11 @@
 
 package com.facebook.buck.jvm.java;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasKey;
+import static org.hamcrest.Matchers.iterableWithSize;
+import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.stringContainsInOrder;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
@@ -27,14 +32,17 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.environment.Platform;
+import com.facebook.buck.util.json.ObjectMappers;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.collect.FluentIterable;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
-import org.hamcrest.Matchers;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -171,8 +179,8 @@ public class JavaTestIntegrationTest {
     result.assertSpecialExitCode("test should fail", ExitCode.TEST_ERROR);
     String stderr = result.getStderr();
     assertTrue(stderr, stderr.contains("test timed out before generating results file"));
-    assertThat(stderr, Matchers.containsString("FAIL"));
-    assertThat(stderr, Matchers.containsString("250ms"));
+    assertThat(stderr, containsString("FAIL"));
+    assertThat(stderr, containsString("250ms"));
   }
 
   @Test
@@ -185,8 +193,8 @@ public class JavaTestIntegrationTest {
     result.assertSpecialExitCode("test should fail", ExitCode.TEST_ERROR);
     String stderr = result.getStderr();
     assertTrue(stderr, stderr.contains("test timed out before generating results file"));
-    assertThat(stderr, Matchers.containsString("FAIL"));
-    assertThat(stderr, Matchers.containsString("100ms"));
+    assertThat(stderr, containsString("FAIL"));
+    assertThat(stderr, containsString("100ms"));
   }
 
   @Test
@@ -201,11 +209,32 @@ public class JavaTestIntegrationTest {
   }
 
   @Test
+  public void normalTestInSrcZipDoesNotTimeOut() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "slow_tests", temp);
+    workspace.setUp();
+    workspace.writeContentsToPath(
+        "[test]" + System.lineSeparator() + "  rule_timeout = 10000", ".buckconfig");
+    ProcessResult test = workspace.runBuckCommand("test", "//:slow_zip");
+    test.assertSuccess();
+    assertThat(test.getStderr(), not(containsString("NO TESTS RAN")));
+    assertThat(test.getStderr(), stringContainsInOrder("PASS", "SlowTest"));
+  }
+
+  @Test
   public void brokenTestGivesFailedTestResult() throws IOException {
     ProjectWorkspace workspace =
         TestDataHelper.createProjectWorkspaceForScenario(this, "java_test_broken_test", temp);
     workspace.setUp();
     workspace.runBuckCommand("test", "//:simple").assertTestFailure();
+  }
+
+  @Test
+  public void brokenTestInSrcZipGivesFailedTestResult() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "java_test_broken_test", temp);
+    workspace.setUp();
+    workspace.runBuckCommand("test", "//:simple_zip").assertTestFailure();
   }
 
   @Test
@@ -215,8 +244,7 @@ public class JavaTestIntegrationTest {
     workspace.setUp();
     ProcessResult result = workspace.runBuckCommand("test", "//:npe");
     result.assertTestFailure();
-    assertThat(
-        result.getStderr(), Matchers.containsString("com.facebook.buck.example.StaticErrorTest"));
+    assertThat(result.getStderr(), containsString("com.facebook.buck.example.StaticErrorTest"));
   }
 
   @Test
@@ -226,6 +254,16 @@ public class JavaTestIntegrationTest {
     workspace.setUp();
     ProcessResult result = workspace.runBuckCommand("test", "//:a");
     result.assertSuccess();
+  }
+
+  @Test
+  public void macrosExpandedInVmArgsTest() throws IOException {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "vm_args_with_macro", temp);
+    workspace.setUp();
+
+    ProcessResult buildResult = workspace.runBuckCommand("test", "//:simple");
+    buildResult.assertSuccess("Build should have succeeded.");
   }
 
   @Test
@@ -303,5 +341,39 @@ public class JavaTestIntegrationTest {
         TestDataHelper.createProjectWorkspaceForScenario(this, "env_macros", temp);
     workspace.setUp();
     workspace.runBuckCommand("test", "//:env").assertSuccess();
+  }
+
+  @Test
+  public void testExternalTestRunnerSpec() throws Exception {
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "test_rule_classpath", temp);
+    workspace.setUp();
+    workspace.addBuckConfigLocalOption("test", "external_runner", "false");
+    workspace.runBuckCommand("test", "//:top");
+    Path specOutput =
+        workspace.getPath(
+            workspace.getBuckPaths().getScratchDir().resolve("external_runner_specs.json"));
+    ImmutableList<ImmutableMap<String, Object>> specs =
+        ObjectMappers.readValue(
+            specOutput, new TypeReference<ImmutableList<ImmutableMap<String, Object>>>() {});
+    assertThat(specs, iterableWithSize(1));
+    ImmutableMap<String, Object> spec = specs.get(0);
+    assertThat(spec, hasKey("required_paths"));
+    //noinspection unchecked
+    ImmutableSortedSet<String> requiredPaths =
+        ImmutableSortedSet.<String>naturalOrder()
+            .addAll((Iterable<String>) spec.get("required_paths"))
+            .build();
+    // The runtime classpath of the test should all be present in the required paths
+    assertEquals(
+        requiredPaths,
+        ImmutableSortedSet.of(
+            workspace
+                .getPath(Paths.get("buck-out/gen/lib__transitive_lib__output/transitive_lib.jar"))
+                .toString(),
+            workspace
+                .getPath(
+                    Paths.get("buck-out/gen/lib__mid_test#testsjar__output/mid_test#testsjar.jar"))
+                .toString()));
   }
 }

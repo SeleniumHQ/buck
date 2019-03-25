@@ -26,10 +26,12 @@ import java.nio.file.Path;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.Timeout;
 
 public class KotlinTestIntegrationTest {
 
   @Rule public TemporaryPaths tmp = new TemporaryPaths();
+  @Rule public Timeout timeout = Timeout.seconds(180);
 
   private ProjectWorkspace workspace;
 
@@ -68,5 +70,11 @@ public class KotlinTestIntegrationTest {
   public void compilationFailureMakesTheBuildResultAFailure() throws Exception {
     ProcessResult result = workspace.runBuckCommand("test", "//com/example/basic:failing");
     result.assertTestFailure("Test should've failed.");
+  }
+
+  @Test
+  public void weCanAccessAnotherModuleInternalModuleByAddingItToFriendPaths() throws Exception {
+    ProcessResult result = workspace.runBuckCommand("test", "//com/example/friend_paths:passing");
+    result.assertSuccess("Build should've succeeded.");
   }
 }

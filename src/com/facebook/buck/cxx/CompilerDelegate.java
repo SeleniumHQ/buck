@@ -33,7 +33,8 @@ import com.facebook.buck.util.RichStream;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.nio.file.Path;
-import java.util.function.Predicate;
+import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 /** Helper class for generating compiler invocations for a cxx compilation rule. */
@@ -42,11 +43,17 @@ class CompilerDelegate implements AddsToRuleKey {
   @AddToRuleKey private final Compiler compiler;
   @AddToRuleKey private final CxxToolFlags compilerFlags;
   @AddToRuleKey private final DebugPathSanitizer sanitizer;
+  @AddToRuleKey private final Optional<Boolean> useArgFile;
 
-  public CompilerDelegate(DebugPathSanitizer sanitizer, Compiler compiler, CxxToolFlags flags) {
+  public CompilerDelegate(
+      DebugPathSanitizer sanitizer,
+      Compiler compiler,
+      CxxToolFlags flags,
+      Optional<Boolean> useArgFile) {
     this.sanitizer = sanitizer;
     this.compiler = compiler;
     this.compilerFlags = flags;
+    this.useArgFile = useArgFile;
   }
 
   public ImmutableList<String> getCommandPrefix(SourcePathResolver resolver) {
@@ -74,9 +81,6 @@ class CompilerDelegate implements AddsToRuleKey {
   public ImmutableList<SourcePath> getInputsAfterBuildingLocally() {
     Stream.Builder<SourcePath> inputs = Stream.builder();
 
-    // Add inputs from the compiler object.
-    BuildableSupport.deriveInputs(compiler).sorted().forEach(inputs);
-
     // Args can contain things like location macros, so extract any inputs we find.
     for (Arg arg : compilerFlags.getAllFlags()) {
       BuildableSupport.deriveInputs(arg).forEach(inputs);
@@ -92,7 +96,7 @@ class CompilerDelegate implements AddsToRuleKey {
   }
 
   public boolean isArgFileSupported() {
-    return compiler.isArgFileSupported();
+    return useArgFile.orElse(compiler.isArgFileSupported());
   }
 
   public DependencyTrackingMode getDependencyTrackingMode() {
@@ -112,10 +116,8 @@ class CompilerDelegate implements AddsToRuleKey {
     return deps.build();
   }
 
-  public Predicate<SourcePath> getCoveredByDepFilePredicate() {
-    // TODO(cjhopman): this should not include tools (an actual compiler)
-    return (SourcePath path) ->
-        !(path instanceof PathSourcePath)
-            || !((PathSourcePath) path).getRelativePath().isAbsolute();
+  public void getNonDepFileInputs(Consumer<SourcePath> inputConsumer) {
+    // Add inputs from the compiler object.
+    BuildableSupport.deriveInputs(compiler).sorted().forEach(inputConsumer);
   }
 }

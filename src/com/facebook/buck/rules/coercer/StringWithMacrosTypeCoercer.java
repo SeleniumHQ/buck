@@ -19,6 +19,7 @@ package com.facebook.buck.rules.coercer;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.macros.MacroFinderAutomaton;
 import com.facebook.buck.core.macros.MacroMatchResult;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.macros.Macro;
 import com.facebook.buck.rules.macros.MacroContainer;
@@ -29,8 +30,12 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.common.collect.Streams;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Stream;
 
 public class StringWithMacrosTypeCoercer implements TypeCoercer<StringWithMacros> {
 
@@ -78,7 +83,7 @@ public class StringWithMacrosTypeCoercer implements TypeCoercer<StringWithMacros
       CellPathResolver cellRoots, StringWithMacros stringWithMacros, Traversal traversal) {
     for (MacroContainer macroContainer : stringWithMacros.getMacros()) {
       MacroTypeCoercer<? extends Macro> coercer =
-          Preconditions.checkNotNull(coercers.get(macroContainer.getMacro().getClass()));
+          Objects.requireNonNull(coercers.get(macroContainer.getMacro().getClass()));
       traverse(cellRoots, coercer, macroContainer.getMacro(), traversal);
     }
   }
@@ -87,6 +92,7 @@ public class StringWithMacrosTypeCoercer implements TypeCoercer<StringWithMacros
       CellPathResolver cellRoots,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
+      TargetConfiguration targetConfiguration,
       String blob)
       throws CoerceFailedException {
 
@@ -131,13 +137,15 @@ public class StringWithMacrosTypeCoercer implements TypeCoercer<StringWithMacros
                   "Macro '%s' not found when expanding '%s'",
                   matchResult.getMacroType(), macroString));
         }
-        MacroTypeCoercer<? extends Macro> coercer = Preconditions.checkNotNull(coercers.get(clazz));
+        MacroTypeCoercer<? extends Macro> coercer = Objects.requireNonNull(coercers.get(clazz));
         ImmutableList<String> args = matchResult.getMacroInput();
 
         // Delegate to the macro coercers to parse the macro..
         Macro macro;
         try {
-          macro = coercer.coerce(cellRoots, filesystem, pathRelativeToProjectRoot, args);
+          macro =
+              coercer.coerce(
+                  cellRoots, filesystem, pathRelativeToProjectRoot, targetConfiguration, args);
         } catch (CoerceFailedException e) {
           throw new CoerceFailedException(
               String.format(
@@ -166,11 +174,50 @@ public class StringWithMacrosTypeCoercer implements TypeCoercer<StringWithMacros
       CellPathResolver cellRoots,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
+      TargetConfiguration targetConfiguration,
       Object object)
       throws CoerceFailedException {
     if (!(object instanceof String)) {
       throw CoerceFailedException.simple(object, getOutputClass());
     }
-    return parse(cellRoots, filesystem, pathRelativeToProjectRoot, (String) object);
+    return parse(
+        cellRoots, filesystem, pathRelativeToProjectRoot, targetConfiguration, (String) object);
+  }
+
+  @Override
+  public StringWithMacros concat(Iterable<StringWithMacros> elements) {
+    Stream<Either<String, MacroContainer>> parts =
+        Streams.stream(elements).map(StringWithMacros::getParts).flatMap(List::stream);
+
+    return StringWithMacros.of(mergeStringParts(parts));
+  }
+
+  /** Merges all adjacent string elements. */
+  private static ImmutableList<Either<String, MacroContainer>> mergeStringParts(
+      Stream<Either<String, MacroContainer>> parts) {
+    ImmutableList.Builder<Either<String, MacroContainer>> mergedParts = ImmutableList.builder();
+    StringBuilder currentStringPart = new StringBuilder();
+
+    parts.forEachOrdered(
+        part -> {
+          if (part.isLeft()) {
+            currentStringPart.append(part.getLeft());
+          } else {
+            addStringToParts(mergedParts, currentStringPart);
+            mergedParts.add(part);
+          }
+        });
+
+    addStringToParts(mergedParts, currentStringPart);
+
+    return mergedParts.build();
+  }
+
+  private static void addStringToParts(
+      ImmutableList.Builder<Either<String, MacroContainer>> parts, StringBuilder string) {
+    if (string.length() > 0) {
+      parts.add(Either.ofLeft(string.toString()));
+      string.setLength(0);
+    }
   }
 }

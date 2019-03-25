@@ -19,12 +19,13 @@ package com.facebook.buck.android.aapt;
 import com.facebook.buck.android.AaptStep;
 import com.facebook.buck.android.aapt.RDotTxtEntry.IdType;
 import com.facebook.buck.android.aapt.RDotTxtEntry.RType;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.ConsoleEvent;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
-import com.facebook.buck.step.ExecutionContext;
+import com.facebook.buck.io.filesystem.ProjectFilesystemView;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -44,8 +45,11 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Ordering;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.FileVisitOption;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.EnumSet;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -111,7 +115,6 @@ public class MiniAapt implements Step {
   private final Path pathToOutputFile;
   private final ImmutableSet<Path> pathsToSymbolsOfDeps;
   private final ResourceCollector resourceCollector;
-  private final boolean resourceUnion;
   private final boolean isGrayscaleImageProcessingEnabled;
   private final ResourceCollectionType resourceCollectionType;
 
@@ -127,7 +130,6 @@ public class MiniAapt implements Step {
         resDirectory,
         pathToTextSymbolsFile,
         pathsToSymbolsOfDeps,
-        /* resourceUnion */ false,
         /* isGrayscaleImageProcessingEnabled */ false,
         ResourceCollectionType.R_DOT_TXT);
   }
@@ -138,7 +140,6 @@ public class MiniAapt implements Step {
       SourcePath resDirectory,
       Path pathToOutputFile,
       ImmutableSet<Path> pathsToSymbolsOfDeps,
-      boolean resourceUnion,
       boolean isGrayscaleImageProcessingEnabled,
       ResourceCollectionType resourceCollectionType) {
     this.resolver = resolver;
@@ -146,7 +147,6 @@ public class MiniAapt implements Step {
     this.resDirectory = resDirectory;
     this.pathToOutputFile = pathToOutputFile;
     this.pathsToSymbolsOfDeps = pathsToSymbolsOfDeps;
-    this.resourceUnion = resourceUnion;
     this.isGrayscaleImageProcessingEnabled = isGrayscaleImageProcessingEnabled;
     this.resourceCollectionType = resourceCollectionType;
 
@@ -188,13 +188,13 @@ public class MiniAapt implements Step {
   }
 
   @Override
-  public StepExecutionResult execute(ExecutionContext context)
-      throws IOException, InterruptedException {
+  public StepExecutionResult execute(ExecutionContext context) throws IOException {
     ImmutableSet.Builder<RDotTxtEntry> references = ImmutableSet.builder();
 
+    ProjectFilesystemView filesystemViewWithoutIgnores = filesystem.asView();
     try {
-      collectResources(filesystem, context.getBuckEventBus());
-      processXmlFilesForIds(filesystem, references);
+      collectResources(filesystemViewWithoutIgnores, context.getBuckEventBus());
+      processXmlFilesForIds(filesystemViewWithoutIgnores, references);
     } catch (XPathExpressionException | ResourceParseException e) {
       context.logError(e, "Error parsing resources to generate resource IDs for %s.", resDirectory);
       return StepExecutionResults.ERROR;
@@ -209,10 +209,6 @@ public class MiniAapt implements Step {
                   "The following resources were not found when processing %s: \n%s\n",
                   resDirectory, Joiner.on('\n').join(missing)));
       return StepExecutionResults.ERROR;
-    }
-
-    if (resourceUnion) {
-      resourceUnion();
     }
 
     if (resourceCollectionType == ResourceCollectionType.R_DOT_TXT) {
@@ -237,27 +233,6 @@ public class MiniAapt implements Step {
     }
 
     return StepExecutionResults.SUCCESS;
-  }
-
-  /**
-   * Collect resource information from R.txt for each dep and perform a resource union.
-   *
-   * @throws IOException
-   */
-  public void resourceUnion() throws IOException {
-    for (Path depRTxt : pathsToSymbolsOfDeps) {
-      Iterable<String> lines =
-          filesystem
-              .readLines(depRTxt)
-              .stream()
-              .filter(input -> !Strings.isNullOrEmpty(input))
-              .collect(Collectors.toList());
-      for (String line : lines) {
-        Optional<RDotTxtEntry> entry = RDotTxtEntry.parse(line);
-        Preconditions.checkState(entry.isPresent());
-        resourceCollector.addResourceIfNotPresent(entry.get());
-      }
-    }
   }
 
   /**
@@ -290,10 +265,10 @@ public class MiniAapt implements Step {
    * <p>For files under the {@code values*} directories, see {@link
    * #processValuesFile(ProjectFilesystem, Path)}
    */
-  private void collectResources(ProjectFilesystem filesystem, BuckEventBus eventBus)
+  private void collectResources(ProjectFilesystemView filesystemView, BuckEventBus eventBus)
       throws IOException, ResourceParseException {
     Collection<Path> contents =
-        filesystem.getDirectoryContents(resolver.getAbsolutePath(resDirectory));
+        filesystemView.getDirectoryContents(resolver.getRelativePath(resDirectory));
     for (Path dir : contents) {
       if (!filesystem.isDirectory(dir) && !filesystem.isIgnored(dir)) {
         if (!shouldIgnoreFile(dir, filesystem)) {
@@ -307,14 +282,14 @@ public class MiniAapt implements Step {
         if (!isAValuesDir(dirname)) {
           throw new ResourceParseException("'%s' is not a valid values directory.", dir);
         }
-        processValues(filesystem, eventBus, dir);
+        processValues(filesystemView, eventBus, dir);
       } else {
-        processFileNamesInDirectory(filesystem, dir);
+        processFileNamesInDirectory(filesystemView, dir);
       }
     }
   }
 
-  void processFileNamesInDirectory(ProjectFilesystem filesystem, Path dir)
+  void processFileNamesInDirectory(ProjectFilesystemView filesystemView, Path dir)
       throws IOException, ResourceParseException {
     String dirname = dir.getFileName().toString();
     int dashIndex = dirname.indexOf('-');
@@ -326,7 +301,7 @@ public class MiniAapt implements Step {
       throw new ResourceParseException("'%s' is not a valid resource sub-directory.", dir);
     }
 
-    for (Path resourceFile : filesystem.getDirectoryContents(dir)) {
+    for (Path resourceFile : filesystemView.getDirectoryContents(dir)) {
       if (shouldIgnoreFile(resourceFile, filesystem)) {
         continue;
       }
@@ -335,7 +310,7 @@ public class MiniAapt implements Step {
       int dotIndex = filename.indexOf('.');
       String resourceName = dotIndex != -1 ? filename.substring(0, dotIndex) : filename;
 
-      RType rType = Preconditions.checkNotNull(RESOURCE_TYPES.get(dirname));
+      RType rType = Objects.requireNonNull(RESOURCE_TYPES.get(dirname));
       if (rType == RType.DRAWABLE) {
         processDrawables(filesystem, resourceFile);
       } else {
@@ -377,9 +352,10 @@ public class MiniAapt implements Step {
     }
   }
 
-  void processValues(ProjectFilesystem filesystem, BuckEventBus eventBus, Path valuesDir)
+  void processValues(ProjectFilesystemView filesystemView, BuckEventBus eventBus, Path valuesDir)
       throws IOException, ResourceParseException {
-    for (Path path : filesystem.getFilesUnderPath(valuesDir)) {
+    for (Path path :
+        filesystemView.getFilesUnderPath(valuesDir, EnumSet.of(FileVisitOption.FOLLOW_LINKS))) {
       if (shouldIgnoreFile(path, filesystem)) {
         continue;
       }
@@ -472,7 +448,7 @@ public class MiniAapt implements Step {
               "Invalid resource type '<%s>' in '%s'.", resourceType, valuesFile);
         }
 
-        RType rType = Preconditions.checkNotNull(RESOURCE_TYPES.get(resourceType));
+        RType rType = Objects.requireNonNull(RESOURCE_TYPES.get(resourceType));
         addToResourceCollector(node, rType, valuesFile);
       }
     }
@@ -527,18 +503,21 @@ public class MiniAapt implements Step {
   }
 
   void processXmlFilesForIds(
-      ProjectFilesystem filesystem, ImmutableSet.Builder<RDotTxtEntry> references)
+      ProjectFilesystemView filesystemView, ImmutableSet.Builder<RDotTxtEntry> references)
       throws IOException, XPathExpressionException, ResourceParseException {
     Path absoluteResDir = resolver.getAbsolutePath(resDirectory);
     Path relativeResDir = resolver.getRelativePath(resDirectory);
     for (Path path :
-        filesystem.getFilesUnderPath(absoluteResDir, input -> input.toString().endsWith(".xml"))) {
+        filesystemView.getFilesUnderPath(
+            absoluteResDir,
+            input -> input.toString().endsWith(".xml"),
+            EnumSet.of(FileVisitOption.FOLLOW_LINKS))) {
       String dirname = relativeResDir.relativize(path).getName(0).toString();
       if (isAValuesDir(dirname)) {
         // Ignore files under values* directories.
         continue;
       }
-      processXmlFile(filesystem, path, references);
+      processXmlFile(this.filesystem, path, references);
     }
   }
 
@@ -581,7 +560,7 @@ public class MiniAapt implements Step {
         if (!RESOURCE_TYPES.containsKey(rawRType)) {
           throw new ResourceParseException("Invalid reference '%s' in '%s'", resourceName, xmlFile);
         }
-        RType rType = Preconditions.checkNotNull(RESOURCE_TYPES.get(rawRType));
+        RType rType = Objects.requireNonNull(RESOURCE_TYPES.get(rawRType));
 
         references.add(new FakeRDotTxtEntry(IdType.INT, rType, sanitizeName(name)));
       }

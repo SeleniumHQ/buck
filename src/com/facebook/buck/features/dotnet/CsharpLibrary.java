@@ -27,6 +27,7 @@ import com.facebook.buck.core.rules.impl.AbstractBuildRuleWithDeclaredAndExtraDe
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
+import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.step.Step;
@@ -39,12 +40,14 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
 
 public class CsharpLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
   @AddToRuleKey(stringify = true)
   private final Path output;
 
+  @AddToRuleKey private final Tool csharpCompiler;
   @AddToRuleKey private final ImmutableSortedSet<SourcePath> srcs;
   @AddToRuleKey private final ImmutableList<Either<BuildRule, String>> refs;
   @AddToRuleKey private final ImmutableMap<String, SourcePath> resources;
@@ -54,6 +57,7 @@ public class CsharpLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps {
       BuildTarget buildTarget,
       ProjectFilesystem projectFilesystem,
       BuildRuleParams params,
+      Tool csharpCompiler,
       String dllName,
       ImmutableSortedSet<SourcePath> srcs,
       ImmutableList<Either<BuildRule, String>> refs,
@@ -63,6 +67,7 @@ public class CsharpLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps {
 
     Preconditions.checkArgument(dllName.endsWith(".dll"));
 
+    this.csharpCompiler = csharpCompiler;
     this.srcs = srcs;
     this.refs = refs;
     this.resources = resources;
@@ -96,11 +101,15 @@ public class CsharpLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps {
                 context.getBuildCellRootPath(), getProjectFilesystem(), output.getParent())));
     steps.add(
         new CsharpLibraryCompile(
+            context.getSourcePathResolver(),
+            csharpCompiler,
             filesystem.resolve(output),
             sourceFiles,
             references,
             resolvedResources.build(),
             version));
+
+    buildableContext.recordArtifact(output);
 
     return steps.build();
   }
@@ -116,7 +125,7 @@ public class CsharpLibrary extends AbstractBuildRuleWithDeclaredAndExtraDeps {
         Preconditions.checkArgument(
             rule instanceof CsharpLibrary || rule instanceof PrebuiltDotnetLibrary);
 
-        SourcePath outputPath = Preconditions.checkNotNull(rule.getSourcePathToOutput());
+        SourcePath outputPath = Objects.requireNonNull(rule.getSourcePathToOutput());
         resolved.add(Either.ofLeft(pathResolver.getAbsolutePath(outputPath)));
       } else {
         resolved.add(Either.ofRight(ref.getRight()));

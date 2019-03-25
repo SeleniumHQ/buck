@@ -20,6 +20,7 @@ import static com.facebook.buck.util.string.MoreStrings.linesToText;
 
 import com.facebook.buck.core.build.engine.BuildResult;
 import com.facebook.buck.core.build.engine.BuildRuleSuccessType;
+import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.exceptions.handler.HumanReadableExceptionAugmentor;
 import com.facebook.buck.core.rules.BuildRule;
 import com.facebook.buck.core.sourcepath.SourcePath;
@@ -28,18 +29,18 @@ import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.util.Ansi;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ErrorLogger;
-import com.facebook.buck.util.exceptions.BuckExecutionException;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
+import com.facebook.buck.util.ErrorLogger.LogImpl;
 import com.facebook.buck.util.json.ObjectMappers;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.ExecutionException;
+import javax.annotation.Nullable;
 
 @VisibleForTesting
 public class BuildReport {
@@ -47,14 +48,17 @@ public class BuildReport {
 
   private final BuildExecutionResult buildExecutionResult;
   private final SourcePathResolver pathResolver;
+  private final Cell rootCell;
 
   /**
    * @param buildExecutionResult the build result to generate the report for.
    * @param pathResolver source path resolver which can be used for the result.
    */
-  public BuildReport(BuildExecutionResult buildExecutionResult, SourcePathResolver pathResolver) {
+  public BuildReport(
+      BuildExecutionResult buildExecutionResult, SourcePathResolver pathResolver, Cell rootCell) {
     this.buildExecutionResult = buildExecutionResult;
     this.pathResolver = pathResolver;
+    this.rootCell = rootCell;
   }
 
   public String generateForConsole(Console console) {
@@ -72,15 +76,15 @@ public class BuildReport {
 
       String successIndicator;
       String successType;
-      SourcePath outputFile;
+      Path outputPath;
       if (success.isPresent()) {
         successIndicator = ansi.asHighlightedSuccessText("OK  ");
         successType = success.get().name();
-        outputFile = rule.getSourcePathToOutput();
+        outputPath = getRuleOutputPath(rule);
       } else {
         successIndicator = ansi.asHighlightedFailureText("FAIL");
         successType = null;
-        outputFile = null;
+        outputPath = null;
       }
 
       report.append(
@@ -89,7 +93,7 @@ public class BuildReport {
               successIndicator,
               rule.getBuildTarget(),
               successType != null ? " " + successType : "",
-              outputFile != null ? " " + pathResolver.getRelativePath(outputFile) : ""));
+              outputPath != null ? " " + outputPath.toString() : ""));
       report.append(System.lineSeparator());
     }
 
@@ -97,7 +101,7 @@ public class BuildReport {
         && console.getVerbosity().shouldPrintStandardInformation()) {
       report.append(linesToText("", " ** Summary of failures encountered during the build **", ""));
       for (BuildResult failureResult : buildExecutionResult.getFailures()) {
-        Throwable failure = Preconditions.checkNotNull(failureResult.getFailure());
+        Throwable failure = Objects.requireNonNull(failureResult.getFailure());
         new ErrorLogger(
                 new ErrorLogger.LogImpl() {
                   @Override
@@ -152,23 +156,34 @@ public class BuildReport {
 
       if (isSuccess) {
         value.put("type", success.get().name());
-        SourcePath outputFile = rule.getSourcePathToOutput();
-        value.put(
-            "output",
-            outputFile != null ? pathResolver.getRelativePath(outputFile).toString() : null);
+        Path outputPath = getRuleOutputPath(rule);
+        value.put("output", outputPath != null ? outputPath.toString() : null);
       }
       results.put(rule.getFullyQualifiedName(), value);
     }
 
     for (BuildResult failureResult : buildExecutionResult.getFailures()) {
-      Throwable failure = Preconditions.checkNotNull(failureResult.getFailure());
-      while ((failure instanceof BuckExecutionException
-              || failure instanceof ExecutionException
-              || failure instanceof BuckUncheckedExecutionException)
-          && failure.getCause() != null) {
-        failure = failure.getCause();
-      }
-      failures.put(failureResult.getRule().getFullyQualifiedName(), failure.getMessage());
+      Throwable failure = Objects.requireNonNull(failureResult.getFailure());
+      StringBuilder messageBuilder = new StringBuilder();
+      new ErrorLogger(
+              new LogImpl() {
+                @Override
+                public void logUserVisible(String message) {
+                  messageBuilder.append(message);
+                }
+
+                @Override
+                public void logUserVisibleInternalError(String message) {
+                  messageBuilder.append(message);
+                }
+
+                @Override
+                public void logVerbose(Throwable e) {}
+              },
+              new HumanReadableExceptionAugmentor(ImmutableMap.of()))
+          .setSuppressStackTraces(true)
+          .logException(failure);
+      failures.put(failureResult.getRule().getFullyQualifiedName(), messageBuilder.toString());
     }
 
     Map<String, Object> report = new LinkedHashMap<>();
@@ -178,5 +193,16 @@ public class BuildReport {
     return ObjectMappers.WRITER
         .withFeatures(SerializationFeature.INDENT_OUTPUT)
         .writeValueAsString(report);
+  }
+
+  private @Nullable Path getRuleOutputPath(BuildRule rule) {
+    SourcePath outputFile = rule.getSourcePathToOutput();
+    if (outputFile == null) {
+      return null;
+    }
+
+    Path relativeOutputPath = pathResolver.getRelativePath(outputFile);
+    Path absoluteOutputPath = rule.getProjectFilesystem().resolve(relativeOutputPath);
+    return rootCell.getFilesystem().relativize(absoluteOutputPath);
   }
 }

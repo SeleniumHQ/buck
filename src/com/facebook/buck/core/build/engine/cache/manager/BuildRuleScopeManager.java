@@ -44,6 +44,7 @@ import com.facebook.buck.util.types.Pair;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.HashCode;
+import java.util.Objects;
 import java.util.Optional;
 import javax.annotation.Nullable;
 
@@ -99,7 +100,11 @@ public class BuildRuleScopeManager {
       Preconditions.checkState(
           finishedData == null, "RuleScope started after rule marked as finished.");
       if (currentBuildRuleScopeThread != null) {
-        Preconditions.checkState(Thread.currentThread() == currentBuildRuleScopeThread);
+        Preconditions.checkState(
+            Thread.currentThread() == currentBuildRuleScopeThread,
+            "Must execute in the scope of thread [%s] but running in thread [%s].",
+            Thread.currentThread().getName(),
+            currentBuildRuleScopeThread.getName());
         return () -> {};
       }
       BuildRuleEvent.Resumed resumed = postResumed();
@@ -164,7 +169,7 @@ public class BuildRuleScopeManager {
   }
 
   private void postFinished(BuildRuleEvent.Resumed resumed) {
-    Preconditions.checkNotNull(finishedData);
+    Objects.requireNonNull(finishedData);
     post(finishedData.getEvent(resumed));
   }
 

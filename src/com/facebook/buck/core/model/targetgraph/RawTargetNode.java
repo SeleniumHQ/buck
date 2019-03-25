@@ -16,11 +16,10 @@
 
 package com.facebook.buck.core.model.targetgraph;
 
-import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.RuleType;
+import com.facebook.buck.core.model.UnconfiguredBuildTarget;
 import com.facebook.buck.rules.visibility.VisibilityPattern;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.hash.HashCode;
 
 /**
  * A target node with attributes kept in a map as oppose to in a structured object like in {@link
@@ -35,7 +34,7 @@ import com.google.common.hash.HashCode;
 public interface RawTargetNode {
 
   /** Build target of this node. */
-  BuildTarget getBuildTarget();
+  UnconfiguredBuildTarget getBuildTarget();
 
   /** The type of a rule. */
   RuleType getRuleType();
@@ -53,7 +52,4 @@ public interface RawTargetNode {
 
   /** List of patterns from <code>within_view</code> attribute. */
   ImmutableSet<VisibilityPattern> getWithinViewPatterns();
-
-  /** @return {@link HashCode} that reflect all the data in this node. */
-  HashCode getHashCode();
 }

@@ -21,12 +21,12 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.BuckEventBusForTests;
 import com.facebook.buck.event.FakeBuckEventListener;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
-import java.io.IOException;
 import java.util.Optional;
 import org.junit.Test;
 
@@ -99,8 +99,7 @@ public class DefaultStepRunnerTest {
 
   private static class ExplosionStep implements Step {
     @Override
-    public StepExecutionResult execute(ExecutionContext context)
-        throws IOException, InterruptedException {
+    public StepExecutionResult execute(ExecutionContext context) {
       throw new RuntimeException("#yolo");
     }
 

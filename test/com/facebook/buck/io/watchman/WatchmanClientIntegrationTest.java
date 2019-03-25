@@ -23,7 +23,8 @@ import com.facebook.buck.testutil.integration.ProjectWorkspace;
 import com.facebook.buck.testutil.integration.TestDataHelper;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.facebook.buck.util.SimpleProcessListener;
+import com.facebook.buck.util.ProcessListeners.CapturingListener;
+import com.facebook.buck.util.environment.EnvVariablesProvider;
 import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.google.common.collect.ImmutableList;
@@ -65,7 +66,7 @@ public class WatchmanClientIntegrationTest {
   private void startWatchman() throws IOException, InterruptedException {
     Optional<Path> watchmanExe =
         new ExecutableFinder()
-            .getOptionalExecutable(WatchmanFactory.WATCHMAN, ImmutableMap.copyOf(System.getenv()));
+            .getOptionalExecutable(WatchmanFactory.WATCHMAN, EnvVariablesProvider.getSystemEnv());
 
     if (!isSupportedPlatform() || !watchmanExe.isPresent()) {
       return;
@@ -105,7 +106,7 @@ public class WatchmanClientIntegrationTest {
             .build();
     executor = new ListeningProcessExecutor();
 
-    watchmanProcess = executor.launchProcess(params, new SimpleProcessListener());
+    watchmanProcess = executor.launchProcess(params, new CapturingListener());
 
     waitForWatchman();
   }

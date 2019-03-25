@@ -24,6 +24,7 @@ import static org.easymock.EasyMock.expectLastCall;
 import static org.easymock.EasyMock.replay;
 import static org.easymock.EasyMock.verify;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
@@ -46,29 +47,22 @@ import com.facebook.buck.core.toolchain.ToolchainWithCapability;
 import com.facebook.buck.cxx.RelativeLinkArg;
 import com.facebook.buck.rules.modern.CustomClassSerialization;
 import com.facebook.buck.rules.modern.CustomFieldSerialization;
-import com.facebook.buck.rules.modern.Deserializer;
-import com.facebook.buck.rules.modern.Deserializer.DataProvider;
 import com.facebook.buck.rules.modern.EmptyMemoizerDeserialization;
-import com.facebook.buck.rules.modern.Serializer;
-import com.facebook.buck.rules.modern.Serializer.Delegate;
+import com.facebook.buck.rules.modern.RemoteExecutionEnabled;
+import com.facebook.buck.rules.modern.SerializationTestHelper;
 import com.facebook.buck.rules.modern.SourcePathResolverSerialization;
 import com.facebook.buck.rules.modern.ValueCreator;
 import com.facebook.buck.rules.modern.ValueVisitor;
 import com.facebook.buck.util.Memoizer;
-import com.facebook.buck.util.types.Either;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
-import com.google.common.hash.HashCode;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -83,7 +77,7 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
   private CustomToolchainProvider toolchainProvider;
 
   @Before
-  public void setUp() throws IOException, InterruptedException {
+  public void setUp() {
     resolver = createStrictMock(SourcePathResolver.class);
     ruleFinder = createStrictMock(SourcePathRuleFinder.class);
     cellResolver = createMock(CellPathResolver.class);
@@ -145,21 +139,6 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
     }
   }
 
-  static DataProvider getDataProvider(
-      Map<HashCode, byte[]> dataMap, Map<HashCode, List<HashCode>> childMap, HashCode hash) {
-    return new DataProvider() {
-      @Override
-      public InputStream getData() {
-        return new ByteArrayInputStream(Preconditions.checkNotNull(dataMap.get(hash)));
-      }
-
-      @Override
-      public DataProvider getChild(HashCode hash) {
-        return getDataProvider(dataMap, childMap, hash);
-      }
-    };
-  }
-
   <T extends AddsToRuleKey> T test(T instance) throws IOException {
     return test(instance, expected -> expected);
   }
@@ -167,43 +146,15 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
   <T extends AddsToRuleKey> T test(T instance, Function<String, String> expectedMapper)
       throws IOException {
     replay(cellResolver, ruleFinder);
-
-    Map<HashCode, byte[]> dataMap = new HashMap<>();
-    Map<HashCode, List<HashCode>> childMap = new HashMap<>();
-
-    Delegate serializerDelegate =
-        (value, data, children) -> {
-          int id = dataMap.size();
-          HashCode hash = HashCode.fromInt(id);
-          dataMap.put(hash, data);
-          childMap.put(hash, children);
-          return hash;
-        };
-
-    Either<HashCode, byte[]> serialized =
-        new Serializer(ruleFinder, cellResolver, serializerDelegate)
-            .serialize(instance, DefaultClassInfoFactory.forInstance(instance));
-
     AddsToRuleKey reconstructed =
-        new Deserializer(
-                s -> s.isPresent() ? otherFilesystem : rootFilesystem,
-                Class::forName,
-                () -> resolver,
-                toolchainProvider)
-            .deserialize(
-                new DataProvider() {
-                  @Override
-                  public InputStream getData() {
-                    return new ByteArrayInputStream(
-                        serialized.transform(left -> dataMap.get(left), right -> right));
-                  }
-
-                  @Override
-                  public DataProvider getChild(HashCode hash) {
-                    return getDataProvider(dataMap, childMap, hash);
-                  }
-                },
-                AddsToRuleKey.class);
+        SerializationTestHelper.serializeAndDeserialize(
+            instance,
+            AddsToRuleKey.class,
+            ruleFinder,
+            cellResolver,
+            resolver,
+            toolchainProvider,
+            s -> s.isPresent() ? otherFilesystem : rootFilesystem);
     Preconditions.checkState(instance.getClass().equals(reconstructed.getClass()));
     verify(cellResolver, ruleFinder);
     assertEquals(expectedMapper.apply(stringify(instance)), stringify(reconstructed));
@@ -361,7 +312,7 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
   @Test
   public void excluded() throws Exception {
     expectedException.expect(Exception.class);
-    expectedException.expectMessage(Matchers.containsString("Cannot create excluded fields."));
+    expectedException.expectMessage(Matchers.containsString("Cannot serialize excluded fields."));
     test(new WithExcluded());
   }
 
@@ -383,7 +334,7 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
   @Test
   public void stringified() throws Exception {
     expectedException.expect(Exception.class);
-    expectedException.expectMessage(Matchers.containsString("Cannot create excluded fields."));
+    expectedException.expectMessage(Matchers.containsString("Cannot serialize excluded fields."));
     test(new WithStringified());
   }
 
@@ -503,5 +454,30 @@ public class BuildableSerializerTest extends AbstractValueVisitorTest {
     ObjectWithToolchain object = new ObjectWithToolchain(SomeToolchain.INSTANCE);
     ObjectWithToolchain deserialized = test(object);
     assertEquals(object.toolchain, deserialized.toolchain);
+  }
+
+  @Test
+  public void remoteExecutionEnabled() throws Exception {
+    RemoteExecutionConditional enabled = new RemoteExecutionConditional(true);
+    RemoteExecutionConditional newInstance = test(enabled);
+    assertTrue(newInstance.enabled);
+  }
+
+  @Test
+  public void remoteExecutionDisabled() throws Exception {
+    RemoteExecutionConditional enabled = new RemoteExecutionConditional(false);
+    expectedException.expect(RuntimeException.class);
+    test(enabled);
+  }
+
+  private static class RemoteExecutionConditional implements FakeBuildable {
+    // By default, fields without @AddToRuleKey can't be serialized. DefaultFieldSerialization
+    // serializes them as though they were added to the key.
+    @CustomFieldBehavior(RemoteExecutionEnabled.class)
+    private final boolean enabled;
+
+    private RemoteExecutionConditional(boolean enabled) {
+      this.enabled = enabled;
+    }
   }
 }

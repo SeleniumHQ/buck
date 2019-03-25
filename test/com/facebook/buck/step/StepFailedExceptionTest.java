@@ -19,12 +19,10 @@ package com.facebook.buck.step;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.BuildTargetFactory;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.testutil.TestConsole;
 import com.facebook.buck.util.Verbosity;
 import java.io.IOException;
-import java.util.Optional;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -45,10 +43,8 @@ public class StepFailedExceptionTest {
     int exitCode = 17;
     StepExecutionResult executionResult = StepExecutionResult.of(exitCode);
     Step step = new FakeStep("cp", "cp foo bar", exitCode);
-    BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar");
     StepFailedException exception =
-        StepFailedException.createForFailingStepWithExitCode(
-            step, verboseContext, executionResult, Optional.of(buildTarget));
+        StepFailedException.createForFailingStepWithExitCode(step, verboseContext, executionResult);
 
     assertEquals(step, exception.getStep());
     assertEquals(
@@ -64,8 +60,7 @@ public class StepFailedExceptionTest {
     StepExecutionResult executionResult = StepExecutionResult.of(exitCode);
     Step step = new FakeStep("cp", "cp foo bar", exitCode);
     StepFailedException exception =
-        StepFailedException.createForFailingStepWithExitCode(
-            step, verboseContext, executionResult, Optional.empty());
+        StepFailedException.createForFailingStepWithExitCode(step, verboseContext, executionResult);
 
     assertEquals(step, exception.getStep());
     assertEquals(
@@ -80,10 +75,8 @@ public class StepFailedExceptionTest {
     int exitCode = 17;
     StepExecutionResult executionResult = StepExecutionResult.of(exitCode);
     Step step = new FakeStep("cp", "cp foo bar", exitCode);
-    BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar");
     StepFailedException exception =
-        StepFailedException.createForFailingStepWithExitCode(
-            step, silentContext, executionResult, Optional.of(buildTarget));
+        StepFailedException.createForFailingStepWithExitCode(step, silentContext, executionResult);
 
     assertEquals(step, exception.getStep());
     assertEquals(
@@ -95,10 +88,9 @@ public class StepFailedExceptionTest {
   public void testCreateForFailingStepWithBuildTarget() {
     int exitCode = 17;
     Step step = new FakeStep("cp", "cp foo bar", exitCode);
-    BuildTarget buildTarget = BuildTargetFactory.newInstance("//foo:bar");
     StepFailedException exception =
         StepFailedException.createForFailingStepWithException(
-            step, silentContext, new IOException("Copy failed!"), Optional.of(buildTarget));
+            step, silentContext, new IOException("Copy failed!"));
 
     assertEquals(step, exception.getStep());
     assertTrue(
@@ -114,7 +106,7 @@ public class StepFailedExceptionTest {
     Step step = new FakeStep("cp", "cp foo bar", exitCode);
     StepFailedException exception =
         StepFailedException.createForFailingStepWithException(
-            step, silentContext, new IOException("Copy failed!"), Optional.empty());
+            step, silentContext, new IOException("Copy failed!"));
 
     assertEquals(step, exception.getStep());
     assertTrue(

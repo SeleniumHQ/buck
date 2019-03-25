@@ -18,6 +18,8 @@ package com.facebook.buck.rules.modern;
 
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.rulekey.AddsToRuleKey;
 import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.rules.modern.annotations.CustomClassBehaviorTag;
@@ -31,9 +33,12 @@ import com.facebook.buck.core.sourcepath.SourcePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.modern.impl.DefaultClassInfoFactory;
 import com.facebook.buck.rules.modern.impl.ValueTypeInfoFactory;
+import com.facebook.buck.rules.modern.impl.ValueTypeInfos.ExcludedValueTypeInfo;
 import com.facebook.buck.util.RichStream;
+import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
 import com.facebook.buck.util.types.Either;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -48,6 +53,7 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
@@ -112,7 +118,7 @@ public class Serializer {
   public <T extends AddsToRuleKey> Either<HashCode, byte[]> serialize(
       T instance, ClassInfo<T> classInfo) throws IOException {
     if (cache.containsKey(instance)) {
-      return Preconditions.checkNotNull(cache.get(instance));
+      return Objects.requireNonNull(cache.get(instance));
     }
     Visitor visitor = new Visitor(instance.getClass());
 
@@ -127,7 +133,7 @@ public class Serializer {
       classInfo.visit(instance, visitor);
     }
 
-    return Preconditions.checkNotNull(
+    return Objects.requireNonNull(
         cache.computeIfAbsent(
             instance,
             ignored -> {
@@ -202,7 +208,7 @@ public class Serializer {
     public void visitSourcePath(SourcePath value) throws IOException {
       if (value instanceof DefaultBuildTargetSourcePath) {
         value = ruleFinder.getRule(value).get().getSourcePathToOutput();
-        Preconditions.checkNotNull(value);
+        Objects.requireNonNull(value);
       }
 
       if (value instanceof ExplicitBuildTargetSourcePath) {
@@ -235,29 +241,39 @@ public class Serializer {
         ValueTypeInfo<T> valueTypeInfo,
         Optional<CustomFieldBehavior> behavior)
         throws IOException {
-      if (behavior.isPresent()) {
-        if (CustomBehaviorUtils.get(behavior.get(), DefaultFieldSerialization.class).isPresent()) {
-          @SuppressWarnings("unchecked")
-          ValueTypeInfo<T> typeInfo =
-              (ValueTypeInfo<T>)
-                  ValueTypeInfoFactory.forTypeToken(TypeToken.of(field.getGenericType()));
+      try {
+        if (behavior.isPresent()) {
+          if (CustomBehaviorUtils.get(behavior.get(), DefaultFieldSerialization.class)
+              .isPresent()) {
+            @SuppressWarnings("unchecked")
+            ValueTypeInfo<T> typeInfo =
+                (ValueTypeInfo<T>)
+                    ValueTypeInfoFactory.forTypeToken(TypeToken.of(field.getGenericType()));
 
-          typeInfo.visit(value, this);
-          return;
+            typeInfo.visit(value, this);
+            return;
+          }
+
+          Optional<?> serializerTag =
+              CustomBehaviorUtils.get(behavior.get(), CustomFieldSerialization.class);
+          if (serializerTag.isPresent()) {
+            @SuppressWarnings("unchecked")
+            CustomFieldSerialization<T> customSerializer =
+                (CustomFieldSerialization<T>) serializerTag.get();
+            customSerializer.serialize(value, this);
+            return;
+          }
         }
 
-        Optional<?> serializerTag =
-            CustomBehaviorUtils.get(behavior.get(), CustomFieldSerialization.class);
-        if (serializerTag.isPresent()) {
-          @SuppressWarnings("unchecked")
-          CustomFieldSerialization<T> customSerializer =
-              (CustomFieldSerialization<T>) serializerTag.get();
-          customSerializer.serialize(value, this);
-          return;
-        }
+        Verify.verify(
+            !(valueTypeInfo instanceof ExcludedValueTypeInfo),
+            "Cannot serialize excluded fields. Either add @AddToRuleKey or specify custom field/class serialization.");
+
+        valueTypeInfo.visit(value, this);
+      } catch (RuntimeException e) {
+        throw new BuckUncheckedExecutionException(
+            e, "When visiting %s.%s.", field.getDeclaringClass().getName(), field.getName());
       }
-
-      valueTypeInfo.visit(value, this);
     }
 
     @Override
@@ -373,9 +389,18 @@ public class Serializer {
         inner.visit(value, this);
       }
     }
+
+    @Override
+    public void visitTargetConfiguration(TargetConfiguration value) throws IOException {
+      if (value instanceof EmptyTargetConfiguration) {
+        stream.writeBoolean(true);
+      } else {
+        throw new UnsupportedOperationException();
+      }
+    }
   }
 
   private Optional<String> getCellName(ProjectFilesystem filesystem) {
-    return Preconditions.checkNotNull(cellMap.get(filesystem.getRootPath()));
+    return Objects.requireNonNull(cellMap.get(filesystem.getRootPath()));
   }
 }

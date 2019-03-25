@@ -16,21 +16,71 @@
 
 package com.facebook.buck.core.graph.transformation;
 
-import java.util.concurrent.CompletionStage;
+import com.google.common.collect.ImmutableSet;
 
 /**
- * Functional interface for transformations with the {@link GraphTransformationEngine}.
+ * Interface for transformations with the {@link GraphTransformationEngine}.
+ *
+ * <p>The transformation is guaranteed the following conditions:
+ *
+ * <ul>
+ *   <li>1. {@link #transform(ComputeKey, TransformationEnvironment)} is only called once per key if
+ *       caching is enabled.
+ *   <li>2. {@link #transform(ComputeKey, TransformationEnvironment)} is only called after all keys
+ *       in {@link #discoverDeps(ComputeKey, TransformationEnvironment)} has been computed.
+ *   <li>3. {@link #discoverDeps(ComputeKey, TransformationEnvironment)} is only called after all
+ *       keys in {@link #discoverPreliminaryDeps(ComputeKey)} has been computed
+ * </ul>
+ *
+ * Note that dependencies can be keys of other {@link GraphTransformer}s.
  *
  * @param <Key> The types of Keys used to query for the result on the graph computation
- * @param <Result> The result of the computation given a specific key
+ * @param <Result> The result of the computation given a specific key.
  */
-@FunctionalInterface
-public interface GraphTransformer<Key, Result> {
+public interface GraphTransformer<Key extends ComputeKey<Result>, Result extends ComputeResult> {
 
   /**
-   * @param key The Key of the requested result
-   * @param env The execution environment to request dependencies
-   * @return a future of the result requested
+   * @return the class of the key for this transformation. This should match {@link
+   *     ComputeKey#getKeyClass()}
    */
-  CompletionStage<Result> transform(Key key, TransformationEnvironment<Key, Result> env);
+  Class<Key> getKeyClass();
+
+  /**
+   * Perform a transformation identified by key {@link Key} into a final type {@link Result}. This
+   * transformation should be performed synchronously.
+   *
+   * @param key The Key of the requested result
+   * @param env The execution environment containing results of keys from {@link
+   *     #discoverDeps(ComputeKey, TransformationEnvironment)} and {@link
+   *     #discoverPreliminaryDeps(ComputeKey)}
+   * @return The result of the transformation
+   */
+  Result transform(Key key, TransformationEnvironment env) throws Exception;
+
+  /**
+   * Compute dependent keys required to compute given key, and a set of dependencies as listed by
+   * {@link #discoverPreliminaryDeps(ComputeKey)}. The results of those computations will be
+   * available in {@link #transform(ComputeKey, TransformationEnvironment)} as a part of {@link
+   * TransformationEnvironment}
+   *
+   * @param key the current key to transform
+   * @param env The execution environment containing results of keys from {@link
+   *     #discoverPreliminaryDeps(ComputeKey)}
+   * @return a set of keys that the transformation of the current key depends on
+   */
+  ImmutableSet<? extends ComputeKey<? extends ComputeResult>> discoverDeps(
+      Key key, TransformationEnvironment env) throws Exception;
+
+  /**
+   * Compute dependent keys required to compute given the current key. The results of those
+   * computations will be available in {@link #discoverDeps(ComputeKey, TransformationEnvironment)}
+   * as a part of {@link TransformationEnvironment}, and {@link #transform(ComputeKey,
+   * TransformationEnvironment)}
+   *
+   * @param key the current key to transform
+   * @return a set of keys that the {@link #discoverDeps(ComputeKey, TransformationEnvironment)} and
+   *     {@link #transform(ComputeKey, TransformationEnvironment)} of the current key depends on
+   */
+  ImmutableSet<? extends ComputeKey<? extends ComputeResult>> discoverPreliminaryDeps(Key key)
+      throws Exception;
 }

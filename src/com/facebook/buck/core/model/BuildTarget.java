@@ -25,9 +25,13 @@ import javax.annotation.concurrent.ThreadSafe;
 @ThreadSafe
 public interface BuildTarget extends Comparable<BuildTarget> {
 
+  UnconfiguredBuildTarget getUnconfiguredBuildTarget();
+
   UnflavoredBuildTarget getUnflavoredBuildTarget();
 
   ImmutableSortedSet<Flavor> getFlavors();
+
+  TargetConfiguration getTargetConfiguration();
 
   Optional<String> getCell();
 
@@ -54,6 +58,8 @@ public interface BuildTarget extends Comparable<BuildTarget> {
   String getFullyQualifiedName();
 
   boolean isFlavored();
+
+  BuildTarget withShortName(String shortName);
 
   /**
    * Verifies that this build target has no flavors.

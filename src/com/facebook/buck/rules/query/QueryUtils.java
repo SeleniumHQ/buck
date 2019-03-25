@@ -21,9 +21,9 @@ import com.facebook.buck.core.description.arg.HasDepsQuery;
 import com.facebook.buck.core.description.arg.HasProvidedDepsQuery;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
-import com.facebook.buck.parser.BuildTargetPattern;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.query.QueryBuildTarget;
 import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryExpression;
@@ -46,6 +46,8 @@ import java.util.stream.Stream;
 public final class QueryUtils {
 
   private static final TypeCoercerFactory TYPE_COERCER_FACTORY = new DefaultTypeCoercerFactory();
+  private static final UnconfiguredBuildTargetFactory UNCONFIGURED_BUILD_TARGET_FACTORY =
+      new ParsingUnconfiguredBuildTargetFactory();
 
   private QueryUtils() {
     // This class cannot be instantiated
@@ -109,8 +111,10 @@ public final class QueryUtils {
             Optional.of(targetGraph),
             TYPE_COERCER_FACTORY,
             cellRoots,
-            BuildTargetPatternParser.forBaseName(target.getBaseName()),
-            declaredDeps);
+            UNCONFIGURED_BUILD_TARGET_FACTORY,
+            target.getBaseName(),
+            declaredDeps,
+            target.getTargetConfiguration());
     try {
       QueryExpression parsedExp = QueryExpression.parse(query.getQuery(), env);
       Set<QueryTarget> queryTargets = cache.getQueryEvaluator(targetGraph).eval(parsedExp, env);
@@ -131,18 +135,17 @@ public final class QueryUtils {
   }
 
   public static Stream<BuildTarget> extractBuildTargets(
-      CellPathResolver cellPathResolver,
-      BuildTargetPatternParser<BuildTargetPattern> parserPattern,
-      Query query)
-      throws QueryException {
+      CellPathResolver cellPathResolver, String targetBaseName, Query query) throws QueryException {
     GraphEnhancementQueryEnvironment env =
         new GraphEnhancementQueryEnvironment(
             Optional.empty(),
             Optional.empty(),
             TYPE_COERCER_FACTORY,
             cellPathResolver,
-            parserPattern,
-            ImmutableSet.of());
+            UNCONFIGURED_BUILD_TARGET_FACTORY,
+            targetBaseName,
+            ImmutableSet.of(),
+            query.getTargetConfiguration());
     QueryExpression parsedExp = QueryExpression.parse(query.getQuery(), env);
     return parsedExp
         .getTargets(env)
@@ -157,8 +160,7 @@ public final class QueryUtils {
   public static Stream<BuildTarget> extractParseTimeTargets(
       BuildTarget target, CellPathResolver cellNames, Query query) {
     try {
-      return extractBuildTargets(
-          cellNames, BuildTargetPatternParser.forBaseName(target.getBaseName()), query);
+      return extractBuildTargets(cellNames, target.getBaseName(), query);
     } catch (QueryException e) {
       throw new RuntimeException("Error parsing/executing query from deps for " + target, e);
     }

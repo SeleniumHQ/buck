@@ -17,6 +17,7 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.util.log.Logger;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.PerfEventId;
@@ -25,14 +26,14 @@ import com.facebook.buck.event.SimplePerfEvent.Scope;
 import com.facebook.buck.parser.PipelineNodeCache.Cache;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.util.concurrent.SettableFuture;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
@@ -47,6 +48,7 @@ public abstract class ConvertingPipeline<F, T> extends ParsePipeline<T> {
 
   private final BuckEventBus eventBus;
   private final PipelineNodeCache<BuildTarget, T> cache;
+  private final ConcurrentHashMap<Path, ListenableFuture<ImmutableList<T>>> allNodeCache;
   protected final ListeningExecutorService executorService;
   private final SimplePerfEvent.Scope perfEventScope;
   private final PerfEventId perfEventId;
@@ -66,38 +68,56 @@ public abstract class ConvertingPipeline<F, T> extends ParsePipeline<T> {
       PerfEventId perfEventId) {
     this.eventBus = eventBus;
     this.cache = new PipelineNodeCache<>(cache);
+    this.allNodeCache = new ConcurrentHashMap<>();
     this.executorService = executorService;
     this.perfEventScope = perfEventScope;
     this.perfEventId = perfEventId;
-    this.minimumPerfEventTimeMs = LOG.isVerboseEnabled() ? 0 : 1;
+    this.minimumPerfEventTimeMs = LOG.isVerboseEnabled() ? 0 : 10;
   }
 
   @Override
-  public ListenableFuture<ImmutableSet<T>> getAllNodesJob(Cell cell, Path buildFile)
-      throws BuildTargetException {
-    // TODO(csarbora): this hits the chained pipeline before hitting the cache
-    ListenableFuture<List<T>> allNodesListJob =
-        Futures.transformAsync(
-            getItemsToConvert(cell, buildFile),
-            allToConvert -> {
-              if (shuttingDown()) {
-                return Futures.immediateCancelledFuture();
-              }
+  public ListenableFuture<ImmutableList<T>> getAllNodesJob(
+      Cell cell, Path buildFile, TargetConfiguration targetConfiguration) {
+    SettableFuture<ImmutableList<T>> future = SettableFuture.create();
+    ListenableFuture<ImmutableList<T>> cachedFuture = allNodeCache.putIfAbsent(buildFile, future);
 
-              ImmutableList.Builder<ListenableFuture<T>> allNodeJobs = ImmutableList.builder();
+    if (cachedFuture != null) {
+      return cachedFuture;
+    }
 
-              for (F from : allToConvert) {
-                BuildTarget target =
-                    getBuildTarget(cell.getRoot(), cell.getCanonicalName(), buildFile, from);
-                allNodeJobs.add(
-                    cache.getJobWithCacheLookup(
-                        cell, target, () -> dispatchComputeNode(cell, target, from), eventBus));
-              }
+    try {
+      ListenableFuture<List<T>> allNodesListJob =
+          Futures.transformAsync(
+              getItemsToConvert(cell, buildFile),
+              allToConvert -> {
+                if (shuttingDown()) {
+                  return Futures.immediateCancelledFuture();
+                }
 
-              return Futures.allAsList(allNodeJobs.build());
-            },
-            executorService);
-    return Futures.transform(allNodesListJob, ImmutableSet::copyOf, executorService);
+                ImmutableList.Builder<ListenableFuture<T>> allNodeJobs =
+                    ImmutableList.builderWithExpectedSize(allToConvert.size());
+
+                for (F from : allToConvert) {
+                  BuildTarget target =
+                      getBuildTarget(
+                          cell.getRoot(),
+                          cell.getCanonicalName(),
+                          buildFile,
+                          targetConfiguration,
+                          from);
+                  allNodeJobs.add(
+                      cache.getJobWithCacheLookup(
+                          cell, target, () -> dispatchComputeNode(cell, target, from), eventBus));
+                }
+
+                return Futures.allAsList(allNodeJobs.build());
+              },
+              executorService);
+      future.setFuture(Futures.transform(allNodesListJob, ImmutableList::copyOf, executorService));
+    } catch (Throwable t) {
+      future.setException(t);
+    }
+    return future;
   }
 
   @Override
@@ -110,12 +130,16 @@ public abstract class ConvertingPipeline<F, T> extends ParsePipeline<T> {
             Futures.transformAsync(
                 getItemToConvert(cell, buildTarget),
                 from -> dispatchComputeNode(cell, buildTarget, from),
-                MoreExecutors.directExecutor()),
+                executorService),
         eventBus);
   }
 
   protected abstract BuildTarget getBuildTarget(
-      Path root, Optional<String> cellName, Path buildFile, F from);
+      Path root,
+      Optional<String> cellName,
+      Path buildFile,
+      TargetConfiguration targetConfiguration,
+      F from);
 
   protected abstract T computeNodeInScope(
       Cell cell,
@@ -124,7 +148,7 @@ public abstract class ConvertingPipeline<F, T> extends ParsePipeline<T> {
       Function<PerfEventId, Scope> perfEventScopeFunction)
       throws BuildTargetException;
 
-  protected abstract ListenableFuture<ImmutableSet<F>> getItemsToConvert(Cell cell, Path buildFile)
+  protected abstract ListenableFuture<ImmutableList<F>> getItemsToConvert(Cell cell, Path buildFile)
       throws BuildTargetException;
 
   protected abstract ListenableFuture<F> getItemToConvert(Cell cell, BuildTarget buildTarget)

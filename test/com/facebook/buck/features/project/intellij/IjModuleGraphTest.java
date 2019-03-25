@@ -485,7 +485,7 @@ public class IjModuleGraphTest {
         FluentIterable.from(moduleGraph.getNodes()).filter(IjLibrary.class).first().get();
 
     assertEquals(ImmutableSet.of(rDotJavaClassPath), productModule.getExtraClassPathDependencies());
-    assertEquals(ImmutableSet.of(rDotJavaClassPath), rDotJavaLibrary.getClassPaths());
+    assertEquals(ImmutableSet.of(rDotJavaClassPath), rDotJavaLibrary.getBinaryJars());
     assertEquals(
         moduleGraph.getDependentLibrariesFor(productModule),
         ImmutableMap.of(rDotJavaLibrary, DependencyType.PROD));
@@ -614,6 +614,40 @@ public class IjModuleGraphTest {
         Matchers.not(Matchers.equalTo(blah2Module.getModuleBasePath())));
   }
 
+  @Test
+  public void testMultiCellModule() {
+    ProjectFilesystem depFileSystem = new FakeProjectFilesystem(Paths.get("dep").toAbsolutePath());
+    ProjectFilesystem mainFileSystem =
+        new FakeProjectFilesystem(Paths.get("main").toAbsolutePath());
+
+    TargetNode<?> depTargetNode =
+        JavaLibraryBuilder.createBuilder(
+                BuildTargetFactory.newInstance(depFileSystem, "dep//java/com/example:dep"),
+                depFileSystem)
+            .addSrc(Paths.get("java/com/example/Dep.java"))
+            .build();
+
+    TargetNode<?> mainTargetNode =
+        JavaLibraryBuilder.createBuilder(
+                BuildTargetFactory.newInstance(mainFileSystem, "main//java/com/example:main"),
+                mainFileSystem)
+            .addSrc(Paths.get("java/com/example/Main.java"))
+            .addDep(depTargetNode.getBuildTarget())
+            .build();
+
+    IjModuleGraph moduleGraph =
+        createModuleGraph(
+            mainFileSystem,
+            ImmutableSet.of(depTargetNode, mainTargetNode),
+            ImmutableMap.of(),
+            Functions.constant(Optional.empty()),
+            AggregationMode.NONE,
+            true);
+    IjModule depModule = getModuleForTarget(moduleGraph, depTargetNode);
+    assertEquals(Paths.get("../dep/java/com/example"), depModule.getModuleBasePath());
+    assertEquals("___dep_java_com_example", depModule.getName());
+  }
+
   public static IjModuleGraph createModuleGraph(ImmutableSet<TargetNode<?>> targets) {
     return createModuleGraph(targets, ImmutableMap.of(), Functions.constant(Optional.empty()));
   }
@@ -627,10 +661,12 @@ public class IjModuleGraphTest {
   }
 
   public static IjModuleGraph createModuleGraph(
+      ProjectFilesystem filesystem,
       ImmutableSet<TargetNode<?>> targets,
       ImmutableMap<TargetNode<?>, SourcePath> javaLibraryPaths,
       Function<? super TargetNode<?>, Optional<Path>> rDotJavaClassPathResolver,
-      AggregationMode aggregationMode) {
+      AggregationMode aggregationMode,
+      boolean isMultiCellModulesSupported) {
     SourcePathResolver sourcePathResolver =
         DefaultSourcePathResolver.from(new SourcePathRuleFinder(new TestActionGraphBuilder()));
     IjLibraryFactoryResolver sourceOnlyResolver =
@@ -647,9 +683,11 @@ public class IjModuleGraphTest {
         };
     BuckConfig buckConfig = FakeBuckConfig.builder().build();
     IjProjectConfig projectConfig =
-        IjProjectBuckConfig.create(
-            buckConfig, aggregationMode, null, "", "", false, false, false, false, true, false);
-    ProjectFilesystem filesystem = new FakeProjectFilesystem();
+        IjTestProjectConfig.createBuilder(buckConfig)
+            .setAggregationMode(aggregationMode)
+            .setExcludeArtifactsEnabled(false)
+            .setMultiCellModuleSupportEnabled(isMultiCellModulesSupported)
+            .build();
     JavaPackageFinder packageFinder =
         (buckConfig == null)
             ? DefaultJavaPackageFinder.createDefaultJavaPackageFinder(Collections.emptyList())
@@ -700,12 +738,6 @@ public class IjModuleGraphTest {
               }
 
               @Override
-              public Optional<Path> getAbiAnnotationOutputPath(
-                  TargetNode<? extends JvmLibraryArg> targetNode) {
-                return Optional.empty();
-              }
-
-              @Override
               public Optional<Path> getCompilerOutputPath(
                   TargetNode<? extends JvmLibraryArg> targetNode) {
                 return Optional.empty();
@@ -722,6 +754,20 @@ public class IjModuleGraphTest {
         libraryFactory,
         moduleFactory,
         new DefaultAggregationModuleFactory(typeRegistry));
+  }
+
+  public static IjModuleGraph createModuleGraph(
+      ImmutableSet<TargetNode<?>> targets,
+      ImmutableMap<TargetNode<?>, SourcePath> javaLibraryPaths,
+      Function<? super TargetNode<?>, Optional<Path>> rDotJavaClassPathResolver,
+      AggregationMode aggregationMode) {
+    return createModuleGraph(
+        new FakeProjectFilesystem(),
+        targets,
+        javaLibraryPaths,
+        rDotJavaClassPathResolver,
+        aggregationMode,
+        false);
   }
 
   public static IjProjectElement getProjectElementForTarget(

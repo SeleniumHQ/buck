@@ -15,6 +15,7 @@
  */
 package com.facebook.buck.android;
 
+import static org.junit.Assume.assumeFalse;
 import static org.junit.Assume.assumeNoException;
 import static org.junit.Assume.assumeNotNull;
 import static org.junit.Assume.assumeTrue;
@@ -62,6 +63,28 @@ public class AssumeAndroidPlatform {
     return comparator.compare(androidNdk.get().getNdkVersion(), "17") < 0;
   }
 
+  public static void assumeGnuStlIsAvailable() {
+    assumeTrue(isGnuStlAvailable());
+  }
+
+  public static void assumeGnuStlIsNotAvailable() {
+    assumeFalse(isGnuStlAvailable());
+  }
+
+  public static boolean isGnuStlAvailable() {
+    ProjectFilesystem projectFilesystem =
+        TestProjectFilesystems.createProjectFilesystem(Paths.get(".").toAbsolutePath());
+    Optional<AndroidNdk> androidNdk = AndroidNdkHelper.detectAndroidNdk(projectFilesystem);
+
+    if (!androidNdk.isPresent()) {
+      return false;
+    }
+
+    VersionStringComparator comparator = new VersionStringComparator();
+
+    return comparator.compare(androidNdk.get().getNdkVersion(), "18") < 0;
+  }
+
   public static void assumeUnifiedHeadersAvailable() {
     ProjectFilesystem projectFilesystem =
         TestProjectFilesystems.createProjectFilesystem(Paths.get(".").toAbsolutePath());
@@ -74,7 +97,7 @@ public class AssumeAndroidPlatform {
     assumeTrue(comparator.compare(androidNdk.get().getNdkVersion(), "14") >= 0);
   }
 
-  public static void assumeSdkIsAvailable() throws InterruptedException {
+  public static void assumeSdkIsAvailable() {
     try {
       assumeNotNull(getAndroidSdkLocation().getSdkRootPath());
     } catch (HumanReadableException e) {
@@ -94,7 +117,7 @@ public class AssumeAndroidPlatform {
    * <p>It seems that this option appeared in build-tools 26.0.2 and the check only verifies the
    * version of build tools, it doesn't run aapt2 to verify it actually supports the option.
    */
-  public static void assumeAapt2WithOutputTextSymbolsIsAvailable() throws InterruptedException {
+  public static void assumeAapt2WithOutputTextSymbolsIsAvailable() {
     AndroidSdkLocation androidSdkLocation = getAndroidSdkLocation();
 
     assumeBuildToolsIsNewer(androidSdkLocation, "26.0.2");

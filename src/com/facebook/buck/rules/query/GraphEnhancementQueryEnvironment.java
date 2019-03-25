@@ -19,14 +19,13 @@ package com.facebook.buck.rules.query;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.exceptions.BuildTargetParseException;
 import com.facebook.buck.core.model.BuildTarget;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.core.model.targetgraph.TargetGraph;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
+import com.facebook.buck.core.parser.buildtargetparser.UnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.rules.ActionGraphBuilder;
 import com.facebook.buck.core.sourcepath.PathSourcePath;
 import com.facebook.buck.jvm.core.HasClasspathDeps;
-import com.facebook.buck.parser.BuildTargetParser;
-import com.facebook.buck.parser.BuildTargetPattern;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import com.facebook.buck.query.AttrFilterFunction;
 import com.facebook.buck.query.DepsFunction;
 import com.facebook.buck.query.FilterFunction;
@@ -39,6 +38,7 @@ import com.facebook.buck.query.QueryException;
 import com.facebook.buck.query.QueryFileTarget;
 import com.facebook.buck.query.QueryTarget;
 import com.facebook.buck.query.QueryTargetAccessor;
+import com.facebook.buck.query.RdepsFunction;
 import com.facebook.buck.rules.coercer.TypeCoercerFactory;
 import com.facebook.buck.util.RichStream;
 import com.google.common.base.Preconditions;
@@ -48,7 +48,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 /**
  * A query environment that can be used for graph-enhancement, including macro expansion or dynamic
@@ -65,6 +67,7 @@ import java.util.stream.Stream;
  *  intersect
  *  filter
  *  kind
+ *  rdeps
  *  set
  *  union
  * </pre>
@@ -85,12 +88,20 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
       Optional<TargetGraph> targetGraph,
       TypeCoercerFactory typeCoercerFactory,
       CellPathResolver cellNames,
-      BuildTargetPatternParser<BuildTargetPattern> context,
-      Set<BuildTarget> declaredDeps) {
+      UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
+      String targetBaseName,
+      Set<BuildTarget> declaredDeps,
+      TargetConfiguration targetConfiguration) {
     this.graphBuilder = graphBuilder;
     this.targetGraph = targetGraph;
     this.typeCoercerFactory = typeCoercerFactory;
-    this.targetEvaluator = new TargetEvaluator(cellNames, context, declaredDeps);
+    this.targetEvaluator =
+        new TargetEvaluator(
+            cellNames,
+            unconfiguredBuildTargetFactory,
+            targetBaseName,
+            declaredDeps,
+            targetConfiguration);
   }
 
   @Override
@@ -116,7 +127,12 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
 
   @Override
   public Set<QueryTarget> getReverseDeps(Iterable<QueryTarget> targets) {
-    throw new UnsupportedOperationException();
+    Preconditions.checkState(targetGraph.isPresent());
+    return StreamSupport.stream(targets.spliterator(), false)
+        .map(this::getNode)
+        .flatMap(targetNode -> targetGraph.get().getIncomingNodesFor(targetNode).stream())
+        .map(node -> QueryBuildTarget.of(node.getBuildTarget()))
+        .collect(Collectors.toSet());
   }
 
   @Override
@@ -126,12 +142,20 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
         .stream()
         .map(path -> PathSourcePath.of(node.getFilesystem(), path))
         .map(QueryFileTarget::of)
-        .collect(ImmutableSet.toImmutableSet());
+        .collect(Collectors.toSet());
   }
 
   @Override
   public Set<QueryTarget> getTransitiveClosure(Set<QueryTarget> targets) {
-    throw new UnsupportedOperationException();
+    Preconditions.checkState(targetGraph.isPresent());
+    return targetGraph
+        .get()
+        .getSubgraph(targets.stream().map(this::getNode).collect(Collectors.toList()))
+        .getNodes()
+        .stream()
+        .map(TargetNode::getBuildTarget)
+        .map(QueryBuildTarget::of)
+        .collect(Collectors.toSet());
   }
 
   @Override
@@ -205,7 +229,8 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
           new KindFunction(),
           new FilterFunction(),
           new LabelsFunction(),
-          new InputsFunction());
+          new InputsFunction(),
+          new RdepsFunction());
 
   @Override
   public Iterable<QueryEnvironment.QueryFunction> getFunctions() {
@@ -214,16 +239,22 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
 
   private static class TargetEvaluator implements QueryEnvironment.TargetEvaluator {
     private final CellPathResolver cellNames;
-    private final BuildTargetPatternParser<BuildTargetPattern> context;
+    private final String targetBaseName;
     private final ImmutableSet<BuildTarget> declaredDeps;
+    private final UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory;
+    private final TargetConfiguration targetConfiguration;
 
     private TargetEvaluator(
         CellPathResolver cellNames,
-        BuildTargetPatternParser<BuildTargetPattern> context,
-        Set<BuildTarget> declaredDeps) {
+        UnconfiguredBuildTargetFactory unconfiguredBuildTargetFactory,
+        String targetBaseName,
+        Set<BuildTarget> declaredDeps,
+        TargetConfiguration targetConfiguration) {
       this.cellNames = cellNames;
-      this.context = context;
+      this.unconfiguredBuildTargetFactory = unconfiguredBuildTargetFactory;
+      this.targetBaseName = targetBaseName;
       this.declaredDeps = ImmutableSet.copyOf(declaredDeps);
+      this.targetConfiguration = targetConfiguration;
     }
 
     @Override
@@ -235,7 +266,10 @@ public class GraphEnhancementQueryEnvironment implements QueryEnvironment {
             .collect(ImmutableSet.toImmutableSet());
       }
       try {
-        BuildTarget buildTarget = BuildTargetParser.INSTANCE.parse(target, context, cellNames);
+        BuildTarget buildTarget =
+            unconfiguredBuildTargetFactory
+                .createForBaseName(cellNames, targetBaseName, target)
+                .configure(targetConfiguration);
         return ImmutableSet.of(QueryBuildTarget.of(buildTarget));
       } catch (BuildTargetParseException e) {
         throw new QueryException(e, "Unable to parse pattern %s", target);

@@ -16,14 +16,15 @@
 
 package com.facebook.buck.android;
 
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.google.common.collect.ImmutableList;
 import java.util.Optional;
 
 public class InstrumentationStep extends ShellStep {
 
+  private final ProjectFilesystem filesystem;
   private final ImmutableList<String> javaRuntimeLauncher;
   private final AndroidInstrumentationTestJVMArgs jvmArgs;
 
@@ -35,6 +36,7 @@ public class InstrumentationStep extends ShellStep {
       AndroidInstrumentationTestJVMArgs jvmArgs,
       Optional<Long> testRuleTimeoutMs) {
     super(filesystem.getRootPath());
+    this.filesystem = filesystem;
     this.javaRuntimeLauncher = javaRuntimeLauncher;
     this.jvmArgs = jvmArgs;
     this.testRuleTimeoutMs = testRuleTimeoutMs;
@@ -45,7 +47,11 @@ public class InstrumentationStep extends ShellStep {
     ImmutableList.Builder<String> args = ImmutableList.builder();
     args.addAll(javaRuntimeLauncher);
 
-    jvmArgs.formatCommandLineArgsToList(args);
+    jvmArgs.formatCommandLineArgsToList(filesystem, args);
+
+    if (jvmArgs.isDebugEnabled()) {
+      warnUser(context, "Debugging. Suspending JVM. Connect android debugger to proceed.");
+    }
 
     return args.build();
   }
@@ -58,5 +64,9 @@ public class InstrumentationStep extends ShellStep {
   @Override
   protected Optional<Long> getTimeout() {
     return testRuleTimeoutMs;
+  }
+
+  private void warnUser(ExecutionContext context, String message) {
+    context.getStdErr().println(context.getAnsi().asWarningText(message));
   }
 }

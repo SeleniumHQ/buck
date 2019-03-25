@@ -16,76 +16,40 @@
 
 package com.facebook.buck.remoteexecution.grpc;
 
-import build.bazel.remote.execution.v2.ActionResult;
-import build.bazel.remote.execution.v2.BatchUpdateBlobsRequest;
-import build.bazel.remote.execution.v2.BatchUpdateBlobsResponse;
-import build.bazel.remote.execution.v2.BatchUpdateBlobsResponse.Response;
 import build.bazel.remote.execution.v2.ContentAddressableStorageGrpc;
 import build.bazel.remote.execution.v2.ContentAddressableStorageGrpc.ContentAddressableStorageFutureStub;
 import build.bazel.remote.execution.v2.Digest;
-import build.bazel.remote.execution.v2.ExecuteRequest;
-import build.bazel.remote.execution.v2.ExecuteResponse;
 import build.bazel.remote.execution.v2.ExecutionGrpc;
 import build.bazel.remote.execution.v2.ExecutionGrpc.ExecutionStub;
-import build.bazel.remote.execution.v2.FindMissingBlobsRequest;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
-import com.facebook.buck.remoteexecution.AsyncBlobFetcher;
-import com.facebook.buck.remoteexecution.CasBlobUploader;
-import com.facebook.buck.remoteexecution.ContentAddressedStorage;
-import com.facebook.buck.remoteexecution.MultiThreadedBlobUploader;
-import com.facebook.buck.remoteexecution.MultiThreadedBlobUploader.UploadData;
-import com.facebook.buck.remoteexecution.MultiThreadedBlobUploader.UploadResult;
-import com.facebook.buck.remoteexecution.OutputsMaterializer;
-import com.facebook.buck.remoteexecution.Protocol;
-import com.facebook.buck.remoteexecution.Protocol.OutputDirectory;
-import com.facebook.buck.remoteexecution.Protocol.OutputFile;
+import com.facebook.buck.event.BuckEventBus;
+import com.facebook.buck.remoteexecution.ContentAddressedStorageClient;
 import com.facebook.buck.remoteexecution.RemoteExecutionClients;
-import com.facebook.buck.remoteexecution.RemoteExecutionService;
-import com.facebook.buck.remoteexecution.grpc.GrpcProtocol.GrpcDigest;
-import com.facebook.buck.remoteexecution.grpc.GrpcProtocol.GrpcOutputDirectory;
-import com.facebook.buck.remoteexecution.grpc.GrpcProtocol.GrpcOutputFile;
-import com.facebook.buck.util.MoreThrowables;
-import com.facebook.buck.util.concurrent.MostExecutors;
-import com.facebook.buck.util.exceptions.BuckUncheckedExecutionException;
-import com.facebook.buck.util.function.ThrowingSupplier;
+import com.facebook.buck.remoteexecution.RemoteExecutionServiceClient;
+import com.facebook.buck.remoteexecution.interfaces.MetadataProvider;
+import com.facebook.buck.remoteexecution.interfaces.Protocol;
+import com.facebook.buck.util.function.ThrowingConsumer;
 import com.google.bytestream.ByteStreamGrpc;
 import com.google.bytestream.ByteStreamGrpc.ByteStreamStub;
 import com.google.bytestream.ByteStreamProto.ReadRequest;
 import com.google.bytestream.ByteStreamProto.ReadResponse;
-import com.google.common.base.Throwables;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
-import com.google.longrunning.Operation;
 import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
 import io.grpc.stub.StreamObserver;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.ByteBuffer;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 import org.immutables.value.Value;
 
 /** A RemoteExecution that sends jobs to a grpc-based remote execution service. */
 public class GrpcRemoteExecutionClients implements RemoteExecutionClients {
   public static final Protocol PROTOCOL = new GrpcProtocol();
-  private final ContentAddressedStorage storage;
-  private final GrpcRemoteExecutionService executionService;
-  private final ManagedChannel channel;
-
-  private static String getReadResourceName(String instanceName, Protocol.Digest digest) {
-    return String.format("%s/blobs/%s/%d", instanceName, digest.getHash(), digest.getSize());
-  }
+  private final ContentAddressedStorageClient storage;
+  private final GrpcRemoteExecutionServiceClient executionService;
+  private final ManagedChannel executionEngineChannel;
+  private final ManagedChannel casChannel;
+  private final MetadataProvider metadataProvider;
 
   /** A parsed read resource path. */
   @Value.Immutable
@@ -96,27 +60,74 @@ public class GrpcRemoteExecutionClients implements RemoteExecutionClients {
     Digest getDigest();
   }
 
-  public GrpcRemoteExecutionClients(String instanceName, ManagedChannel channel) {
-    this.channel = channel;
-    ByteStreamStub byteStreamStub = ByteStreamGrpc.newStub(channel);
+  public GrpcRemoteExecutionClients(
+      String instanceName,
+      ManagedChannel executionEngineChannel,
+      ManagedChannel casChannel,
+      MetadataProvider metadataProvider,
+      BuckEventBus buckEventBus) {
+    this.executionEngineChannel = executionEngineChannel;
+    this.casChannel = casChannel;
+    this.metadataProvider = metadataProvider;
+
+    ByteStreamStub byteStreamStub = ByteStreamGrpc.newStub(casChannel);
     this.storage =
         createStorage(
-            ContentAddressableStorageGrpc.newFutureStub(channel),
+            ContentAddressableStorageGrpc.newFutureStub(casChannel),
             byteStreamStub,
             instanceName,
-            PROTOCOL);
+            PROTOCOL,
+            buckEventBus);
+    ExecutionStub executionStub = ExecutionGrpc.newStub(executionEngineChannel);
     this.executionService =
-        new GrpcRemoteExecutionService(
-            ExecutionGrpc.newStub(channel), byteStreamStub, instanceName);
+        new GrpcRemoteExecutionServiceClient(
+            executionStub, byteStreamStub, instanceName, metadataProvider, getProtocol());
+  }
+
+  private static String getReadResourceName(String instanceName, Protocol.Digest digest) {
+    return String.format("%s/blobs/%s/%d", instanceName, digest.getHash(), digest.getSize());
+  }
+
+  /** Reads a ByteStream onto the arg consumer. */
+  public static ListenableFuture<Void> readByteStream(
+      String instanceName,
+      Protocol.Digest digest,
+      ByteStreamStub byteStreamStub,
+      ThrowingConsumer<ByteString, IOException> dataConsumer) {
+    String name = getReadResourceName(instanceName, digest);
+    SettableFuture<Void> future = SettableFuture.create();
+    byteStreamStub.read(
+        ReadRequest.newBuilder().setResourceName(name).setReadLimit(0).setReadOffset(0).build(),
+        new StreamObserver<ReadResponse>() {
+          @Override
+          public void onNext(ReadResponse value) {
+            try {
+              dataConsumer.accept(value.getData());
+            } catch (IOException e) {
+              onError(e);
+            }
+          }
+
+          @Override
+          public void onError(Throwable t) {
+            future.setException(t);
+          }
+
+          @Override
+          public void onCompleted() {
+            future.set(null);
+          }
+        });
+    return future;
   }
 
   @Override
-  public RemoteExecutionService getRemoteExecutionService() {
+  public RemoteExecutionServiceClient getRemoteExecutionService() {
     return executionService;
   }
 
   @Override
-  public ContentAddressedStorage getContentAddressedStorage() {
+  public ContentAddressedStorageClient getContentAddressedStorage() {
     return storage;
   }
 
@@ -127,6 +138,11 @@ public class GrpcRemoteExecutionClients implements RemoteExecutionClients {
 
   @Override
   public void close() throws IOException {
+    closeChannel(casChannel);
+    closeChannel(executionEngineChannel);
+  }
+
+  private static void closeChannel(ManagedChannel channel) {
     channel.shutdown();
     try {
       channel.awaitTermination(3, TimeUnit.SECONDS);
@@ -135,232 +151,13 @@ public class GrpcRemoteExecutionClients implements RemoteExecutionClients {
     }
   }
 
-  private ContentAddressedStorage createStorage(
+  private ContentAddressedStorageClient createStorage(
       ContentAddressableStorageFutureStub storageStub,
       ByteStreamStub byteStreamStub,
       String instanceName,
-      Protocol protocol) {
-    MultiThreadedBlobUploader uploader =
-        new MultiThreadedBlobUploader(
-            1000,
-            10 * 1024 * 1024,
-            MostExecutors.newMultiThreadExecutor("blob-uploader", 4),
-            new CasBlobUploader() {
-              @Override
-              public ImmutableSet<String> getMissingHashes(List<Protocol.Digest> requiredDigests)
-                  throws IOException {
-                try {
-                  FindMissingBlobsRequest.Builder requestBuilder =
-                      FindMissingBlobsRequest.newBuilder();
-                  requiredDigests.forEach(
-                      digest -> requestBuilder.addBlobDigests((GrpcProtocol.get(digest))));
-                  return storageStub
-                      .findMissingBlobs(requestBuilder.build())
-                      .get()
-                      .getMissingBlobDigestsList()
-                      .stream()
-                      .map(Digest::getHash)
-                      .collect(ImmutableSet.toImmutableSet());
-                } catch (InterruptedException | ExecutionException e) {
-                  Throwables.throwIfInstanceOf(e.getCause(), IOException.class);
-                  e.printStackTrace();
-                  throw new BuckUncheckedExecutionException(e);
-                } catch (RuntimeException e) {
-                  throw e;
-                }
-              }
-
-              @Override
-              public ImmutableList<UploadResult> batchUpdateBlobs(ImmutableList<UploadData> blobs)
-                  throws IOException {
-                try {
-                  BatchUpdateBlobsRequest.Builder requestBuilder =
-                      BatchUpdateBlobsRequest.newBuilder();
-                  for (UploadData blob : blobs) {
-                    try (InputStream dataStream = blob.data.get()) {
-                      requestBuilder.addRequests(
-                          BatchUpdateBlobsRequest.Request.newBuilder()
-                              .setDigest(GrpcProtocol.get(blob.digest))
-                              .setData(ByteString.readFrom(dataStream)));
-                    }
-                  }
-                  BatchUpdateBlobsResponse batchUpdateBlobsResponse =
-                      storageStub.batchUpdateBlobs(requestBuilder.build()).get();
-                  ImmutableList.Builder<UploadResult> resultBuilder = ImmutableList.builder();
-                  for (Response response : batchUpdateBlobsResponse.getResponsesList()) {
-                    resultBuilder.add(
-                        new UploadResult(
-                            new GrpcDigest(response.getDigest()),
-                            response.getStatus().getCode(),
-                            response.getStatus().getMessage()));
-                  }
-                  return resultBuilder.build();
-                } catch (InterruptedException | ExecutionException e) {
-                  MoreThrowables.throwIfInitialCauseInstanceOf(e, IOException.class);
-                  e.printStackTrace();
-                  throw new BuckUncheckedExecutionException(e);
-                }
-              }
-            });
-
-    OutputsMaterializer outputsMaterializer =
-        new OutputsMaterializer(
-            new AsyncBlobFetcher() {
-              @Override
-              public ListenableFuture<ByteBuffer> fetch(Protocol.Digest digest) {
-                return Futures.transform(
-                    readByteStream(instanceName, digest, byteStreamStub),
-                    string -> string.asReadOnlyByteBuffer());
-              }
-
-              @Override
-              public void fetchToStream(Protocol.Digest digest, OutputStream outputStream) {
-                throw new UnsupportedOperationException();
-              }
-            },
-            protocol);
-    return new ContentAddressedStorage() {
-      @Override
-      public void addMissing(
-          ImmutableMap<Protocol.Digest, ThrowingSupplier<InputStream, IOException>> data)
-          throws IOException {
-        uploader.addMissing(data);
-      }
-
-      @Override
-      public void materializeOutputs(
-          List<OutputDirectory> outputDirectories, List<OutputFile> outputFiles, Path root)
-          throws IOException {
-        outputsMaterializer.materialize(outputDirectories, outputFiles, root);
-      }
-    };
-  }
-
-  private static ListenableFuture<ByteString> readByteStream(
-      String instanceName, Protocol.Digest digest, ByteStreamStub byteStreamStub) {
-    String name = getReadResourceName(instanceName, digest);
-    SettableFuture<ByteString> future = SettableFuture.create();
-    byteStreamStub.read(
-        ReadRequest.newBuilder().setResourceName(name).setReadLimit(0).setReadOffset(0).build(),
-        new StreamObserver<ReadResponse>() {
-          ByteString data = ByteString.EMPTY;
-
-          @Override
-          public void onNext(ReadResponse value) {
-            data = data.concat(value.getData());
-          }
-
-          @Override
-          public void onError(Throwable t) {
-            future.setException(t);
-          }
-
-          @Override
-          public void onCompleted() {
-            future.set(data);
-          }
-        });
-    return future;
-  }
-
-  private static class GrpcRemoteExecutionService implements RemoteExecutionService {
-    private final ExecutionStub executionStub;
-    private final ByteStreamStub byteStreamStub;
-    private final String instanceName;
-
-    private GrpcRemoteExecutionService(
-        ExecutionStub executionStub, ByteStreamStub byteStreamStub, String instanceName) {
-      this.executionStub = executionStub;
-      this.byteStreamStub = byteStreamStub;
-      this.instanceName = instanceName;
-    }
-
-    @Override
-    public ExecutionResult execute(Protocol.Digest actionDigest)
-        throws IOException, InterruptedException {
-      SettableFuture<Operation> future = SettableFuture.create();
-
-      executionStub.execute(
-          ExecuteRequest.newBuilder()
-              .setInstanceName(instanceName)
-              .setActionDigest(GrpcProtocol.get(actionDigest))
-              .setSkipCacheLookup(false)
-              .build(),
-          new StreamObserver<Operation>() {
-            @Nullable Operation op = null;
-
-            @Override
-            public void onNext(Operation value) {
-              op = value;
-            }
-
-            @Override
-            public void onError(Throwable t) {
-              future.setException(t);
-            }
-
-            @Override
-            public void onCompleted() {
-              future.set(op);
-            }
-          });
-
-      try {
-        ActionResult actionResult =
-            future.get().getResponse().unpack(ExecuteResponse.class).getResult();
-        return new ExecutionResult() {
-          @Override
-          public List<OutputDirectory> getOutputDirectories() {
-            return actionResult
-                .getOutputDirectoriesList()
-                .stream()
-                .map(GrpcOutputDirectory::new)
-                .collect(Collectors.toList());
-          }
-
-          @Override
-          public List<OutputFile> getOutputFiles() {
-            return actionResult
-                .getOutputFilesList()
-                .stream()
-                .map(GrpcOutputFile::new)
-                .collect(Collectors.toList());
-          }
-
-          @Override
-          public int getExitCode() {
-            return actionResult.getExitCode();
-          }
-
-          @Override
-          public Optional<String> getStderr() {
-            ByteString stderrRaw = actionResult.getStderrRaw();
-            if (stderrRaw == null
-                || (stderrRaw.isEmpty() && actionResult.getStderrDigest().getSizeBytes() > 0)) {
-              System.err.println("Got stderr digest.");
-              try {
-                return Optional.of(
-                    readByteStream(
-                            instanceName,
-                            new GrpcDigest(actionResult.getStderrDigest()),
-                            byteStreamStub)
-                        .get()
-                        .toStringUtf8());
-              } catch (InterruptedException | ExecutionException e) {
-                throw new RuntimeException(e);
-              }
-            } else {
-              System.err.println("Got raw stderr: " + stderrRaw.toStringUtf8());
-              return Optional.of(stderrRaw.toStringUtf8());
-            }
-          }
-        };
-      } catch (ExecutionException e) {
-        Throwables.throwIfInstanceOf(e.getCause(), IOException.class);
-        Throwables.throwIfInstanceOf(e.getCause(), InterruptedException.class);
-        e.printStackTrace();
-        throw new BuckUncheckedExecutionException(e.getCause());
-      }
-    }
+      Protocol protocol,
+      BuckEventBus buckEventBus) {
+    return new GrpcContentAddressableStorageClient(
+        storageStub, byteStreamStub, instanceName, protocol, buckEventBus, metadataProvider.get());
   }
 }

@@ -31,6 +31,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.io.IOException;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -64,7 +65,14 @@ public class BuildCacheArtifactUploader {
     this.artifactCacheSizeLimit = artifactCacheSizeLimit;
   }
 
-  public ListenableFuture<Void> uploadToCache(BuildRuleSuccessType success) throws IOException {
+  /**
+   * Perform an actual write to a cache
+   *
+   * @param success outcome of a build rule
+   * @param buildTimeMs time it took to actually build a rule
+   */
+  public ListenableFuture<Void> uploadToCache(BuildRuleSuccessType success, long buildTimeMs)
+      throws IOException {
     // Collect up all the rule keys we have index the artifact in the cache with.
     Set<RuleKey> ruleKeys = new HashSet<>();
 
@@ -75,8 +83,7 @@ public class BuildCacheArtifactUploader {
     // If the input-based rule key has changed, we need to push the artifact to cache
     // using the new key.
     if (SupportsInputBasedRuleKey.isSupported(rule)) {
-      Preconditions.checkNotNull(
-          inputBasedKey, "input-based key should have been computed already.");
+      Objects.requireNonNull(inputBasedKey, "input-based key should have been computed already.");
       Optional<RuleKey> calculatedRuleKey = inputBasedKey.get();
       Optional<RuleKey> onDiskRuleKey =
           onDiskBuildInfo.getRuleKey(BuildInfo.MetadataKey.INPUT_BASED_RULE_KEY);
@@ -111,7 +118,8 @@ public class BuildCacheArtifactUploader {
         onDiskBuildInfo.getMetadataForArtifact(),
         onDiskBuildInfo.getPathsForArtifact(),
         rule.getBuildTarget(),
-        rule.getProjectFilesystem());
+        rule.getProjectFilesystem(),
+        buildTimeMs);
   }
 
   /** @return whether we should upload the given rules artifacts to cache. */

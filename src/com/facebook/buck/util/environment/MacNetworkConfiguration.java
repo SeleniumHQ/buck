@@ -17,9 +17,10 @@
 package com.facebook.buck.util.environment;
 
 import com.facebook.buck.core.util.log.Logger;
+import com.facebook.buck.util.ForwardingProcessListener;
 import com.facebook.buck.util.ListeningProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
-import com.facebook.buck.util.SimpleProcessListener;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -78,7 +79,7 @@ public class MacNetworkConfiguration {
 
   static Pattern activePattern = Pattern.compile("Active: (.*)$");
   /** Indicates whether device is active (i.e. physically connected). */
-  private static Boolean isDeviceActive(String device) throws InterruptedException {
+  private static boolean isDeviceActive(String device) throws InterruptedException {
     /*
       $ networksetup -getMedia "en0"
       Current: autoselect
@@ -127,7 +128,10 @@ public class MacNetworkConfiguration {
       throws InterruptedException {
 
     ListeningProcessExecutor executor = new ListeningProcessExecutor();
-    SimpleProcessListener listener = new SimpleProcessListener();
+    ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+    ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+    ForwardingProcessListener listener = new ForwardingProcessListener(stdout, stderr);
+
     ProcessExecutorParams params =
         ProcessExecutorParams.builder()
             .addCommand("networksetup")
@@ -141,7 +145,7 @@ public class MacNetworkConfiguration {
       if (executor.waitForProcess(process, COMMAND_TIMEOUT_MS, TimeUnit.MILLISECONDS) != 0) {
         return "";
       }
-      return listener.getStdout();
+      return stdout.toString();
     } catch (IOException e) {
       LOG.debug(e, "Exception while running networksetup command");
       return "";

@@ -17,9 +17,9 @@
 package com.facebook.buck.rules.coercer;
 
 import com.facebook.buck.core.cell.CellPathResolver;
+import com.facebook.buck.core.model.TargetConfiguration;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.google.common.collect.ImmutableCollection;
-import com.google.devtools.build.lib.syntax.SkylarkNestedSet;
 import java.nio.file.Path;
 import java.util.Collection;
 
@@ -49,15 +49,14 @@ public abstract class CollectionTypeCoercer<C extends ImmutableCollection<T>, T>
       CellPathResolver cellRoots,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
+      TargetConfiguration targetConfiguration,
       ImmutableCollection.Builder<T> builder,
       Object object)
       throws CoerceFailedException {
     if (object instanceof Collection) {
       Iterable<?> iterable = (Iterable<?>) object;
-      fill(cellRoots, filesystem, pathRelativeToProjectRoot, builder, iterable);
-    } else if (object instanceof SkylarkNestedSet) {
-      Iterable<?> iterable = ((SkylarkNestedSet) object).toCollection();
-      fill(cellRoots, filesystem, pathRelativeToProjectRoot, builder, iterable);
+      fill(
+          cellRoots, filesystem, pathRelativeToProjectRoot, targetConfiguration, builder, iterable);
     } else {
       throw CoerceFailedException.simple(object, getOutputClass());
     }
@@ -68,13 +67,15 @@ public abstract class CollectionTypeCoercer<C extends ImmutableCollection<T>, T>
       CellPathResolver cellRoots,
       ProjectFilesystem filesystem,
       Path pathRelativeToProjectRoot,
+      TargetConfiguration targetConfiguration,
       ImmutableCollection.Builder<T> builder,
       Iterable<?> iterable)
       throws CoerceFailedException {
     for (Object element : iterable) {
       // if any element failed, the entire collection fails
       T coercedElement =
-          elementTypeCoercer.coerce(cellRoots, filesystem, pathRelativeToProjectRoot, element);
+          elementTypeCoercer.coerce(
+              cellRoots, filesystem, pathRelativeToProjectRoot, targetConfiguration, element);
       builder.add(coercedElement);
     }
   }

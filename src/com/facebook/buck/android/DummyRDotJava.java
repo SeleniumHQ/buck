@@ -18,6 +18,7 @@ package com.facebook.buck.android;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -42,7 +43,6 @@ import com.facebook.buck.jvm.java.CompilerParameters;
 import com.facebook.buck.jvm.java.JarDirectoryStep;
 import com.facebook.buck.jvm.java.JarParameters;
 import com.facebook.buck.jvm.java.JavacToJarStepFactory;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.StepExecutionResult;
 import com.facebook.buck.step.StepExecutionResults;
@@ -283,7 +283,7 @@ public class DummyRDotJava extends AbstractBuildRule
         JarParameters.builder()
             .setJarPath(outputJar)
             .setEntriesToJar(ImmutableSortedSet.of(rDotJavaClassesFolder))
-            .setMergeManifests(true)
+            .setMergeManifests(false)
             .setHashEntries(true)
             .build();
     steps.add(new JarDirectoryStep(getProjectFilesystem(), jarParameters));
@@ -319,8 +319,7 @@ public class DummyRDotJava extends AbstractBuildRule
     }
 
     @Override
-    public StepExecutionResult execute(ExecutionContext context)
-        throws IOException, InterruptedException {
+    public StepExecutionResult execute(ExecutionContext context) throws IOException {
       try (ZipFile jar = new ZipFile(getProjectFilesystem().resolve(outputJar).toFile())) {
         for (ZipEntry zipEntry : Collections.list(jar.entries())) {
           if (zipEntry.getName().endsWith(".class")) {
@@ -370,7 +369,7 @@ public class DummyRDotJava extends AbstractBuildRule
     return BuildTargetPaths.getGenPath(filesystem, buildTarget, "__%s_dummyrdotjava_output__");
   }
 
-  private static Path getOutputJarPath(BuildTarget buildTarget, ProjectFilesystem filesystem) {
+  public static Path getOutputJarPath(BuildTarget buildTarget, ProjectFilesystem filesystem) {
     return getPathToOutputDir(buildTarget, filesystem)
         .resolve(String.format("%s.jar", buildTarget.getShortNameAndFlavorPostfix()));
   }

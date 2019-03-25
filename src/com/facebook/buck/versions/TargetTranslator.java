@@ -18,8 +18,6 @@ package com.facebook.buck.versions;
 
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.parser.BuildTargetPattern;
-import com.facebook.buck.parser.BuildTargetPatternParser;
 import java.util.Optional;
 
 /** Interface for translators that rewrite {@link BuildTarget}s in objects of type T. */
@@ -29,7 +27,7 @@ interface TargetTranslator<T> {
 
   Optional<T> translateTargets(
       CellPathResolver cellPathResolver,
-      BuildTargetPatternParser<BuildTargetPattern> pattern,
+      String targetBaseName,
       TargetNodeTranslator translator,
       T val);
 }

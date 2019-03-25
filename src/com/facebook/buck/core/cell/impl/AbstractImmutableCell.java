@@ -19,13 +19,16 @@ package com.facebook.buck.core.cell.impl;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.CellPathResolver;
 import com.facebook.buck.core.cell.CellProvider;
+import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.toolchain.ComparableToolchain;
-import com.facebook.buck.core.toolchain.ToolchainInstantiationException;
+import com.facebook.buck.core.model.UnconfiguredBuildTarget;
 import com.facebook.buck.core.toolchain.ToolchainProvider;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
+import com.facebook.buck.io.filesystem.PathMatcher;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
+import com.facebook.buck.io.filesystem.ProjectFilesystemView;
+import com.facebook.buck.io.filesystem.RecursiveFileMatcher;
 import com.facebook.buck.parser.ParserConfig;
 import com.facebook.buck.parser.exceptions.MissingBuildFileException;
 import com.facebook.buck.rules.keys.config.RuleKeyConfiguration;
@@ -33,11 +36,11 @@ import com.facebook.buck.util.RichStream;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import java.nio.file.Path;
-import java.util.HashSet;
+import java.nio.file.Paths;
 import java.util.Optional;
-import java.util.Set;
 import org.immutables.value.Value;
 
 @Value.Immutable(builder = false, prehash = true)
@@ -51,6 +54,30 @@ abstract class AbstractImmutableCell implements Cell {
   @Override
   @Value.Auxiliary
   public abstract Optional<String> getCanonicalName();
+
+  @Override
+  @Value.Auxiliary
+  public abstract ProjectFilesystem getFilesystem();
+
+  @Override
+  @Value.Auxiliary
+  @Value.Derived
+  public ProjectFilesystemView getFilesystemViewForSourceFiles() {
+    ProjectFilesystem filesystem = getFilesystem();
+    ImmutableSet.Builder<PathMatcher> ignores =
+        ImmutableSet.builderWithExpectedSize(filesystem.getBlacklistedPaths().size() + 1);
+    ignores.addAll(filesystem.getBlacklistedPaths());
+    ignores.add(RecursiveFileMatcher.of(filesystem.getBuckPaths().getBuckOut()));
+    for (Path subCellRoots : getKnownRoots()) {
+      if (!subCellRoots.equals(getRoot())) {
+        ignores.add(RecursiveFileMatcher.of(filesystem.relativize(subCellRoots)));
+      }
+    }
+    return filesystem.asView().withView(Paths.get(""), ignores.build());
+  }
+
+  @Override
+  public abstract BuckConfig getBuckConfig();
 
   @Override
   @Value.Auxiliary
@@ -68,108 +95,6 @@ abstract class AbstractImmutableCell implements Cell {
   @Override
   @Value.Auxiliary
   public abstract RuleKeyConfiguration getRuleKeyConfiguration();
-
-  @Override
-  public IsCompatibleForCaching isCompatibleForCaching(Cell other) {
-    if (!getFilesystem().equals(other.getFilesystem())) {
-      return IsCompatibleForCaching.FILESYSTEM_CHANGED;
-    }
-    if (!getBuckConfig().equalsForDaemonRestart(other.getBuckConfig())) {
-      return IsCompatibleForCaching.BUCK_CONFIG_CHANGED;
-    }
-    if (!areToolchainsCompatibleForCaching(other)) {
-      return IsCompatibleForCaching.TOOLCHAINS_INCOMPATIBLE;
-    }
-    return IsCompatibleForCaching.IS_COMPATIBLE;
-  }
-
-  private boolean areToolchainsCompatibleForCaching(Cell other) {
-    ToolchainProvider toolchainProvider = getToolchainProvider();
-    ToolchainProvider otherToolchainProvider = other.getToolchainProvider();
-
-    Set<String> toolchains = new HashSet<>();
-    toolchains.addAll(toolchainProvider.getToolchainsWithCapability(ComparableToolchain.class));
-    toolchains.addAll(
-        otherToolchainProvider.getToolchainsWithCapability(ComparableToolchain.class));
-
-    for (String toolchain : toolchains) {
-      if (!toolchainsStateEqual(toolchain, toolchainProvider, otherToolchainProvider)) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  /**
-   * Checks the state of two toolchains is compatible.
-   *
-   * <p>When comparing two toolchains:
-   *
-   * <ol>
-   *   <li>if both were not created nor failed then return true
-   *   <li>if one of the toolchains is failed then true only if second toolchain has the same
-   *       exception
-   *   <li>ask for presence and:
-   *       <ul>
-   *         <li>if both are not present then true
-   *         <li>if both are present compare them
-   *         <li>if one is not present then false
-   *       </ul>
-   * </ol>
-   */
-  private boolean toolchainsStateEqual(
-      String toolchain,
-      ToolchainProvider toolchainProvider,
-      ToolchainProvider otherToolchainProvider) {
-
-    boolean toolchainFailed = toolchainProvider.isToolchainFailed(toolchain);
-    boolean otherToolchainFailed = otherToolchainProvider.isToolchainFailed(toolchain);
-    boolean toolchainCreated = toolchainProvider.isToolchainCreated(toolchain);
-    boolean otherToolchainCreated = otherToolchainProvider.isToolchainCreated(toolchain);
-
-    boolean toolchainInstantiated = toolchainFailed || toolchainCreated;
-    boolean otherToolchainInstantiated = otherToolchainFailed || otherToolchainCreated;
-
-    if (!toolchainInstantiated && !otherToolchainInstantiated) {
-      return true;
-    }
-
-    if (toolchainFailed || otherToolchainFailed) {
-      Optional<ToolchainInstantiationException> exception =
-          getFailedToolchainException(toolchainProvider, toolchain);
-      Optional<ToolchainInstantiationException> otherException =
-          getFailedToolchainException(otherToolchainProvider, toolchain);
-
-      return exception.isPresent()
-          && otherException.isPresent()
-          && exception
-              .get()
-              .getHumanReadableErrorMessage()
-              .equals(otherException.get().getHumanReadableErrorMessage());
-    }
-
-    boolean toolchainPresent = toolchainProvider.isToolchainPresent(toolchain);
-    boolean otherToolchainPresent = otherToolchainProvider.isToolchainPresent(toolchain);
-
-    // Both toolchains exist, compare them
-    if (toolchainPresent && otherToolchainPresent) {
-      return toolchainProvider
-          .getByName(toolchain)
-          .equals(otherToolchainProvider.getByName(toolchain));
-    } else {
-      return !toolchainPresent && !otherToolchainPresent;
-    }
-  }
-
-  private Optional<ToolchainInstantiationException> getFailedToolchainException(
-      ToolchainProvider toolchainProvider, String toolchainName) {
-    if (toolchainProvider.isToolchainPresent(toolchainName)) {
-      return Optional.empty();
-    } else {
-      return toolchainProvider.getToolchainInstantiationException(toolchainName);
-    }
-  }
 
   @Override
   public String getBuildFileName() {
@@ -210,6 +135,11 @@ abstract class AbstractImmutableCell implements Cell {
   }
 
   @Override
+  public Cell getCell(UnconfiguredBuildTarget target) {
+    return getCell(target.getCellPath());
+  }
+
+  @Override
   public Cell getCell(BuildTarget target) {
     return getCell(target.getCellPath());
   }
@@ -238,13 +168,19 @@ abstract class AbstractImmutableCell implements Cell {
 
   @Override
   public Path getAbsolutePathToBuildFileUnsafe(BuildTarget target) {
+    return getAbsolutePathToBuildFileUnsafe(target.getUnconfiguredBuildTarget());
+  }
+
+  @Override
+  public Path getAbsolutePathToBuildFileUnsafe(UnconfiguredBuildTarget target) {
     Cell targetCell = getCell(target);
     ProjectFilesystem targetFilesystem = targetCell.getFilesystem();
     return targetFilesystem.resolve(target.getBasePath()).resolve(targetCell.getBuildFileName());
   }
 
   @Override
-  public Path getAbsolutePathToBuildFile(BuildTarget target) throws MissingBuildFileException {
+  public Path getAbsolutePathToBuildFile(UnconfiguredBuildTarget target)
+      throws MissingBuildFileException {
     Path buildFile = getAbsolutePathToBuildFileUnsafe(target);
     Cell cell = getCell(target);
     if (!cell.getFilesystem().isFile(buildFile)) {
@@ -256,6 +192,11 @@ abstract class AbstractImmutableCell implements Cell {
               .resolve(cell.getBuckConfig().getView(ParserConfig.class).getBuildFileName()));
     }
     return buildFile;
+  }
+
+  @Override
+  public Path getAbsolutePathToBuildFile(BuildTarget target) throws MissingBuildFileException {
+    return getAbsolutePathToBuildFile(target.getUnconfiguredBuildTarget());
   }
 
   @Override

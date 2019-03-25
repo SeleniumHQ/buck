@@ -20,11 +20,11 @@ import com.facebook.buck.apple.toolchain.AppleCxxPlatformsProvider;
 import com.facebook.buck.cli.BuildCommand;
 import com.facebook.buck.cli.CommandRunnerParams;
 import com.facebook.buck.cli.CommandThreadManager;
+import com.facebook.buck.cli.ProjectGeneratorParameters;
 import com.facebook.buck.cli.ProjectSubCommand;
-import com.facebook.buck.cli.parameter_extractors.ProjectGeneratorParameters;
 import com.facebook.buck.core.config.BuckConfig;
-import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.ExitCode;
+import com.facebook.buck.util.concurrent.ExecutorPool;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import java.io.IOException;
@@ -35,12 +35,19 @@ import org.kohsuke.args4j.Option;
 public class XCodeProjectSubCommand extends ProjectSubCommand {
 
   private static final boolean DEFAULT_READ_ONLY_VALUE = false;
+  private static final boolean DEFAULT_PROJECT_SCHEMES = false;
   private static final boolean DEFAULT_ABSOLUTE_HEADER_MAP_PATHS = false;
+  private static final boolean DEFAULT_SHARED_LIBRARIES_AS_DYNAMIC_FRAMEWORKS = false;
 
   @Option(
       name = "--combined-project",
       usage = "Generate an xcode project of a target and its dependencies.")
   private boolean combinedProject;
+
+  @Option(
+      name = "--project-schemes",
+      usage = "Generate an xcode scheme for each sub-project with its targets and tests.")
+  private boolean projectSchemes = false;
 
   @Option(
       name = "--focus",
@@ -101,21 +108,26 @@ public class XCodeProjectSubCommand extends ProjectSubCommand {
             params.getBuckConfig(),
             params.getVersionedTargetGraphCache(),
             params.getTypeCoercerFactory(),
+            params.getUnconfiguredBuildTargetFactory(),
             params.getCell(),
             params.getRuleKeyConfiguration(),
+            params.getTargetConfiguration(),
             params.getConsole(),
             params.getProcessManager(),
             params.getEnvironment(),
             params.getExecutors().get(ExecutorPool.PROJECT),
+            executor,
             projectCommandArguments,
             appleCxxPlatformsProvider.getAppleCxxPlatforms().getFlavors(),
             getAbsoluteHeaderMapPaths(params.getBuckConfig()),
+            getSharedLibrariesInBundles(params.getBuckConfig()),
             projectGeneratorParameters.getEnableParserProfiling(),
             projectGeneratorParameters.isWithTests(),
             projectGeneratorParameters.isWithoutTests(),
             projectGeneratorParameters.isWithoutDependenciesTests(),
             modulesToFocusOn,
             combinedProject,
+            getProjectSchemes(params.getBuckConfig()),
             projectGeneratorParameters.isDryRun(),
             getReadOnly(params.getBuckConfig()),
             new PrintStreamPathOutputPresenter(
@@ -124,17 +136,23 @@ public class XCodeProjectSubCommand extends ProjectSubCommand {
             arguments -> {
               try {
                 return runBuild(params, arguments);
-              } catch (IOException | InterruptedException e) {
+              } catch (Exception e) {
                 throw new RuntimeException("Cannot run a build", e);
               }
             });
-    return xcodeProjectCommandHelper.parseTargetsAndRunXCodeGenerator(executor);
+    return xcodeProjectCommandHelper.parseTargetsAndRunXCodeGenerator();
   }
 
   private ExitCode runBuild(CommandRunnerParams params, ImmutableList<String> arguments)
-      throws IOException, InterruptedException {
+      throws Exception {
     BuildCommand buildCommand = new BuildCommand(arguments);
     return buildCommand.run(params);
+  }
+
+  private boolean getProjectSchemes(BuckConfig buckConfig) {
+    // command line arg takes precedence over buck config
+    return projectSchemes
+        || buckConfig.getBooleanValue("project", "project_schemes", DEFAULT_PROJECT_SCHEMES);
   }
 
   private boolean getReadOnly(BuckConfig buckConfig) {
@@ -147,6 +165,11 @@ public class XCodeProjectSubCommand extends ProjectSubCommand {
   private boolean getAbsoluteHeaderMapPaths(BuckConfig buckConfig) {
     return buckConfig.getBooleanValue(
         "project", "absolute_header_map_paths", DEFAULT_ABSOLUTE_HEADER_MAP_PATHS);
+  }
+
+  private boolean getSharedLibrariesInBundles(BuckConfig buckConfig) {
+    return buckConfig.getBooleanValue(
+        "project", "shared_libraries_in_bundles", DEFAULT_SHARED_LIBRARIES_AS_DYNAMIC_FRAMEWORKS);
   }
 
   @Override

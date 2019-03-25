@@ -1,6 +1,8 @@
 # Copyright 2016 Facebook. All Rights Reserved.
 #
-# To refresh the protocol run the following command:
+# To refresh the protocol, make sure you have public version of Thrift installed:
+#   brew install thrift
+# and run the following command:
 #   /usr/local/bin/thrift --gen java:generated_annotations=undated  -out src-gen/ src/com/facebook/buck/artifact_cache/thrift/buckcache.thrift
 #
 # This .thrift file contains the protocol required by the buck client to
@@ -37,6 +39,15 @@ struct ArtifactMetadata {
   6: optional string scheduleType;
   7: optional string artifactPayloadMd5;
   8: optional bool distributedBuildModeEnabled;
+  // Free-form identifier of a service that produced the artifact
+  9: optional string producerId;
+  // How long it took to build this artifact, in milliseconds
+  10: optional i64 buildTimeMs;
+  // Hostname of a machine that produced the artifact
+  11: optional string producerHostname;
+  // Size of the content in bytes
+  12: optional i64 sizeBytes;
+  13: optional string configuration;
 }
 
 enum ContainsResultType {

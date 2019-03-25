@@ -65,7 +65,7 @@ public class AppleBinaryIntegrationTest {
   private ProjectFilesystem filesystem;
 
   @Before
-  public void setUp() throws InterruptedException {
+  public void setUp() {
     assumeTrue(Platform.detect() == Platform.MACOS || Platform.detect() == Platform.LINUX);
     filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
   }
@@ -329,6 +329,26 @@ public class AppleBinaryIntegrationTest {
     assertThat(
         workspace.runCommand("file", frameworkBinaryPath.toString()).getStdout().get(),
         containsString("dynamically linked shared library"));
+  }
+
+  @Test
+  public void testAppleBinaryWithFatLTO() throws Exception {
+    assumeTrue(Platform.detect() == Platform.MACOS);
+    assumeTrue(AppleNativeIntegrationTestUtils.isApplePlatformAvailable(ApplePlatform.MACOSX));
+
+    ProjectWorkspace workspace =
+        TestDataHelper.createProjectWorkspaceForScenario(this, "apple_binary_with_fatlto", tmp);
+    workspace.setUp();
+
+    BuildTarget target = BuildTargetFactory.newInstance("//Apps/TestApp:TestApp");
+    workspace.runBuckCommand("build", target.getFullyQualifiedName()).assertSuccess();
+
+    Path outputPath = workspace.getPath(BuildTargetPaths.getGenPath(filesystem, target, "%s"));
+    assertThat(Files.exists(outputPath), is(true));
+    assertThat(Files.exists(Paths.get(outputPath + "-lto")), is(true));
+    assertThat(
+        workspace.runCommand("file", outputPath.toString()).getStdout().get(),
+        containsString("executable"));
   }
 
   @Test

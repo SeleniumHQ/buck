@@ -18,8 +18,10 @@ package com.facebook.buck.cli;
 
 import com.facebook.buck.android.AdbHelper;
 import com.facebook.buck.android.HasInstallableApk;
+import com.facebook.buck.android.device.TargetDeviceOptions;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelper;
 import com.facebook.buck.android.exopackage.AndroidDevicesHelperFactory;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetGraphAndBuildTargets;
@@ -29,10 +31,9 @@ import com.facebook.buck.core.rules.SourcePathRuleFinder;
 import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.sourcepath.resolver.impl.DefaultSourcePathResolver;
 import com.facebook.buck.event.ConsoleEvent;
+import com.facebook.buck.parser.SpeculativeParsing;
 import com.facebook.buck.parser.exceptions.BuildFileParseException;
 import com.facebook.buck.step.AdbOptions;
-import com.facebook.buck.step.ExecutionContext;
-import com.facebook.buck.step.TargetDeviceOptions;
 import com.facebook.buck.util.CommandLineException;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.MoreExceptions;
@@ -40,7 +41,6 @@ import com.facebook.infer.annotation.SuppressFieldNotInitialized;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import org.kohsuke.args4j.Argument;
@@ -89,26 +89,26 @@ public class UninstallCommand extends AbstractCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
 
     // Parse all of the build targets specified by the user.
     ActionGraphBuilder graphBuilder;
     ImmutableSet<BuildTarget> buildTargets;
 
     try (CommandThreadManager pool =
-        new CommandThreadManager("Uninstall", getConcurrencyLimit(params.getBuckConfig())); ) {
+        new CommandThreadManager("Uninstall", getConcurrencyLimit(params.getBuckConfig()))) {
       TargetGraphAndBuildTargets result =
           params
               .getParser()
-              .buildTargetGraphForTargetNodeSpecs(
-                  params.getCell(),
-                  getEnableParserProfiling(),
-                  pool.getListeningExecutorService(),
+              .buildTargetGraphWithConfigurationTargets(
+                  createParsingContext(params.getCell(), pool.getListeningExecutorService())
+                      .withExcludeUnsupportedTargets(false)
+                      .withSpeculativeParsing(SpeculativeParsing.ENABLED),
                   parseArgumentsAsTargetNodeSpecs(
                       params.getCell().getCellPathResolver(),
                       params.getBuckConfig(),
-                      getArguments()));
+                      getArguments()),
+                  params.getTargetConfiguration());
       buildTargets = result.getBuildTargets();
       graphBuilder =
           params

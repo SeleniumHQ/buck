@@ -1,6 +1,7 @@
 load("//tools/build_rules:java_rules.bzl", "java_immutables_library")
 
 PUBLIC_API_SOURCES = [
+    "AbstractArtifactCacheEventFactory.java",
     "AbstractArtifactInfo.java",
     "AbstractCacheResult.java",
     "AbstractCacheCountersSummary.java",
@@ -15,6 +16,7 @@ PUBLIC_API_SOURCES = [
     "ArtifactCacheFactory.java",
     "ArtifactUploader.java",
     "CacheResultType.java",
+    "ClientCertificateHandler.java",
     "DirArtifactCache.java",
     "DirArtifactCacheEvent.java",
     "HttpArtifactCacheEvent.java",
@@ -28,6 +30,8 @@ java_immutables_library(
     srcs = PUBLIC_API_SOURCES,
     exported_deps = [
         "//src/com/facebook/buck/artifact_cache/config:config",
+        "//src/com/facebook/buck/core/cell:cell",
+        "//src/com/facebook/buck/core/parser/buildtargetparser:buildtargetparser",
     ],
     tests = [
         "//test/com/facebook/buck/artifact_cache:artifact_cache",
@@ -58,6 +62,7 @@ java_immutables_library(
         "//third-party/java/guava:guava",
         "//third-party/java/jackson:jackson-annotations",
         "//third-party/java/jackson:jackson-databind",
+        "//third-party/java/okhttp:okhttp-tls",
         "//third-party/java/zstd-jni:zstd-jni",
     ],
 )
@@ -129,6 +134,7 @@ java_immutables_library(
         "//third-party/java/guava:guava",
         "//third-party/java/jsr:jsr305",
         "//third-party/java/okhttp:okhttp",
+        "//third-party/java/okhttp:okhttp-tls",
         "//third-party/java/sqlite:sqlite",
     ],
 )
@@ -153,7 +159,6 @@ java_binary(
         "//src/com/facebook/buck/io:io",
         "//src/com/facebook/buck/io/watchman:transport",
         "//src/com/facebook/buck/jvm/core:core",
-        "//src/com/facebook/buck/parser:rule_pattern",
         "//src/com/facebook/buck/rules/coercer:interface",
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",
@@ -203,7 +208,6 @@ java_library(
         "//src/com/facebook/buck/io:io",
         "//src/com/facebook/buck/io/watchman:transport",
         "//src/com/facebook/buck/jvm/core:core",
-        "//src/com/facebook/buck/parser:rule_pattern",
         "//src/com/facebook/buck/rules/coercer:interface",
         "//src/com/facebook/buck/slb:slb",
         "//src/com/facebook/buck/step:step",

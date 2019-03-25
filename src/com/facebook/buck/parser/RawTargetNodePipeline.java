@@ -18,7 +18,9 @@ package com.facebook.buck.parser;
 
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.model.BuildTarget;
-import com.facebook.buck.core.model.impl.ImmutableBuildTarget;
+import com.facebook.buck.core.model.EmptyTargetConfiguration;
+import com.facebook.buck.core.model.TargetConfiguration;
+import com.facebook.buck.core.model.impl.ImmutableUnconfiguredBuildTarget;
 import com.facebook.buck.core.model.targetgraph.RawTargetNode;
 import com.facebook.buck.event.BuckEventBus;
 import com.facebook.buck.event.PerfEventId;
@@ -26,9 +28,11 @@ import com.facebook.buck.event.SimplePerfEvent;
 import com.facebook.buck.event.SimplePerfEvent.Scope;
 import com.facebook.buck.parser.PipelineNodeCache.Cache;
 import com.facebook.buck.parser.exceptions.BuildTargetException;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableList;
+import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
@@ -37,14 +41,16 @@ import java.util.function.Function;
 /** Converts nodes in a raw form (taken from build file parsers) into {@link RawTargetNode}. */
 public class RawTargetNodePipeline extends ConvertingPipeline<Map<String, Object>, RawTargetNode> {
 
-  private final RawNodeParsePipeline rawNodeParsePipeline;
+  private final BuildFileRawNodeParsePipeline buildFileRawNodeParsePipeline;
+  private final BuildTargetRawNodeParsePipeline buildTargetRawNodeParsePipeline;
   private final RawTargetNodeFactory<Map<String, Object>> rawTargetNodeFactory;
 
   public RawTargetNodePipeline(
       ListeningExecutorService executorService,
       Cache<BuildTarget, RawTargetNode> cache,
-      RawNodeParsePipeline rawNodeParsePipeline,
       BuckEventBus eventBus,
+      BuildFileRawNodeParsePipeline buildFileRawNodeParsePipeline,
+      BuildTargetRawNodeParsePipeline buildTargetRawNodeParsePipeline,
       RawTargetNodeFactory<Map<String, Object>> rawTargetNodeFactory) {
     super(
         executorService,
@@ -52,15 +58,25 @@ public class RawTargetNodePipeline extends ConvertingPipeline<Map<String, Object
         eventBus,
         SimplePerfEvent.scope(eventBus, PerfEventId.of("raw_target_node_parse_pipeline")),
         PerfEventId.of("GetRawTargetNode"));
-    this.rawNodeParsePipeline = rawNodeParsePipeline;
+    this.buildFileRawNodeParsePipeline = buildFileRawNodeParsePipeline;
+    this.buildTargetRawNodeParsePipeline = buildTargetRawNodeParsePipeline;
     this.rawTargetNodeFactory = rawTargetNodeFactory;
   }
 
   @Override
   protected BuildTarget getBuildTarget(
-      Path root, Optional<String> cellName, Path buildFile, Map<String, Object> from) {
-    return ImmutableBuildTarget.of(
-        RawNodeParsePipeline.parseBuildTargetFromRawRule(root, cellName, from, buildFile));
+      Path root,
+      Optional<String> cellName,
+      Path buildFile,
+      TargetConfiguration targetConfiguration,
+      Map<String, Object> from) {
+    return ImmutableUnconfiguredBuildTarget.of(
+            UnflavoredBuildTargetFactory.createFromRawNode(root, cellName, from, buildFile))
+        // This pipeline provides access to RawTargetNode which doesn't know about target
+        // configuration. Using empty configuration here to make sure raw target nodes are not
+        // duplicated for different configurations.
+        // TODO: remove this when pipeline cache supports RawTargetNode
+        .configure(EmptyTargetConfiguration.INSTANCE);
   }
 
   @Override
@@ -73,20 +89,24 @@ public class RawTargetNodePipeline extends ConvertingPipeline<Map<String, Object
     return rawTargetNodeFactory.create(
         cell,
         cell.getAbsolutePathToBuildFile(buildTarget),
-        buildTarget,
+        buildTarget.getUnconfiguredBuildTarget(),
         rawNode,
         perfEventScopeFunction);
   }
 
   @Override
-  protected ListenableFuture<ImmutableSet<Map<String, Object>>> getItemsToConvert(
+  protected ListenableFuture<ImmutableList<Map<String, Object>>> getItemsToConvert(
       Cell cell, Path buildFile) throws BuildTargetException {
-    return rawNodeParsePipeline.getAllNodesJob(cell, buildFile);
+    return Futures.transform(
+        buildFileRawNodeParsePipeline.getAllNodesJob(cell, buildFile),
+        map -> ImmutableList.copyOf(map.getTargets().values()),
+        MoreExecutors.directExecutor());
   }
 
   @Override
   protected ListenableFuture<Map<String, Object>> getItemToConvert(
       Cell cell, BuildTarget buildTarget) throws BuildTargetException {
-    return rawNodeParsePipeline.getNodeJob(cell, buildTarget);
+    return buildTargetRawNodeParsePipeline.getNodeJob(
+        cell, buildTarget.getUnconfiguredBuildTarget());
   }
 }

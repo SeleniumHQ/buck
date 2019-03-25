@@ -28,7 +28,6 @@ import com.facebook.buck.core.rules.attr.SupportsInputBasedRuleKey;
 import com.facebook.buck.core.rules.impl.AbstractBuildRule;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.core.toolchain.tool.Tool;
 import com.facebook.buck.cxx.toolchain.StripStyle;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
@@ -62,6 +61,8 @@ public class CxxStrip extends AbstractBuildRule implements SupportsInputBasedRul
   @AddToRuleKey(stringify = true)
   private final Path output;
 
+  private final boolean isCacheable;
+
   private SourcePathRuleFinder ruleFinder;
 
   public CxxStrip(
@@ -71,12 +72,14 @@ public class CxxStrip extends AbstractBuildRule implements SupportsInputBasedRul
       SourcePathRuleFinder ruleFinder,
       StripStyle stripStyle,
       Tool strip,
+      boolean isCacheable,
       Path output) {
     super(buildTarget, projectFilesystem);
     this.unstrippedBinary = unstrippedBinary;
     this.ruleFinder = ruleFinder;
     this.stripStyle = stripStyle;
     this.strip = strip;
+    this.isCacheable = isCacheable;
     this.output = output;
 
     Preconditions.checkArgument(
@@ -146,15 +149,18 @@ public class CxxStrip extends AbstractBuildRule implements SupportsInputBasedRul
   }
 
   @Override
+  public boolean isCacheable() {
+    return isCacheable;
+  }
+
+  @Override
   public SourcePath getSourcePathToOutput() {
     return ExplicitBuildTargetSourcePath.of(getBuildTarget(), output);
   }
 
   @Override
   public void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver sourcePathResolver) {
+      BuildRuleResolver ruleResolver, SourcePathRuleFinder ruleFinder) {
     this.ruleFinder = ruleFinder;
   }
 }

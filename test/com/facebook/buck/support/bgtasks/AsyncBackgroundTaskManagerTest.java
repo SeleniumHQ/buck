@@ -18,6 +18,7 @@ package com.facebook.buck.support.bgtasks;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.facebook.buck.core.model.BuildId;
@@ -27,6 +28,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nullable;
+import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Test;
 
@@ -47,8 +50,8 @@ public class AsyncBackgroundTaskManagerTest {
   private ImmutableList<BackgroundTask<TestArgs>> generateWaitingTaskList(
       int nTasks,
       boolean success,
-      CountDownLatch taskBlocker,
-      CountDownLatch taskWaiter,
+      @Nullable CountDownLatch taskBlocker,
+      @Nullable CountDownLatch taskWaiter,
       String name) {
     ImmutableList.Builder<BackgroundTask<TestArgs>> taskList = ImmutableList.builder();
     for (int i = 0; i < nTasks; i++) {
@@ -203,44 +206,49 @@ public class AsyncBackgroundTaskManagerTest {
   public void testNonblockingNewCommandsOverlapping() throws InterruptedException {
     manager = new AsyncBackgroundTaskManager(false, NTHREADS);
 
-    CountDownLatch firstTaskBlocker = new CountDownLatch(1);
+    CountDownLatch firstBlockingTaskBlocker = new CountDownLatch(1);
+
     CountDownLatch firstTaskWaiter = new CountDownLatch(FIRST_COMMAND_TASKS);
-    CountDownLatch laterTasksBlocker = new CountDownLatch(1);
     CountDownLatch laterTasksWaiter = new CountDownLatch(SECOND_COMMAND_TASKS);
 
+    ImmutableList<BackgroundTask<TestArgs>> firstBlockingCommandTasks =
+        generateWaitingTaskList(NTHREADS, true, firstBlockingTaskBlocker, null, "blockedTestTask");
     ImmutableList<BackgroundTask<TestArgs>> firstCommandTasks =
-        generateWaitingTaskList(
-            FIRST_COMMAND_TASKS, true, firstTaskBlocker, firstTaskWaiter, "testTask");
+        generateWaitingTaskList(FIRST_COMMAND_TASKS, true, null, firstTaskWaiter, "testTask");
     ImmutableList<BackgroundTask<TestArgs>> secondCommandTasks =
         generateWaitingTaskList(
-            SECOND_COMMAND_TASKS / 2,
-            true,
-            laterTasksBlocker,
-            laterTasksWaiter,
-            "secondCommandTask");
+            SECOND_COMMAND_TASKS / 2, true, null, laterTasksWaiter, "secondCommandTask");
     ImmutableList<BackgroundTask<TestArgs>> thirdCommandTasks =
         generateWaitingTaskList(
             SECOND_COMMAND_TASKS - (SECOND_COMMAND_TASKS / 2),
             true,
-            laterTasksBlocker,
+            null,
             laterTasksWaiter,
             "thirdCommandTask");
 
     manager.notify(Notification.COMMAND_START);
+    schedule(firstBlockingCommandTasks);
     schedule(firstCommandTasks);
-    manager.notify(Notification.COMMAND_END);
-    firstTaskBlocker.countDown();
+
+    manager.notify(Notification.COMMAND_END); // the first set of tasks will be allowed to ran
 
     manager.notify(Notification.COMMAND_START);
+
+    // allow the first set of tasks to complete to verify that new commands block more tasks from
+    // completing.
+    firstBlockingTaskBlocker.countDown();
+
     schedule(secondCommandTasks);
     manager.notify(Notification.COMMAND_START);
     schedule(thirdCommandTasks);
     // signal once -- this should not permit tasks to be run as one command is still waiting
     manager.notify(Notification.COMMAND_END);
-    laterTasksBlocker.countDown();
-    assertTrue(
-        manager.getScheduledTasks().size() >= FIRST_COMMAND_TASKS + SECOND_COMMAND_TASKS - 1);
-    assertTrue(manager.getScheduledTasks().size() <= FIRST_COMMAND_TASKS + SECOND_COMMAND_TASKS);
+    assertThat(
+        manager.getScheduledTasks().size(),
+        Matchers.greaterThanOrEqualTo(FIRST_COMMAND_TASKS + SECOND_COMMAND_TASKS));
+    assertThat(
+        manager.getScheduledTasks().size(),
+        Matchers.lessThanOrEqualTo(FIRST_COMMAND_TASKS + SECOND_COMMAND_TASKS + NTHREADS));
     manager.notify(Notification.COMMAND_END); // actually permit to run
     firstTaskWaiter.await();
     laterTasksWaiter.await();
@@ -423,24 +431,19 @@ public class AsyncBackgroundTaskManagerTest {
 
     @Override
     public void run(TestArgs args) throws Exception {
-      if (args.getTaskStarted() != null) {
-        args.getTaskStarted().countDown();
-      }
-      if (args.getTaskBlocker() != null) {
-        args.getTaskBlocker().await();
+      args.getTaskStarted().ifPresent(CountDownLatch::countDown);
+
+      if (args.getTaskBlocker().isPresent()) {
+        args.getTaskBlocker().get().await();
       }
       if (args.getInterrupt()) {
         throw new InterruptedException("TestAction task interrupted");
       }
       if (args.getSuccess()) {
         args.setOutput("succeeded");
-        if (args.getTaskWaiter() != null) {
-          args.getTaskWaiter().countDown();
-        }
+        args.getTaskWaiter().ifPresent(CountDownLatch::countDown);
       } else {
-        if (args.getTaskWaiter() != null) {
-          args.getTaskWaiter().countDown();
-        }
+        args.getTaskWaiter().ifPresent(CountDownLatch::countDown);
         throw new Exception("failed");
       }
     }
@@ -449,17 +452,17 @@ public class AsyncBackgroundTaskManagerTest {
   static class TestArgs {
     private boolean success;
     private String output;
-    private final CountDownLatch taskBlocker;
-    private final CountDownLatch taskWaiter;
-    private final CountDownLatch taskStarted;
+    private final @Nullable CountDownLatch taskBlocker;
+    private final @Nullable CountDownLatch taskWaiter;
+    private final @Nullable CountDownLatch taskStarted;
     private final boolean interrupt;
 
     public TestArgs(
         boolean success,
         boolean interrupt,
-        CountDownLatch taskBlocker,
-        CountDownLatch taskWaiter,
-        CountDownLatch taskStarted) {
+        @Nullable CountDownLatch taskBlocker,
+        @Nullable CountDownLatch taskWaiter,
+        @Nullable CountDownLatch taskStarted) {
       this.success = success;
       this.output = "init";
       this.taskBlocker = taskBlocker;
@@ -488,16 +491,16 @@ public class AsyncBackgroundTaskManagerTest {
       output = newOutput;
     }
 
-    public CountDownLatch getTaskBlocker() {
-      return taskBlocker;
+    public Optional<CountDownLatch> getTaskBlocker() {
+      return Optional.ofNullable(taskBlocker);
     }
 
-    public CountDownLatch getTaskWaiter() {
-      return taskWaiter;
+    public Optional<CountDownLatch> getTaskWaiter() {
+      return Optional.ofNullable(taskWaiter);
     }
 
-    public CountDownLatch getTaskStarted() {
-      return taskStarted;
+    public Optional<CountDownLatch> getTaskStarted() {
+      return Optional.ofNullable(taskStarted);
     }
   }
 }

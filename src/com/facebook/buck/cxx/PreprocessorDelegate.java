@@ -35,8 +35,8 @@ import com.facebook.buck.cxx.toolchain.HeaderVerification;
 import com.facebook.buck.cxx.toolchain.PathShortener;
 import com.facebook.buck.cxx.toolchain.Preprocessor;
 import com.facebook.buck.event.LeafEvents;
+import com.facebook.buck.rules.args.AddsToRuleKeyFunction;
 import com.facebook.buck.rules.args.Arg;
-import com.facebook.buck.rules.args.RuleKeyAppendableFunction;
 import com.facebook.buck.rules.args.StringArg;
 import com.facebook.buck.rules.coercer.FrameworkPath;
 import com.facebook.buck.rules.modern.CustomClassSerialization;
@@ -47,6 +47,7 @@ import com.facebook.buck.rules.modern.impl.ValueTypeInfoFactory;
 import com.facebook.buck.util.RichStream;
 import com.facebook.buck.util.Scope;
 import com.facebook.buck.util.WeakMemoizer;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -57,7 +58,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Predicate;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
@@ -69,7 +70,7 @@ final class PreprocessorDelegate implements AddsToRuleKey, HasCustomDepsLogic {
   @AddToRuleKey private final Preprocessor preprocessor;
 
   @AddToRuleKey
-  private final RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathSearchPathFunction;
+  private final AddsToRuleKeyFunction<FrameworkPath, Path> frameworkPathSearchPathFunction;
 
   @AddToRuleKey private final HeaderVerification headerVerification;
 
@@ -102,7 +103,7 @@ final class PreprocessorDelegate implements AddsToRuleKey, HasCustomDepsLogic {
       PathSourcePath workingDir,
       Preprocessor preprocessor,
       PreprocessorFlags preprocessorFlags,
-      RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathSearchPathFunction,
+      AddsToRuleKeyFunction<FrameworkPath, Path> frameworkPathSearchPathFunction,
       Optional<CxxIncludePaths> leadingIncludePaths,
       Optional<BuildRule> aggregatedDeps,
       ImmutableSortedSet<String> conflictingHeaderBasenameWhitelist) {
@@ -258,19 +259,6 @@ final class PreprocessorDelegate implements AddsToRuleKey, HasCustomDepsLogic {
       Iterable<Path> dependencies, BuildContext context) {
     Stream.Builder<SourcePath> inputsBuilder = Stream.builder();
 
-    // Add inputs that we always use.
-    BuildableSupport.deriveInputs(preprocessor).forEach(inputsBuilder);
-
-    // Prefix header is not represented in the dep file, so should be added manually.
-    if (preprocessorFlags.getPrefixHeader().isPresent()) {
-      inputsBuilder.add(preprocessorFlags.getPrefixHeader().get());
-    }
-
-    // Args can contain things like location macros, so extract any inputs we find.
-    for (Arg arg : preprocessorFlags.getOtherFlags().getAllFlags()) {
-      BuildableSupport.deriveInputs(arg).forEach(inputsBuilder);
-    }
-
     // Add any header/include inputs that our dependency file said we used.
     //
     // TODO(#9117006): We need to find out which `SourcePath` each line in the dep file refers to.
@@ -285,19 +273,25 @@ final class PreprocessorDelegate implements AddsToRuleKey, HasCustomDepsLogic {
       inputsBuilder.add(headerPathNormalizer.getSourcePathForAbsolutePath(absolutePath));
     }
 
-    return inputsBuilder
-        .build()
-        .filter(getCoveredByDepFilePredicate())
-        .collect(ImmutableList.toImmutableList());
+    // Precompiled header is not represented in the dep file, but prefix header is represented. If
+    // we say this is a non-depfile input, building depfile keys crashes, so just always add it to
+    // the depfile (if it's duplicated that's fine).
+    if (preprocessorFlags.getPrefixHeader().isPresent()) {
+      inputsBuilder.add(preprocessorFlags.getPrefixHeader().get());
+    }
+
+    return inputsBuilder.build().collect(ImmutableList.toImmutableList());
   }
 
-  public Predicate<SourcePath> getCoveredByDepFilePredicate() {
+  public void getNonDepFileInputs(Consumer<SourcePath> inputConsumer) {
     // TODO(jkeljo): I didn't know how to implement this, and didn't have time to figure it out.
-    // TODO(cjhopman): This should only include paths from the headers, not all the tools and other
-    // random things added to the rulekeys.
-    return (SourcePath path) ->
-        !(path instanceof PathSourcePath)
-            || !((PathSourcePath) path).getRelativePath().isAbsolute();
+    // Add inputs that we always use.
+    BuildableSupport.deriveInputs(preprocessor).forEach(inputConsumer);
+
+    // Args can contain things like location macros, so extract any inputs we find.
+    for (Arg arg : preprocessorFlags.getOtherFlags().getAllFlags()) {
+      BuildableSupport.deriveInputs(arg).forEach(inputConsumer);
+    }
   }
 
   public HeaderVerification getHeaderVerification() {
@@ -395,10 +389,10 @@ final class PreprocessorDelegate implements AddsToRuleKey, HasCustomDepsLogic {
   static class SerializationBehavior implements CustomClassSerialization<PreprocessorDelegate> {
     static final ValueTypeInfo<Preprocessor> PREPROCESSOR_TYPE_INFO =
         ValueTypeInfoFactory.forTypeToken(new TypeToken<Preprocessor>() {});
-    static final ValueTypeInfo<RuleKeyAppendableFunction<FrameworkPath, Path>>
+    static final ValueTypeInfo<AddsToRuleKeyFunction<FrameworkPath, Path>>
         FRAMEWORK_PATH_FUNCTION_TYPE_INFO =
             ValueTypeInfoFactory.forTypeToken(
-                new TypeToken<RuleKeyAppendableFunction<FrameworkPath, Path>>() {});
+                new TypeToken<AddsToRuleKeyFunction<FrameworkPath, Path>>() {});
     static final ValueTypeInfo<HeaderVerification> HEADER_VERIFICATION_TYPE_INFO =
         ValueTypeInfoFactory.forTypeToken(new TypeToken<HeaderVerification>() {});
     static final ValueTypeInfo<PreprocessorFlags> PREPROCESSOR_FLAGS_TYPE_INFO =
@@ -423,7 +417,7 @@ final class PreprocessorDelegate implements AddsToRuleKey, HasCustomDepsLogic {
     public <E extends Exception> PreprocessorDelegate deserialize(ValueCreator<E> deserializer)
         throws E {
       Preprocessor preprocessor = PREPROCESSOR_TYPE_INFO.createNotNull(deserializer);
-      RuleKeyAppendableFunction<FrameworkPath, Path> frameworkPathSearchPathFunction =
+      AddsToRuleKeyFunction<FrameworkPath, Path> frameworkPathSearchPathFunction =
           FRAMEWORK_PATH_FUNCTION_TYPE_INFO.createNotNull(deserializer);
       HeaderVerification headerVerification =
           HEADER_VERIFICATION_TYPE_INFO.createNotNull(deserializer);
@@ -450,5 +444,10 @@ final class PreprocessorDelegate implements AddsToRuleKey, HasCustomDepsLogic {
           Optional.empty(),
           conflictingHeadersBasenameWhitelist);
     }
+  }
+
+  @VisibleForTesting
+  public ImmutableSortedSet<String> getConflictingHeadersBasenameWhitelist() {
+    return conflictingHeadersBasenameWhitelist;
   }
 }

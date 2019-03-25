@@ -26,6 +26,7 @@ import com.facebook.buck.core.toolchain.tool.impl.CommandTool;
 import com.facebook.buck.core.toolchain.tool.impl.HashedFileTool;
 import com.facebook.buck.core.util.immutables.BuckStyleTuple;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.io.ExecutableFinder;
 import com.facebook.buck.util.ProcessExecutor;
 import com.facebook.buck.util.ProcessExecutorParams;
@@ -38,7 +39,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.EnumSet;
-import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import org.immutables.value.Value;
 
@@ -49,88 +50,30 @@ abstract class AbstractGoPlatformFactory {
 
   private static final Path DEFAULT_GO_TOOL = Paths.get("go");
 
-  // GOOS/GOARCH values from
-  // https://github.com/golang/go/blob/master/src/go/build/syslist.go
-  private static final ImmutableMap<String, Platform> GOOS_TO_PLATFORM_LIST =
-      ImmutableMap.<String, Platform>builder()
-          .put("linux", Platform.LINUX)
-          .put("windows", Platform.WINDOWS)
-          .put("darwin", Platform.MACOS)
-          .put("android", Platform.UNKNOWN)
-          .put("dragonfly", Platform.UNKNOWN)
-          .put("freebsd", Platform.UNKNOWN)
-          .put("nacl", Platform.UNKNOWN)
-          .put("netbsd", Platform.UNKNOWN)
-          .put("openbsd", Platform.UNKNOWN)
-          .put("plan9", Platform.UNKNOWN)
-          .put("solaris", Platform.UNKNOWN)
-          .build();
-
-  private static final ImmutableMap<String, Architecture> GOARCH_TO_ARCH_LIST =
-      ImmutableMap.<String, Architecture>builder()
-          .put("386", Architecture.I386)
-          .put("amd64", Architecture.X86_64)
-          .put("amd64p32", Architecture.UNKNOWN)
-          .put("arm", Architecture.ARM)
-          .put("armv5", Architecture.ARM)
-          .put("armv6", Architecture.ARM)
-          .put("armv7", Architecture.ARM)
-          .put("armbe", Architecture.ARMEB)
-          .put("arm64", Architecture.AARCH64)
-          .put("arm64be", Architecture.UNKNOWN)
-          .put("ppc64", Architecture.PPC64)
-          .put("ppc64le", Architecture.UNKNOWN)
-          .put("mips", Architecture.MIPS)
-          .put("mipsle", Architecture.MIPSEL)
-          .put("mips64", Architecture.MIPS64)
-          .put("mips64le", Architecture.MIPSEL64)
-          .put("mips64p32", Architecture.UNKNOWN)
-          .put("mips64p32le", Architecture.UNKNOWN)
-          .put("ppc", Architecture.POWERPC)
-          .put("s390", Architecture.UNKNOWN)
-          .put("s390x", Architecture.UNKNOWN)
-          .put("sparc", Architecture.UNKNOWN)
-          .put("sparc64", Architecture.UNKNOWN)
-          .build();
-
   abstract BuckConfig getBuckConfig();
 
   abstract ProcessExecutor getProcessExecutor();
 
   abstract ExecutableFinder getExecutableFinder();
 
-  abstract FlavorDomain<CxxPlatform> getCxxPlatforms();
+  abstract FlavorDomain<UnresolvedCxxPlatform> getCxxPlatforms();
 
-  abstract CxxPlatform getDefaultCxxPlatform();
+  abstract UnresolvedCxxPlatform getDefaultCxxPlatform();
 
-  @Value.Lazy
-  String getDefaultOs() {
+  public static GoOs getDefaultOs() {
     Platform platform = Platform.detect();
     if (platform == Platform.UNKNOWN) {
       throw new HumanReadableException("Unable to detect system platform");
     }
-    return GOOS_TO_PLATFORM_LIST
-        .entrySet()
-        .stream()
-        .filter(e -> e.getValue() == platform)
-        .findFirst()
-        .map(Map.Entry::getKey)
-        .orElseThrow(() -> new HumanReadableException("No Go OS corresponding to %s", platform));
+    return GoOs.fromPlatform(platform);
   }
 
-  @Value.Lazy
-  String getDefaultArch() {
+  public static GoArch getDefaultArch() {
     Architecture arch = Architecture.detect();
     if (arch == Architecture.UNKNOWN) {
       throw new HumanReadableException("Unable to detect system architecture");
     }
-    return GOARCH_TO_ARCH_LIST
-        .entrySet()
-        .stream()
-        .filter(e -> e.getValue() == arch)
-        .findFirst()
-        .map(Map.Entry::getKey)
-        .orElseThrow(() -> new HumanReadableException("No Go arch corresponding to %s", arch));
+    return GoArch.fromArchitecture(arch);
   }
 
   /** @return the {@link GoPlatform} defined in the given {@code section}. */
@@ -141,12 +84,12 @@ abstract class AbstractGoPlatformFactory {
             .getValue(section, "cxx_platform")
             .map(InternalFlavor::of)
             .map(getCxxPlatforms()::getValue)
-            .orElse(getDefaultCxxPlatform());
+            .orElse(getDefaultCxxPlatform())
+            .getLegacyTotallyUnsafe();
     return GoPlatform.builder()
         .setFlavor(flavor)
         .setGoOs(getOs(section))
         .setGoArch(getArch(section))
-        .setGoArm(getGoArm(section))
         .setGoRoot(goRoot)
         .setCompiler(getGoTool(section, goRoot, "compiler", "compile", "compiler_flags"))
         .setAssembler(getGoTool(section, goRoot, "assembler", "asm", "asm_flags"))
@@ -155,45 +98,38 @@ abstract class AbstractGoPlatformFactory {
         .setPacker(getGoTool(section, goRoot, "packer", "pack", ""))
         .setLinker(getGoTool(section, goRoot, "linker", "link", "linker_flags"))
         .setCover(getGoTool(section, goRoot, "cover", "cover", ""))
+        .setTestMainGen(getGoToolFromSection(section, goRoot, "testmaingen", "testmaingen", ""))
         .setCxxPlatform(cxxPlatform)
         .setExternalLinkerFlags(getFlags(section, "external_linker_flags"))
         .build();
   }
 
-  private String getOs(String section) {
+  private GoOs getOs(String section) {
     return getBuckConfig()
         .getValue(section, "os")
         .map(
             os -> {
-              if (!GOOS_TO_PLATFORM_LIST.containsKey(os)) {
-                throw new HumanReadableException("%s.arch: unknown OS %s", section, os);
+              try {
+                return GoOs.fromString(os);
+              } catch (IllegalArgumentException e) {
+                throw new HumanReadableException("%s.os: unknown GOOS '%s'", section, os);
               }
-              return os;
             })
-        .orElseGet(this::getDefaultOs);
+        .orElse(AbstractGoPlatformFactory.getDefaultOs());
   }
 
-  private String getArchFromSection(String section) {
+  private GoArch getArch(String section) {
     return getBuckConfig()
         .getValue(section, "arch")
         .map(
-            os -> {
-              if (!GOARCH_TO_ARCH_LIST.containsKey(os)) {
-                throw new HumanReadableException("%s.arch: unknown architecture %s", section, os);
+            arch -> {
+              try {
+                return GoArch.fromString(arch);
+              } catch (NoSuchElementException e) {
+                throw new HumanReadableException("%s.arch unknown GOARCH '%s'", section, arch);
               }
-              return os;
             })
-        .orElseGet(this::getDefaultArch);
-  }
-
-  private String getArch(String section) {
-    String arch = getArchFromSection(section);
-    return arch.startsWith("armv") ? "arm" : arch;
-  }
-
-  private String getGoArm(String section) {
-    String arch = getArchFromSection(section);
-    return arch.startsWith("armv") ? arch.substring(arch.length() - 1) : "";
+        .orElse(AbstractGoPlatformFactory.getDefaultArch());
   }
 
   private Path getToolDir(String section) {
@@ -221,6 +157,17 @@ abstract class AbstractGoPlatformFactory {
     }
     builder.addEnv("GOROOT", goRoot.toString());
     return builder.build();
+  }
+
+  private Optional<Tool> getGoToolFromSection(
+      String section, Path goRoot, String configName, String toolName, String extraFlagsConfigKey) {
+
+    Optional<Path> goTool = getBuckConfig().getPath(section, configName);
+    if (!goTool.isPresent()) {
+      return Optional.empty();
+    }
+
+    return Optional.of(getGoTool(section, goRoot, configName, toolName, extraFlagsConfigKey));
   }
 
   private ImmutableList<String> getFlags(String section, String key) {

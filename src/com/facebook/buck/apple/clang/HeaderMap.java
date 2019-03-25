@@ -16,6 +16,7 @@
 
 package com.facebook.buck.apple.clang;
 
+import com.facebook.buck.io.file.MorePaths;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Ascii;
 import com.google.common.base.Preconditions;
@@ -31,6 +32,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
 
@@ -116,9 +118,9 @@ public class HeaderMap {
     for (Bucket bucket : buckets) {
       if (bucket != null) {
         visitor.apply(
-            Preconditions.checkNotNull(getString(bucket.key)),
-            Preconditions.checkNotNull(getString(bucket.prefix)),
-            Preconditions.checkNotNull(getString(bucket.suffix)));
+            Objects.requireNonNull(getString(bucket.key)),
+            Objects.requireNonNull(getString(bucket.prefix)),
+            Objects.requireNonNull(getString(bucket.suffix)));
       }
     }
   }
@@ -363,7 +365,7 @@ public class HeaderMap {
         result[0] = "";
         result[1] = path.toString();
       } else {
-        result[0] = path.getParent() + "/";
+        result[0] = MorePaths.pathWithUnixSeparators(path.getParent()) + "/";
         result[1] = path.getFileName().toString();
       }
       return result;

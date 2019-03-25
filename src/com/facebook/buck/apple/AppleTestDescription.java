@@ -56,12 +56,13 @@ import com.facebook.buck.cxx.CxxLibraryDescription;
 import com.facebook.buck.cxx.CxxPreprocessables;
 import com.facebook.buck.cxx.CxxPreprocessorInput;
 import com.facebook.buck.cxx.CxxStrip;
+import com.facebook.buck.cxx.toolchain.CxxBuckConfig;
 import com.facebook.buck.cxx.toolchain.CxxPlatform;
-import com.facebook.buck.cxx.toolchain.CxxPlatforms;
 import com.facebook.buck.cxx.toolchain.CxxPlatformsProvider;
 import com.facebook.buck.cxx.toolchain.HeaderVisibility;
 import com.facebook.buck.cxx.toolchain.LinkerMapMode;
 import com.facebook.buck.cxx.toolchain.StripStyle;
+import com.facebook.buck.cxx.toolchain.UnresolvedCxxPlatform;
 import com.facebook.buck.cxx.toolchain.linker.Linker;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkable;
 import com.facebook.buck.cxx.toolchain.nativelink.NativeLinkables;
@@ -72,13 +73,13 @@ import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.swift.SwiftBuckConfig;
 import com.facebook.buck.swift.SwiftLibraryDescription;
 import com.facebook.buck.swift.SwiftRuntimeNativeLinkable;
+import com.facebook.buck.test.config.TestBuckConfig;
 import com.facebook.buck.unarchive.UnzipStep;
 import com.facebook.buck.util.Optionals;
 import com.facebook.buck.util.types.Either;
 import com.facebook.buck.versions.Version;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -90,7 +91,7 @@ import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.Collections;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import org.immutables.value.Value;
@@ -124,6 +125,7 @@ public class AppleTestDescription
   private final ToolchainProvider toolchainProvider;
   private final XCodeDescriptions xcodeDescriptions;
   private final AppleConfig appleConfig;
+  private final CxxBuckConfig cxxBuckConfig;
   private final SwiftBuckConfig swiftBuckConfig;
   private final AppleLibraryDescription appleLibraryDescription;
 
@@ -131,11 +133,13 @@ public class AppleTestDescription
       ToolchainProvider toolchainProvider,
       XCodeDescriptions xcodeDescriptions,
       AppleConfig appleConfig,
+      CxxBuckConfig cxxBuckConfig,
       SwiftBuckConfig swiftBuckConfig,
       AppleLibraryDescription appleLibraryDescription) {
     this.toolchainProvider = toolchainProvider;
     this.xcodeDescriptions = xcodeDescriptions;
     this.appleConfig = appleConfig;
+    this.cxxBuckConfig = cxxBuckConfig;
     this.swiftBuckConfig = swiftBuckConfig;
     this.appleLibraryDescription = appleLibraryDescription;
   }
@@ -196,8 +200,9 @@ public class AppleTestDescription
     }
 
     CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
-    FlavorDomain<CxxPlatform> cxxPlatformFlavorDomain = cxxPlatformsProvider.getCxxPlatforms();
-    Flavor defaultCxxFlavor = cxxPlatformsProvider.getDefaultCxxPlatform().getFlavor();
+    FlavorDomain<UnresolvedCxxPlatform> cxxPlatformFlavorDomain =
+        cxxPlatformsProvider.getUnresolvedCxxPlatforms();
+    Flavor defaultCxxFlavor = cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform().getFlavor();
 
     boolean createBundle =
         Sets.intersection(buildTarget.getFlavors(), AUXILIARY_LIBRARY_FLAVORS).isEmpty();
@@ -227,7 +232,8 @@ public class AppleTestDescription
     if (multiarchFileInfo.isPresent()) {
       ImmutableList.Builder<CxxPlatform> cxxPlatformBuilder = ImmutableList.builder();
       for (BuildTarget thinTarget : multiarchFileInfo.get().getThinTargets()) {
-        cxxPlatformBuilder.add(cxxPlatformFlavorDomain.getValue(thinTarget).get());
+        cxxPlatformBuilder.add(
+            cxxPlatformFlavorDomain.getValue(thinTarget).get().resolve(graphBuilder));
       }
       cxxPlatforms = cxxPlatformBuilder.build();
       appleCxxPlatform = multiarchFileInfo.get().getRepresentativePlatform();
@@ -235,7 +241,8 @@ public class AppleTestDescription
       CxxPlatform cxxPlatform =
           cxxPlatformFlavorDomain
               .getValue(buildTarget)
-              .orElse(cxxPlatformFlavorDomain.getValue(defaultCxxFlavor));
+              .orElse(cxxPlatformFlavorDomain.getValue(defaultCxxFlavor))
+              .resolve(graphBuilder);
       cxxPlatforms = ImmutableList.of(cxxPlatform);
       try {
         appleCxxPlatform = appleCxxPlatformFlavorDomain.getValue(cxxPlatform.getFlavor());
@@ -284,48 +291,55 @@ public class AppleTestDescription
 
     String platformName = appleCxxPlatform.getAppleSdk().getApplePlatform().getName();
 
+    BuildTarget appleBundleBuildTarget =
+        buildTarget.withAppendedFlavors(
+            BUNDLE_FLAVOR,
+            debugFormat.getFlavor(),
+            LinkerMapMode.NO_LINKER_MAP.getFlavor(),
+            AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR);
     AppleBundle bundle =
-        AppleDescriptions.createAppleBundle(
-            xcodeDescriptions,
-            getCxxPlatformsProvider(),
-            appleCxxPlatformFlavorDomain,
-            context.getTargetGraph(),
-            buildTarget.withAppendedFlavors(
-                BUNDLE_FLAVOR,
-                debugFormat.getFlavor(),
-                LinkerMapMode.NO_LINKER_MAP.getFlavor(),
-                AppleDescriptions.NO_INCLUDE_FRAMEWORKS_FLAVOR),
-            projectFilesystem,
-            params.withDeclaredDeps(
-                ImmutableSortedSet.<BuildRule>naturalOrder()
-                    .add(library)
-                    .addAll(params.getDeclaredDeps().get())
-                    .build()),
-            graphBuilder,
-            toolchainProvider.getByName(
-                CodeSignIdentityStore.DEFAULT_NAME, CodeSignIdentityStore.class),
-            toolchainProvider.getByName(
-                ProvisioningProfileStore.DEFAULT_NAME, ProvisioningProfileStore.class),
-            Optional.of(library.getBuildTarget()),
-            Optional.empty(),
-            args.getExtension(),
-            Optional.empty(),
-            args.getInfoPlist(),
-            args.getInfoPlistSubstitutions(),
-            args.getDeps(),
-            args.getTests(),
-            debugFormat,
-            appleConfig.useDryRunCodeSigning(),
-            appleConfig.cacheBundlesAndPackages(),
-            appleConfig.shouldVerifyBundleResources(),
-            appleConfig.assetCatalogValidation(),
-            args.getAssetCatalogsCompilationOptions(),
-            args.getCodesignFlags(),
-            args.getCodesignIdentity(),
-            Optional.empty(),
-            appleConfig.getCodesignTimeout(),
-            swiftBuckConfig.getCopyStdlibToFrameworks());
-    graphBuilder.addToIndex(bundle);
+        AppleBundle.class.cast(
+            graphBuilder.computeIfAbsent(
+                appleBundleBuildTarget,
+                ignored ->
+                    AppleDescriptions.createAppleBundle(
+                        xcodeDescriptions,
+                        getCxxPlatformsProvider(),
+                        appleCxxPlatformFlavorDomain,
+                        context.getTargetGraph(),
+                        appleBundleBuildTarget,
+                        projectFilesystem,
+                        params.withDeclaredDeps(
+                            ImmutableSortedSet.<BuildRule>naturalOrder()
+                                .add(library)
+                                .addAll(params.getDeclaredDeps().get())
+                                .build()),
+                        graphBuilder,
+                        toolchainProvider.getByName(
+                            CodeSignIdentityStore.DEFAULT_NAME, CodeSignIdentityStore.class),
+                        toolchainProvider.getByName(
+                            ProvisioningProfileStore.DEFAULT_NAME, ProvisioningProfileStore.class),
+                        Optional.of(library.getBuildTarget()),
+                        Optional.empty(),
+                        args.getExtension(),
+                        Optional.empty(),
+                        args.getInfoPlist(),
+                        args.getInfoPlistSubstitutions(),
+                        args.getDeps(),
+                        args.getTests(),
+                        debugFormat,
+                        appleConfig.useDryRunCodeSigning(),
+                        appleConfig.cacheBundlesAndPackages(),
+                        appleConfig.shouldVerifyBundleResources(),
+                        appleConfig.assetCatalogValidation(),
+                        args.getAssetCatalogsCompilationOptions(),
+                        args.getCodesignFlags(),
+                        args.getCodesignIdentity(),
+                        Optional.empty(),
+                        Optional.empty(),
+                        appleConfig.getCodesignTimeout(),
+                        swiftBuckConfig.getCopyStdlibToFrameworks(),
+                        cxxBuckConfig.shouldCacheStrip())));
 
     Optional<SourcePath> xctool = getXctool(projectFilesystem, params, graphBuilder);
 
@@ -354,7 +368,11 @@ public class AppleTestDescription
         appleConfig.getTestLogLevel(),
         args.getTestRuleTimeoutMs()
             .map(Optional::of)
-            .orElse(appleConfig.getDelegate().getDefaultTestRuleTimeoutMs()),
+            .orElse(
+                appleConfig
+                    .getDelegate()
+                    .getView(TestBuckConfig.class)
+                    .getDefaultTestRuleTimeoutMs()),
         args.getIsUiTest(),
         args.getSnapshotReferenceImagesPath(),
         args.getEnv());
@@ -416,7 +434,7 @@ public class AppleTestDescription
                             context
                                 .getSourcePathResolver()
                                 .getAbsolutePath(
-                                    Preconditions.checkNotNull(
+                                    Objects.requireNonNull(
                                         xctoolZipBuildRule.getSourcePathToOutput())),
                             outputDirectory,
                             Optional.empty()))
@@ -471,7 +489,7 @@ public class AppleTestDescription
               blacklist,
               extraCxxDeps,
               CxxLibraryDescription.TransitiveCxxPreprocessorInputFunction.fromDeps());
-      graphBuilder.addToIndex(library);
+      graphBuilder.computeIfAbsent(library.getBuildTarget(), ignored -> library);
     }
     return library;
   }
@@ -493,14 +511,15 @@ public class AppleTestDescription
     extraDepsBuilder.addAll(appleConfig.getCodesignProvider().getParseTimeDeps());
 
     CxxPlatformsProvider cxxPlatformsProvider = getCxxPlatformsProvider();
-    ImmutableList<CxxPlatform> cxxPlatforms =
-        cxxPlatformsProvider.getCxxPlatforms().getValues(buildTarget);
+    ImmutableList<UnresolvedCxxPlatform> cxxPlatforms =
+        cxxPlatformsProvider.getUnresolvedCxxPlatforms().getValues(buildTarget);
 
-    extraDepsBuilder.addAll(
-        CxxPlatforms.getParseTimeDeps(
-            cxxPlatforms.isEmpty()
-                ? Collections.singleton(cxxPlatformsProvider.getDefaultCxxPlatform())
-                : cxxPlatforms));
+    if (cxxPlatforms.isEmpty()) {
+      extraDepsBuilder.addAll(
+          cxxPlatformsProvider.getDefaultUnresolvedCxxPlatform().getParseTimeDeps());
+    } else {
+      cxxPlatforms.forEach(platform -> extraDepsBuilder.addAll(platform.getParseTimeDeps()));
+    }
   }
 
   private AppleBundle getBuildRuleForTestHostAppTarget(

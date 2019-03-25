@@ -18,6 +18,7 @@ package com.facebook.buck.features.haskell;
 
 import com.facebook.buck.core.build.buildable.context.BuildableContext;
 import com.facebook.buck.core.build.context.BuildContext;
+import com.facebook.buck.core.build.execution.context.ExecutionContext;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.impl.BuildTargetPaths;
 import com.facebook.buck.core.rulekey.AddToRuleKey;
@@ -40,7 +41,6 @@ import com.facebook.buck.io.BuildCellRelativePath;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.rules.args.Arg;
 import com.facebook.buck.shell.ShellStep;
-import com.facebook.buck.step.ExecutionContext;
 import com.facebook.buck.step.Step;
 import com.facebook.buck.step.fs.MakeCleanDirectoryStep;
 import com.facebook.buck.util.MoreIterables;
@@ -188,6 +188,10 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
     return getOutputDir().resolve(name + "-haddock-interface");
   }
 
+  private Path getHaddockOuptutDir() {
+    return getOutputDir().resolve("ALL");
+  }
+
   private Path getOutputDir() {
     Path p = BuildTargetPaths.getGenPath(getProjectFilesystem(), getBuildTarget(), "%s");
     // Haddock doesn't like commas in its file-paths for --read-interface
@@ -200,12 +204,9 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
     return ImmutableSet.of(sp);
   }
 
-  public ImmutableSet<SourcePath> getOutputDirs() {
-    return ImmutableSet.of(
-        ExplicitBuildTargetSourcePath.of(
-            getBuildTarget(), getOutputDir().resolve(Type.HTML.toString())),
-        ExplicitBuildTargetSourcePath.of(
-            getBuildTarget(), getOutputDir().resolve(Type.HOOGLE.toString())));
+  public ImmutableSet<SourcePath> getHaddockOutputDirs() {
+    SourcePath sp = ExplicitBuildTargetSourcePath.of(getBuildTarget(), getHaddockOuptutDir());
+    return ImmutableSet.of(sp);
   }
 
   @Override
@@ -227,8 +228,7 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
         MakeCleanDirectoryStep.of(
             BuildCellRelativePath.fromCellRelativePath(
                 context.getBuildCellRootPath(), getProjectFilesystem(), dir)));
-    steps.add(new HaddockStep(getProjectFilesystem().getRootPath(), context, Type.HTML));
-    steps.add(new HaddockStep(getProjectFilesystem().getRootPath(), context, Type.HOOGLE));
+    steps.add(new HaddockStep(getProjectFilesystem().getRootPath(), context));
 
     buildableContext.recordArtifact(dir);
     return steps.build();
@@ -249,12 +249,10 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
   private class HaddockStep extends ShellStep {
 
     private BuildContext buildContext;
-    private Type type;
 
-    public HaddockStep(Path rootPath, BuildContext buildContext, Type type) {
+    public HaddockStep(Path rootPath, BuildContext buildContext) {
       super(rootPath);
       this.buildContext = buildContext;
-      this.type = type;
     }
 
     @Override
@@ -265,29 +263,18 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
           .build();
     }
 
-    protected ImmutableList<String> getTypeFlags() {
-      switch (type) {
-        case HTML:
-          return ImmutableList.<String>builder()
-              .add("--html")
-              .add("--use-contents", "index.html")
-              .add("--use-index", "doc-index.html")
-              .build();
-        case HOOGLE:
-          return ImmutableList.<String>builder().add("--hoogle").build();
-        default:
-          return ImmutableList.of();
-      }
+    protected ImmutableList<String> getRenderFlags() {
+      return ImmutableList.<String>builder()
+          .add("--use-index", "doc-index.html")
+          .add("--use-contents", "index.html")
+          .add("--html")
+          .add("--hoogle")
+          .build();
     }
 
     protected ImmutableList<String> getOutputDirFlags() {
       ImmutableList.Builder<String> flags = ImmutableList.builder();
-      if (type == Type.HTML) {
-        flags.add("--dump-interface", getInterface().toString());
-      }
-      flags.add(
-          "--odir",
-          getProjectFilesystem().resolve(getOutputDir()).resolve(type.toString()).toString());
+      flags.add("--odir", getProjectFilesystem().resolve(getHaddockOuptutDir()).toString());
       return flags.build();
     }
 
@@ -340,7 +327,7 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
 
       return ImmutableList.<String>builder()
           .addAll(haddockTool.getCommandPrefix(resolver))
-          .addAll(getTypeFlags())
+          .addAll(getRenderFlags())
           .add("--no-tmp-comp-dir")
           .add("--no-warnings")
           .addAll(
@@ -349,6 +336,7 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
                   RichStream.from(interfaces)
                       .map(sp -> resolver.getRelativePath(sp).toString())
                       .toImmutableList()))
+          .add("--dump-interface", getInterface().toString())
           .addAll(haddockFlags)
           .addAll(MoreIterables.zipAndConcat(Iterables.cycle("--optghc"), cmdArgs.build()))
           .add("--package-name", packageInfo.getName())
@@ -371,10 +359,5 @@ public class HaskellHaddockLibRule extends AbstractBuildRuleWithDeclaredAndExtra
 
   public HaskellPlatform getPlatform() {
     return platform;
-  }
-
-  public enum Type {
-    HTML,
-    HOOGLE
   }
 }

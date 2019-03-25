@@ -28,7 +28,6 @@ import com.facebook.buck.core.rules.TestBuildRuleParams;
 import com.facebook.buck.core.rules.attr.HasRuntimeDeps;
 import com.facebook.buck.core.sourcepath.ExplicitBuildTargetSourcePath;
 import com.facebook.buck.core.sourcepath.SourcePath;
-import com.facebook.buck.core.sourcepath.resolver.SourcePathResolver;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.impl.FakeProjectFilesystem;
 import com.facebook.buck.step.Step;
@@ -79,6 +78,10 @@ public class FakeBuildRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
     this(BuildTargetFactory.newInstance(target), new FakeProjectFilesystem(), deps);
   }
 
+  public FakeBuildRule(String target, ProjectFilesystem filesystem, BuildRule... deps) {
+    this(BuildTargetFactory.newInstance(target), filesystem, deps);
+  }
+
   public FakeBuildRule setRuntimeDeps(BuildRule... deps) {
     runtimeDeps = Sets.newHashSet(deps);
     return this;
@@ -120,9 +123,7 @@ public class FakeBuildRule extends AbstractBuildRuleWithDeclaredAndExtraDeps
 
   @Override
   public void updateBuildRuleResolver(
-      BuildRuleResolver ruleResolver,
-      SourcePathRuleFinder ruleFinder,
-      SourcePathResolver pathResolver) {
+      BuildRuleResolver ruleResolver, SourcePathRuleFinder ruleFinder) {
     this.ruleResolver = ruleResolver;
   }
 }

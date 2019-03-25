@@ -48,16 +48,15 @@ import com.facebook.buck.rules.keys.DefaultRuleKeyCache;
 import com.facebook.buck.rules.keys.EventPostingRuleKeyCacheScope;
 import com.facebook.buck.rules.keys.RuleKeyCacheScope;
 import com.facebook.buck.rules.keys.TrackedRuleKeyCache;
-import com.facebook.buck.step.ExecutorPool;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.ExitCode;
 import com.facebook.buck.util.cache.InstrumentingCacheStatsTracker;
 import com.facebook.buck.util.concurrent.ConcurrencyLimit;
+import com.facebook.buck.util.concurrent.ExecutorPool;
 import com.facebook.buck.util.environment.DefaultExecutionEnvironment;
 import com.facebook.buck.util.environment.ExecutionEnvironment;
 import com.facebook.buck.util.timing.DefaultClock;
 import com.facebook.buck.util.types.Pair;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListeningExecutorService;
@@ -66,6 +65,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -154,8 +154,7 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
   }
 
   @Override
-  public ExitCode runWithoutHelp(CommandRunnerParams params)
-      throws IOException, InterruptedException {
+  public ExitCode runWithoutHelp(CommandRunnerParams params) throws Exception {
     Optional<StampedeId> stampedeId = getStampedeIdOptional();
     if (stampedeId.isPresent()) {
       params.getBuckEventBus().post(new DistBuildRunEvent(stampedeId.get(), getBuildSlaveRunId()));
@@ -201,7 +200,8 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                 params.getExecutableFinder(),
                 params.getBuckModuleManager(),
                 params.getPluginManager(),
-                params.getProjectFilesystemFactory());
+                params.getProjectFilesystemFactory(),
+                params.getUnconfiguredBuildTargetFactory());
         timeStatsTracker.stopTimer(SlaveEvents.DIST_BUILD_STATE_LOADING_TIME);
 
         DistBuildConfig distBuildConfig = new DistBuildConfig(state.getRootCell().getBuckConfig());
@@ -243,7 +243,7 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                   distBuildConfig,
                   fileMaterializationStatsTracker,
                   params.getScheduledExecutor(),
-                  Preconditions.checkNotNull(params.getExecutors().get(ExecutorPool.CPU)),
+                  Objects.requireNonNull(params.getExecutors().get(ExecutorPool.CPU)),
                   params.getProjectFilesystemFactory(),
                   getGlobalCacheDirOptional());
 
@@ -257,7 +257,7 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                     params,
                     pool.getWeightedListeningExecutorService(),
                     service,
-                    Preconditions.checkNotNull(distBuildMode),
+                    Objects.requireNonNull(distBuildMode),
                     coordinatorPort,
                     coordinatorAddress,
                     stampedeId,
@@ -268,7 +268,9 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
                     timeStatsTracker,
                     getCoordinatorBuildRuleEventsPublisher(),
                     getMinionBuildProgressTracker(),
-                    ruleKeyCacheScope);
+                    ruleKeyCacheScope,
+                    params.getUnconfiguredBuildTargetFactory(),
+                    params.getTargetConfigurationSerializer());
 
             distBuildExecutor.onBuildSlavePreparationCompleted(
                 () -> timeStatsTracker.stopTimer(SlaveEvents.DIST_BUILD_PREPARATION_TIME));
@@ -384,7 +386,7 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
   private BuildSlaveRunId getBuildSlaveRunId() {
     BuildSlaveRunId buildSlaveRunId = new BuildSlaveRunId();
     buildSlaveRunId.setId(
-        Preconditions.checkNotNull(
+        Objects.requireNonNull(
             this.buildSlaveRunId, "This should have been already made sure by checkArgs()."));
     return buildSlaveRunId;
   }
@@ -397,7 +399,7 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
           new DistBuildSlaveEventBusListener(
               getStampedeId(),
               getBuildSlaveRunId(),
-              Preconditions.checkNotNull(distBuildMode, "Dist build mode not set"),
+              Objects.requireNonNull(distBuildMode, "Dist build mode not set"),
               new DefaultClock(),
               timeStatsTracker,
               fileMaterializationStatsTracker,
@@ -410,11 +412,11 @@ public class DistBuildRunCommand extends AbstractDistBuildCommand {
   }
 
   private CoordinatorBuildRuleEventsPublisher getCoordinatorBuildRuleEventsPublisher() {
-    return Preconditions.checkNotNull(coordinatorBuildRuleEventsPublisher);
+    return Objects.requireNonNull(coordinatorBuildRuleEventsPublisher);
   }
 
   private MinionBuildProgressTracker getMinionBuildProgressTracker() {
-    return Preconditions.checkNotNull(minionBuildProgressTracker);
+    return Objects.requireNonNull(minionBuildProgressTracker);
   }
 
   @Override

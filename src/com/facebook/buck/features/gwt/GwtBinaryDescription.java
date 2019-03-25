@@ -35,11 +35,11 @@ import com.facebook.buck.features.gwt.GwtBinary.Style;
 import com.facebook.buck.jvm.core.JavaLibrary;
 import com.facebook.buck.jvm.java.JavaOptions;
 import com.facebook.buck.jvm.java.toolchain.JavaOptionsProvider;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableCollection.Builder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.function.Supplier;
@@ -99,52 +99,50 @@ public class GwtBinaryDescription
           return ImmutableSet.of();
         }
 
-        // If the java library doesn't generate any output, it doesn't contribute a GwtModule
         JavaLibrary javaLibrary = (JavaLibrary) rule;
+        Iterable<BuildRule> ruleDeps = javaLibrary.getDepsForTransitiveClasspathEntries();
+
+        // If the java library doesn't generate any output, it doesn't contribute a GwtModule
         if (javaLibrary.getSourcePathToOutput() == null) {
-          return rule.getBuildDeps();
+          return ruleDeps;
         }
 
-        Optional<BuildRule> gwtModule;
-        if (javaLibrary.getSourcePathToOutput() != null) {
-          gwtModule =
-              Optional.of(
-                  graphBuilder.computeIfAbsent(
-                      javaLibrary
-                          .getBuildTarget()
-                          .assertUnflavored()
-                          .withFlavors(JavaLibrary.GWT_MODULE_FLAVOR),
-                      gwtModuleTarget -> {
-                        ImmutableSortedSet<SourcePath> filesForGwtModule =
-                            ImmutableSortedSet.<SourcePath>naturalOrder()
-                                .addAll(javaLibrary.getSources())
-                                .addAll(javaLibrary.getResources())
-                                .build();
-                        ImmutableSortedSet<BuildRule> deps =
-                            ImmutableSortedSet.copyOf(
-                                ruleFinder.filterBuildRuleInputs(filesForGwtModule));
+        BuildRule gwtModule =
+            graphBuilder.computeIfAbsent(
+                javaLibrary
+                    .getBuildTarget()
+                    .assertUnflavored()
+                    .withFlavors(JavaLibrary.GWT_MODULE_FLAVOR),
+                gwtModuleTarget -> {
+                  ImmutableSortedSet<SourcePath> filesForGwtModule =
+                      ImmutableSortedSet.<SourcePath>naturalOrder()
+                          .addAll(javaLibrary.getSources())
+                          .addAll(javaLibrary.getResources())
+                          .build();
+                  ImmutableSortedSet<BuildRule> deps =
+                      ImmutableSortedSet.copyOf(
+                          ruleFinder.filterBuildRuleInputs(filesForGwtModule));
 
-                        return new GwtModule(
-                            gwtModuleTarget,
-                            context.getProjectFilesystem(),
-                            params.withDeclaredDeps(deps).withoutExtraDeps(),
-                            ruleFinder,
-                            filesForGwtModule);
-                      }));
-        } else {
-          gwtModule = Optional.empty();
-        }
+                  return new GwtModule(
+                      gwtModuleTarget,
+                      context.getProjectFilesystem(),
+                      params.withDeclaredDeps(deps).withoutExtraDeps(),
+                      ruleFinder,
+                      filesForGwtModule,
+                      javaLibrary.getResourcesRoot());
+                });
 
-        // Note that gwtModule could be absent if javaLibrary is a rule with no srcs of its own,
-        // but a rule that exists only as a collection of deps.
-        if (gwtModule.isPresent()) {
-          extraDeps.add(gwtModule.get());
-          gwtModuleJarsBuilder.add(
-              Preconditions.checkNotNull(gwtModule.get().getSourcePathToOutput()));
+        extraDeps.add(gwtModule);
+        gwtModuleJarsBuilder.add(Objects.requireNonNull(gwtModule.getSourcePathToOutput()));
+
+        Optional<SourcePath> generatedCode = javaLibrary.getGeneratedAnnotationSourcePath();
+        if (generatedCode.isPresent()) {
+          extraDeps.add(javaLibrary);
+          gwtModuleJarsBuilder.add(generatedCode.get());
         }
 
         // Traverse all of the deps of this rule.
-        return rule.getBuildDeps();
+        return ruleDeps;
       }
     }.start();
 

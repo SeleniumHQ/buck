@@ -17,6 +17,7 @@
 package com.facebook.buck.core.rules.config.impl;
 
 import com.facebook.buck.core.cell.Cell;
+import com.facebook.buck.core.exceptions.HumanReadableException;
 import com.facebook.buck.core.model.BuildTarget;
 import com.facebook.buck.core.model.targetgraph.TargetNode;
 import com.facebook.buck.core.rules.config.ConfigurationRule;
@@ -26,6 +27,7 @@ import com.google.common.base.Preconditions;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import javax.annotation.Nullable;
 
 /**
  * Provides a mechanism for mapping between a {@link BuildTarget} and the {@link ConfigurationRule}
@@ -49,28 +51,29 @@ public class SameThreadConfigurationRuleResolver implements ConfigurationRuleRes
 
   private ConfigurationRule computeIfAbsent(
       BuildTarget target, Function<BuildTarget, ConfigurationRule> mappingFunction) {
-    ConfigurationRule configurationRule = configurationRuleIndex.get(target);
+    @Nullable ConfigurationRule configurationRule = configurationRuleIndex.get(target);
     if (configurationRule != null) {
       return configurationRule;
     }
     configurationRule = mappingFunction.apply(target);
-    configurationRuleIndex.put(target, configurationRule);
-    return configurationRule;
+    ConfigurationRule previousRule = configurationRuleIndex.putIfAbsent(target, configurationRule);
+    return previousRule == null ? configurationRule : previousRule;
   }
 
   @Override
-  public synchronized ConfigurationRule getRule(BuildTarget buildTarget) {
-    return computeIfAbsent(buildTarget, ignored -> createConfigurationRule(buildTarget));
+  public ConfigurationRule getRule(BuildTarget buildTarget) {
+    return computeIfAbsent(buildTarget, this::createConfigurationRule);
   }
 
   private <T> ConfigurationRule createConfigurationRule(BuildTarget buildTarget) {
     Cell cell = cellProvider.apply(buildTarget);
     @SuppressWarnings("unchecked")
     TargetNode<T> targetNode = (TargetNode<T>) targetNodeSupplier.apply(cell, buildTarget);
-    Preconditions.checkState(
-        targetNode.getDescription() instanceof ConfigurationRuleDescription,
-        "Invalid type of target node description: %s",
-        targetNode.getDescription().getClass());
+    if (!(targetNode.getDescription() instanceof ConfigurationRuleDescription)) {
+      throw new HumanReadableException(
+          "%s was used to resolve configurable attribute but it is not a configuration rule",
+          buildTarget);
+    }
     ConfigurationRuleDescription<T> configurationRuleDescription =
         (ConfigurationRuleDescription<T>) targetNode.getDescription();
     ConfigurationRule configurationRule =

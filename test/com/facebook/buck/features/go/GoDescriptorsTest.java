@@ -43,6 +43,7 @@ import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
 import java.nio.file.Paths;
 import java.util.Collections;
+import java.util.Optional;
 import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Rule;
@@ -129,7 +130,8 @@ public class GoDescriptorsTest {
   public void testBuildRuleAsSrcAddsRuleToDependencies() {
     ActionGraphBuilder graphBuilder = new TestActionGraphBuilder();
 
-    GoPlatform goPlatform = GoTestUtils.DEFAULT_PLATFORM.withGoArch("amd64").withGoOs("linux");
+    GoPlatform goPlatform =
+        GoTestUtils.DEFAULT_PLATFORM.withGoArch(GoArch.AMD64).withGoOs(GoOs.LINUX);
     ProjectFilesystem filesystem =
         TestProjectFilesystems.createProjectFilesystem(tmpPath.getRoot());
     BuildTarget target =
@@ -198,6 +200,7 @@ public class GoDescriptorsTest {
             graphBuilder,
             goBuckConfig,
             Linker.LinkableDepType.STATIC_PIC,
+            Optional.empty(),
             ImmutableSet.of(
                 PathSourcePath.of(filesystem, Paths.get("not_build_target.go")),
                 DefaultBuildTargetSourcePath.of(srcTarget)),

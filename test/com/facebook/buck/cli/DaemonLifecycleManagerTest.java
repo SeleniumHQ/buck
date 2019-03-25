@@ -26,16 +26,23 @@ import static org.junit.Assume.assumeTrue;
 import com.facebook.buck.android.toolchain.AndroidSdkLocation;
 import com.facebook.buck.apple.AppleNativeIntegrationTestUtils;
 import com.facebook.buck.apple.toolchain.ApplePlatform;
+import com.facebook.buck.cli.DaemonLifecycleManager.DaemonStatus;
 import com.facebook.buck.core.cell.Cell;
 import com.facebook.buck.core.cell.TestCellBuilder;
 import com.facebook.buck.core.config.BuckConfig;
 import com.facebook.buck.core.config.FakeBuckConfig;
+import com.facebook.buck.core.model.TargetConfigurationSerializer;
+import com.facebook.buck.core.model.impl.JsonTargetConfigurationSerializer;
+import com.facebook.buck.core.parser.buildtargetparser.ParsingUnconfiguredBuildTargetFactory;
 import com.facebook.buck.core.plugin.impl.BuckPluginManagerFactory;
 import com.facebook.buck.core.rules.knowntypes.KnownRuleTypesProvider;
 import com.facebook.buck.core.rules.knowntypes.TestKnownRuleTypesProvider;
 import com.facebook.buck.io.filesystem.ProjectFilesystem;
 import com.facebook.buck.io.filesystem.TestProjectFilesystems;
-import com.facebook.buck.io.watchman.WatchmanFactory;
+import com.facebook.buck.io.watchman.FakeWatchmanClient;
+import com.facebook.buck.io.watchman.FakeWatchmanFactory;
+import com.facebook.buck.io.watchman.Watchman;
+import com.facebook.buck.io.watchman.WatchmanClient;
 import com.facebook.buck.testutil.TemporaryPaths;
 import com.facebook.buck.util.Console;
 import com.facebook.buck.util.FakeProcess;
@@ -44,6 +51,7 @@ import com.facebook.buck.util.environment.Platform;
 import com.facebook.buck.util.timing.Clock;
 import com.facebook.buck.util.timing.FakeClock;
 import com.facebook.buck.util.timing.SettableFakeClock;
+import com.facebook.buck.util.types.Pair;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
@@ -51,6 +59,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -65,20 +74,30 @@ public class DaemonLifecycleManagerTest {
   private KnownRuleTypesProvider knownRuleTypesProvider;
   private BuckConfig buckConfig;
   private Clock clock;
+  private PluginManager pluginManager;
+  private WatchmanClient watchmanClient;
+  private Watchman watchman;
+  private TargetConfigurationSerializer targetConfigurationSerializer;
 
   @Before
-  public void setUp() throws InterruptedException {
+  public void setUp() {
     filesystem = TestProjectFilesystems.createProjectFilesystem(tmp.getRoot());
     buckConfig = FakeBuckConfig.builder().build();
     daemonLifecycleManager = new DaemonLifecycleManager();
-    PluginManager pluginManager = BuckPluginManagerFactory.createPluginManager();
+    pluginManager = BuckPluginManagerFactory.createPluginManager();
     knownRuleTypesProvider = TestKnownRuleTypesProvider.create(pluginManager);
     clock = FakeClock.doNotCare();
+    watchmanClient = new FakeWatchmanClient(0, ImmutableMap.of());
+    watchman =
+        FakeWatchmanFactory.createWatchman(
+            watchmanClient, filesystem.getRootPath(), filesystem.getPath(""), "watch");
+    targetConfigurationSerializer = new JsonTargetConfigurationSerializer();
   }
 
   @Test
-  public void whenBuckConfigChangesParserInvalidated() throws IOException {
-    Object daemon =
+  public void whenBuckConfigChangesParserInvalidated() {
+    daemonLifecycleManager.resetDaemon();
+    Pair<BuckGlobalState, DaemonStatus> daemonResult1 =
         daemonLifecycleManager.getDaemon(
             new TestCellBuilder()
                 .setBuckConfig(
@@ -90,13 +109,15 @@ public class DaemonLifecycleManagerTest {
                 .setFilesystem(filesystem)
                 .build(),
             knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
+            watchman,
             Console.createNullConsole(),
-            clock);
+            clock,
+            new ParsingUnconfiguredBuildTargetFactory(),
+            targetConfigurationSerializer,
+            Optional::empty,
+            Optional.empty());
 
-    assertEquals(
-        "Daemon should not be replaced when config equal.",
-        daemon,
+    Pair<BuckGlobalState, DaemonStatus> daemonResult2 =
         daemonLifecycleManager.getDaemon(
             new TestCellBuilder()
                 .setBuckConfig(
@@ -108,13 +129,15 @@ public class DaemonLifecycleManagerTest {
                 .setFilesystem(filesystem)
                 .build(),
             knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
+            watchman,
             Console.createNullConsole(),
-            clock));
+            clock,
+            new ParsingUnconfiguredBuildTargetFactory(),
+            targetConfigurationSerializer,
+            Optional::empty,
+            Optional.empty());
 
-    assertNotEquals(
-        "Daemon should be replaced when config not equal.",
-        daemon,
+    Pair<BuckGlobalState, DaemonStatus> daemonResult3 =
         daemonLifecycleManager.getDaemon(
             new TestCellBuilder()
                 .setBuckConfig(
@@ -126,13 +149,31 @@ public class DaemonLifecycleManagerTest {
                 .setFilesystem(filesystem)
                 .build(),
             knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
+            watchman,
             Console.createNullConsole(),
-            clock));
+            clock,
+            new ParsingUnconfiguredBuildTargetFactory(),
+            targetConfigurationSerializer,
+            Optional::empty,
+            Optional.empty());
+
+    assertEquals(
+        "Daemon should not be replaced when config equal.",
+        daemonResult1.getFirst(),
+        daemonResult2.getFirst());
+
+    assertNotEquals(
+        "Daemon should be replaced when config not equal.",
+        daemonResult1.getFirst(),
+        daemonResult3.getFirst());
+
+    assertEquals(DaemonStatus.NEW_DAEMON, daemonResult1.getSecond());
+    assertEquals(DaemonStatus.REUSED, daemonResult2.getSecond());
+    assertEquals(DaemonStatus.INVALIDATED_BUCK_CONFIG_CHANGED, daemonResult3.getSecond());
   }
 
   @Test
-  public void whenAndroidNdkVersionChangesParserInvalidated() throws IOException {
+  public void whenAndroidNdkVersionChangesParserInvalidated() {
 
     BuckConfig buckConfig1 =
         FakeBuckConfig.builder()
@@ -148,9 +189,13 @@ public class DaemonLifecycleManagerTest {
         daemonLifecycleManager.getDaemon(
             new TestCellBuilder().setBuckConfig(buckConfig1).setFilesystem(filesystem).build(),
             knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
+            watchman,
             Console.createNullConsole(),
-            clock);
+            clock,
+            new ParsingUnconfiguredBuildTargetFactory(),
+            targetConfigurationSerializer,
+            Optional::empty,
+            Optional.empty());
 
     assertNotEquals(
         "Daemon should be replaced when not equal.",
@@ -158,9 +203,13 @@ public class DaemonLifecycleManagerTest {
         daemonLifecycleManager.getDaemon(
             new TestCellBuilder().setBuckConfig(buckConfig2).setFilesystem(filesystem).build(),
             knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
+            watchman,
             Console.createNullConsole(),
-            clock));
+            clock,
+            new ParsingUnconfiguredBuildTargetFactory(),
+            targetConfigurationSerializer,
+            Optional::empty,
+            Optional.empty()));
   }
 
   @Test
@@ -171,20 +220,32 @@ public class DaemonLifecycleManagerTest {
     BuckConfig buckConfig = FakeBuckConfig.builder().build();
 
     Object daemon1 =
-        daemonLifecycleManager.getDaemon(
-            new TestCellBuilder().setBuckConfig(buckConfig).setFilesystem(filesystem).build(),
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+        daemonLifecycleManager
+            .getDaemon(
+                new TestCellBuilder().setBuckConfig(buckConfig).setFilesystem(filesystem).build(),
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
 
     Object daemon2 =
-        daemonLifecycleManager.getDaemon(
-            new TestCellBuilder().setBuckConfig(buckConfig).setFilesystem(filesystem).build(),
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+        daemonLifecycleManager
+            .getDaemon(
+                new TestCellBuilder().setBuckConfig(buckConfig).setFilesystem(filesystem).build(),
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
     assertEquals("Apple SDK should still be not found", daemon1, daemon2);
 
     Path appleDeveloperDirectoryPath = tmp.newFolder("android-sdk").toAbsolutePath();
@@ -196,32 +257,44 @@ public class DaemonLifecycleManagerTest {
             .build();
 
     Object daemon3 =
-        daemonLifecycleManager.getDaemon(
-            new TestCellBuilder()
-                .setBuckConfig(buckConfigWithDeveloperDirectory)
-                .setFilesystem(filesystem)
-                .build(),
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+        daemonLifecycleManager
+            .getDaemon(
+                new TestCellBuilder()
+                    .setBuckConfig(buckConfigWithDeveloperDirectory)
+                    .setFilesystem(filesystem)
+                    .build(),
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
     assertNotEquals("Apple SDK should be found", daemon2, daemon3);
 
     Object daemon4 =
-        daemonLifecycleManager.getDaemon(
-            new TestCellBuilder()
-                .setBuckConfig(buckConfigWithDeveloperDirectory)
-                .setFilesystem(filesystem)
-                .build(),
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+        daemonLifecycleManager
+            .getDaemon(
+                new TestCellBuilder()
+                    .setBuckConfig(buckConfigWithDeveloperDirectory)
+                    .setFilesystem(filesystem)
+                    .build(),
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
     assertEquals("Apple SDK should still be found", daemon3, daemon4);
   }
 
   @Test
-  public void testAndroidSdkChangesParserInvalidated() throws IOException, InterruptedException {
+  public void testAndroidSdkChangesParserInvalidated() throws IOException {
     // Disable the test on Windows for now since it's failing to find python.
     assumeThat(Platform.detect(), not(Platform.WINDOWS));
 
@@ -249,19 +322,31 @@ public class DaemonLifecycleManagerTest {
         new SimpleImmutableEntry<>(processExecutorParams, new FakeProcess(0, "/dev/null", "")));
 
     Object daemon1 =
-        daemonLifecycleManager.getDaemon(
-            new TestCellBuilder().setBuckConfig(buckConfig).setFilesystem(filesystem).build(),
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+        daemonLifecycleManager
+            .getDaemon(
+                new TestCellBuilder().setBuckConfig(buckConfig).setFilesystem(filesystem).build(),
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
     Object daemon2 =
-        daemonLifecycleManager.getDaemon(
-            new TestCellBuilder().setBuckConfig(buckConfig).setFilesystem(filesystem).build(),
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+        daemonLifecycleManager
+            .getDaemon(
+                new TestCellBuilder().setBuckConfig(buckConfig).setFilesystem(filesystem).build(),
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
     assertEquals("Android SDK should be the same initial location", daemon1, daemon2);
 
     Path androidSdkPath = tmp.newFolder("android-sdk").toAbsolutePath();
@@ -269,28 +354,39 @@ public class DaemonLifecycleManagerTest {
     Cell cell = createCellWithAndroidSdk(androidSdkPath);
 
     Object daemon3 =
-        daemonLifecycleManager.getDaemon(
-            cell,
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+        daemonLifecycleManager
+            .getDaemon(
+                cell,
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
 
     assertEquals("Daemon should not be re-created", daemon2, daemon3);
     Object daemon4 =
-        daemonLifecycleManager.getDaemon(
-            cell,
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+        daemonLifecycleManager
+            .getDaemon(
+                cell,
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
 
     assertEquals("Android SDK should be the same other location", daemon3, daemon4);
   }
 
   @Test
-  public void testAndroidSdkChangesParserInvalidatedWhenToolchainsPresent()
-      throws IOException, InterruptedException {
+  public void testAndroidSdkChangesParserInvalidatedWhenToolchainsPresent() throws IOException {
     // Disable the test on Windows for now since it's failing to find python.
     assumeThat(Platform.detect(), not(Platform.WINDOWS));
 
@@ -318,19 +414,31 @@ public class DaemonLifecycleManagerTest {
         new SimpleImmutableEntry<>(processExecutorParams, new FakeProcess(0, "/dev/null", "")));
 
     Object daemon1 =
-        daemonLifecycleManager.getDaemon(
-            new TestCellBuilder().setBuckConfig(buckConfig).setFilesystem(filesystem).build(),
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+        daemonLifecycleManager
+            .getDaemon(
+                new TestCellBuilder().setBuckConfig(buckConfig).setFilesystem(filesystem).build(),
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
     Object daemon2 =
-        daemonLifecycleManager.getDaemon(
-            new TestCellBuilder().setBuckConfig(buckConfig).setFilesystem(filesystem).build(),
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+        daemonLifecycleManager
+            .getDaemon(
+                new TestCellBuilder().setBuckConfig(buckConfig).setFilesystem(filesystem).build(),
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
     assertEquals("Android SDK should be the same initial location", daemon1, daemon2);
 
     Path androidSdkPath = tmp.newFolder("android-sdk").toAbsolutePath();
@@ -339,21 +447,33 @@ public class DaemonLifecycleManagerTest {
     cell.getToolchainProvider().getByName(AndroidSdkLocation.DEFAULT_NAME);
 
     Object daemon3 =
-        daemonLifecycleManager.getDaemon(
-            cell,
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+        daemonLifecycleManager
+            .getDaemon(
+                cell,
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
 
     assertNotEquals("Android SDK should be the other location", daemon2, daemon3);
     Object daemon4 =
-        daemonLifecycleManager.getDaemon(
-            cell,
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+        daemonLifecycleManager
+            .getDaemon(
+                cell,
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
 
     assertEquals("Android SDK should be the same other location", daemon3, daemon4);
   }
@@ -368,8 +488,7 @@ public class DaemonLifecycleManagerTest {
   }
 
   @Test
-  public void testParserInvalidatedWhenToolchainFailsToCreateFirstTime()
-      throws IOException, InterruptedException {
+  public void testParserInvalidatedWhenToolchainFailsToCreateFirstTime() throws IOException {
     assumeThat(Platform.detect(), not(Platform.WINDOWS));
 
     Path androidSdkPath = tmp.newFolder("android-sdk").toAbsolutePath();
@@ -378,31 +497,43 @@ public class DaemonLifecycleManagerTest {
     Cell cell = createCellWithAndroidSdk(androidSdkPath);
     cell.getToolchainProvider()
         .getByNameIfPresent(AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class);
-    Daemon daemonWithBrokenAndroidSdk =
-        daemonLifecycleManager.getDaemon(
-            cell,
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+    BuckGlobalState buckGlobalStateWithBrokenAndroidSdk =
+        daemonLifecycleManager
+            .getDaemon(
+                cell,
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
 
     tmp.newFolder("android-sdk");
 
     cell = createCellWithAndroidSdk(androidSdkPath);
-    Daemon daemonWithWorkingAndroidSdk =
-        daemonLifecycleManager.getDaemon(
-            cell,
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+    BuckGlobalState buckGlobalStateWithWorkingAndroidSdk =
+        daemonLifecycleManager
+            .getDaemon(
+                cell,
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
 
-    assertNotEquals(daemonWithBrokenAndroidSdk, daemonWithWorkingAndroidSdk);
+    assertNotEquals(buckGlobalStateWithBrokenAndroidSdk, buckGlobalStateWithWorkingAndroidSdk);
   }
 
   @Test
   public void testParserInvalidatedWhenToolchainFailsToCreateAfterFirstCreation()
-      throws IOException, InterruptedException {
+      throws IOException {
     assumeThat(Platform.detect(), not(Platform.WINDOWS));
 
     Path androidSdkPath = tmp.newFolder("android-sdk").toAbsolutePath();
@@ -410,31 +541,42 @@ public class DaemonLifecycleManagerTest {
     Cell cell = createCellWithAndroidSdk(androidSdkPath);
     cell.getToolchainProvider()
         .getByNameIfPresent(AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class);
-    Daemon daemonWithWorkingAndroidSdk =
-        daemonLifecycleManager.getDaemon(
-            cell,
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+    BuckGlobalState buckGlobalStateWithWorkingAndroidSdk =
+        daemonLifecycleManager
+            .getDaemon(
+                cell,
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
 
     Files.deleteIfExists(androidSdkPath);
 
     cell = createCellWithAndroidSdk(androidSdkPath);
-    Daemon daemonWithBrokenAndroidSdk =
-        daemonLifecycleManager.getDaemon(
-            cell,
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+    BuckGlobalState buckGlobalStateWithBrokenAndroidSdk =
+        daemonLifecycleManager
+            .getDaemon(
+                cell,
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
 
-    assertNotEquals(daemonWithWorkingAndroidSdk, daemonWithBrokenAndroidSdk);
+    assertNotEquals(buckGlobalStateWithWorkingAndroidSdk, buckGlobalStateWithBrokenAndroidSdk);
   }
 
   @Test
-  public void testParserNotInvalidatedWhenToolchainFailsWithTheSameProblem()
-      throws IOException, InterruptedException {
+  public void testParserNotInvalidatedWhenToolchainFailsWithTheSameProblem() throws IOException {
     assumeThat(Platform.detect(), not(Platform.WINDOWS));
 
     Path androidSdkPath = tmp.newFolder("android-sdk").toAbsolutePath();
@@ -443,31 +585,43 @@ public class DaemonLifecycleManagerTest {
     Cell cell = createCellWithAndroidSdk(androidSdkPath);
     cell.getToolchainProvider()
         .getByNameIfPresent(AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class);
-    Daemon daemonWithBrokenAndroidSdk1 =
-        daemonLifecycleManager.getDaemon(
-            cell,
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+    BuckGlobalState buckGlobalStateWithBrokenAndroidSdk1 =
+        daemonLifecycleManager
+            .getDaemon(
+                cell,
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
 
     cell = createCellWithAndroidSdk(androidSdkPath);
     cell.getToolchainProvider()
         .getByNameIfPresent(AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class);
-    Daemon daemonWithBrokenAndroidSdk2 =
-        daemonLifecycleManager.getDaemon(
-            cell,
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+    BuckGlobalState buckGlobalStateWithBrokenAndroidSdk2 =
+        daemonLifecycleManager
+            .getDaemon(
+                cell,
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
 
-    assertEquals(daemonWithBrokenAndroidSdk1, daemonWithBrokenAndroidSdk2);
+    assertEquals(buckGlobalStateWithBrokenAndroidSdk1, buckGlobalStateWithBrokenAndroidSdk2);
   }
 
   @Test
   public void testParserNotInvalidatedWhenToolchainFailsWithTheSameProblemButNotInstantiated()
-      throws IOException, InterruptedException {
+      throws IOException {
     assumeThat(Platform.detect(), not(Platform.WINDOWS));
 
     Path androidSdkPath = tmp.newFolder("android-sdk").toAbsolutePath();
@@ -476,29 +630,40 @@ public class DaemonLifecycleManagerTest {
     Cell cell = createCellWithAndroidSdk(androidSdkPath);
     cell.getToolchainProvider()
         .getByNameIfPresent(AndroidSdkLocation.DEFAULT_NAME, AndroidSdkLocation.class);
-    Daemon daemonWithBrokenAndroidSdk1 =
-        daemonLifecycleManager.getDaemon(
-            cell,
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+    BuckGlobalState buckGlobalStateWithBrokenAndroidSdk1 =
+        daemonLifecycleManager
+            .getDaemon(
+                cell,
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
 
     cell = createCellWithAndroidSdk(androidSdkPath);
-    Daemon daemonWithBrokenAndroidSdk2 =
-        daemonLifecycleManager.getDaemon(
-            cell,
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+    BuckGlobalState buckGlobalStateWithBrokenAndroidSdk2 =
+        daemonLifecycleManager
+            .getDaemon(
+                cell,
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
 
-    assertEquals(daemonWithBrokenAndroidSdk1, daemonWithBrokenAndroidSdk2);
+    assertEquals(buckGlobalStateWithBrokenAndroidSdk1, buckGlobalStateWithBrokenAndroidSdk2);
   }
 
   @Test
-  public void testParserInvalidatedWhenToolchainFailsWithDifferentProblem()
-      throws IOException, InterruptedException {
+  public void testParserInvalidatedWhenToolchainFailsWithDifferentProblem() throws IOException {
     assumeThat(Platform.detect(), not(Platform.WINDOWS));
 
     Path androidSdkPath = tmp.newFolder("android-sdk").toAbsolutePath();
@@ -511,18 +676,26 @@ public class DaemonLifecycleManagerTest {
         daemonLifecycleManager.getDaemon(
             cell,
             knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
+            watchman,
             Console.createNullConsole(),
-            clock);
+            clock,
+            new ParsingUnconfiguredBuildTargetFactory(),
+            targetConfigurationSerializer,
+            Optional::empty,
+            Optional.empty());
 
     cell = createCellWithAndroidSdk(androidSdkPath.resolve("some-other-dir"));
     Object daemonWithBrokenAndroidSdk2 =
         daemonLifecycleManager.getDaemon(
             cell,
             knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
+            watchman,
             Console.createNullConsole(),
-            clock);
+            clock,
+            new ParsingUnconfiguredBuildTargetFactory(),
+            targetConfigurationSerializer,
+            Optional::empty,
+            Optional.empty());
 
     assertNotEquals(daemonWithBrokenAndroidSdk1, daemonWithBrokenAndroidSdk2);
   }
@@ -531,16 +704,22 @@ public class DaemonLifecycleManagerTest {
   public void testDaemonUptime() {
     Cell cell = new TestCellBuilder().setBuckConfig(buckConfig).setFilesystem(filesystem).build();
     SettableFakeClock clock = new SettableFakeClock(1000, 0);
-    Daemon daemon =
-        daemonLifecycleManager.getDaemon(
-            cell,
-            knownRuleTypesProvider,
-            WatchmanFactory.NULL_WATCHMAN,
-            Console.createNullConsole(),
-            clock);
+    BuckGlobalState buckGlobalState =
+        daemonLifecycleManager
+            .getDaemon(
+                cell,
+                knownRuleTypesProvider,
+                watchman,
+                Console.createNullConsole(),
+                clock,
+                new ParsingUnconfiguredBuildTargetFactory(),
+                targetConfigurationSerializer,
+                Optional::empty,
+                Optional.empty())
+            .getFirst();
 
-    assertEquals(daemon.getUptime(), 0);
+    assertEquals(buckGlobalState.getUptime(), 0);
     clock.setCurrentTimeMillis(2000);
-    assertEquals(daemon.getUptime(), 1000);
+    assertEquals(buckGlobalState.getUptime(), 1000);
   }
 }
